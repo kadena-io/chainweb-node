@@ -78,6 +78,7 @@ module Chainweb.PayloadProvider.Minimal
 , pMinimalProviderConfig
 , MinimalPayloadProvider
 , minimalPayloadDb
+, minimalPayloadQueue
 , newMinimalPayloadProvider
 ) where
 
@@ -106,11 +107,15 @@ import Control.Monad.Catch
 import Control.Monad.Except (throwError)
 import Data.ByteString qualified as B
 import Data.HashSet qualified as HS
+import Data.PQueue (PQueue)
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
 import Numeric.Natural
 import P2P.TaskQueue
 import Servant.Client
+import System.LogLevel
+import Data.LogMessage (LogFunction, LogFunctionText)
 
 -- -------------------------------------------------------------------------- --
 
@@ -190,11 +195,14 @@ data MinimalPayloadProvider = MinimalPayloadProvider
         -- ^ FIXME: should this be moved into the Payload Store?
         --
         -- For now we just prune after each successful syncToBlock.
+    , _minimalLogger :: LogFunction
     }
-    deriving (Generic)
 
 minimalPayloadDb :: Getter MinimalPayloadProvider (PDB.PayloadDb RocksDbTable)
 minimalPayloadDb = to (_payloadStoreTable . _minimalPayloadStore)
+
+minimalPayloadQueue :: Getter MinimalPayloadProvider (PQueue (Task ClientEnv Payload))
+minimalPayloadQueue = to (_payloadStoreQueue . _minimalPayloadStore)
 
 newMinimalPayloadProvider
     :: Logger logger
@@ -212,9 +220,10 @@ newMinimalPayloadProvider logger v c rdb mgr conf
         error "Chainweb.PayloadProvider.Minimal.PayloadDB.configuration: chain does not use minimal provider"
     | otherwise = do
         pdb <- PDB.initPayloadDb $ PDB.configuration v c rdb
-        store <- newPayloadStore mgr (logFunction logger) pdb payloadClient
+        store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb payloadClient
         var <- newEmptyTMVarIO
         candidates <- emptyTable
+        logFunctionText providerLogger Info "minimal payload provider started"
         return MinimalPayloadProvider
             { _minimalChainwebVersion = _chainwebVersion v
             , _minimalChainId = _chainId c
@@ -223,7 +232,12 @@ newMinimalPayloadProvider logger v c rdb mgr conf
             , _minimalMinerInfo = _mpcRedeemAccount conf
             , _minimalPayloadStore = store
             , _minimalCandidatePayloads = candidates
+            , _minimalLogger = logFunction providerLogger
             }
+  where
+    providerLogger = setComponent "payload-provider"
+        $ addLabel ("provider", "minimal") logger
+    pldStoreLogger = addLabel ("sub-component", "payloadStore") providerLogger
 
 payloadClient
     :: ChainwebVersion
@@ -309,7 +323,7 @@ validatePayload p pld ctx = do
     checkEq PayloadInvalidHash
         (_evaluationCtxPayloadHash ctx)
         (view payloadHash pld)
-    case _evaluationCtxPayloaddData ctx of
+    case _evaluationCtxPayloadData ctx of
         Nothing -> return ()
         Just x -> checkEq PayloadInvalidPayloadData x (encodedPayloadData pld)
   where
@@ -329,6 +343,9 @@ encodedPayloadData = EncodedPayloadData . runPutS . encodePayload
 encodedPayloadDataSize :: EncodedPayloadData -> Natural
 encodedPayloadDataSize (EncodedPayloadData bs) = int $ B.length bs
 
+decodePayloadData :: MonadThrow m => EncodedPayloadData -> m Payload
+decodePayloadData (EncodedPayloadData bs) = runGetS decodePayload bs
+
 -- -------------------------------------------------------------------------- --
 -- Payload Provider API
 
@@ -338,7 +355,7 @@ instance PayloadProvider MinimalPayloadProvider where
     latestPayloadSTM = minimalLatestPayloadStm
     latestPayloadIO = minimalLatestPayloadIO
 
--- | Fetch a payload for a evaluation context and insert it into the candidate
+-- | Fetch a payload for an evaluation context and insert it into the candidate
 -- table.
 --
 getPayloadForContext
@@ -347,6 +364,7 @@ getPayloadForContext
     -> EvaluationCtx
     -> IO Payload
 getPayloadForContext p h ctx = do
+    insertPayloadData (_evaluationCtxPayloadData ctx)
     pld <- Rest.getPayload
         (_minimalPayloadStore p)
         (_minimalCandidatePayloads p)
@@ -357,21 +375,31 @@ getPayloadForContext p h ctx = do
         (_evaluationCtxRankedPayloadHash ctx)
     casInsert (_minimalCandidatePayloads p) pld
     return pld
+  where
+    insertPayloadData Nothing = return ()
+    insertPayloadData (Just epld) = case decodePayloadData epld of
+        Right pld -> casInsert (_minimalCandidatePayloads p) pld
+        Left e -> do
+            lf Warn $ "failed to decode encoded payload from evaluation ctx: " <> sshow e
+
+    lf :: LogFunctionText
+    lf = _minimalLogger p
 
 -- | Concurrently fetch all payloads in an evaluation context and insert them
 -- into the candidate table.
 --
 -- This version blocks until all payloads are fetched (or a timeout occurs).
 --
--- Should the exposed a version that is fire-and-forget?
+-- Should we also expose a version that is fire-and-forget?
 --
 minimalPrefetchPayloads
     :: MinimalPayloadProvider
     -> Maybe Hints
     -> ForkInfo
     -> IO ()
-minimalPrefetchPayloads p h =
-    mapConcurrently_ (getPayloadForContext p h) . _forkInfoTrace
+minimalPrefetchPayloads p h i = do
+    logg p Info "prefetch payloads"
+    mapConcurrently_ (getPayloadForContext p h) $ _forkInfoTrace i
 
 -- |
 --
@@ -400,17 +428,23 @@ minimalSyncToBlock
     -> ForkInfo
     -> IO ConsensusState
 minimalSyncToBlock p h i = do
+    logg p Info "syncToBlock called"
     validatePayloads p h i
 
-    -- TODO Check whether block production is requested
+    -- Produce new block
     case _forkInfoNewBlockCtx i of
         Nothing -> return ()
-        Just ctx -> atomically
-            $ writeTMVar (_minimalPayloadVar p)
-            $ makeNewPayload p latestState ctx
+        Just ctx -> do
+            logg p Info $ "create new payload for sync state: " <> sshow latestState
+            atomically
+                $ writeTMVar (_minimalPayloadVar p)
+                $ makeNewPayload p latestState ctx
     return $ _forkInfoTargetState i
   where
     latestState = _consensusStateLatest $ _forkInfoTargetState i
+
+logg :: MinimalPayloadProvider -> LogLevel -> T.Text -> IO ()
+logg p l t = _minimalLogger p l t
 
 makeNewPayload
     :: MinimalPayloadProvider
