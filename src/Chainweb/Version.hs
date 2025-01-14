@@ -566,7 +566,10 @@ data ChainwebVersion
     , _versionBootstraps :: [PeerInfo]
         -- ^ The locations of the bootstrap peers.
     , _versionGenesis :: VersionGenesis
-        -- ^ The information used to construct the genesis blocks.
+        -- ^ The information used to construct the genesis Headers. This
+        -- includes the BlockPayloadHashes. The gensis payloads themself are
+        -- constructed in the respectice payload providers. Chainweb.Version
+        -- must not depend on payload provider specific modules.
     , _versionCheats :: VersionCheats
         -- ^ Whether to disable any core functionality.
     , _versionDefaults :: VersionDefaults
@@ -634,9 +637,17 @@ data VersionCheats = VersionCheats
 
 data VersionGenesis = VersionGenesis
     { _genesisBlockTarget :: ChainMap HashTarget
-    , _genesisBlockPayload :: ChainMap PayloadWithOutputs
-        -- ^ FIXME: This is currently only for the Pact Payload Provider
+    , _genesisBlockPayload :: ChainMap BlockPayloadHash
     , _genesisTime :: ChainMap BlockCreationTime
+        -- ^ the value must match the time value in the respective genesis
+        -- blocks of the payload provider (assuming that the payload provider
+        -- has a notion of time). In theory this shoudl be /after/ the time in
+        -- the genesis payloads, because payload times are the times of the
+        -- parent header. Using the same time, in theory, creates a problem for
+        -- the payload for the next block after the genesis block, because it
+        -- would use the same time as the genesis blocks. However, Pact does not
+        -- care and the EVM payload provider adjusts the payload time forward ,
+        -- which means that it does not match exactly the parent creation time.
     }
     deriving stock (Generic, Eq)
     deriving anyclass NFData
@@ -650,14 +661,11 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionCheats
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionQuirks
 
--- | FIXME: This is currently only for the Pact Payload Provider
---
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v cid = v
     ^?! versionGenesis
     . genesisBlockPayload
     . atChain cid
-    . to _payloadWithOutputsPayloadHash
 
 -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion

@@ -40,8 +40,6 @@ import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
 import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
 import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
-import qualified Chainweb.BlockHeader.Genesis.Testnet040Payload as PN0
-import qualified Chainweb.BlockHeader.Genesis.Testnet041to19Payload as PNN
 
 -- | Initial hash target for testnet04 20-chain transition. Based on the following
 -- header from recap devnet running with 5 GPUs hash power. Using this target unchanged
@@ -151,9 +149,27 @@ testnet04 = ChainwebVersion
             , [(unsafeChainId i, testnet20InitialHashTarget) | i <- [10..19]]
             ]
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-        , _genesisBlockPayload = OnChains $ HM.fromList $ concat
-            [ [(unsafeChainId 0, PN0.payloadBlock)]
-            , [(unsafeChainId i, PNN.payloadBlock) | i <- [1..19]]
+        , _genesisBlockPayload = onChains
+            [ (unsafeChainId 0, unsafeFromText "nfYm3e_fk2ICws0Uowos6OMuqfFg5Nrl_zqXVx9v_ZQ")
+            , (unsafeChainId 1, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 2, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 3, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 4, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 5, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 6, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 7, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 8, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 9, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 10, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 11, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 12, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 13, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 14, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 15, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 16, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 17, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 18, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 19, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
             ]
         }
     , _versionUpgrades = chainZip HM.union

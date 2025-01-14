@@ -22,9 +22,6 @@ import P2P.BootstrapNodes
 
 import Pact.Types.Verifier
 
-import qualified Chainweb.BlockHeader.Genesis.Testnet050Payload as PN0
-import qualified Chainweb.BlockHeader.Genesis.Testnet051to19Payload as PNN
-
 pattern Testnet05 :: ChainwebVersion
 pattern Testnet05 <- ((== testnet05) -> True) where
     Testnet05 = testnet05
@@ -82,10 +79,27 @@ testnet05 = ChainwebVersion
             [ [(unsafeChainId i, maxTarget) | i <- [0..19]]
             ]
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-        , _genesisBlockPayload = OnChains $ HM.fromList $ concat
-            [ [ (unsafeChainId 0, PN0.payloadBlock)
-              ]
-            , [(unsafeChainId i, PNN.payloadBlock) | i <- [1..19]]
+        , _genesisBlockPayload = onChains
+            [ (unsafeChainId 0, unsafeFromText "Gbu_Tf-PJP2VyptN3m0AnTsXRfiFpnxV8iWZcimPZq4")
+            , (unsafeChainId 1, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 2, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 3, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 4, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 5, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 6, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 7, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 8, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 9, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 10, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 11, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 12, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 13, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 14, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 15, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 16, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 17, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 18, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
+            , (unsafeChainId 19, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
             ]
         }
     , _versionUpgrades = AllChains mempty

@@ -25,17 +25,6 @@ import P2P.BootstrapNodes
 import Pact.Types.Runtime (Gas(..))
 import Pact.Types.Verifier
 
-import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
-import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
-import qualified Chainweb.BlockHeader.Genesis.Mainnet2Payload as MN2
-import qualified Chainweb.BlockHeader.Genesis.Mainnet3Payload as MN3
-import qualified Chainweb.BlockHeader.Genesis.Mainnet4Payload as MN4
-import qualified Chainweb.BlockHeader.Genesis.Mainnet5Payload as MN5
-import qualified Chainweb.BlockHeader.Genesis.Mainnet6Payload as MN6
-import qualified Chainweb.BlockHeader.Genesis.Mainnet7Payload as MN7
-import qualified Chainweb.BlockHeader.Genesis.Mainnet8Payload as MN8
-import qualified Chainweb.BlockHeader.Genesis.Mainnet9Payload as MN9
-import qualified Chainweb.BlockHeader.Genesis.Mainnet10to19Payload as MNKAD
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
@@ -171,20 +160,27 @@ mainnet = ChainwebVersion
             , [(unsafeChainId i, mainnet20InitialHashTarget) | i <- [10..19]]
             ]
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
-        , _genesisBlockPayload = OnChains $ HM.fromList $ concat
-            [
-                [ (unsafeChainId 0, MN0.payloadBlock)
-                , (unsafeChainId 1, MN1.payloadBlock)
-                , (unsafeChainId 2, MN2.payloadBlock)
-                , (unsafeChainId 3, MN3.payloadBlock)
-                , (unsafeChainId 4, MN4.payloadBlock)
-                , (unsafeChainId 5, MN5.payloadBlock)
-                , (unsafeChainId 6, MN6.payloadBlock)
-                , (unsafeChainId 7, MN7.payloadBlock)
-                , (unsafeChainId 8, MN8.payloadBlock)
-                , (unsafeChainId 9, MN9.payloadBlock)
-                ]
-            , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
+        , _genesisBlockPayload = onChains
+            [ ( unsafeChainId 0, unsafeFromText "k1H3DsInAPvJ0W_zPxnrpkeSNdPUT0S9U8bqDLG739o")
+            , ( unsafeChainId 1, unsafeFromText "kClp_Tw7keCLXMfaCyjH-gToAGmLvRQqiNRmhWUCbxs")
+            , ( unsafeChainId 2, unsafeFromText "4DVp1dkSLYkFD0zbFF7e5Ba0ezKmnZhEVzlc5ZqqAT0")
+            , ( unsafeChainId 3, unsafeFromText "fCHKOS9SF9G3Gy5iGZnOmQxjGYf32yM8PklrcBD_dmQ")
+            , ( unsafeChainId 4, unsafeFromText "cTZ_29TkjXDlG_GlW8iB-va3mofpt_UjthLcOoqtlaQ")
+            , ( unsafeChainId 5, unsafeFromText "MS_wu92H4GVPCziB6g8rOAc3x2uyegXH4Yl_0TfpI7U")
+            , ( unsafeChainId 6, unsafeFromText "DVs3k9omI_WHMOJ8tUZ1Bt9Q1DdNmqC3V51iZDGmWwM")
+            , ( unsafeChainId 7, unsafeFromText "Faa4TQZGFkFumLfHnMIJBAu_PSmGY4F-YraLVFrxr7Y")
+            , ( unsafeChainId 8, unsafeFromText "YWgbJ4K5VET4WnG3H0Y0HPgzZ_qSnTgqxyB1kpMLJTQ")
+            , ( unsafeChainId 9, unsafeFromText "w_6Spsw-jdCi9hBTlM6v0C1P7XoglU_AqNG9rcOwAZ0")
+            , ( unsafeChainId 10, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 11, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 12, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 13, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 14, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 15, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 16, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 17, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 18, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
+            , ( unsafeChainId 19, unsafeFromText "i-MN4AoxsaPds4M_MzwNSUygAkGnPZoCDvahfckowt4")
             ]
         }
     , _versionUpgrades = chainZip HM.union
