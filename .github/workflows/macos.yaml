@@ -32,7 +32,7 @@ jobs:
         key: ${{ runner.os }}-${{ runner.arch }}-ghc-cabal
       with:
         path: |
-          /Users/runner/.ghcup
+          /home/runner/.ghcup
         key: ${{ env.key }}-${{ hashFiles('bin/cabal', 'bin/ghc') }}
         restore-keys: ${{ env.key }}-
 
@@ -71,7 +71,7 @@ jobs:
       if: steps.ghc-cabal-cache.outputs.cache-hit != 'true'
       with:
         path: |
-          /Users/runner/.ghcup
+          /home/runner/.ghcup
         key: ${{ steps.ghc-cabal-cache.outputs.cache-primary-key }}
 
     - name: Install non-Haskell dependencies (macOS)
@@ -171,4 +171,3 @@ jobs:
           exit 1
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
-

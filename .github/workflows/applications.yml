@@ -247,9 +247,29 @@ jobs:
     #     done
 
     # work around for https://github.com/haskell/actions/issues/187
-    - name: Set permissions for .ghcup
-      if: startsWith(matrix.os, 'ubuntu-')
-      run: sudo chown -R $USER /usr/local/.ghcup
+    - uses: actions/cache/restore@v4
+      name: Restore ghc & cabal binaries cache
+      id: ghc-cabal-cache
+      env:
+        key: ${{ runner.os }}-ghc-cabal
+      with:
+        path: |
+          /Users/runner/.ghcup
+        key: ${{ env.key }}-${{ hashFiles('bin/cabal', 'bin/ghc') }}
+        restore-keys: ${{ env.key }}-
+
+    - uses: actions/cache/restore@v4
+      name: Restore dist-newstyle cache
+      id: cabal-dist-cache
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-
+
     - name: Install GHC and Cabal
       id: setup
       uses: haskell-actions/setup@v2
@@ -263,6 +283,15 @@ jobs:
         echo "setup cabal-store: ${{ steps.setup.outputs.cabal-store }}"
         ghc --version
         cabal --version
+
+    - uses: actions/cache/save@v4
+      name: Cache ghc & cabal binaries
+      if: steps.ghc-cabal-cache.outputs.cache-hit != 'true'
+      with:
+        path: |
+          /Users/runner/.ghcup
+        key: ${{ steps.ghc-cabal-cache.outputs.cache-primary-key }}
+
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
@@ -317,15 +346,12 @@ jobs:
     # dist cache
     # the cache-key forces uploading of cache at least once a day, which ensures that
     # upstream dependency changes are captured regularly.
-    - uses: actions/cache@v4
-      name: Cache dist-newstyle
+    - uses: actions/cache/save@v4
+      name: Save dist-newstyle cache
       with:
         path: |
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-
-          ${{ matrix.os }}-${{ matrix.ghc }}-
+        key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
 
     # Build
     - name: Delete Freeze file if it exists
