@@ -1,22 +1,25 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeAbstractions #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.P2P.RestAPI
@@ -50,24 +53,26 @@ module Chainweb.PayloadProvider.P2P.RestAPI
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.RestAPI ()
 import Chainweb.BlockHeight
+import Chainweb.BlockPayloadHash
 import Chainweb.ChainId
+import Chainweb.Payload qualified as Pact
+import Chainweb.PayloadProvider.Minimal.Payload qualified as Minimal
+import Chainweb.Ranked
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils
+import Chainweb.Utils.Serialization (runPutL, putWord32le, runGetEitherL, getWord32le)
 import Chainweb.Version
+import Control.Monad
 import Control.Monad.Identity
 import Data.Aeson
 import Data.Kind
+import Data.Maybe
 import Data.Proxy
-import Numeric.Natural
-import Servant.API
-
-import Chainweb.PayloadProvider.Minimal.Payload qualified as Minimal
-import Chainweb.Utils.Serialization (runPutL, putWord32le)
-import Chainweb.Utils
-import Chainweb.Payload qualified as Pact
-import Chainweb.BlockPayloadHash
 import GHC.Generics (Generic)
-import Chainweb.Ranked
+import GHC.TypeNats
+import Servant.API
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Constants
@@ -79,6 +84,29 @@ newtype PayloadBatchLimit = PayloadBatchLimit Natural
     deriving newtype (Ord, Enum, Num, Real, Integral, ToJSON, FromJSON)
 
 -- -------------------------------------------------------------------------- --
+-- IsPayload Provider Class
+--
+-- NOTE:
+--
+-- Currently, this class is only available for provider P2P. It might be useful
+-- more generally for the implementation of payload providers. However, not all
+-- payload providers use payload data that is visible to the chainweb-node
+-- beacon. Therefore PayloadData concepts must not leak to the ChainwebVersion
+-- level and the definition of the PayloadProviderType tag. Also, the
+-- 'PayloadProvider' class as well as the moduel "Chainweb.PayloadProvider" must
+-- not depend on it.
+--
+-- TODO:
+--
+-- - Todo rename payload that is visible to the chainweb-node beacon to
+--   something like "PayloadData" or "PayloadInfo" to indicate that it does not
+--   represent the complete block payload
+--
+-- - In the module hierachy, distinguishy more clearly between general Payload
+--   Provider features, that concern all payload providers, and auxiliary
+--   payload provider features, that serve as optional utils to implement
+--   aspects of payload providers that are hosted in the chainweb-node beacon.
+--
 
 -- | Class of Payload Provider APIs
 --
@@ -219,56 +247,69 @@ payloadApi = Proxy
 -- | Dispatch provider specific APIs
 --
 -- FIXME: Should we split this up and move it into the scope of the respective
--- payload provider.
+-- payload providers. Otherwise this module has to depend on the payload
+-- providers.
 --
 somePayloadApi
     :: IsPayloadProvider 'MinimalProvider
     => IsPayloadProvider 'PactProvider
-    -- => IsPayloadProvider 'EvmProvider
     => ChainwebVersion
     -> ChainId
     -> SomeApi
 somePayloadApi v c = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    case provider of
-        MinimalProvider ->
+    withSomeSing (payloadProviderTypeForChain v c) $ \case
+        SMinimalProvider ->
             return $! SomeApi (payloadApi @v' @c' @'MinimalProvider)
-        PactProvider ->
+        SPactProvider ->
             return $! SomeApi (payloadApi @v' @c' @'PactProvider)
-        EvmProvider ->
+        SEvmProvider @n _ ->
             error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: IsPayloadProvider not implemented for EVM"
-            -- return $! SomeApi (payloadApi @v' @c' @'EvmProvider)
-  where
-    provider :: PayloadProviderType
-    provider = payloadProviderTypeForChain v c
 
 somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
 somePayloadApis v = mconcat . fmap (somePayloadApi v)
 
 -- -------------------------------------------------------------------------- --
 -- Implementations of IsPayloadProvider
+-- -------------------------------------------------------------------------- --
 
+-- | IsPayloadProvider instance for the Minimal Payload provider
+--
 instance IsPayloadProvider MinimalProvider where
     type PayloadType MinimalProvider = Minimal.Payload
     type PayloadBatchType MinimalProvider = [Minimal.Payload]
-
     p2pPayloadBatchLimit = 20 -- FIXME
+    batch = catMaybes
 
 instance MimeRender OctetStream Minimal.Payload where
     mimeRender _ = runPutL . Minimal.encodePayload
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream Minimal.Payload where
+    mimeUnrender _ = runGetEitherL Minimal.decodePayload
+    {-# INLINE mimeUnrender #-}
 
 instance MimeRender OctetStream [Minimal.Payload] where
     mimeRender _ ps = runPutL $ do
         putWord32le (int $ length ps)
         mapM_ Minimal.encodePayload ps
 
--- FIXME: fix the following instance to conform with the current API (or even
--- better fix the current bad binary encoding of payload data).
+instance MimeUnrender OctetStream [Minimal.Payload] where
+    mimeUnrender _ = runGetEitherL $ do
+        l <- int <$> getWord32le
+        replicateM l Minimal.decodePayload
+    {-# INLINE mimeUnrender #-}
 
+-- | IsPayloadProvider instance for the Pact Payload provider
+--
+-- FIXME: fix this instance to conform with the current API (or even
+-- better fix the current bad binary encoding of payload data).
+--
 instance IsPayloadProvider PactProvider where
     type PayloadType PactProvider = Pact.PayloadData
     type PayloadBatchType PactProvider = Pact.PayloadDataList
-
     p2pPayloadBatchLimit = 20 -- FIXME
+    batch = Pact.PayloadDataList . catMaybes
+
 
