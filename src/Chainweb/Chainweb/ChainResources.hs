@@ -82,6 +82,7 @@ import P2P.TaskQueue
 import Prelude hiding (log)
 import Data.HashMap.Strict qualified as HM
 import Data.Foldable
+import Chainweb.PayloadProvider.EVM
 import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
@@ -253,11 +254,27 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr mpConfig
 
         SPactProvider ->
             error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: providerResources not implemented for Pact"
+
         SEvmProvider @n _ ->
-            error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: providerResources not implemented for EVM"
+            -- This assumes that the respective execution client is available
+            -- and answering API requests.
+            -- It also starts to awaiting and devlivering new payloads if mining
+            -- is enabled.
+            withEvmPayloadProvider logger v c rdb mgr evmConfig $ \p -> do
+                let pdb = view evmPayloadDb p
+                let queue = view evmPayloadQueue p
+                p2pRes <- payloadP2pResources @v' @c' @('EvmProvider n)
+                    logger p2pConfig myInfo peerDb pdb queue mgr
+                inner ProviderResources
+                    { _providerResPayloadProvider = SomePayloadProvider p
+                    , _providerResServiceApi = Nothing
+                    , _providerResP2pApiResources = Just p2pRes
+                    }
   where
     provider :: PayloadProviderType
     provider = payloadProviderTypeForChain v c
+
+    evmConfig = defaultEvmProviderConfig
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
