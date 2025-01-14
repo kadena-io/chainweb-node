@@ -376,7 +376,8 @@ jobs:
           test:chainweb-tests \
           test:compaction-tests \
           test:multi-node-network-tests \
-          test:remote-tests
+          test:remote-tests \
+          test:chainweb-storage-tests
     - name: Build chainweb-node application
       run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
