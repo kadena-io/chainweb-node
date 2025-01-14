@@ -124,7 +124,6 @@ import Chainweb.Time
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
-import Chainweb.Version.Testnet04
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -431,13 +430,6 @@ validateChainwebVersion v = do
             [ "Specifying version properties is only legal with chainweb-version"
             , "set to recap-development or development, but version is set to"
             , sshow (_versionName v)
-            ]
-    -- FIXME Pact5: disable
-    when (v == mainnet || v == testnet04) $
-        throwError $ T.unwords
-            [ "This node version is a technical preview of Pact 5, and"
-            , "cannot be used with Pact 4 chainweb versions (testnet04, mainnet)"
-            , "just yet."
             ]
     where
     isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
