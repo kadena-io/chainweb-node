@@ -40,6 +40,7 @@ module Chainweb.Test.Utils
 
 -- * Test RocksDb
 , testRocksDb
+, withTestRocksDb
 
 -- * Intialize Test BlockHeader DB
 , testBlockHeaderDb
@@ -132,14 +133,14 @@ module Chainweb.Test.Utils
 , withNodeDbDirs
 , withPactDir
 , NodeDbDirs(..)
+, withTempDir
 ) where
 
-import Chainweb.Test.Pact5.Utils (getTestLogLevel)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (MonadCatch, catch, finally, bracket)
+import Control.Monad.Catch (finally, bracket)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Control.Retry
@@ -224,6 +225,7 @@ import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection,
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.Pact5.Utils (getTestLogLevel)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
 import Chainweb.Test.Utils.BlockHeader
@@ -312,6 +314,12 @@ testRocksDb
 testRocksDb l r = do
   prefix <- (<>) l . sshow <$> (randomIO @Word64)
   return r { _rocksDbNamespace = prefix }
+
+withTestRocksDb :: B.ByteString -> RocksDb -> ResourceT IO RocksDb
+withTestRocksDb l r = snd <$> allocate create destroy
+    where
+    create = testRocksDb l r
+    destroy = deleteNamespaceRocksDb
 
 withRocksResource :: ResourceT IO RocksDb
 withRocksResource = view _2 . snd <$> allocate create destroy
@@ -1079,41 +1087,23 @@ data NodeDbDirs = NodeDbDirs
     }
 
 withPactDir :: Word -> ResourceT IO FilePath
-withPactDir nid = do
-  fmap snd $ allocate
-    (do
-      targetDir <- getCanonicalTemporaryDirectory
-      createTempDirectory targetDir ("pactdb-dir-" ++ show nid)
-    )
-    (\dir -> ignoringIOErrors $ removeDirectoryRecursive dir)
+withPactDir nid = withTempDir $ "pactdb-dir-" ++ show nid
+
+withTempDir :: FilePath -> ResourceT IO FilePath
+withTempDir template = snd <$> allocate create destroy
+    where
+    create = do
+        targetDir <- getCanonicalTemporaryDirectory
+        createTempDirectory targetDir template
+    destroy = removeDirectoryRecursive
 
 withNodeDbDirs :: RocksDb -> Word -> ResourceT IO [NodeDbDirs]
 withNodeDbDirs rdb n = do
-  let create :: IO [NodeDbDirs]
-      create = do
-        forM [0 .. n - 1] $ \nid -> do
-          targetDir1 <- getCanonicalTemporaryDirectory
-          targetDir2 <- getCanonicalTemporaryDirectory
-
-          nodePactDbDir <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
-          nodeBackupsDbDir <- createTempDirectory targetDir2 ("backups-dir-" ++ show nid)
-          nodeRocksDb <- testRocksDb (sshow nid) rdb
-
-          pure NodeDbDirs { .. }
-
-  let destroy :: [NodeDbDirs] -> IO ()
-      destroy dirs = flip foldMap dirs $ \NodeDbDirs {..} -> do
-        ignoringIOErrors $ do
-          removeDirectoryRecursive nodePactDbDir
-          removeDirectoryRecursive nodeBackupsDbDir
-          -- we can't delete a testRocksDb effectively, chainweb-storage only
-          -- offers DeleteRange on tables
-
-  (_, m) <- allocate create destroy
-  pure m
-
-ignoringIOErrors :: (MonadCatch m) => m () -> m ()
-ignoringIOErrors ioe = ioe `catch` (\(_ :: IOError) -> pure ())
+  forM [0 .. n - 1] $ \nid -> do
+    nodePactDbDir <- withTempDir ("pactdb-dir-" ++ show nid)
+    nodeBackupsDbDir <- withTempDir ("backups-dir-" ++ show nid)
+    nodeRocksDb <- withTestRocksDb (sshow nid) rdb
+    pure NodeDbDirs { .. }
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

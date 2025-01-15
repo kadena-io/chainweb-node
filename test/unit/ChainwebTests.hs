@@ -127,11 +127,11 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact4.DbCacheTest.tests
     , Chainweb.Test.Pact4.Checkpointer.tests
 
-    , Chainweb.Test.Pact4.PactMultiChainTest.tests -- BROKEN few tests
+    , Chainweb.Test.Pact4.PactMultiChainTest.tests rdb -- BROKEN few tests
 
     , Chainweb.Test.Pact4.PactSingleChainTest.tests rdb
 
-    , Chainweb.Test.Pact4.VerifierPluginTest.tests -- BROKEN
+    , Chainweb.Test.Pact4.VerifierPluginTest.tests rdb -- BROKEN
 
     , Chainweb.Test.Pact4.PactReplay.tests rdb
     , Chainweb.Test.Pact4.ModuleCacheOnRestart.tests rdb
@@ -170,7 +170,7 @@ suite rdb =
         , Chainweb.Test.RestAPI.tests rdb
         , testGroup "SPV"
             [ Chainweb.Test.SPV.tests rdb
-            , Chainweb.Test.Pact4.SPV.tests
+            , Chainweb.Test.Pact4.SPV.tests rdb
             , Chainweb.Test.SPV.EventProof.properties
             ]
         , Chainweb.Test.Mempool.InMem.tests

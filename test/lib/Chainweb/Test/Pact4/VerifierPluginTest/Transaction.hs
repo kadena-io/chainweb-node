@@ -12,6 +12,7 @@ module Chainweb.Test.Pact4.VerifierPluginTest.Transaction
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
+import Data.IORef
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -28,18 +29,19 @@ import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
+import Chainweb.Test.Utils
+import Chainweb.Version
 
 import qualified Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.After225 as After225
 import qualified Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.Before225 as Before225
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
-import Data.IORef
-import Chainweb.Version
 
 
-tests :: TestTree
-tests = testGroup testName
+tests :: RocksDb -> TestTree
+tests rdb = testGroup testName
   [ test generousConfig "verifierTest" verifierTest
 
   , test generousConfig "recoverValidatorAnnouncementSuccess" hyperlaneRecoverValidatorAnnouncementSuccess
@@ -49,8 +51,8 @@ tests = testGroup testName
       hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure
 
   , testGroup "Message"
-    [ Before225.tests
-    , After225.tests
+    [ Before225.tests rdb
+    , After225.tests rdb
     ]
   ]
   where
@@ -60,8 +62,9 @@ tests = testGroup testName
     generousConfig = testPactServiceConfig { _pactNewBlockGasLimit = 300_000 }
 
     test pactConfig tname f =
-      testCaseSteps tname $ \step ->
-        withTestBlockDb testVersion $ \bdb -> do
+      withResourceT (mkTestBlockDb testVersion rdb) $ \bdbIO -> do
+        testCaseSteps tname $ \step -> do
+          bdb <- bdbIO
           let logger = hunitDummyLogger step
           mempools <- onAllChains testVersion $ \_ -> do
             mempoolRef <- newIORef mempty

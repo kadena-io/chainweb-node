@@ -24,13 +24,10 @@ module Chainweb.Test.Pact5.Utils
         -- * Resources
     , withTempSQLiteResource
     , withInMemSQLiteResource
-    , withTestRocksDb
     , withPactQueue
     , withMempool
     , withRunPactService
     , withBlockDbs
-    , withTestBlockHeaderDb
-    , testRocksDb
 
         -- * Properties
     , event
@@ -43,9 +40,6 @@ module Chainweb.Test.Pact5.Utils
 import Chainweb.Chainweb (validatingMempoolConfig)
 import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB (BlockHeaderDb, initBlockHeaderDb, closeBlockHeaderDb)
-import Chainweb.BlockHeaderDB qualified as BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
@@ -70,14 +64,13 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 import Control.Concurrent hiding (throwTo)
-import Control.Exception (AsyncException (..), finally, throwTo)
+import Control.Exception (AsyncException (..), throwTo)
 import Control.Lens hiding (elements, only)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource (ResourceT, allocate)
 import Control.Monad.Trans.Resource qualified as Resource
 import Data.Aeson qualified as Aeson
-import Data.ByteString (ByteString)
 import Data.ByteString.Short qualified as SBS
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
@@ -88,17 +81,13 @@ import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Data.Word (Word64)
-import Database.RocksDB.Internal qualified as R
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Pretty qualified as Pact5
 import Pact.JSON.Encode qualified as J
 import Pact.Types.Gas qualified as Pact4
 import System.Environment (lookupEnv)
-import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.LogLevel
-import System.Random (randomIO)
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Pact.Core.PactValue
@@ -111,44 +100,6 @@ withBlockDbs v rdb = do
     let payloadDb = newPayloadDb rdb
     liftIO $ initializePayloadDb v payloadDb
     return (payloadDb, webBHDb)
-
-testBlockHeaderDb
-    :: RocksDb
-    -> BlockHeader
-    -> IO BlockHeaderDb
-testBlockHeaderDb rdb h = do
-    rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
-    initBlockHeaderDb (BlockHeaderDB.Configuration h rdb')
-
-withTestBlockHeaderDb
-    :: RocksDb
-    -> BlockHeader
-    -> ResourceT IO BlockHeaderDb
-withTestBlockHeaderDb rdb h =
-    snd <$> allocate (testBlockHeaderDb rdb h) closeBlockHeaderDb
-
-testRocksDb
-    :: ByteString -- ^ Prefix
-    -> RocksDb
-    -> IO RocksDb
-testRocksDb l r = do
-    prefix <- (<>) l . sshow <$> (randomIO @Word64)
-    return r { _rocksDbNamespace = prefix }
-
-withTestRocksDb :: ResourceT IO RocksDb
-withTestRocksDb = view _2 . snd <$> allocate create destroy
-    where
-        create = do
-            sysdir <- getCanonicalTemporaryDirectory
-            dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-            opts@(R.Options' opts_ptr _ _) <- R.mkOpts modernDefaultOptions
-            rocks <- openRocksDb dir opts_ptr
-            return (dir, rocks, opts)
-
-        destroy (dir, rocks, opts) =
-            closeRocksDb rocks `finally`
-                R.freeOpts opts `finally`
-                destroyRocksDb dir
 
 -- | Internal. See https://www.sqlite.org/c3ref/open.html
 withSQLiteResource

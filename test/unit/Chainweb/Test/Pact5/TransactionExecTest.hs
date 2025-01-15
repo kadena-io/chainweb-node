@@ -47,7 +47,7 @@ import Data.String (fromString)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
-import Chainweb.Test.Pact5.Utils hiding (testRocksDb, withTempSQLiteResource)
+import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource)
 import GHC.Stack
 import Pact.Core.Capabilities
 import Pact.Core.Command.Types
@@ -104,8 +104,8 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 readFromAfterGenesis :: ChainwebVersion -> RocksDb -> PactBlockM GenericLogger RocksDbTable a -> IO a
 readFromAfterGenesis ver rdb act = runResourceT $ do
     sql <- withTempSQLiteResource
+    tdb <- mkTestBlockDb ver rdb
     liftIO $ do
-        tdb <- mkTestBlockDb ver =<< testRocksDb "testBuyGasShouldTakeGasTokensFromTheTransactionSender" rdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         logger <- testLogger
         T2 a _finalPactState <- withPactService ver cid logger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do

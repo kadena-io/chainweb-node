@@ -10,7 +10,6 @@
 
 module Chainweb.Test.Cut.TestBlockDb
   ( TestBlockDb(..)
-  , withTestBlockDb
   , mkTestBlockDb
   , addTestBlockDb
   , getParentTestBlockDb
@@ -24,7 +23,10 @@ module Chainweb.Test.Cut.TestBlockDb
 
 import Control.Concurrent.MVar
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 import qualified Data.HashMap.Strict as HM
 
 import Chainweb.Block
@@ -32,7 +34,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
-import Chainweb.Test.Utils (testRocksDb)
+import Chainweb.Test.Utils
 import Chainweb.Test.Cut (GenBlockTime, testMine', MineFailure(BadAdjacents))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -43,7 +45,6 @@ import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.BlockHeight
-import Control.Monad
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
@@ -55,21 +56,16 @@ instance HasChainwebVersion TestBlockDb where
   _chainwebVersion = _chainwebVersion . _bdbWebBlockHeaderDb
 
 -- | Initialize TestBlockDb.
-withTestBlockDb :: ChainwebVersion -> (TestBlockDb -> IO a) -> IO a
-withTestBlockDb cv a = do
-  withTempRocksDb "TestBlockDb" $ \rdb -> do
-    bdb <- mkTestBlockDb cv rdb
-    a bdb
-
--- | Initialize TestBlockDb.
-mkTestBlockDb :: ChainwebVersion -> RocksDb -> IO TestBlockDb
+mkTestBlockDb :: ChainwebVersion -> RocksDb -> ResourceT IO TestBlockDb
 mkTestBlockDb cv rdb = do
-    testRdb <- testRocksDb "mkTestBlockDb" rdb
+  testRdb <- withTestRocksDb "mkTestBlockDb" rdb
+  liftIO $ do
     wdb <- initWebBlockHeaderDb testRdb cv
     let pdb = newPayloadDb testRdb
     initializePayloadDb cv pdb
     initCut <- newMVar $ genesisCut cv
     return $! TestBlockDb wdb pdb initCut
+
 
 -- | Add a block.
 --

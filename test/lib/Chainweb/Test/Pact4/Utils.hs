@@ -100,7 +100,6 @@ module Chainweb.Test.Pact4.Utils
 , freeGasModel
 , testPactServiceConfig
 , withBlockHeaderDb
-, withTemporaryDir
 , withSqliteDb
 -- * Mempool utils
 , delegateMemPoolAccess
@@ -160,8 +159,6 @@ import Database.SQLite3.Direct (Database)
 import GHC.Generics
 
 import Streaming.Prelude qualified as S
-import System.Directory
-import System.IO.Temp (createTempDirectory)
 import System.LogLevel
 
 import Test.Tasty
@@ -947,11 +944,6 @@ withBlockHeaderDb iordb b = withResource start stop
         testBlockHeaderDb rdb b
     stop = closeBlockHeaderDb
 
-withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource
-    (getTemporaryDirectory >>= \d -> createTempDirectory d "test-pact")
-    removeDirectoryRecursive
-
 -- | Single-chain Pact via service queue.
 --
 --   The difference between this and 'withPactTestBlockDb' is that,
@@ -969,7 +961,7 @@ withPactTestBlockDb'
     -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
-  withResource' (mkTestBlockDb version rdb) $ \bdbio ->
+  withResourceT (mkTestBlockDb version rdb) $ \bdbio ->
   withResource (startPact bdbio) stopPact $ f . fmap (view _2)
   where
     startPact bdbio = do
@@ -1023,8 +1015,8 @@ withPactTestBlockDb
     -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
-  withTemporaryDir $ \iodir ->
-  withResource' (mkTestBlockDb version rdb) $ \bdbio ->
+  withResourceT (withTempDir "pact-dir") $ \iodir ->
+  withResourceT (mkTestBlockDb version rdb) $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _2)
   where
     startPact bdbio iodir = do

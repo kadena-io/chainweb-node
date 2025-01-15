@@ -64,7 +64,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Pact5.Utils
-import Chainweb.Test.Utils(TestPact5CommandResult)
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
