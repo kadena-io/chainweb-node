@@ -170,6 +170,7 @@ logRequest lvl req = do
             fetchedChunk <- newIORef False
             let fetchChunk = do
                     fetched <- readIORef fetchedChunk
+                    writeIORef fetchedChunk True
                     if fetched then return mempty
                     else return finalStrictBody
             return (setRequestBodyChunks fetchChunk req, Right finalStrictBody)
