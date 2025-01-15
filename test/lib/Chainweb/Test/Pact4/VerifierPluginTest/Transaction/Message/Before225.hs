@@ -27,8 +27,10 @@ import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
+import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.VerifierPlugin.Hyperlane.Binary
@@ -38,8 +40,8 @@ import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
 import Data.IORef
 import Chainweb.Version
 
-tests :: TestTree
-tests = testGroup "Before225"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Before225"
   [ testGroup "MessageId metadata tests"
     [ test generousConfig "verifySuccess" hyperlaneVerifyMessageIdSuccess
     , test generousConfig "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyMessageIdEmptyRecoveredSignaturesSuccess
@@ -58,8 +60,9 @@ tests = testGroup "Before225"
     generousConfig = testPactServiceConfig { _pactNewBlockGasLimit = 300_000 }
 
     test pactConfig tname f =
-      testCaseSteps tname $ \step ->
-        withTestBlockDb testVersion $ \bdb -> do
+      withResourceT (mkTestBlockDb testVersion rdb) $ \bdbIO ->
+        testCaseSteps tname $ \step -> do
+          bdb <- bdbIO
           let logger = hunitDummyLogger step
           mempools <- onAllChains testVersion $ \_ -> do
             mempoolRef <- newIORef mempty

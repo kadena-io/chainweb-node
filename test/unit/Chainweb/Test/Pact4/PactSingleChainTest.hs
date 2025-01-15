@@ -385,7 +385,7 @@ compactionIsIdempotent :: ()
 compactionIsIdempotent rdb =
   -- This requires a bit more than 'compactionSetup', since we
   -- are compacting more than once.
-  withTemporaryDir $ \twiceDir -> withSqliteDb cid twiceDir $ \twiceSqlEnvIO ->
+  withResourceT (withTempDir "pact-dir") $ \twiceDir -> withSqliteDb cid twiceDir $ \twiceSqlEnvIO ->
   compactionSetup "compactionIsIdempotent" rdb testPactServiceConfig $ \cr -> do
     let numBlocks :: Num a => a
         numBlocks = 100
@@ -1387,11 +1387,12 @@ compactionSetup :: ()
   -> (CompactionResources -> IO ())
   -> TestTree
 compactionSetup pat rdb pactCfg f =
-  withTemporaryDir $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
-  withTemporaryDir $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
+  withResourceT (withTempDir "src-pact-dir") $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
+  withResourceT (withTempDir "src-pact-dir") $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
+  withResourceT (mkTestBlockDb testVersion rdb) $ \blockDbIO ->
   withDelegateMempool $ \dm ->
     testCase pat $ do
-      blockDb <- mkTestBlockDb testVersion rdb
+      blockDb <- blockDbIO
       bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
       let payloadDb = _bdbPayloadDb blockDb
       srcSqlEnv <- srcSqlEnvIO

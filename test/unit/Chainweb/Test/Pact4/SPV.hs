@@ -40,6 +40,7 @@ import Data.ByteString.Lazy (toStrict)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
+import Data.LogMessage
 import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
@@ -78,9 +79,11 @@ import Chainweb.Cut
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 
+import Chainweb.Pact.Types (MemPoolAccess, mpaGetBlock)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
@@ -91,22 +94,22 @@ import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
+import Control.Monad.Trans.Resource
+import Control.Monad.IO.Class
 
-import Data.LogMessage
-import Chainweb.Pact.Types (MemPoolAccess, mpaGetBlock)
 
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
-tests :: TestTree
-tests = testGroup "Chainweb.Test.Pact4.SPV"
-    [ testCaseSteps "standard SPV verification round trip" standard
-    , testCaseSteps "contTXOUTOld" contTXOUTOld
-    , testCaseSteps "contTXOUTNew" contTXOUTNew
-    , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
-    , testCaseSteps "ethReceiptProof" ethReceiptProof
-    , testCaseSteps "noEthReceiptProof" noEthReceiptProof
-    , testCaseSteps "invalid proof formats fail" invalidProof
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Pact4.SPV"
+    [ testCaseSteps "standard SPV verification round trip" $ standard rdb
+    , testCaseSteps "contTXOUTOld" $ contTXOUTOld rdb
+    , testCaseSteps "contTXOUTNew" $ contTXOUTNew rdb
+    , testCaseSteps "tfrTXOUTNew" $ tfrTXOUTNew rdb
+    , testCaseSteps "ethReceiptProof" $ ethReceiptProof rdb
+    , testCaseSteps "noEthReceiptProof" $ noEthReceiptProof rdb
+    , testCaseSteps "invalid proof formats fail" $ invalidProof rdb
     ]
 
 testVer :: ChainwebVersion
@@ -133,62 +136,61 @@ _handle' e =
 -- -------------------------------------------------------------------------- --
 -- tests
 
-standard :: (String -> IO ()) -> Assertion
-standard step = do
-  (c1,c3) <- roundtrip 0 1 burnGen createSuccess step
+standard :: RocksDb -> (String -> IO ()) -> Assertion
+standard rdb step = do
+  (c1,c3) <- roundtrip rdb 0 1 burnGen createSuccess step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
-contTXOUTOld :: (String -> IO ()) -> Assertion
-contTXOUTOld step = do
+contTXOUTOld :: RocksDb -> (String -> IO ()) -> Assertion
+contTXOUTOld rdb step = do
   code <- T.readFile "test/pact/contTXOUTOld.pact"
-  (c1,c3) <- roundtrip 0 1 burnGen (createVerify False code mdata) step
+  (c1,c3) <- roundtrip rdb 0 1 burnGen (createVerify False code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
     mdata = toJSON [fst sender01] :: Value
 
 
-contTXOUTNew :: (String -> IO ()) -> Assertion
-contTXOUTNew step = do
+contTXOUTNew :: RocksDb -> (String -> IO ()) -> Assertion
+contTXOUTNew rdb step = do
   code <- T.readFile "test/pact/contTXOUTNew.pact"
-  (c1,c3) <- roundtrip' bridgeVer 0 1 burnGen (createVerify True code mdata) step
+  (c1,c3) <- roundtrip' rdb bridgeVer 0 1 burnGen (createVerify True code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
     mdata = toJSON [fst sender01]
 
 
-tfrTXOUTNew :: (String -> IO ()) -> Assertion
-tfrTXOUTNew step = do
+tfrTXOUTNew :: RocksDb -> (String -> IO ()) -> Assertion
+tfrTXOUTNew rdb step = do
   code <- T.readFile "test/pact/tfrTXOUTNew.pact"
-  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerify True code mdata) step
+  (c1,c3) <- roundtrip' rdb bridgeVer 0 1 transferGen (createVerify True code mdata) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
     mdata = toJSON [fst sender01] :: Value
 
-ethReceiptProof :: (String -> IO ()) -> Assertion
-ethReceiptProof step = do
+ethReceiptProof :: RocksDb -> (String -> IO ()) -> Assertion
+ethReceiptProof rdb step = do
   code <- T.readFile "test/pact/ethReceiptProof.pact"
-  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerifyEth code) step
+  (c1,c3) <- roundtrip' rdb bridgeVer 0 1 transferGen (createVerifyEth code) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString "ETH Success"
 
-
-noEthReceiptProof :: (String -> IO ()) -> Assertion
-noEthReceiptProof step = do
+noEthReceiptProof :: RocksDb -> (String -> IO ()) -> Assertion
+noEthReceiptProof rdb step = do
   code <- T.readFile "test/pact/ethReceiptProof.pact"
-  (c1,c3) <- roundtrip' testVer 0 1 transferGen (createVerifyEth code) step
+  (c1,c3) <- roundtrip' rdb testVer 0 1 transferGen (createVerifyEth code) step
   checkResult c1 0 "Write succeeded"
   checkResult c3 1 "unsupported SPV types: ETH"
 
 rSuccessTXOUT :: Text
 rSuccessTXOUT = "TXOUT Success"
 
-invalidProof :: (String -> IO ()) -> Assertion
-invalidProof step = do
-  (c1,c3) <- roundtrip 0 1 burnGen createInvalidProof step
+invalidProof :: RocksDb -> (String -> IO ()) -> Assertion
+invalidProof rdb step = do
+  (c1,c3) <- roundtrip rdb 0 1 burnGen createInvalidProof step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: resumePact: no previous execution found"
 
@@ -217,7 +219,8 @@ runCut' v bdb pact = do
   getCutOutputs bdb
 
 roundtrip
-    :: Word32
+    :: RocksDb
+    -> Word32
       -- ^ source chain id
     -> Word32
       -- ^ target chain id
@@ -227,10 +230,11 @@ roundtrip
       -- ^ create tx generator
     -> (String -> IO ())
     -> IO (CutOutputs, CutOutputs)
-roundtrip = roundtrip' testVer
+roundtrip rdb = roundtrip' rdb testVer
 
 roundtrip'
-    :: ChainwebVersion
+    :: RocksDb
+    -> ChainwebVersion
     -> Word32
       -- ^ source chain id
     -> Word32
@@ -242,48 +246,50 @@ roundtrip'
     -> (String -> IO ())
       -- ^ logging backend
     -> IO (CutOutputs, CutOutputs)
-roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
-  tg <- newMVar mempty
-  let logger = hunitDummyLogger step
-  mempools <- onAllChains v $ \chain ->
-    return $ chainToMPA' chain tg
-  withWebPactExecutionService logger v testPactServiceConfig bdb mempools $ \(pact,_) -> do
+roundtrip' rdb v sid0 tid0 burn create step = runResourceT $ do
+  bdb <- mkTestBlockDb v rdb
+  liftIO $ do
+    tg <- newMVar mempty
+    let logger = hunitDummyLogger step
+    mempools <- onAllChains v $ \chain ->
+      return $ chainToMPA' chain tg
+    withWebPactExecutionService logger v testPactServiceConfig bdb mempools $ \(pact,_) -> do
 
-    sid <- mkChainId v maxBound sid0
-    tid <- mkChainId v maxBound tid0
+      sid <- mkChainId v maxBound sid0
+      tid <- mkChainId v maxBound tid0
 
-    -- track the continuation pact id
-    pidv <- newEmptyMVar @PactId
+      -- track the continuation pact id
+      pidv <- newEmptyMVar @PactId
 
-    -- cut 0: empty run (not sure why this is needed but test fails without it)
-    step "cut 0: empty run"
-    void $ runCut' v bdb pact
+      -- cut 0: empty run (not sure why this is needed but test fails without it)
+      step "cut 0: empty run"
+      void $ runCut' v bdb pact
 
-    -- cut 1: burn
-    step "cut 1: burn"
-    -- Creating the parent took at least 1 second. So 1s is fine as creation time
-    let t1 = add second epoch
-    txGen1 <- burn v t1 pidv sid tid
-    void $ swapMVar tg txGen1
-    co1 <- runCut' v bdb pact
+      -- cut 1: burn
+      step "cut 1: burn"
+      -- Creating the parent took at least 1 second. So 1s is fine as creation time
+      let t1 = add second epoch
+      txGen1 <- burn v t1 pidv sid tid
+      void $ swapMVar tg txGen1
+      co1 <- runCut' v bdb pact
 
-    -- setup create txgen with cut 1
-    step "setup create txgen with cut 1"
-    (BlockCreationTime t2) <- view blockCreationTime <$> getParentTestBlockDb bdb tid
-    hi <- view blockHeight <$> getParentTestBlockDb bdb sid
-    txGen2 <- create v t2 bdb pidv sid tid hi
+      -- setup create txgen with cut 1
+      step "setup create txgen with cut 1"
+      (BlockCreationTime t2) <- view blockCreationTime <$> getParentTestBlockDb bdb tid
+      hi <- view blockHeight <$> getParentTestBlockDb bdb sid
+      txGen2 <- create v t2 bdb pidv sid tid hi
 
-    -- cut 2: empty cut for diameter 1
-    step "cut 2: empty cut for diameter 1"
-    void $ swapMVar tg mempty
-    void $ runCut' v bdb pact
+      -- cut 2: empty cut for diameter 1
+      step "cut 2: empty cut for diameter 1"
+      void $ swapMVar tg mempty
+      void $ runCut' v bdb pact
 
-    -- cut 3: create
-    step "cut 3: create"
-    void $ swapMVar tg txGen2
-    co2 <- runCut' v bdb pact
+      -- cut 3: create
+      step "cut 3: create"
+      void $ swapMVar tg txGen2
+      co2 <- runCut' v bdb pact
 
-    return (co1,co2)
+      return (co1,co2)
 
 
 _debugCut :: CanReadablePayloadCas tbl => String -> Cut -> PayloadDb tbl -> IO ()

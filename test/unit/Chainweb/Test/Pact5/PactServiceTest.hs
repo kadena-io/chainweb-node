@@ -45,7 +45,7 @@ import Chainweb.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource, testRocksDb)
+import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -94,7 +94,7 @@ data Fixture = Fixture
 mkFixtureWith :: PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixtureWith pactServiceConfig baseRdb = do
     sqlite <- withTempSQLiteResource
-    tdb <- liftIO $ mkTestBlockDb v =<< testRocksDb "fixture" baseRdb
+    tdb <- mkTestBlockDb v baseRdb
     perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
         bhdb <- liftIO $ getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) chain
         pactQueue <- liftIO $ newPactQueue 2_000

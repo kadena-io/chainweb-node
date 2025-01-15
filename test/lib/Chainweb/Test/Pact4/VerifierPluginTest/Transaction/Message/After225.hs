@@ -28,8 +28,10 @@ import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
+import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.VerifierPlugin.Hyperlane.Binary
@@ -39,8 +41,8 @@ import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
 import Chainweb.Version
 import Data.IORef
 
-tests :: TestTree
-tests = testGroup "After225"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "After225"
   [ test generousConfig "verifySuccess" hyperlaneVerifySuccess
   , test generousConfig "verifyMoreValidatorsSuccess" hyperlaneVerifyMoreValidatorsSuccess
   , test generousConfig "verifyThresholdZeroError" hyperlaneVerifyThresholdZeroError
@@ -55,16 +57,16 @@ tests = testGroup "After225"
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactNewBlockGasLimit = 300_000 }
 
-    test pactConfig tname f =
-      testCaseSteps tname $ \step ->
-        withTestBlockDb testVersion $ \bdb -> do
-          let logger = hunitDummyLogger step
-          mempools <- onAllChains testVersion $ \_ -> do
-            mempoolRef <- newIORef mempty
-            return (mempoolRef, delegateMemPoolAccess mempoolRef)
-          withWebPactExecutionService logger testVersion pactConfig bdb (snd <$> mempools) $ \(pact,_) ->
-            runReaderT f $
-            SingleEnv bdb pact (mempools ^?! atChain cid . _1) noMiner cid
+    test pactConfig tname f = withResourceT (mkTestBlockDb testVersion rdb) $ \bdbIO ->
+      testCaseSteps tname $ \step -> do
+        bdb <- bdbIO
+        let logger = hunitDummyLogger step
+        mempools <- onAllChains testVersion $ \_ -> do
+          mempoolRef <- newIORef mempty
+          return (mempoolRef, delegateMemPoolAccess mempoolRef)
+        withWebPactExecutionService logger testVersion pactConfig bdb (snd <$> mempools) $ \(pact,_) ->
+          runReaderT f $
+          SingleEnv bdb pact (mempools ^?! atChain cid . _1) noMiner cid
 
 -- hyperlane message tests
 

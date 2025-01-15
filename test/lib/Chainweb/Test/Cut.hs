@@ -97,8 +97,9 @@ import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Graph
 import Chainweb.Payload
-import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.Utils
 import Chainweb.Time (Micros(..), Time, TimeSpan)
 import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
@@ -665,9 +666,10 @@ ioTest
     -> ChainwebVersion
     -> (WebBlockHeaderDb -> T.PropertyM IO Bool)
     -> T.Property
-ioTest db v f = T.monadicIO $
-    liftIO (initWebBlockHeaderDb db v) >>= f >>= T.assert
+ioTest baseDb v f = T.monadicIO $ do
+    db' <- liftIO $ testRocksDb "Chainweb.Test.Cut" baseDb
+    liftIO (initWebBlockHeaderDb db' v) >>= f >>= T.assert
+    liftIO $ deleteNamespaceRocksDb db'
 
 pickBlind :: T.Gen a -> T.PropertyM IO a
 pickBlind = fmap T.getBlind . T.pick . fmap T.Blind
-

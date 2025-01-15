@@ -79,7 +79,7 @@ tests :: RocksDb -> TestTree
 tests rdb =
     withResource' (newMVar mempty) $ \iom ->
     withResource' newEmptyMVar $ \rewindDataM ->
-    withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
+    withResourceT (mkTestBlockDb testVer rdb) $ \bdbio ->
     withResourceT withTempSQLiteResource $ \ioSqlEnv ->
     independentSequentialTestGroup "Chainweb.Test.Pact4.ModuleCacheOnRestart"
     [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial

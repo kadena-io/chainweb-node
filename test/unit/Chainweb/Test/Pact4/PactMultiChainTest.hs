@@ -56,12 +56,14 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
-
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Types
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Pact4.TransactionExec (listErrMsg)
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 import Chainweb.SPV.CreateProof
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
@@ -72,8 +74,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
-import Chainweb.Pact.Backend.Types
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -121,8 +121,8 @@ data PactTxTest = PactTxTest
     , _pttTest :: CommandResult Hash -> Assertion
     }
 
-tests :: TestTree
-tests = testGroup testName
+tests :: RocksDb -> TestTree
+tests rdb = testGroup testName
   [ test generousConfig "pact4coin3UpgradeTest" pact4coin3UpgradeTest
   , test generousConfig "pact42UpgradeTest" pact42UpgradeTest
   , test generousConfig "minerKeysetTest" minerKeysetTest
@@ -142,7 +142,7 @@ tests = testGroup testName
   , test generousConfig "chainweb223Test" chainweb223Test
   , test generousConfig "compactAndSyncTest" compactAndSyncTest
   , test generousConfig "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  , quirkTest
+  , quirkTest rdb
   , test generousConfig "checkTransferCreate" checkTransferCreate
   ]
 
@@ -157,8 +157,9 @@ tests = testGroup testName
       }
 
     test pactConfig tname f =
-      testCaseSteps tname $ \step ->
-        withTestBlockDb testVersion $ \bdb -> do
+      withResourceT (mkTestBlockDb testVersion rdb) $ \bdbIO -> do
+        testCaseSteps tname $ \step -> do
+          bdb <- bdbIO
           mempools <- onAllChains testVersion $ \_chain -> do
             r <- newIORef mempty
             return (r, delegateMemPoolAccess r)
@@ -1364,14 +1365,14 @@ checkTransferCreate = do
   where
   coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
 
--- TODO: pact5.
-quirkTest :: TestTree
-quirkTest = do
+quirkTest :: RocksDb -> TestTree
+quirkTest rdb = do
   let v = quirkedGasInstantCpmTestVersion peterson
   let mempoolCmdBuilder =
         buildBasic (mkExec' "(+ 1 2)")
-  testCaseSteps "quirkTest" $ \step ->
-    withTestBlockDb v $ \bdb -> do
+  withResourceT (mkTestBlockDb v rdb) $ \bdbIO ->
+    testCaseSteps "quirkTest" $ \step -> do
+      bdb <- bdbIO
       mempools <- onAllChains v $ \_cid -> do
         r <- newIORef mempty
         return (r, delegateMemPoolAccess r)

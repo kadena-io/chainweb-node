@@ -84,6 +84,7 @@ module Chainweb.Storage.Table.RocksDB
   -- * RocksDB-specific tools
   , checkpointRocksDb
   , deleteRangeRocksDb
+  , deleteNamespaceRocksDb
   , compactRangeRocksDb
   ) where
 
@@ -692,6 +693,18 @@ deleteRangeRocksDb table range = do
         BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
         checked "Chainweb.Storage.Table.RocksDB.deleteRangeRocksDb" $
+            C.rocksdb_delete_range dbPtr optsPtr
+                minKeyPtr (fromIntegral minKeyLen :: CSize)
+                maxKeyPtr (fromIntegral maxKeyLen :: CSize)
+
+-- | Batch delete all contents of rocksdb
+deleteNamespaceRocksDb :: HasCallStack => RocksDb -> IO ()
+deleteNamespaceRocksDb rdb = do
+    let R.DB dbPtr = _rocksDbHandle rdb
+    R.withCWriteOpts R.defaultWriteOptions $ \optsPtr ->
+        BU.unsafeUseAsCStringLen (namespaceFirst $ _rocksDbNamespace rdb) $ \(minKeyPtr, minKeyLen) ->
+        BU.unsafeUseAsCStringLen (namespaceLast $ _rocksDbNamespace rdb) $ \(maxKeyPtr, maxKeyLen) ->
+        checked "Chainweb.Storage.Table.RocksDB.deleteAllContentsRocksDb" $
             C.rocksdb_delete_range dbPtr optsPtr
                 minKeyPtr (fromIntegral minKeyLen :: CSize)
                 maxKeyPtr (fromIntegral maxKeyLen :: CSize)
