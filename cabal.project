@@ -2,6 +2,7 @@ packages:
     chainweb.cabal
     node/chainweb-node.cabal
     cwtools/cwtools.cabal
+    libs/chainweb-storage/chainweb-storage.cabal
 
 debug-info: True
 
@@ -42,6 +43,11 @@ package chainweb-node
     ghc-options: -Wno-missed-extra-shared-lib
 
 package cwtools
+    ghc-options: -Wno-missed-extra-shared-lib
+
+package chainweb-storage
+    tests: True
+    benchmarks: True
     ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
@@ -103,12 +109,6 @@ source-repository-package
     location: https://github.com/kadena-io/pact-json.git
     tag: 1d260bfaa48312b54851057885de4c43c420e35f
     --sha256: 0fzq4mzaszj5clvixx9mn1x6r4dcrnwvbl2znd0p5mmy5h2jr0hh
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/chainweb-storage.git
-    tag: a5e06a8aa2da1e7981ff9fad91dfd41f7c39fc85
-    --sha256: sha256-3Zqsgrxa7SQUr8XzT2O5PLTELkI92NXZU4j2UUvlL4E=
 
 source-repository-package
     type: git

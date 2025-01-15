@@ -376,7 +376,8 @@ jobs:
           test:chainweb-tests \
           test:compaction-tests \
           test:multi-node-network-tests \
-          test:remote-tests
+          test:remote-tests \
+          test:chainweb-storage-tests
     - name: Build chainweb-node application
       run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
@@ -403,6 +404,7 @@ jobs:
         cp $(cabal list-bin bench) artifacts/chainweb
         cp $(cabal list-bin calculate-release) artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
+        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
         cp $(cabal list-bin chainweb-tests) artifacts/chainweb
         cp $(cabal list-bin compact) artifacts/chainweb
         cp $(cabal list-bin compaction-tests) artifacts/chainweb
@@ -519,6 +521,32 @@ jobs:
       run: |
           ulimit -n 10000
           multi-node-network-tests
+
+  rocksdb-library-tests:
+    name: RocksDB library tests
+    needs: [config, build]
+    runs-on: $${ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run chainweb-storage tests
+      timeout-minutes: 2
+      run: chainweb-storage-tests
 
   # ########################################################################## #
   # Run Benchmarks
