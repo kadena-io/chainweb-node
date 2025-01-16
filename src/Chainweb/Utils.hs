@@ -315,6 +315,7 @@ import System.Timeout qualified as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
+import Network.URI
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -603,6 +604,16 @@ instance HasTextRepresentation UTCTime where
         Just x -> return x
       where
         fmt = iso8601DateTimeFormat
+    {-# INLINE fromText #-}
+
+-- | Textual representation for /absolute/ URIs.
+--
+instance HasTextRepresentation URI where
+    toText uri = T.pack $ uriToString id uri ""
+    fromText t = case parseAbsoluteURI (T.unpack t) of
+        Nothing -> throwM $ TextFormatException $ "failed to parse URI " <> t
+        Just u -> return u
+    {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
 -- | Decode a value from its textual representation.
