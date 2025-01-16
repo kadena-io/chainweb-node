@@ -31,6 +31,7 @@
 module Chainweb.ChainId
 ( ChainIdException(..)
 , ChainId
+, pattern ChainId
 , HasChainId(..)
 , checkChainId
 , chainIdToText
@@ -124,9 +125,13 @@ instance Exception ChainIdException
 -- * For some arbitrary but fixed chain id consider using 'someChainId'.
 --
 newtype ChainId :: Type where
-    ChainId :: Word32 -> ChainId
+    ChainId' :: Word32 -> ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
+
+pattern ChainId :: Word32 -> ChainId
+pattern ChainId n <- ChainId' n
+{-# COMPLETE ChainId #-}
 
 instance ToJSONKey ChainId where
     toJSONKey = toJSONKeyText toText
@@ -178,11 +183,11 @@ checkChainId expected actual = _chainId
 {-# INLINE checkChainId #-}
 
 chainIdToText :: ChainId -> T.Text
-chainIdToText (ChainId i) = sshow i
+chainIdToText (ChainId' i) = sshow i
 {-# INLINE chainIdToText #-}
 
 chainIdFromText :: MonadThrow m => T.Text -> m ChainId
-chainIdFromText = fmap ChainId . treadM
+chainIdFromText = fmap ChainId' . treadM
 {-# INLINE chainIdFromText #-}
 
 instance HasTextRepresentation ChainId where
@@ -195,11 +200,11 @@ instance HasTextRepresentation ChainId where
 -- Serialization
 
 encodeChainId :: ChainId -> Put
-encodeChainId (ChainId w32) = putWord32le w32
+encodeChainId (ChainId' w32) = putWord32le w32
 {-# INLINE encodeChainId #-}
 
 decodeChainId :: Get ChainId
-decodeChainId = ChainId <$> getWord32le
+decodeChainId = ChainId' <$> getWord32le
 {-# INLINE decodeChainId #-}
 
 decodeChainIdChecked
@@ -264,11 +269,11 @@ pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing 
 -- of 'ChainId' for alternative ways to obtain 'ChainId' values.
 --
 unsafeChainId :: Word32 -> ChainId
-unsafeChainId = ChainId
+unsafeChainId = ChainId'
 {-# INLINE unsafeChainId #-}
 
 chainIdInt :: Integral i => ChainId -> i
-chainIdInt (ChainId cid) = int cid
+chainIdInt (ChainId' cid) = int cid
 {-# INLINE chainIdInt #-}
 
 -- -------------------------------------------------------------------------- --
