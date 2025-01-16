@@ -159,7 +159,7 @@ EOF
 # ############################################################################ #
 # Setup Context
 
-FROM chainweb-build as chainweb-build-ctx
+FROM chainweb-build AS chainweb-build-ctx
 ARG TARGETPLATFORM
 # RUN git clone --filter=tree:0 https://github.com/kadena-io/chainweb-node
 # WORKDIR /chainweb/chainweb-node
@@ -178,7 +178,7 @@ RUN sh /tools/check-git-clean.sh || touch /tools/wip
 # ############################################################################ #
 # Build Dependencies
 
-FROM chainweb-build-ctx as chainweb-build-dependencies
+FROM chainweb-build-ctx AS chainweb-build-dependencies
 ARG TARGETPLATFORM
 ARG PROJECT_NAME
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
