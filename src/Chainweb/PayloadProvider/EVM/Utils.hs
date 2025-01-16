@@ -141,6 +141,12 @@ instance HasTextRepresentation BlockHash where
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Address where
+    toText = toText . HexBytes . bytes
+    fromText = fmap (Address . fromHexBytes) . fromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
 -- -------------------------------------------------------------------------- --
 -- RLP Encoding Tools
 
