@@ -268,7 +268,7 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
           let cmdsWithParsedPayloadsV = V.fromList $ NEL.toList cmdsWithParsedPayloads
           -- If any of the txs in the batch fail validation, we reject them all.
           liftIO (mempoolInsertCheckVerbose mempool cmdsWithParsedPayloadsV) >>= checkResult
-          liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
+          liftIO (mempoolInsert mempool UncheckedInsert HM.empty cmdsWithParsedPayloadsV)
           return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey cmdsWithParsedPayloads
       Left err -> failWith $ "reading JSON for transaction failed: " <> T.pack err
   where

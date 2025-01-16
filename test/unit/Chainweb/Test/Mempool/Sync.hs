@@ -74,9 +74,9 @@ propSync
     -> IO (Either String ())
 propSync (txs, missing, later) _ localMempool' = do
     remoteMempool <- startInMemoryMempoolTest testInMemCfg
-    mempoolInsert localMempool' CheckedInsert txsV
-    mempoolInsert remoteMempool CheckedInsert txsV
-    mempoolInsert remoteMempool CheckedInsert missingV
+    mempoolInsert localMempool' CheckedInsert mempty txsV
+    mempoolInsert remoteMempool CheckedInsert mempty txsV
+    mempoolInsert remoteMempool CheckedInsert mempty missingV
 
     doneVar <- newEmptyMVar
     syncFinished <- newEmptyMVar
@@ -101,7 +101,7 @@ propSync (txs, missing, later) _ localMempool' = do
             -- We should now be subscribed and waiting for V.length laterV
             -- more transactions before getting killed. Transactions
             -- inserted into remote should get synced to us.
-            mempoolInsert remoteMempool CheckedInsert laterV
+            mempoolInsert remoteMempool CheckedInsert mempty laterV
 
             -- wait until time bomb 2 goes off
             takeMVar doneVar
@@ -129,10 +129,10 @@ propSync (txs, missing, later) _ localMempool' = do
 timebomb :: Int -> IO a -> MempoolBackend t -> IO (MempoolBackend t)
 timebomb k act mp = do
     ref <- newIORef k
-    return $! mp { mempoolInsert = ins ref }
+    return $! mp { mempoolInsertEncoded = ins ref }
   where
     ins ref t v = do
-        mempoolInsert mp t v
+        mempoolInsertEncoded mp t v
         c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
                                            in (x', x'))
         when (c == 0) $ void act     -- so that the bomb only triggers once

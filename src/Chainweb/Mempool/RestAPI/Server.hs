@@ -13,7 +13,6 @@ module Chainweb.Mempool.RestAPI.Server
 
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
-import Control.Monad.Catch hiding (Handler)
 import Control.Monad.IO.Class
 import qualified Data.DList as D
 import Data.IORef
@@ -39,21 +38,9 @@ insertHandler
     -> Handler NoContent
 insertHandler mempool txsT = handleErrs (NoContent <$ begin)
   where
-    txcfg = mempoolTxConfig mempool
-
-    decode :: T.Text -> Either String t
-    decode = codecDecode (txCodec txcfg) . T.encodeUtf8
-
-    go :: T.Text -> Handler t
-    go h = case decode h of
-        Left e -> throwM . DecodeException $ T.pack e
-        Right t -> return t
-
     begin :: Handler ()
-    begin = do
-        txs <- mapM go txsT
-        let txV = V.fromList txs
-        liftIO $ mempoolInsert mempool CheckedInsert txV
+    begin = liftIO $
+        mempoolInsertEncoded mempool CheckedInsert (V.fromList $ fmap T.encodeUtf8 txsT)
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]

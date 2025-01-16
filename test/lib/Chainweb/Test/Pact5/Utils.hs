@@ -209,7 +209,7 @@ mempoolInsertPact5 mp insertType txs = do
             case codecDecode Pact4.rawCommandCodec (codecEncode Pact5.payloadCodec tx) of
                 Left err -> error err
                 Right a -> a
-    mempoolInsert mp insertType $ Vector.fromList unparsedTxs
+    mempoolInsert mp insertType mempty $ Vector.fromList unparsedTxs
 
 -- | Looks up transactions in the mempool. Returns a set which indicates pending membership of the mempool.
 mempoolLookupPact5 :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
