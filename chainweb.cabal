@@ -312,6 +312,7 @@ library
         , Chainweb.Pact.Backend.PactState.GrandHash.Utils
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
+        , Chainweb.Pact.Backend.InMemDb
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.Conversion

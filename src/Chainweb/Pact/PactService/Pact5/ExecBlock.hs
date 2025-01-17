@@ -348,7 +348,7 @@ applyPactCmd
   => PactBlockEnv logger Pact5 tbl
   -> Miner -> TxIdxInBlock -> Pact5.Transaction
   -> StateT
-    (BlockHandle, t P.GasLimit)
+    (BlockHandle Pact5, t P.GasLimit)
     (ExceptT Pact5GasPurchaseFailure IO)
     (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info))
 applyPactCmd env miner txIdxInBlock tx = StateT $ \(blockHandle, blockGasRemaining) -> do
@@ -389,14 +389,14 @@ applyPactCmd env miner txIdxInBlock tx = StateT $ \(blockHandle, blockGasRemaini
   -- This function completely ignores timeouts and the block gas limit!
   unsafeApplyPactCmd
     :: (Logger logger)
-    => BlockHandle
+    => BlockHandle Pact5
     -> Pact5.Gas
     -> Pact5.Command (Pact5.Payload PublicMeta Pact5.ParsedCode)
     -> ReaderT
       (PactBlockEnv logger Pact5 tbl)
       IO
       (Either Pact5GasPurchaseFailure
-        (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info), BlockHandle))
+        (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info), BlockHandle Pact5))
   unsafeApplyPactCmd blockHandle initialGas cmd = do
     _txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
     logger <- view (psServiceEnv . psLogger)
@@ -472,7 +472,7 @@ validateParsedChainwebTx
     -> ChainwebVersion
     -> ChainId
     -> Pact5Db
-    -> BlockHandle
+    -> BlockHandle Pact5
     -> ParentCreationTime
         -- ^ reference time for tx validation.
     -> BlockHeight
@@ -553,7 +553,7 @@ validateRawChainwebTx
     -> ChainwebVersion
     -> ChainId
     -> Pact5Db
-    -> BlockHandle
+    -> BlockHandle Pact5
     -> ParentCreationTime
         -- ^ reference time for tx validation.
     -> BlockHeight

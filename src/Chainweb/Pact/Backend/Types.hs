@@ -12,6 +12,13 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 
 module Chainweb.Pact.Backend.Types
     ( Checkpointer(..)
@@ -20,7 +27,8 @@ module Chainweb.Pact.Backend.Types
     , BlockHandle(..)
     , blockHandleTxId
     , blockHandlePending
-    , emptyBlockHandle
+    , emptyPact4BlockHandle
+    , emptyPact5BlockHandle
     , SQLitePendingData(..)
     , emptySQLitePendingData
     , pendingWrites
@@ -32,6 +40,7 @@ module Chainweb.Pact.Backend.Types
     , _Historical
     , _NoHistory
     , PactDbFor
+    , PendingWrites
     ) where
 
 import Control.Lens
@@ -49,6 +58,7 @@ import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.List.NonEmpty (NonEmpty)
 import Control.DeepSeq (NFData)
+import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
 
 -- | Whether we write rows to the database that were already overwritten
 -- in the same block.
@@ -114,9 +124,9 @@ type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLi
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-data SQLitePendingData = SQLitePendingData
+data SQLitePendingData w = SQLitePendingData
     { _pendingTableCreation :: !SQLitePendingTableCreations
-    , _pendingWrites :: !SQLitePendingWrites
+    , _pendingWrites :: !w
     -- See Note [TxLogs in SQLitePendingData]
     , _pendingTxLogMap :: !TxLogMap
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
@@ -125,18 +135,28 @@ data SQLitePendingData = SQLitePendingData
 
 makeLenses ''SQLitePendingData
 
-emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
+type family PendingWrites (pv :: PactVersion) = w | w -> pv where
+    PendingWrites Pact4 = SQLitePendingWrites
+    PendingWrites Pact5 = InMemDb.Store
 
-data BlockHandle = BlockHandle
+emptySQLitePendingData :: w -> SQLitePendingData w
+emptySQLitePendingData w = SQLitePendingData mempty w mempty mempty
+
+data BlockHandle (pv :: PactVersion) = BlockHandle
     { _blockHandleTxId :: !Pact4.TxId
-    , _blockHandlePending :: !SQLitePendingData
+    , _blockHandlePending :: !(SQLitePendingData (PendingWrites pv))
     }
-    deriving (Eq, Show)
+deriving instance Eq (BlockHandle Pact4)
+deriving instance Eq (BlockHandle Pact5)
+deriving instance Show (BlockHandle Pact4)
+deriving instance Show (BlockHandle Pact5)
 makeLenses ''BlockHandle
 
-emptyBlockHandle :: Pact4.TxId -> BlockHandle
-emptyBlockHandle txid = BlockHandle txid emptySQLitePendingData
+emptyPact4BlockHandle :: Pact4.TxId -> BlockHandle Pact4
+emptyPact4BlockHandle txid = BlockHandle txid (emptySQLitePendingData mempty)
+
+emptyPact5BlockHandle :: Pact4.TxId -> BlockHandle Pact5
+emptyPact5BlockHandle txid = BlockHandle txid (emptySQLitePendingData InMemDb.empty)
 
 -- | The result of a historical lookup which might fail to even find the
 -- header the history is being queried for.
