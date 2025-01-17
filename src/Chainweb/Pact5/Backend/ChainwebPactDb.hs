@@ -102,7 +102,6 @@ import Prelude hiding (concat, log)
 
 -- pact
 
-import qualified Pact.JSON.Legacy.HashMap as LHM
 import qualified Pact.Types.Persistence as Pact4
 import Pact.Types.SQLite hiding (liftEither)
 
@@ -127,7 +126,6 @@ import Chainweb.Utils (sshow, T2)
 import Pact.Core.StableEncoding (encodeStable)
 import Data.Text (Text)
 import Chainweb.Version
-import Chainweb.Version.Guards (enableModuleNameFix, chainweb217Pact, pact42)
 import Data.DList (DList)
 import Data.ByteString (ByteString)
 import Chainweb.BlockHash
@@ -222,13 +220,8 @@ tableName = toUtf8 . Pact.renderTableName
 convKeySetName :: Pact.KeySetName -> SQ3.Utf8
 convKeySetName = toUtf8 . Pact.renderKeySetName
 
-convModuleName
-    :: Bool
-    -- ^ whether to apply module name fix
-    -> Pact.ModuleName
-    -> SQ3.Utf8
-convModuleName False (Pact.ModuleName name _) = toUtf8 name
-convModuleName True mn = toUtf8 $ Pact.renderModuleName mn
+convModuleName :: Pact.ModuleName -> SQ3.Utf8
+convModuleName mn = toUtf8 $ Pact.renderModuleName mn
 
 convNamespaceName :: Pact.NamespaceName -> SQ3.Utf8
 convNamespaceName (Pact.NamespaceName name) = toUtf8 name
@@ -320,17 +313,10 @@ chainwebPactBlockDb maybeLimit env = Pact5Db
 
 getPendingData :: HasCallStack => Text -> BlockHandler logger [SQLitePendingData]
 getPendingData msg = do
-    BlockHandle _ sql <- use bsBlockHandle
+    BlockHandle _ sql _ <- use bsBlockHandle
     ptx <- view _1 <$> getPendingTxOrError msg
     -- lookup in pending transactions first
     return $ [ptx, sql]
-
-forModuleNameFix :: (Bool -> BlockHandler logger a) -> BlockHandler logger a
-forModuleNameFix f = do
-    v <- view blockHandlerVersion
-    cid <- view blockHandlerChainId
-    bh <- view blockHandlerBlockHeight
-    f (enableModuleNameFix v cid bh)
 
 -- TODO: speed this up, cache it?
 tableExistsInDbAtHeight :: SQ3.Utf8 -> BlockHeight -> BlockHandler logger Bool
@@ -353,14 +339,14 @@ doReadRow
     -> Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> BlockHandler logger (Maybe v)
-doReadRow mlim d k = forModuleNameFix $ \mnFix ->
+doReadRow mlim d k =
     case d of
         Pact.DKeySets -> let f = (\v -> (view Pact.document <$> Pact._decodeKeySet Pact.serialisePact_lineinfo v)) in
             lookupWithKey (convKeySetName k) f (noCache f)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
         Pact.DModules -> let f = (\v -> (view Pact.document <$> Pact._decodeModuleData Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convModuleName mnFix k) f (noCacheChargeModuleSize f)
+            lookupWithKey (convModuleName k) f (noCacheChargeModuleSize f)
         Pact.DNamespaces -> let f = (\v -> (view Pact.document <$> Pact._decodeNamespace Pact.serialisePact_lineinfo v)) in
             lookupWithKey (convNamespaceName k) f (noCache f)
         Pact.DUserTables _ -> let f = (\v -> (view Pact.document <$> Pact._decodeRowData Pact.serialisePact_lineinfo v)) in
@@ -456,9 +442,9 @@ writeSys
     -> BlockHandler logger ()
 writeSys d k v = do
   txid <- use latestTxId
-  (kk, vv) <- forModuleNameFix $ \mnFix -> pure $ case d of
+  (kk, vv) <- pure $ case d of
       Pact.DKeySets -> (convKeySetName k, Pact._encodeKeySet Pact.serialisePact_lineinfo v)
-      Pact.DModules ->  (convModuleName mnFix k, Pact._encodeModuleData Pact.serialisePact_lineinfo v)
+      Pact.DModules ->  (convModuleName k, Pact._encodeModuleData Pact.serialisePact_lineinfo v)
       Pact.DNamespaces -> (convNamespaceName k, Pact._encodeNamespace Pact.serialisePact_lineinfo v)
       Pact.DDefPacts -> (convPactId k, Pact._encodeDefPactExec Pact.serialisePact_lineinfo v)
       Pact.DUserTables _ -> error "impossible"
@@ -554,10 +540,6 @@ doKeys
     -> Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> BlockHandler logger [k]
 doKeys mlim d = do
-    msort <- asks $ \e ->
-        if pact42 (_blockHandlerVersion e) (_blockHandlerChainId e) (_blockHandlerBlockHeight e)
-        then sort
-        else id
     dbKeys <- getDbKeys
     pb <- use (bsBlockHandle . blockHandlePending)
     (mptx, _) <- getPendingTxOrError "keys"
@@ -565,9 +547,7 @@ doKeys mlim d = do
     let memKeys = fmap (T.decodeUtf8 . _deltaRowKey)
                   $ collect pb ++ collect mptx
 
-    let !allKeys = msort -- becomes available with Pact42Upgrade
-                  $ LHM.sort
-                  $ dbKeys ++ memKeys
+    let !allKeys = sort (dbKeys ++ memKeys)
     case d of
         Pact.DKeySets -> do
             let parsed = map Pact.parseAnyKeysetName allKeys
@@ -660,12 +640,7 @@ doCreateUserTable mbh tn = do
             liftGas $ Pact.throwDbOpErrorGasM $ Pact.TableAlreadyExists tn
         Just () -> do
             -- then check if it is in the db
-            lcTables <- asks $ \e ->
-                chainweb217Pact
-                (_blockHandlerVersion e)
-                (_blockHandlerChainId e)
-                (_blockHandlerBlockHeight e)
-            cond <- inDb lcTables $ SQ3.Utf8 $ T.encodeUtf8 $ Pact.renderTableName tn
+            cond <- inDb $ SQ3.Utf8 $ T.encodeUtf8 $ Pact.renderTableName tn
             when cond $
                 liftGas $ Pact.throwDbOpErrorGasM $ Pact.TableAlreadyExists tn
 
@@ -673,23 +648,19 @@ doCreateUserTable mbh tn = do
                 $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 $ Pact.renderTableName tn))
             recordTableCreationTxLog tn
     where
-    inDb lcTables t = do
+    inDb t = do
         r <- callDb "doCreateUserTable" $ \db ->
-            qry db (tableLookupStmt lcTables) [SText t] [RText]
+            qry db tableLookupStmt [SText t] [RText]
         case r of
-            [[SText rname]] ->
+            [[SText _]] ->
                 case mbh of
                     -- if lowercase matching, no need to check equality
                     -- (wasn't needed before either but leaving alone for replay)
-                    Nothing -> return (lcTables || rname == t)
-                    Just bh -> do
-                        existsInDb <- tableExistsInDbAtHeight t bh
-                        return $ existsInDb && (lcTables || rname == t)
+                    Nothing -> return True
+                    Just bh -> tableExistsInDbAtHeight t bh
             _ -> return False
 
-    tableLookupStmt False =
-        "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
-    tableLookupStmt True =
+    tableLookupStmt =
         "SELECT name FROM sqlite_master WHERE type='table' and lower(name)=lower(?);"
 
 doRollback :: BlockHandler logger ()
