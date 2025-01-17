@@ -84,6 +84,7 @@ import Numeric.AffineSpace
 import Data.ByteString (ByteString)
 import Data.Either (partitionEithers)
 import Control.Lens
+import Utils.Logging.Trace (withEvent)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -496,23 +497,27 @@ txTTLCheck txcfg now t = do
 -- the latter case.
 --
 insertCheckInMem'
-    :: forall t
-    .  NFData t
-    => InMemConfig t    -- ^ in-memory config
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Vector (T2 TransactionHash t))
-insertCheckInMem' cfg lock txs
+insertCheckInMem' logger cfg lock txs
   | V.null txs = pure V.empty
   | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
     curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
-    let withHashes :: Vector (T2 TransactionHash t)
-        withHashes = flip V.mapMaybe txs $ \tx ->
-          let !h = hasher tx
-          in (T2 h) <$> hush (validateOne cfg badmap curTxIdx now tx h)
+    withHashes :: Vector (T2 TransactionHash t) <- fmap V.catMaybes $ do
+      flip V.mapM txs $ \tx -> do
+        let !h = hasher tx
+        let validationResult = validateOne cfg badmap curTxIdx now tx h
+        case validationResult of
+          Left err -> logFunctionText logger Debug $ "insertCheckInMem' (CheckedInsert validateOne): " <> sshow err
+          Right _ -> pure ()
+        pure (T2 h <$> hush validationResult)
 
     V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
   where
@@ -544,7 +549,7 @@ insertInMem logger cfg lock runCheck txs0 = do
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = case runCheck of
-      CheckedInsert -> insertCheckInMem' cfg lock txs0
+      CheckedInsert -> insertCheckInMem' logger cfg lock txs0
       UncheckedInsert -> return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg
@@ -575,7 +580,7 @@ getBlockInMem
     -> IO (Vector to)
 getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight phash = do
     logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
-    withMVar lock $ \mdata -> do
+    withMVar lock $ \mdata -> withEvent "getBlockInMem" $ do
         now <- getCurrentTimeIntegral
 
         pendingDataBeforePrune <- readIORef (_inmemPending mdata)
@@ -604,7 +609,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
         mout <- V.thaw $ V.map (\(_, (_, t, tOut)) -> (t, tOut)) out
-        TimSort.sortBy (compareOnGasPrice txcfg `on` fst) mout
+        withEvent "Tim Sorton" $ TimSort.sortBy (compareOnGasPrice txcfg `on` fst) mout
         fmap snd <$> V.unsafeFreeze mout
 
   where

@@ -81,6 +81,9 @@ let haskellSrc = with nix-filter.lib; filter {
       modules = [
         {
           packages.http2.doHaddock = false;
+          #enableProfiling = true;
+          #enableLibraryProfiling = true;
+          #profilingDetail = "late";
         }
       ];
     };

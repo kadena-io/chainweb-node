@@ -16,10 +16,39 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
+import Chainweb.BlockCreationTime
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
+import Chainweb.ChainId
+import Chainweb.Graph
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (toTxCreationTime)
+import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Storage.Table.HashMap hiding (toList)
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)
+import Chainweb.Time
+import Chainweb.Utils
+import Chainweb.Utils.Bench
+import Chainweb.Version
+import Chainweb.Version.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Lens hiding (elements, from, to, (.=))
@@ -27,8 +56,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
-import qualified Criterion.Main as C
-
+import Criterion.Main qualified as C
 import Data.Aeson hiding (Error)
 import Data.ByteString (ByteString)
 import Data.Char
@@ -38,33 +66,22 @@ import Data.FileEmbed
 import Data.Foldable (toList)
 import Data.IORef
 import Data.List (uncons)
-import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NEL
+import Data.List.NonEmpty qualified as NEL
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.String
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text.Encoding
-import qualified Data.Text.IO as T
-import qualified Data.Vector as V
+import Data.Text.IO qualified as T
+import Data.Vector qualified as V
 import Data.Word
-import qualified Data.Yaml as Y
-
+import Data.Yaml qualified as Y
 import GHC.Generics hiding (from, to)
-
-import System.Environment
-import System.LogLevel
-import System.Random
-
-import Text.Printf
-
--- pact imports
-
 import Pact.ApiReq
 import Pact.Types.Capability
-import qualified Pact.Types.ChainId as Pact
+import Pact.Types.ChainId qualified as Pact
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -73,41 +90,9 @@ import Pact.Types.Info
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Util hiding (unwrap)
-
--- chainweb imports
-
-import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.Internal
-import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId
-import Chainweb.Graph
-import Chainweb.Logger
-import Chainweb.Mempool.Mempool
-import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Compaction qualified as C
-
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (toTxCreationTime)
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.InMemory
-import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)
-import Chainweb.Time
-import qualified Chainweb.Pact4.Transaction as Pact4
-import Chainweb.Utils
-import Chainweb.Utils.Bench
-import Chainweb.Version
-import Chainweb.Version.Utils
-
-import Chainweb.Storage.Table.HashMap hiding (toList)
-import Chainweb.Storage.Table.RocksDB
+import System.Environment
+import System.LogLevel
+import System.Random
 
 -- -------------------------------------------------------------------------- --
 -- For testing with GHCI
@@ -119,52 +104,19 @@ _run args = withTempRocksDb "forkingbench" $ \rdb ->
 -- -------------------------------------------------------------------------- --
 -- Benchmarks
 
-data BenchConfig = BenchConfig
-  { numPriorBlocks :: Word64
-    -- ^ number of blocks to create prior to benchmarking
-  , validate :: Validate
-    -- ^ whether or not to validate the blocks as part of the benchmark
-  , compact :: Compact
-    -- ^ whether or not to compact the pact database prior to benchmarking
-  , persistIntraBlockWrites :: IntraBlockPersistence
-  }
-
-defBenchConfig :: BenchConfig
-defBenchConfig = BenchConfig
-  { numPriorBlocks = 100
-  , validate = DontValidate
-  , compact = DontCompact
-  , persistIntraBlockWrites = PersistIntraBlockWrites
-  }
-
-data Compact = DoCompact | DontCompact
-  deriving stock (Eq)
-
-data Validate = DoValidate | DontValidate
-  deriving stock (Eq)
-
 bench :: RocksDb -> C.Benchmark
-bench rdb = C.bgroup "PactService" $
+bench rdb = C.bgroup "ForkingBench" $
     [ forkingBench
     , doubleForkingBench
-    ] ++ map (oneBlock defBenchConfig) [1, 10, 50, 100]
-      ++ map (oneBlock validateCfg) [0, 1, 10, 50, 100]
-      ++ map (oneBlock validateCfg { persistIntraBlockWrites = DoNotPersistIntraBlockWrites })
-        [0, 1, 10, 50, 100]
-      ++ map (oneBlock compactCfg) [0, 1, 10, 50, 100]
-      ++ map (oneBlock compactValidateCfg) [1, 10, 50, 100]
+    ]
   where
-    validateCfg = defBenchConfig { validate = DoValidate }
-    compactCfg = defBenchConfig { compact = DoCompact }
-    compactValidateCfg = compactCfg { validate = DoValidate }
-
-    forkingBench = withResources rdb 10 Quiet DontCompact PersistIntraBlockWrites
+    forkingBench = withResources rdb 10 Quiet PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "forkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
               void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
-    doubleForkingBench = withResources rdb 10 Quiet DontCompact PersistIntraBlockWrites
+    doubleForkingBench = withResources rdb 10 Quiet PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "doubleForkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
@@ -172,23 +124,6 @@ bench rdb = C.bgroup "PactService" $
                   forkLength2 = 5
               void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
               void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
-
-    oneBlock :: BenchConfig -> Int -> C.Benchmark
-    oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact cfg.persistIntraBlockWrites go
-      where
-        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
-          C.bench name $ C.whnfIO $ do
-            writeIORef txsPerBlock txCount
-            let (T3 _ join1 _) = last mainLineBlocks
-            createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue
-        name = "block-new ["
-          ++ List.intercalate ","
-               [ "txCount=" ++ show txCount
-               , "validate=" ++ show (cfg.validate == DoValidate)
-               , "compact=" ++ show (cfg.compact == DoCompact)
-               , "persist=" ++ show cfg.persistIntraBlockWrites
-               ]
-          ++ "]"
 
 -- -------------------------------------------------------------------------- --
 -- Benchmark Function
@@ -228,37 +163,34 @@ mineBlock
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb pact = do
-    r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
+    r@(T3 _ newHeader payload) <- createBlock parent nonce pact
     addNewPayload pdb (succ (view blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
 
 createBlock
-    :: Validate
-    -> ParentHeader
+    :: ParentHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-createBlock validate parent nonce pact = do
+createBlock parent nonce pact = do
+    -- assemble block without nonce and timestamp
 
-     -- assemble block without nonce and timestamp
+    bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
+    let payload = forAnyPactVersion finalizeBlock bip
 
-     bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
-     let payload = forAnyPactVersion finalizeBlock bip
-
-     let creationTime = add second $ view blockCreationTime $ _parentHeader parent
-     let bh = newBlockHeader
+    let creationTime = add second $ view blockCreationTime $ _parentHeader parent
+    let bh = newBlockHeader
               mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
               parent
 
-     when (validate == DoValidate) $ do
-       void $ validateBlock bh (CheckablePayloadWithOutputs payload) pact
+    void $ validateBlock bh (CheckablePayloadWithOutputs payload) pact
 
-     return $ T3 parent bh payload
+    return $ T3 parent bh payload
 
 -- -------------------------------------------------------------------------- --
 -- Benchmark Resources
@@ -288,11 +220,10 @@ withResources :: ()
   => RocksDb
   -> Word64
   -> LogLevel
-  -> Compact
   -> IntraBlockPersistence
   -> RunPactService
   -> C.Benchmark
-withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create destroy unwrap
+withResources rdb trunkLength logLevel p f = C.envWithCleanup create destroy unwrap
   where
 
     unwrap ~(NoopNFData (Resources {..})) =
@@ -313,21 +244,7 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
             playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd srcPactService) nonceCounter
 
           (sqlEnv, pactService) <- do
-            if compact == DoCompact
-            then do
-              targetSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
-              C.withDefaultLogger Error $ \lgr -> do
-                C.compactPactState lgr C.defaultRetainment (BlockHeight trunkLength) srcSqlEnv targetSqlEnv
-              targetPactService <-
-                startPact testVer logger blockHeaderDb payloadDb mp targetSqlEnv
-
-              -- Stop the previous pact service/close the sqlite connection
-              stopPact srcPactService
-              stopSqliteDb srcSqlEnv
-
-              pure (targetSqlEnv, targetPactService)
-            else do
-              pure (srcSqlEnv, srcPactService)
+            pure (srcSqlEnv, srcPactService)
 
           pure (sqlEnv, pactService, mainTrunkBlocks)
 
@@ -445,6 +362,7 @@ cid = someChainId testVer
 
 testVer :: ChainwebVersion
 testVer = slowForkingCpmTestVersion petersonChainGraph
+--testVer = pact5SlowCpmTestVersion petersonChainGraph
 
 -- MORE CODE DUPLICATION
 
@@ -461,7 +379,7 @@ createCoinAccount v meta name = do
     res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) [] (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
-    theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
+    theCode = "1" --printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
     isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 
