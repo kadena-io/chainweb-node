@@ -372,6 +372,9 @@ doReadRow mlim d k = do
                         Pact.DModules ->
                             BlockHandler $ lift $ lift
                                 $ Pact.chargeGasM (Pact.GModuleOp (Pact.MOpLoadModule (BS.length encodedValue)))
+                        Pact.DUserTables {} -> do
+                            bsPendingTx . _Just . _1 . pendingWrites %=
+                                InMemDb.insert d k (InMemDb.ReadEntry encodedValue decodedValue)
                         _ -> return ()
                     return (Just decodedValue)
   where
