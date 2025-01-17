@@ -6,6 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -39,7 +40,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Decimal
 import Data.Functor.Product
-import Data.HashMap.Strict qualified as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -65,13 +65,15 @@ import Pact.Core.Signer
 import Pact.Core.Verifiers
 import Pact.Types.KeySet qualified as Pact4
 import Pact.JSON.Encode qualified as J
-import PropertyMatchers ((?))
+import PropertyMatchers ((?), pattern (:=>))
 import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf
 import Chainweb.Logger
+import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
 import Chainweb.Pact.Backend.Types
+import qualified Data.Map as Map
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"
@@ -401,7 +403,7 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "miner balance after redeeming gas should have increased" startMinerBal endMinerBal
 
 applyCmdSpec :: RocksDb -> IO ()
-applyCmdSpec rdb = readFromAfterGenesis v rdb $
+applyCmdSpec rdb = readFromAfterGenesis v rdb $ do
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         let expectedStartingBal = 100_000_000
@@ -458,6 +460,23 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "miner balance after redeeming gas should have increased"
             (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed) * 2)
             endMinerBal
+
+    -- test cache contents
+    use pbBlockHandle >>= \bh -> liftIO $ bh
+            & P.fun _blockHandlePending
+            ? P.fun _pendingWrites
+            ? P.checkAll
+                [ P.fun InMemDb.userTables
+                    ? P.alignExact ? Map.fromList
+                        [ TableName "coin-table" (ModuleName "coin" Nothing) :=>
+                            P.alignExact ? Map.fromList
+                                [ RowKey "NoMiner" :=>
+                                    P.match InMemDb._WriteEntry P.succeed
+                                , RowKey "sender00" :=>
+                                    P.match InMemDb._WriteEntry P.succeed
+                                ]
+                        ]
+                ]
 
 quirkSpec :: RocksDb -> IO ()
 quirkSpec rdb = readFromAfterGenesis quirkVer rdb $
@@ -854,8 +873,12 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
     -- Assert that the writes from the failed transaction didn't make it into the db
     liftIO $ do
         let finalPendingWrites = _pendingWrites $ _blockHandlePending finalHandle
-        assertBool "there are pending writes to coin" (HashMap.member "coin_coin-table" finalPendingWrites)
-        assertBool "there are no pending writes to SYS:Modules" (not $ HashMap.member "SYS:Modules" finalPendingWrites)
+        assertBool "there are pending writes to coin"
+            (Map.member
+                (TableName "coin-table" (ModuleName "coin" Nothing))
+                (InMemDb.userTables finalPendingWrites))
+        assertBool "there are no pending writes to SYS:Modules"
+            (Map.null $ InMemDb.modules finalPendingWrites)
 
 cid :: ChainId
 cid = unsafeChainId 0

@@ -153,7 +153,7 @@ readFrom
   => Checkpointer logger
   -> Maybe ParentHeader
   -> PactVersionT pv
-  -> (PactDbFor logger pv -> BlockHandle -> IO a)
+  -> (PactDbFor logger pv -> BlockHandle pv -> IO a)
   -> IO (Historical a)
 readFrom res maybeParent pactVersion doRead = do
   let currentHeight = case maybeParent of
@@ -193,7 +193,7 @@ readFrom res maybeParent pactVersion doRead = do
               pactDb
                 | parentIsLatestHeader = Pact4.chainwebPactDb
                 | otherwise = Pact4.rewoundPactDb currentHeight startTxId
-            r <- doRead (mkBlockDbEnv pactDb) (emptyBlockHandle startTxId)
+            r <- doRead (mkBlockDbEnv pactDb) (emptyPact4BlockHandle startTxId)
             finalCache <- Pact4._bsModuleCache . Pact4._benvBlockState <$> readMVar newDbEnv
             return (r, finalCache)
 
@@ -215,14 +215,13 @@ readFrom res maybeParent pactVersion doRead = do
                 , Pact5._blockHandlerChainId = res.cpChainId
                 , Pact5._blockHandlerBlockHeight = currentHeight
                 , Pact5._blockHandlerMode = Pact5.Transactional
-                , Pact5._blockHandlerPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
                 }
             let upperBound
                   | parentIsLatestHeader = Nothing
                   | otherwise = Just (currentHeight, coerce @Pact4.TxId @Pact5.TxId startTxId)
             let pactDb
                   = Pact5.chainwebPactBlockDb upperBound blockHandlerEnv
-            r <- doRead pactDb (emptyBlockHandle startTxId)
+            r <- doRead pactDb (emptyPact5BlockHandle startTxId)
             return (r, sharedModuleCache)
           | otherwise ->
             internalError $
@@ -345,7 +344,7 @@ restoreAndSave res rewindParent blocks = do
                       <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight newBh)
                 _ -> return ()
               -- persist any changes to the database
-              PactDb.commitBlockStateToDatabase res.cpSql
+              Pact4.commitBlockStateToDatabase res.cpSql
                 (view blockHash newBh) (view blockHeight newBh)
                 (BlockHandle (Pact4._bsTxId nextState) (Pact4._bsPendingBlock nextState))
               return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
@@ -359,11 +358,10 @@ restoreAndSave res rewindParent blocks = do
                   , Pact5._blockHandlerBlockHeight = bh
                   , Pact5._blockHandlerChainId = res.cpChainId
                   , Pact5._blockHandlerMode = Pact5.Transactional
-                  , Pact5._blockHandlerPersistIntraBlockWrites = res.cpIntraBlockPersistence
                   }
                 pactDb = Pact5.chainwebPactBlockDb Nothing blockEnv
               -- run the block
-              ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyBlockHandle txid)
+              ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyPact5BlockHandle txid)
               -- compute the accumulator early
               let !m'' = m <> m'
               case maybeParent of
@@ -375,7 +373,7 @@ restoreAndSave res rewindParent blocks = do
                     "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
                       <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight nextBlockHeader)
                 _ -> return ()
-              PactDb.commitBlockStateToDatabase res.cpSql
+              Pact5.commitBlockStateToDatabase res.cpSql
                 (view blockHash nextBlockHeader) (view blockHeight nextBlockHeader)
                 blockHandle
 

@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -17,6 +16,7 @@
 
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | The database operations that manipulate and read the Pact state.
 
@@ -67,9 +67,9 @@ module Chainweb.Pact5.Backend.ChainwebPactDb
     , toPactTxLog
     , domainTableName
     , convRowKey
+    , commitBlockStateToDatabase
     ) where
 
-import Data.Coerce
 import Control.Applicative
 import Control.Exception.Safe
 import Control.Lens
@@ -85,9 +85,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
 import Data.List(sort)
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -135,6 +132,10 @@ import Data.HashMap.Strict (HashMap)
 import Pact.Core.Command.Types (RequestKey (..))
 import Pact.Core.Hash
 import qualified Data.HashMap.Strict as HM
+import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
+import Data.Singletons (Dict(..))
+import Chainweb.Utils.Serialization (runPutS)
+import Data.Foldable
 
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
@@ -143,20 +144,25 @@ data BlockHandlerEnv logger = BlockHandlerEnv
     , _blockHandlerBlockHeight :: !BlockHeight
     , _blockHandlerChainId :: !ChainId
     , _blockHandlerMode :: !Pact.ExecutionMode
-    , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
     }
 
 -- | The state used by database operations.
 -- Includes both the state re: the whole block, and the state re: a transaction in progress.
 data BlockState = BlockState
-    { _bsBlockHandle :: !BlockHandle
-    , _bsPendingTx :: !(Maybe (SQLitePendingData, DList (Pact.TxLog ByteString)))
+    { _bsBlockHandle :: !(BlockHandle Pact5)
+    , _bsPendingTx :: !(Maybe (SQLitePendingData InMemDb.Store, DList (Pact.TxLog ByteString)))
     }
 
 makeLenses ''BlockState
-makeLenses ''BlockHandlerEnv
+makeLensesWith
+    (lensRulesFor
+        [ ("_blockHandlerDb", "blockHandlerDb")
+        , ("_blockHandlerLogger", "blockHandlerLogger")
+        , ("_blockHandlerMode", "blockHandlerMode")
+        ])
+    ''BlockHandlerEnv
 
-getPendingTxOrError :: Text -> BlockHandler logger (SQLitePendingData, DList (Pact.TxLog ByteString))
+getPendingTxOrError :: Text -> BlockHandler logger (SQLitePendingData InMemDb.Store, DList (Pact.TxLog ByteString))
 getPendingTxOrError msg = do
     use bsPendingTx >>= \case
         Nothing -> liftGas $ Pact.throwDbOpErrorGasM (Pact.NotInTx msg)
@@ -166,10 +172,10 @@ getPendingTxOrError msg = do
 data Pact5Db = Pact5Db
     { doPact5DbTransaction
         :: forall a
-        . BlockHandle
+        . BlockHandle Pact5
         -> Maybe RequestKey
         -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> IO a)
-        -> IO (a, BlockHandle)
+        -> IO (a, BlockHandle Pact5)
         -- ^ Give this function a BlockHandle representing the state of a pending
         -- block and it will pass you a PactDb which contains the Pact state as of
         -- that point in the block. After you're done, it passes you back a
@@ -214,8 +220,8 @@ callDb callerName action = do
 domainTableName :: Pact.Domain k v b i -> SQ3.Utf8
 domainTableName = toUtf8 . Pact.renderDomain
 
-tableName :: Pact.TableName -> SQ3.Utf8
-tableName = toUtf8 . Pact.renderTableName
+tableNameToSQL :: Pact.TableName -> SQ3.Utf8
+tableNameToSQL = toUtf8 . Pact.renderTableName
 
 convKeySetName :: Pact.KeySetName -> SQ3.Utf8
 convKeySetName = toUtf8 . Pact.renderKeySetName
@@ -311,9 +317,9 @@ chainwebPactBlockDb maybeLimit env = Pact5Db
         fmap (unHash . unRequestKey)
     }
 
-getPendingData :: HasCallStack => Text -> BlockHandler logger [SQLitePendingData]
+getPendingData :: HasCallStack => Text -> BlockHandler logger [SQLitePendingData InMemDb.Store]
 getPendingData msg = do
-    BlockHandle _ sql _ <- use bsBlockHandle
+    BlockHandle _ sql <- use bsBlockHandle
     ptx <- view _1 <$> getPendingTxOrError msg
     -- lookup in pending transactions first
     return $ [ptx, sql]
@@ -334,61 +340,71 @@ tableExistsInDbAtHeight tablename bh = do
             _ -> return True
 
 doReadRow
-    :: Maybe (BlockHeight, Pact.TxId)
+    :: forall k v logger
+    . Maybe (BlockHeight, Pact.TxId)
     -- ^ the highest block we should be reading writes from
     -> Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> BlockHandler logger (Maybe v)
-doReadRow mlim d k =
-    case d of
-        Pact.DKeySets -> let f = (\v -> (view Pact.document <$> Pact._decodeKeySet Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convKeySetName k) f (noCache f)
-        -- TODO: This is incomplete (the modules case), due to namespace
-        -- resolution concerns
-        Pact.DModules -> let f = (\v -> (view Pact.document <$> Pact._decodeModuleData Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convModuleName k) f (noCacheChargeModuleSize f)
-        Pact.DNamespaces -> let f = (\v -> (view Pact.document <$> Pact._decodeNamespace Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convNamespaceName k) f (noCache f)
-        Pact.DUserTables _ -> let f = (\v -> (view Pact.document <$> Pact._decodeRowData Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convRowKey k) f (noCache f)
-        Pact.DDefPacts -> let f = (\v -> (view Pact.document <$> Pact._decodeDefPactExec Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convPactId k) f (noCache f)
-        Pact.DModuleSource -> let f = (\v -> (view Pact.document <$> Pact._decodeModuleCode Pact.serialisePact_lineinfo v)) in
-            lookupWithKey (convHashedModuleName k) f (noCache f)
+doReadRow mlim d k = do
+    pendingData <- getPendingData "doReadRow"
+    let !(decodeValue, encodedKey, ordDict :: Dict (Ord k) ()) = case d of
+            Pact.DKeySets ->
+                (Pact._decodeKeySet Pact.serialisePact_lineinfo, convKeySetName k, Dict ())
+            -- TODO: This is incomplete (the modules case), due to namespace
+            -- resolution concerns
+            Pact.DModules ->
+                (Pact._decodeModuleData Pact.serialisePact_lineinfo, convModuleName k, Dict ())
+            Pact.DNamespaces ->
+                (Pact._decodeNamespace Pact.serialisePact_lineinfo, convNamespaceName k, Dict ())
+            Pact.DUserTables _ ->
+                (Pact._decodeRowData Pact.serialisePact_lineinfo, convRowKey k, Dict ())
+            Pact.DDefPacts ->
+                (Pact._decodeDefPactExec Pact.serialisePact_lineinfo, convPactId k, Dict ())
+            Pact.DModuleSource ->
+                (Pact._decodeModuleCode Pact.serialisePact_lineinfo, convHashedModuleName k, Dict ())
+    case ordDict of
+        Dict () -> do
+            lookupWithKey pendingData encodedKey (fmap (view Pact.document) . decodeValue) >>= \case
+                Nothing -> return Nothing
+                Just (encodedValue, decodedValue) -> do
+                    case d of
+                        Pact.DModules ->
+                            BlockHandler $ lift $ lift
+                                $ Pact.chargeGasM (Pact.GModuleOp (Pact.MOpLoadModule (BS.length encodedValue)))
+                        _ -> return ()
+                    return (Just decodedValue)
   where
-    tablename@(SQ3.Utf8 tableNameBS) = domainTableName d
+    tablename = domainTableName d
 
     lookupWithKey
-        :: forall logger v .
-            SQ3.Utf8
+        :: Ord k
+        => [SQLitePendingData InMemDb.Store]
+        -> SQ3.Utf8
         -> (BS.ByteString -> Maybe v)
-        -> (SQ3.Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger) v)
-        -> BlockHandler logger (Maybe v)
-    lookupWithKey key f checkCache = do
-        pds <- getPendingData "read"
-        let lookPD = foldr1 (<|>) $ map (lookupInPendingData key f) pds
-        let lookDB = lookupInDb key f checkCache
+        -> BlockHandler logger (Maybe (BS.ByteString, v))
+    lookupWithKey pds key f = do
+        let lookPD = asum $ map lookupInMem pds
+        let lookDB = lookupInDb f key
         runMaybeT (lookPD <|> lookDB)
 
-    lookupInPendingData
-        :: forall logger v .
-            SQ3.Utf8
-        -> (BS.ByteString -> Maybe v)
-        -> SQLitePendingData
-        -> MaybeT (BlockHandler logger) v
-    lookupInPendingData (SQ3.Utf8 rowkey) f p = do
+    lookupInMem
+        :: Ord k
+        => SQLitePendingData InMemDb.Store
+        -> MaybeT (BlockHandler logger) (BS.ByteString, v)
+    lookupInMem p = do
         -- we get the latest-written value at this rowkey
-        allKeys <- hoistMaybe $ HashMap.lookup tableNameBS (_pendingWrites p)
-        ddata <- _deltaData . NE.head <$> hoistMaybe (HashMap.lookup rowkey allKeys)
-        MaybeT $ return $! f ddata
+        let store = _pendingWrites p
+        case InMemDb.lookup d k store of
+            Nothing -> empty
+            Just (InMemDb.ReadEntry bs a) -> return (bs, a)
+            Just (InMemDb.WriteEntry _ bs a) -> return (bs, a)
 
     lookupInDb
-        :: forall logger v .
-           SQ3.Utf8
-        -> (BS.ByteString -> Maybe v)
-        -> (SQ3.Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger) v)
-        -> MaybeT (BlockHandler logger) v
-    lookupInDb rowkey _ checkCache = do
+        :: (BS.ByteString -> Maybe v)
+        -> SQ3.Utf8
+        -> MaybeT (BlockHandler logger) (BS.ByteString, v)
+    lookupInDb decode rowkey = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTablePendingCreation "read" tablename
@@ -404,26 +420,10 @@ doReadRow mlim d k =
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> checkCache rowkey a
+            [[SBlob a]] -> MaybeT $ return $ (a,) <$> decode a
             err -> internalDbError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
-
-    noCache
-        :: (BS.ByteString -> Maybe v)
-        -> SQ3.Utf8
-        -> BS.ByteString
-        -> MaybeT (BlockHandler logger) v
-    noCache f _key rowdata = MaybeT $ return $! f rowdata
-
-    noCacheChargeModuleSize
-        :: (BS.ByteString -> Maybe (Pact.ModuleData Pact.CoreBuiltin Pact.Info))
-        -> SQ3.Utf8
-        -> BS.ByteString
-        -> MaybeT (BlockHandler logger) (Pact.ModuleData Pact.CoreBuiltin Pact.Info)
-    noCacheChargeModuleSize f _key rowdata = do
-        lift $ BlockHandler $ lift $ lift (Pact.chargeGasM (Pact.GModuleOp (Pact.MOpLoadModule (BS.length rowdata))))
-        MaybeT $ return $! f rowdata
 
 
 checkDbTablePendingCreation :: Text -> SQ3.Utf8 -> MaybeT (BlockHandler logger) ()
@@ -442,33 +442,26 @@ writeSys
     -> BlockHandler logger ()
 writeSys d k v = do
   txid <- use latestTxId
-  (kk, vv) <- pure $ case d of
-      Pact.DKeySets -> (convKeySetName k, Pact._encodeKeySet Pact.serialisePact_lineinfo v)
-      Pact.DModules ->  (convModuleName k, Pact._encodeModuleData Pact.serialisePact_lineinfo v)
-      Pact.DNamespaces -> (convNamespaceName k, Pact._encodeNamespace Pact.serialisePact_lineinfo v)
-      Pact.DDefPacts -> (convPactId k, Pact._encodeDefPactExec Pact.serialisePact_lineinfo v)
-      Pact.DUserTables _ -> error "impossible"
-      Pact.DModuleSource -> (convHashedModuleName k, Pact._encodeModuleCode Pact.serialisePact_lineinfo v)
-  recordPendingUpdate kk (toUtf8 tablename) txid vv
+  let (kk, vv) = case d of
+        Pact.DKeySets -> (convKeySetName k, Pact._encodeKeySet Pact.serialisePact_lineinfo v)
+        Pact.DModules ->  (convModuleName k, Pact._encodeModuleData Pact.serialisePact_lineinfo v)
+        Pact.DNamespaces -> (convNamespaceName k, Pact._encodeNamespace Pact.serialisePact_lineinfo v)
+        Pact.DDefPacts -> (convPactId k, Pact._encodeDefPactExec Pact.serialisePact_lineinfo v)
+        Pact.DUserTables _ -> error "impossible"
+        Pact.DModuleSource -> (convHashedModuleName k, Pact._encodeModuleCode Pact.serialisePact_lineinfo v)
+  recordPendingUpdate d k txid (vv, v)
   recordTxLog d kk vv
-    where
-    tablename = Pact.renderDomain d
 
 recordPendingUpdate
-    :: SQ3.Utf8
-    -> SQ3.Utf8
+    :: Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    -> k
     -> Pact.TxId
-    -> BS.ByteString
+    -> (ByteString, v)
     -> BlockHandler logger ()
-recordPendingUpdate (SQ3.Utf8 key) (SQ3.Utf8 tn) txid vs = modifyPendingData "write" modf
+recordPendingUpdate d k txid (encodedValue, decodedValue) = modifyPendingData "write" modf
   where
-    delta = SQLiteRowDelta tn (coerce txid) key vs
-
-    modf = over pendingWrites upd
-    upd = HashMap.unionWith
-        HashMap.union
-        (HashMap.singleton tn
-            (HashMap.singleton key (NE.singleton delta)))
+    modf = over pendingWrites
+        (InMemDb.insert d k (InMemDb.WriteEntry txid encodedValue decodedValue))
 
 checkInsertIsOK
     :: Maybe (BlockHeight, Pact.TxId)
@@ -506,19 +499,18 @@ writeUser mlim wt d k rowdata@(Pact.RowData row) = do
     liftGas (Pact._encodeRowData Pact.serialisePact_lineinfo row') >>=
         \encoded -> recordTxLog d (convRowKey k) encoded
   where
-  tn = Pact.renderDomain d
 
   upd txid (Pact.RowData oldrow) = do
       let row' = Pact.RowData (M.union row oldrow)
       liftGas (Pact._encodeRowData Pact.serialisePact_lineinfo row') >>=
           \encoded -> do
-              recordPendingUpdate (convRowKey k) (toUtf8 tn) (Pact.TxId txid) encoded
+              recordPendingUpdate d k (Pact.TxId txid) (encoded, row')
               return row'
 
   ins txid = do
       liftGas (Pact._encodeRowData Pact.serialisePact_lineinfo rowdata) >>=
           \encoded -> do
-              recordPendingUpdate (convRowKey k) (toUtf8 tn) (Pact.TxId txid) encoded
+              recordPendingUpdate d k (Pact.TxId txid) (encoded, rowdata)
               return rowdata
 
 doWriteRow
@@ -544,29 +536,30 @@ doKeys mlim d = do
     pb <- use (bsBlockHandle . blockHandlePending)
     (mptx, _) <- getPendingTxOrError "keys"
 
-    let memKeys = fmap (T.decodeUtf8 . _deltaRowKey)
-                  $ collect pb ++ collect mptx
+    let memKeys = collect pb ++ collect mptx
 
-    let !allKeys = sort (dbKeys ++ memKeys)
-    case d of
+    (parsedKeys, ordDict :: Dict (Ord k) ()) <- case d of
         Pact.DKeySets -> do
-            let parsed = map Pact.parseAnyKeysetName allKeys
-            case sequence parsed of
+            let parsed = traverse Pact.parseAnyKeysetName dbKeys
+            case parsed of
               Left msg -> internalDbError $ "doKeys.DKeySets: unexpected decoding " <> T.pack msg
-              Right v -> pure v
+              Right v -> pure (v, Dict ())
         Pact.DModules -> do
-            let parsed = map Pact.parseModuleName allKeys
-            case sequence parsed of
+            let parsed = traverse Pact.parseModuleName dbKeys
+            case parsed of
               Nothing -> internalDbError $ "doKeys.DModules: unexpected decoding"
-              Just v -> pure v
-        Pact.DNamespaces -> pure $ map Pact.NamespaceName allKeys
-        Pact.DDefPacts ->  pure $ map Pact.DefPactId allKeys
-        Pact.DUserTables _ -> pure $ map Pact.RowKey allKeys
+              Just v -> pure (v, Dict ())
+        Pact.DNamespaces -> pure (map Pact.NamespaceName dbKeys, Dict ())
+        Pact.DDefPacts ->  pure (map Pact.DefPactId dbKeys, Dict ())
+        Pact.DUserTables _ -> pure (map Pact.RowKey dbKeys, Dict ())
         Pact.DModuleSource -> do
-            let parsed = map Pact.parseHashedModuleName allKeys
+            let parsed = map Pact.parseHashedModuleName dbKeys
             case sequence parsed of
-              Just v -> pure v
+              Just v -> pure (v, Dict ())
               Nothing -> internalDbError $ "doKeys.DModuleSources: unexpected decoding"
+    case ordDict of
+        Dict () ->
+            return $ sort (parsedKeys ++ memKeys)
 
     where
     blockLimitStmt = maybe "" (const " WHERE txid < ?;") mlim
@@ -585,9 +578,8 @@ doKeys mlim d = do
                         [SText k] -> return $ fromUtf8 k
                         _ -> internalDbError "doKeys: The impossible happened."
 
-    tn@(SQ3.Utf8 tnBS) = toUtf8 $ Pact.renderDomain d
-    collect p =
-        concatMap NE.toList $ HashMap.elems $ fromMaybe mempty $ HashMap.lookup tnBS (_pendingWrites p)
+    tn = toUtf8 $ Pact.renderDomain d
+    collect p = InMemDb.keys d (_pendingWrites p)
 
 failIfTableDoesNotExistInDbAtHeight
     :: T.Text -> SQ3.Utf8 -> BlockHeight -> BlockHandler logger ()
@@ -621,7 +613,7 @@ recordTableCreationTxLog tn = do
 
 modifyPendingData
     :: Text
-    -> (SQLitePendingData -> SQLitePendingData)
+    -> (SQLitePendingData InMemDb.Store -> SQLitePendingData InMemDb.Store)
     -> BlockHandler logger ()
 modifyPendingData msg f = do
     (pending, txlogs) <- getPendingTxOrError msg
@@ -634,7 +626,7 @@ doCreateUserTable
     -> BlockHandler logger ()
 doCreateUserTable mbh tn = do
     -- first check if tablename already exists in pending queues
-    m <- runMaybeT $ checkDbTablePendingCreation "create table" (tableName tn)
+    m <- runMaybeT $ checkDbTablePendingCreation "create table" (tableNameToSQL tn)
     case m of
         Nothing ->
             liftGas $ Pact.throwDbOpErrorGasM $ Pact.TableAlreadyExists tn
@@ -674,29 +666,21 @@ doCommit = view blockHandlerMode >>= \case
         txrs <- if m == Pact.Transactional
         then do
             modify' $ over latestTxId (\(Pact.TxId tid) -> Pact.TxId (succ tid))
-            pending <- getPendingTxOrError "commit"
-            persistIntraBlockWrites <- view blockHandlerPersistIntraBlockWrites
+            (pendingTx, txLogs) <- getPendingTxOrError "commit"
             -- merge pending tx into pending block data
-            modify' $ over (bsBlockHandle . blockHandlePending) (merge persistIntraBlockWrites (fst pending))
-            let txLogs = snd pending
+            modify' $ over (bsBlockHandle . blockHandlePending) (merge pendingTx)
             modify' $ set bsPendingTx Nothing
             return txLogs
         else doRollback >> return mempty
         return $! DL.toList txrs
     where
-    merge persistIntraBlockWrites txPending blockPending = SQLitePendingData
+    merge txPending blockPending = SQLitePendingData
         { _pendingTableCreation = HashSet.union (_pendingTableCreation txPending) (_pendingTableCreation blockPending)
-        , _pendingWrites = HashMap.unionWith (HashMap.unionWith mergeAtRowKey) (_pendingWrites txPending) (_pendingWrites blockPending)
+        , _pendingWrites = InMemDb.merge (_pendingWrites blockPending) (_pendingWrites txPending)
         -- pact4-specific, txlogs are not stored in SQLitePendingData in pact5
         , _pendingTxLogMap = mempty
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs blockPending
         }
-        where
-        mergeAtRowKey txWrites blockWrites =
-            let lastTxWrite = NE.head txWrites
-            in case persistIntraBlockWrites of
-                PersistIntraBlockWrites -> lastTxWrite `NE.cons` blockWrites
-                DoNotPersistIntraBlockWrites -> lastTxWrite :| []
 
 -- | Begin a Pact transaction. Note that we don't actually use the ExecutionMode anymore.
 doBegin :: (Logger logger) => Pact.ExecutionMode -> BlockHandler logger (Maybe Pact.TxId)
@@ -707,7 +691,7 @@ doBegin _m = do
             liftGas $ Pact.throwDbOpErrorGasM (Pact.TxAlreadyBegun ("TxId " <> sshow (Pact._txId txid)))
         Nothing -> do
             modify'
-                $ set bsPendingTx (Just (emptySQLitePendingData, mempty))
+                $ set bsPendingTx (Just (emptySQLitePendingData InMemDb.empty, mempty))
             Just <$> use latestTxId
 
 toTxLog :: MonadThrow m => T.Text -> SQ3.Utf8 -> BS.ByteString -> m (Pact.TxLog Pact.RowData)
@@ -718,3 +702,98 @@ toTxLog d key value =
 
 toPactTxLog :: Pact.TxLog Pact.RowData -> Pact4.TxLog Pact.RowData
 toPactTxLog (Pact.TxLog d k v) = Pact4.TxLog d k v
+
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle Pact5 -> IO ()
+commitBlockStateToDatabase db hsh bh blockHandle = do
+    let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
+    mapM_ (\tn -> createUserTable (SQ3.Utf8 tn)) newTables
+    backendWriteUpdateBatch (_pendingWrites (_blockHandlePending blockHandle))
+    indexPendingPactTransactions
+    let nextTxId = _blockHandleTxId blockHandle
+    blockHistoryInsert nextTxId
+    where
+
+    backendWriteUpdateBatch
+        :: InMemDb.Store
+        -> IO ()
+    backendWriteUpdateBatch store = do
+        writeTable (domainToTableName Pact.DKeySets)
+            $ M.mapMaybeWithKey (prepRow . convKeySetName) $ InMemDb.keySets store
+
+        writeTable (domainToTableName Pact.DModules)
+            $ M.mapMaybeWithKey (prepRow . convModuleName) $ InMemDb.modules store
+
+        writeTable (domainToTableName Pact.DNamespaces)
+            $ M.mapMaybeWithKey (prepRow . convNamespaceName) $ InMemDb.namespaces store
+
+        writeTable (domainToTableName Pact.DDefPacts)
+            $ M.mapMaybeWithKey (prepRow . convPactId) $ InMemDb.defPacts store
+
+        writeTable (domainToTableName Pact.DModuleSource)
+            $ M.mapMaybeWithKey (prepRow . convHashedModuleName) $ InMemDb.moduleSources store
+
+        iforM_ (InMemDb.userTables store) $ \tableName tableContents -> do
+            writeTable (domainToTableName (Pact.DUserTables tableName))
+                $ M.mapMaybeWithKey (prepRow . convRowKey) tableContents
+
+        where
+        domainToTableName = SQ3.Utf8 . T.encodeUtf8 . Pact.renderDomain
+        prepRow rowkey (InMemDb.WriteEntry (Pact.TxId txid) rowdataEncoded _) =
+            Just
+                [ SText rowkey
+                , SInt (fromIntegral txid)
+                , SBlob rowdataEncoded
+                ]
+        prepRow _ InMemDb.ReadEntry {} = Nothing
+
+        writeTable :: SQ3.Utf8 -> M.Map k [SType] -> IO ()
+        writeTable table writes = when (not (null writes)) $ do
+            execMulti db q writes
+            markTableMutation table bh
+            where
+            q = "INSERT OR REPLACE INTO " <> tbl table <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
+
+        -- Mark the table as being mutated during this block, so that we know
+        -- to delete from it if we rewind past this block.
+        markTableMutation tablename blockheight = do
+            exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
+            where
+            mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
+
+    -- | Record a block as being in the history of the checkpointer.
+    blockHistoryInsert :: Pact4.TxId -> IO ()
+    blockHistoryInsert t =
+        exec' db stmt
+            [ SInt (fromIntegral bh)
+            , SBlob (runPutS (encodeBlockHash hsh))
+            , SInt (fromIntegral t)
+            ]
+      where
+        stmt =
+          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+
+    createUserTable :: SQ3.Utf8 -> IO ()
+    createUserTable tablename = do
+        createVersionedTable tablename db
+        markTableCreation tablename
+
+    -- Mark the table as being created during this block, so that we know
+    -- to drop it if we rewind past this block.
+    markTableCreation tablename =
+        exec' db insertstmt insertargs
+      where
+        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
+        insertargs = [SText tablename, SInt (fromIntegral bh)]
+
+    -- | Commit the index of pending successful transactions to the database
+    indexPendingPactTransactions :: IO ()
+    indexPendingPactTransactions = do
+        let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
+        dbIndexTransactions txs
+
+      where
+        toRow b = [SBlob b, SInt (fromIntegral bh)]
+        dbIndexTransactions txs = do
+            let rows = map toRow $ toList txs
+            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                         \ VALUES (?, ?)" rows

@@ -58,6 +58,8 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , convNamespaceName
 , convRowKey
 , convPactId
+
+, commitBlockStateToDatabase
 ) where
 
 import Control.Applicative
@@ -118,6 +120,8 @@ import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Pact.Types.Command (RequestKey)
 import Chainweb.Pact.Backend.Types
+import Chainweb.Utils.Serialization (runPutS)
+import Data.Foldable
 
 domainTableName :: Domain k v -> SQ3.Utf8
 domainTableName = asStringUtf8
@@ -215,8 +219,8 @@ newtype BlockHandler logger a = BlockHandler
 -- on tx failure.
 data BlockState = BlockState
     { _bsTxId :: !TxId
-    , _bsPendingBlock :: !SQLitePendingData
-    , _bsPendingTx :: !(Maybe SQLitePendingData)
+    , _bsPendingBlock :: !(SQLitePendingData (PendingWrites Pact4))
+    , _bsPendingTx :: !(Maybe (SQLitePendingData (PendingWrites Pact4)))
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
     }
@@ -229,7 +233,7 @@ initBlockState
 initBlockState cl txid = BlockState
     { _bsTxId = txid
     , _bsMode = Nothing
-    , _bsPendingBlock = emptySQLitePendingData
+    , _bsPendingBlock = emptySQLitePendingData mempty
     , _bsPendingTx = Nothing
     , _bsModuleCache = emptyDbCache cl
     }
@@ -274,7 +278,7 @@ rewoundPactDb bh endTxId = chainwebPactDb
     }
 
 -- returns pending writes in the reverse order they were made
-getPendingData :: BlockHandler logger [SQLitePendingData]
+getPendingData :: BlockHandler logger [SQLitePendingData (PendingWrites Pact4)]
 getPendingData = do
     pb <- use bsPendingBlock
     ptx <- maybeToList <$> use bsPendingTx
@@ -333,7 +337,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     lookupInPendingData
         :: forall logger v . FromJSON v
         => Utf8
-        -> SQLitePendingData
+        -> SQLitePendingData (PendingWrites Pact4)
         -> MaybeT (BlockHandler logger) v
     lookupInPendingData (Utf8 rowkey) p = do
         -- we get the latest-written value at this rowkey
@@ -606,7 +610,7 @@ recordTxLog tt d k v = do
     !txlogs = DL.singleton $! encodeTxLog $ TxLog (asString d) (asString k) v
 
 modifyPendingData
-    :: (SQLitePendingData -> SQLitePendingData)
+    :: (SQLitePendingData (PendingWrites Pact4) -> SQLitePendingData (PendingWrites Pact4))
     -> BlockHandler logger ()
 modifyPendingData f = do
     m <- use bsPendingTx
@@ -713,7 +717,7 @@ doBegin m = do
     resetTemp
     modify'
         $ set bsMode (Just m)
-        . set bsPendingTx (Just emptySQLitePendingData)
+        . set bsPendingTx (Just $ emptySQLitePendingData mempty)
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
@@ -788,3 +792,79 @@ indexPactTransaction h = modify' $
 -- We should reserve vacuuming for an offline process
 vacuumDb :: BlockHandler logger ()
 vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")
+
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle Pact4 -> IO ()
+commitBlockStateToDatabase db hsh bh blockHandle = do
+  let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
+  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
+  let writeV = toChunks $ _pendingWrites (_blockHandlePending blockHandle)
+  backendWriteUpdateBatch writeV
+  indexPendingPactTransactions
+  let nextTxId = _blockHandleTxId blockHandle
+  blockHistoryInsert nextTxId
+  where
+    toChunks writes =
+      over _2 (concatMap toList . HashMap.elems) .
+      over _1 Utf8 <$> HashMap.toList writes
+
+    backendWriteUpdateBatch
+        :: [(Utf8, [SQLiteRowDelta])]
+        -> IO ()
+    backendWriteUpdateBatch writesByTable = mapM_ writeTable writesByTable
+        where
+          prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+            [ SText (Utf8 rowkey)
+            , SInt (fromIntegral txid)
+            , SBlob rowdata
+            ]
+
+          writeTable (tableName, writes) = do
+            execMulti db q (map prepRow writes)
+            markTableMutation tableName bh
+            where
+            q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
+
+          -- Mark the table as being mutated during this block, so that we know
+          -- to delete from it if we rewind past this block.
+          markTableMutation tablename blockheight = do
+              exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
+            where
+              mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
+
+    -- | Record a block as being in the history of the checkpointer.
+    blockHistoryInsert :: TxId -> IO ()
+    blockHistoryInsert t =
+        exec' db stmt
+            [ SInt (fromIntegral bh)
+            , SBlob (runPutS (encodeBlockHash hsh))
+            , SInt (fromIntegral t)
+            ]
+      where
+        stmt =
+          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+
+    createUserTable :: Utf8 -> IO ()
+    createUserTable tablename = do
+        createVersionedTable tablename db
+        markTableCreation tablename
+
+    -- Mark the table as being created during this block, so that we know
+    -- to drop it if we rewind past this block.
+    markTableCreation tablename =
+        exec' db insertstmt insertargs
+      where
+        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
+        insertargs =  [SText tablename, SInt (fromIntegral bh)]
+
+    -- | Commit the index of pending successful transactions to the database
+    indexPendingPactTransactions :: IO ()
+    indexPendingPactTransactions = do
+        let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
+        dbIndexTransactions txs
+
+      where
+        toRow b = [SBlob b, SInt (fromIntegral bh)]
+        dbIndexTransactions txs = do
+            let rows = map toRow $ toList txs
+            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                         \ VALUES (?, ?)" rows
