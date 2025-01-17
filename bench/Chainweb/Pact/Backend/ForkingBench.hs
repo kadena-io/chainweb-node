@@ -351,6 +351,7 @@ cid = someChainId testVer
 
 testVer :: ChainwebVersion
 testVer = slowForkingCpmTestVersion petersonChainGraph
+--testVer = pact5SlowCpmTestVersion petersonChainGraph
 
 -- MORE CODE DUPLICATION
 
@@ -367,7 +368,7 @@ createCoinAccount v meta name = do
     res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) [] (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
-    theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
+    theCode = "1" --printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
     isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 

@@ -881,6 +881,16 @@ benchmark bench
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
+        , resourcet
+        , unordered-containers
+        , direct-sqlite
+        , pact-tng
+        , pact-tng:pact-request-api
+        , pact-json
+        , safe-exceptions
+        , tasty
+        , tasty-hunit
+        , property-matchers
         , bytestring >= 0.10.12
         , chainweb-storage >= 0.1
         , containers >= 0.5

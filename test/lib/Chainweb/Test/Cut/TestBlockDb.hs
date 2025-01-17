@@ -46,12 +46,17 @@ import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.BlockHeight
+import Control.Monad
+import Control.DeepSeq
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
   , _bdbPayloadDb :: PayloadDb RocksDbTable
   , _bdbCut :: MVar Cut
   }
+
+instance NFData TestBlockDb where
+  rnf (TestBlockDb a b c) = rnf a `seq` rnf b `seq` rnf c
 
 instance HasChainwebVersion TestBlockDb where
   _chainwebVersion = _chainwebVersion . _bdbWebBlockHeaderDb

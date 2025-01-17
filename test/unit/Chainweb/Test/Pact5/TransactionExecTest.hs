@@ -40,7 +40,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Decimal
 import Data.Functor.Product
-import Data.HashMap.Strict qualified as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -74,6 +73,7 @@ import Text.Printf
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
 import Chainweb.Pact.Backend.Types
+import qualified Data.Map as Map
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"

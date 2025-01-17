@@ -89,6 +89,7 @@ module Chainweb.Storage.Table.RocksDB
   ) where
 
 import Control.Exception(evaluate)
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -298,6 +299,9 @@ data Codec a = Codec
     , _codecDecode :: !(forall m. MonadThrow m => B.ByteString -> m a)
         -- ^ decode a value. Throws an exception of decoding fails.
     }
+
+instance NFData (Codec a) where
+    rnf !_ = ()
 
 instance NoThunks (Codec a) where
     -- NoThunks does not look inside of closures for captured thunks

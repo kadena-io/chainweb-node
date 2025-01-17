@@ -34,6 +34,7 @@ module Chainweb.Logger
 , genericLogger
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import qualified Data.Text as T
 import Data.Time
@@ -110,6 +111,9 @@ data GenericLogger = GenericLogger
     }
 
 makeLenses 'GenericLogger
+
+instance NFData GenericLogger where
+    rnf (GenericLogger a b c d) = rnf a `seq` rnf b `seq` rnf c `seq` rnf d
 
 instance L.LoggerCtx GenericLogger SomeLogMessage where
     loggerFunIO ctx level msg

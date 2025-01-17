@@ -10,10 +10,10 @@
 -- Stability: experimental
 module Main (main) where
 
+import Chainweb.MempoolBench qualified as MempoolBench
 import Chainweb.Pact.Backend.ApplyCmd qualified as ApplyCmd
 import Chainweb.Pact.Backend.Bench qualified as Checkpointer
 import Chainweb.Pact.Backend.ForkingBench qualified as ForkingBench
-import Chainweb.MempoolBench qualified as MempoolBench
 import Chainweb.Pact.Backend.PactService qualified as PactService
 import Chainweb.Storage.Table.RocksDB (withTempRocksDb)
 import Chainweb.Version.Development (pattern Development)
