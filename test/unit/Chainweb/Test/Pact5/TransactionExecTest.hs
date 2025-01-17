@@ -476,6 +476,12 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $ do
                                     P.match InMemDb._WriteEntry P.succeed
                                 ]
                         ]
+
+                , P.fun InMemDb.modules
+                    ? P.alignExact ? Map.fromList
+                        [ ModuleName "coin" Nothing :=>
+                            P.match InMemDb._ReadEntry P.succeed
+                        ]
                 ]
 
 quirkSpec :: RocksDb -> IO ()
