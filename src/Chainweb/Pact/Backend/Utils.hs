@@ -11,6 +11,9 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
@@ -27,7 +30,6 @@ module Chainweb.Pact.Backend.Utils
   , chainDbFileName
     -- * Shared Pact database interactions
   , doLookupSuccessful
-  , commitBlockStateToDatabase
   , createVersionedTable
   , tbl
   , initSchema
@@ -345,82 +347,6 @@ sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
 sqlite_open_fullmutex = 0x00010000
-
-commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle -> IO ()
-commitBlockStateToDatabase db hsh bh blockHandle = do
-  let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
-  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
-  let writeV = toChunks $ _pendingWrites (_blockHandlePending blockHandle)
-  backendWriteUpdateBatch writeV
-  indexPendingPactTransactions
-  let nextTxId = _blockHandleTxId blockHandle
-  blockHistoryInsert nextTxId
-  where
-    toChunks writes =
-      over _2 (concatMap toList . HashMap.elems) .
-      over _1 Utf8 <$> HashMap.toList writes
-
-    backendWriteUpdateBatch
-        :: [(Utf8, [SQLiteRowDelta])]
-        -> IO ()
-    backendWriteUpdateBatch writesByTable = mapM_ writeTable writesByTable
-        where
-          prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
-            [ Pact4.SText (Utf8 rowkey)
-            , Pact4.SInt (fromIntegral txid)
-            , Pact4.SBlob rowdata
-            ]
-
-          writeTable (tableName, writes) = do
-            execMulti db q (map prepRow writes)
-            markTableMutation tableName bh
-            where
-            q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
-
-          -- Mark the table as being mutated during this block, so that we know
-          -- to delete from it if we rewind past this block.
-          markTableMutation tablename blockheight = do
-              Pact4.exec' db mutq [Pact4.SText tablename, Pact4.SInt (fromIntegral blockheight)]
-            where
-              mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
-
-    -- | Record a block as being in the history of the checkpointer.
-    blockHistoryInsert :: Pact4.TxId -> IO ()
-    blockHistoryInsert t =
-        Pact4.exec' db stmt
-            [ Pact4.SInt (fromIntegral bh)
-            , Pact4.SBlob (runPutS (encodeBlockHash hsh))
-            , Pact4.SInt (fromIntegral t)
-            ]
-      where
-        stmt =
-          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
-
-    createUserTable :: Utf8 -> IO ()
-    createUserTable tablename = do
-        createVersionedTable tablename db
-        markTableCreation tablename
-
-    -- Mark the table as being created during this block, so that we know
-    -- to drop it if we rewind past this block.
-    markTableCreation tablename =
-        Pact4.exec' db insertstmt insertargs
-      where
-        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
-        insertargs =  [Pact4.SText tablename, Pact4.SInt (fromIntegral bh)]
-
-    -- | Commit the index of pending successful transactions to the database
-    indexPendingPactTransactions :: IO ()
-    indexPendingPactTransactions = do
-        let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
-        dbIndexTransactions txs
-
-      where
-        toRow b = [Pact4.SBlob b, Pact4.SInt (fromIntegral bh)]
-        dbIndexTransactions txs = do
-            let rows = map toRow $ toList txs
-            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
-                         \ VALUES (?, ?)" rows
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
