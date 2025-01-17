@@ -1223,7 +1223,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         => logger
         -> ParentHeader
         -> Pact5.Pact5Db
-        -> BlockHandle
+        -> BlockHandle Pact5
         -> Miner
         -> Pact5.Transaction
         -> ExceptT InsertError IO ()

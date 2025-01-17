@@ -289,7 +289,7 @@ instance Show BlockTxHistory where
 -- Reports back its own header and some extra value.
 data RunnableBlock logger a
   = Pact4RunnableBlock (PactDbFor logger Pact4 -> Maybe ParentHeader -> IO (a, BlockHeader))
-  | Pact5RunnableBlock (PactDbFor logger Pact5 -> Maybe ParentHeader -> BlockHandle -> IO ((a, BlockHeader), BlockHandle))
+  | Pact5RunnableBlock (PactDbFor logger Pact5 -> Maybe ParentHeader -> BlockHandle Pact5 -> IO ((a, BlockHeader), BlockHandle Pact5))
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -1116,7 +1116,7 @@ type family CommandResultFor (pv :: PactVersion) where
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
 data BlockInProgress pv = BlockInProgress
-  { _blockInProgressHandle :: !BlockHandle
+  { _blockInProgressHandle :: !(BlockHandle pv)
   , _blockInProgressModuleCache :: !(ModuleCacheFor pv)
   , _blockInProgressParentHeader :: !(Maybe ParentHeader)
   , _blockInProgressChainwebVersion :: !ChainwebVersion

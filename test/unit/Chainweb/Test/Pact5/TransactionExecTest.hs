@@ -39,7 +39,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Decimal
 import Data.Functor.Product
-import Data.HashMap.Strict qualified as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -71,7 +70,9 @@ import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf
 import Chainweb.Logger
+import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
 import Chainweb.Pact.Backend.Types
+import qualified Data.Map as Map
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"
@@ -854,8 +855,12 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
     -- Assert that the writes from the failed transaction didn't make it into the db
     liftIO $ do
         let finalPendingWrites = _pendingWrites $ _blockHandlePending finalHandle
-        assertBool "there are pending writes to coin" (HashMap.member "coin_coin-table" finalPendingWrites)
-        assertBool "there are no pending writes to SYS:Modules" (not $ HashMap.member "SYS:Modules" finalPendingWrites)
+        assertBool "there are pending writes to coin"
+            (Map.member
+                (TableName "coin-table" (ModuleName "coin" Nothing))
+                (InMemDb.userTables finalPendingWrites))
+        assertBool "there are no pending writes to SYS:Modules"
+            (Map.null $ InMemDb.modules finalPendingWrites)
 
 cid :: ChainId
 cid = unsafeChainId 0
