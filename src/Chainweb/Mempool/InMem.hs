@@ -50,7 +50,7 @@ import qualified Data.Map.Strict as Map
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe
 import Data.Ord
-import qualified Data.Set as S
+-- import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Traversable (for)
@@ -587,9 +587,8 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         pendingData <- readIORef (_inmemPending mdata)
         logFunctionText logg Debug $ "getBlockInMem: pending txs (pre filter-seen): " <> sshow (Map.keys pendingData)
 
-        !(T2 psq seen) <- filterSeen <$> readIORef (_inmemPending mdata)
+        !psq <- flip Map.withoutKeys txHashes <$> readIORef (_inmemPending mdata)
         logFunctionText logg Debug $ "getBlockInMem: pending txs (post filter-seen): " <> sshow (Map.keys psq)
-        logFunctionText logg Debug $ "getBlockInMem: seen txs: " <> sshow (Map.keys seen)
         !badmap <- readIORef (_inmemBadMap mdata)
         logFunctionText logg Debug $ "getBlockInMem: bad txs: " <> sshow (Map.keys badmap)
         let size0 = gasLimit
@@ -608,14 +607,6 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         fmap snd <$> V.unsafeFreeze mout
 
   where
-
-    filterSeen :: PendingMap -> T2 PendingMap (Map TransactionHash PendingEntry)
-    filterSeen p = Map.foldlWithKey' loop (T2 mempty mempty) p
-      where
-        loop (T2 unseens seens) k v =
-          if S.member k txHashes
-          then T2 unseens (Map.insert k v seens)
-          else T2 (Map.insert k v unseens) seens
 
     ins !m (!h,(!b,!t,_)) =
         let !pe = PendingEntry (txGasPrice txcfg t)
