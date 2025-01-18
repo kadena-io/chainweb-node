@@ -672,7 +672,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
     maxInARow :: Int
     maxInARow = 200
 
-    unconsV v = T2 (V.unsafeHead v) (V.unsafeTail v)
+    -- unconsV v = T2 (V.unsafeHead v) (V.unsafeTail v)
 
     nextBatch
         :: PendingMap
@@ -681,13 +681,11 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
     nextBatch !psq !remainingGas = do
         let !pendingTxs0 = HashMap.toList psq
         logFunctionText logg Debug $ "nextBatch pendingTxs: " <> sshow (map fst pendingTxs0)
-        mPendingTxs <- mutableVectorFromList pendingTxs0
-        TimSort.sortBy (compare `on` snd) mPendingTxs
-        !pendingTxs <- V.unsafeFreeze mPendingTxs
+        let pendingTxs = List.sortBy (comparing snd) pendingTxs0
         return $! getBatch pendingTxs remainingGas [] 0
 
     getBatch
-        :: Vector (TransactionHash, PendingEntry)
+        :: [(TransactionHash, PendingEntry)]
         -> GasLimit
         -> [(TransactionHash, (SB.ShortByteString, t))]
         -> Int
@@ -695,10 +693,10 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
     getBatch !pendingTxs !sz !soFar !inARow
         -- we'll keep looking for transactions until we hit maxInARow that are
         -- too large
-      | V.null pendingTxs = soFar
       | inARow >= maxInARow || sz <= 0 = soFar
-      | otherwise = do
-            let (T2 (h, pe) !pendingTxs') = unconsV pendingTxs
+      | otherwise = case pendingTxs of
+        [] -> soFar
+        ((h, pe) : pendingTxs') -> do
             let !txbytes = _inmemPeBytes pe
             let !tx = decodeTx txbytes
             let !txSz = getSize tx
