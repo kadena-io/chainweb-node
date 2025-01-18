@@ -28,7 +28,7 @@ import Control.DeepSeq
 import Data.Aeson
 import qualified Data.ByteString.Short as SB
 import Data.Function (on)
-import Data.HashMap.Strict (HashMap)
+import Data.Map.Strict (Map)
 import Data.IORef (IORef)
 import Data.Ord
 import qualified Data.Vector as V
@@ -55,7 +55,7 @@ data PendingEntry = PendingEntry
 instance Ord PendingEntry where
     compare = compare `on` (Down . _inmemPeGasPrice)
 
-type PendingMap = HashMap TransactionHash PendingEntry
+type PendingMap = Map TransactionHash PendingEntry
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
@@ -85,7 +85,7 @@ data InMemoryMempool t = InMemoryMempool {
 
 
 ------------------------------------------------------------------------------
-type BadMap = HashMap TransactionHash (Time Micros)
+type BadMap = Map TransactionHash (Time Micros)
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
