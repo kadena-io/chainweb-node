@@ -864,6 +864,7 @@ benchmark bench
     main-is: Bench.hs
     type: exitcode-stdio-1.0
     other-modules:
+        Chainweb.MempoolBench
         Chainweb.Pact.Backend.Bench
         Chainweb.Pact.Backend.ForkingBench
         Chainweb.Utils.Bench
@@ -896,3 +897,4 @@ benchmark bench
         , text >= 2.0
         , vector >= 0.12.2
         , yaml >= 0.11
+        , property-matchers ^>= 0.4

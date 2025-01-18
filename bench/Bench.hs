@@ -12,6 +12,7 @@ import Criterion.Main
 
 import qualified Chainweb.Pact.Backend.Bench as Checkpointer
 import qualified Chainweb.Pact.Backend.ForkingBench as ForkingBench
+import qualified Chainweb.MempoolBench as MempoolBench
 import qualified JSONEncoding
 
 import Chainweb.Storage.Table.RocksDB
@@ -27,4 +28,5 @@ main = withTempRocksDb "benchmarks" $ \rdb -> do
     [ Checkpointer.bench
     , ForkingBench.bench rdb
     , JSONEncoding.benchmarks
+    , MempoolBench.bench
     ]
