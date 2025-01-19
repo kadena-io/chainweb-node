@@ -102,6 +102,7 @@ import Control.Exception hiding (catch)
 import Control.Lens hiding ((:>), (.=))
 import Control.Monad hiding (join)
 import Control.Monad.Catch
+import Control.Monad.State.Strict
 
 import Data.Bifoldable
 import Data.Foldable
@@ -140,7 +141,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Control.Monad.State.Strict
 
 -- -------------------------------------------------------------------------- --
 -- Cut
