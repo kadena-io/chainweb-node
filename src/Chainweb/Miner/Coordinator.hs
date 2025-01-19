@@ -80,6 +80,7 @@ import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Core.Brief
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config
