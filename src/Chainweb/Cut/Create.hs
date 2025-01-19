@@ -93,6 +93,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -389,6 +390,9 @@ data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text
     deriving anyclass (NFData)
 
 instance Exception InvalidSolvedHeader
+
+instance Brief SolvedWork where
+    brief (SolvedWork hdr) = "SolvedWork" <> ":" <> brief hdr
 
 -- | Extend a Cut with a solved work value.
 --
