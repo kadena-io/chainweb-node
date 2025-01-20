@@ -54,8 +54,6 @@ import Data.Aeson qualified as A
 import Data.Aeson.Lens qualified as A
 import Data.Aeson.KeyMap qualified as A.KeyMap
 import Data.ByteString.Base16 qualified as B16
-import Data.ByteString.Base64.URL qualified as B64U
-import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (forM_, traverse_)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
@@ -103,8 +101,8 @@ import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.SPV
 import Pact.Types.API qualified as Pact4
+import Pact.Types.ChainId qualified as Pact4
 
-import Chainweb.BlockHeader (blockHeight)
 import Chainweb.ChainId
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
 import Chainweb.Graph (petersonChainGraph, singletonChainGraph, twentyChainGraph)
@@ -113,7 +111,6 @@ import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils (someServerApplication)
-import Chainweb.SPV.CreateProof (createTransactionOutputProof_)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_)
@@ -259,20 +256,19 @@ spvTest baseRdb step = runResourceT $ do
 
         send fx v srcChain [initiator]
         let initiatorReqKey = cmdToRequestKey initiator
-        (sendCut, _) <- advanceAllChains fx
+        advanceAllChains_ fx
         [Just sendCr] <- pollWithDepth fx v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
         step "waiting"
         replicateM_ (int $ diameter petersonChainGraph + 1) $ advanceAllChains_ fx
-        let sendHeight = sendCut ^?! ixg srcChain . blockHeight
-        spvProof <- createTransactionOutputProof_ (fx ^. to _cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fx ^. to _cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
+        TransactionOutputProofB64 spvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
         let contMsg = ContMsg
                 { _cmPactId = _peDefPactId cont
                 , _cmStep = succ $ _peStep cont
                 , _cmRollback = _peStepHasRollback cont
                 , _cmData = PUnit
-                , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
+                , _cmProof = Just (ContProof (T.encodeUtf8 spvProof))
                 }
         step "xchain recv"
 
@@ -761,7 +757,7 @@ transitionCrosschain rdb step = runResourceT $ do
 
         send fx v srcChain [initiator]
         let initiatorReqKey = cmdToRequestKey initiator
-        (sendCut, _) <- advanceAllChains fx
+        advanceAllChains_ fx
         [Just sendCr] <- pollWithDepth fx v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
@@ -773,14 +769,13 @@ transitionCrosschain rdb step = runResourceT $ do
         advanceAllChains_ fx
         checkIsVersion Pact5
 
-        let sendHeight = sendCut ^?! ixg srcChain . blockHeight
-        spvProof <- createTransactionOutputProof_ (fx ^. to _cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fx ^. to _cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
+        TransactionOutputProofB64 spvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
         let contMsg = ContMsg
                 { _cmPactId = _peDefPactId cont
                 , _cmStep = succ $ _peStep cont
                 , _cmRollback = _peStepHasRollback cont
                 , _cmData = PUnit
-                , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
+                , _cmProof = Just (ContProof (T.encodeUtf8 spvProof))
                 }
         step "xchain recv"
 
@@ -1219,6 +1214,20 @@ local fx v cid preflight sigVerify depth cmd = do
     --
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
     r <- runClientM (pactLocalWithQueryApiClient v cid preflight sigVerify depth (toPact4Command cmd)) clientEnv
+    either (throwM . ClientException callStack) return r
+
+spvTxOutProof :: (HasCallStack, HasFixture fx)
+    => fx
+    -> ChainwebVersion
+    -> ChainId
+    -> ChainId
+    -> RequestKey
+    -> IO TransactionOutputProofB64
+spvTxOutProof fx v trgChain srcChain reqKey = do
+    clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
+    let pact4TrgChain = Pact4.ChainId $ toText trgChain
+    let pact4ReqKey = toPact4RequestKey reqKey
+    r <- runClientM (pactSpvApiClient v srcChain (SpvRequest pact4ReqKey pact4TrgChain)) clientEnv
     either (throwM . ClientException callStack) return r
 
 pactDeadBeef :: RequestKey
