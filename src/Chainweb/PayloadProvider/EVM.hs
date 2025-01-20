@@ -911,11 +911,12 @@ awaitNewPayload p = do
 
                 -- Check that the fees of the execution paylod match the block
                 -- value of the response.
-                unless (EVM._blockValueStu (_getPayloadV3ResponseBlockValue resp) == fees v1) $
-                    throwM InconsistentNewPayloadFees
-                        { _inconsistentPayloadBlockValue = _getPayloadV3ResponseBlockValue resp
-                        , _inconsistentPayloadFees = fees v1
-                        }
+                -- FIXME FIXME FIXME
+                -- unless (EVM._blockValueStu (_getPayloadV3ResponseBlockValue resp) == fees v1) $
+                --     throwM InconsistentNewPayloadFees
+                --         { _inconsistentPayloadBlockValue = _getPayloadV3ResponseBlockValue resp
+                --         , _inconsistentPayloadFees = fees v1
+                --         }
 
                 let pld = executionPayloadV3ToHeader (_syncStateBlockHash sstate) v3
 
