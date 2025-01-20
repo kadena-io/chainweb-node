@@ -18,8 +18,6 @@ module Ea.Genesis
 , recapDevelopmentKAD
 , fastDevelopment0
 , fastDevelopmentN
-, pact5Development0
-, pact5DevelopmentN
 
   -- * Testing Genesis Txs
 , fastTimedCPM0
@@ -75,7 +73,6 @@ import Chainweb.Graph
 import Chainweb.Test.TestVersions
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
@@ -214,23 +211,6 @@ fastDevelopment0 = Genesis
 
 fastDevelopmentN :: Genesis
 fastDevelopmentN = fastDevelopment0
-    & txChainIds .~ mkChainIdRange 1 19
-    & coinbase ?~ devNGrants
-
-pact5Development0 :: Genesis
-pact5Development0 = Genesis
-    { _version = Pact5Development
-    , _tag = "Pact5Development"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just dev0Grants
-    , _keysets = Just devKeysets
-    , _allocations = Just devAllocations
-    , _namespaces = Just devNs2
-    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
-    }
-
-pact5DevelopmentN :: Genesis
-pact5DevelopmentN = pact5Development0
     & txChainIds .~ mkChainIdRange 1 19
     & coinbase ?~ devNGrants
 

@@ -44,7 +44,6 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development (pattern Development)
-import Chainweb.Version.Pact5Development (pattern Pact5Development)
 import Chainweb.Version.RecapDevelopment (pattern RecapDevelopment)
 import Chainweb.Version.Registry (registerVersion)
 import Control.Concurrent.Async
@@ -75,12 +74,10 @@ main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
-    registerVersion Pact5Development
 
     mapConcurrently_ id
       [ recapDevnet
       , devnet
-      , pact5Devnet
       , fastnet
       , instantnet
       , pact5Instantnet
@@ -104,10 +101,6 @@ main = do
     devnet = mkPayloads
       [ fastDevelopment0
       , fastDevelopmentN
-      ]
-    pact5Devnet = mkPayloads
-      [ pact5Development0
-      , pact5DevelopmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]

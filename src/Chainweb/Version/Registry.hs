@@ -46,7 +46,6 @@ import GHC.Stack
 
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
@@ -139,7 +138,6 @@ lookupVersionByCode code
     notRegistered
         | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured. " <> perhaps
         | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured. " <> perhaps
-        | code == _versionCode pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured. " <> perhaps
         | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
     perhaps = "Perhaps you are attempting to run a different devnet version than a previous run, and you need to delete your db directory before restarting devnet with the new version?"
@@ -160,7 +158,6 @@ lookupVersionByName name
     notRegistered
       | name == _versionName recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
       | name == _versionName devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | name == _versionName pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
@@ -169,7 +166,7 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet04, testnet05, recapDevnet, devnet, pact5Devnet]
+knownVersions = [mainnet, testnet04, testnet05, recapDevnet, devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.

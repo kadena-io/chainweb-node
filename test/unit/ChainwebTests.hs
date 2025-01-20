@@ -30,7 +30,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Version.Development
-import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
@@ -100,7 +99,6 @@ main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
-    registerVersion Pact5Development
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
             (h0, db) <- withToyDB rdb toyChainId
