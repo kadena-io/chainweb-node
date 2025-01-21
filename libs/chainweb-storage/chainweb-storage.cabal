@@ -31,6 +31,7 @@ library
         Chainweb.Storage.Table
         Chainweb.Storage.Table.Forgetful
         Chainweb.Storage.Table.HashMap
+        Chainweb.Storage.Table.Map
         Chainweb.Storage.Table.RocksDB
         Chainweb.Storage.DedupStore
     build-depends:
