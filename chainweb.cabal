@@ -145,8 +145,6 @@ library
         , Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload
-        , Chainweb.BlockHeader.Genesis.Pact5Development0Payload
-        , Chainweb.BlockHeader.Genesis.Pact5Development1to19Payload
         , Chainweb.BlockHeader.Genesis.Testnet040Payload
         , Chainweb.BlockHeader.Genesis.Testnet041to19Payload
         , Chainweb.BlockHeader.Genesis.Testnet050Payload
@@ -270,7 +268,6 @@ library
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
-        , Chainweb.Version.Pact5Development
         , Chainweb.Version.RecapDevelopment
         , Chainweb.Version.Registry
         , Chainweb.Version.Testnet04

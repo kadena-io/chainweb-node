@@ -32,9 +32,6 @@ devnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000002
     , _versionName = ChainwebVersionName "development"
     , _versionForks = tabulateHashMap $ \case
-        -- TODO: for now, Pact 5 is never enabled on devnet.
-        -- this will change as it stabilizes.
-        Pact5Fork -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis
     , _versionUpgrades = AllChains mempty
     , _versionGraphs = Bottom (minBound, twentyChainGraph)
