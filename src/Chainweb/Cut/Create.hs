@@ -11,6 +11,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.Cut.Create
@@ -98,7 +99,7 @@ import Chainweb.Core.Brief
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
-import Chainweb.Payload
+import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -505,43 +506,36 @@ instance Brief SolvedWork where
 extend
     :: MonadThrow m
     => Cut
-    -> PayloadWithOutputs
+    -> Maybe EncodedPayloadData
+    -> Maybe EncodedPayloadOutputs
     -> SolvedWork
     -> m (BlockHeader, Maybe CutHashes)
-extend c pwo s = do
-    (bh, mc) <- extendCut c (_payloadWithOutputsPayloadHash pwo) s
+extend c pld pwo s = do
+    (bh, mc) <- extendCut c s
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'
         & set cutHashesHeaders
             (HM.singleton (view blockHash bh) bh)
         & set cutHashesPayloads
-            (HM.singleton (view blockPayloadHash bh) (payloadWithOutputsToPayloadData pwo))
+            (maybe mempty (HM.singleton (view blockPayloadHash bh)) pld)
         & set cutHashesLocalPayload
-            (Just (view blockPayloadHash bh, pwo))
+            ((view blockPayloadHash bh,) <$> pwo)
 
 -- | For internal use and testing
 --
 extendCut
     :: MonadThrow m
     => Cut
-    -> BlockPayloadHash
     -> SolvedWork
     -> m (BlockHeader, Maybe Cut)
-extendCut c ph (SolvedWork bh) = do
+extendCut c (SolvedWork bh) = do
 
         -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
         -- Hash) is trivially incorrect, reject it.
         --
         unless (prop_block_pow bh)
             $ throwM $ InvalidSolvedHeader bh "Invalid POW hash"
-
-        -- Fail Early: check that the given payload matches the new block.
-        --
-        unless (view blockPayloadHash bh == ph) $ throwM $ InvalidSolvedHeader bh
-            $ "Invalid payload hash"
-            <> ". Expected: " <> sshow (view blockPayloadHash bh)
-            <> ", Got: " <> sshow ph
 
         -- If the `BlockHeader` is already stale and can't be appended to the
         -- best `Cut`, Nothing is returned
