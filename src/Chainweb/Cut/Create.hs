@@ -47,6 +47,15 @@ module Chainweb.Cut.Create
 , cutExtensionAdjacentHashes
 , getCutExtension
 
+-- * WorkParents
+, WorkParents
+, workParents
+, _workParent
+, workParent
+, _workParentsAdjacentHashes
+, workParentsAdjacentHashes
+, newWork
+
 -- * Work
 , WorkHeader(..)
 , encodeWorkHeader
@@ -74,7 +83,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Text qualified as T
 
-import GHC.Generics
+import GHC.Generics (Generic)
 import GHC.Stack
 
 -- internal modules
@@ -375,6 +384,69 @@ getAdjacentParentHeaders hdb extension
             $ "Chainweb.Cut.Create.getAdjacentParentHeaders: inconsistent cut extension detected"
             <> ". ChainId: " <> encodeToText cid
             <> ". CutHashes: " <> encodeToText (cutToCutHashes Nothing c)
+
+-- -------------------------------------------------------------------------- --
+--
+
+data WorkParents = WorkParents
+    { _workParent' :: !ParentHeader
+        -- ^ The header onto which the new block is created.
+    , _workAdjacentParents' :: !(HM.HashMap ChainId ParentHeader)
+        -- ^ The adjacent hashes for the new block. These must be at the same
+        -- height as the parent and must be have a pairwise valid braiding among
+        -- each other and with the parent.
+        --
+        -- Actually, only the hash and the target of the adjacent parents is
+        -- used to construct the new work.
+    }
+    deriving (Show, Eq, Generic)
+
+_workParent :: WorkParents -> ParentHeader
+_workParent = _workParent'
+
+workParent :: Getter WorkParents ParentHeader
+workParent = to _workParent
+
+_workParentsAdjacentHashes :: WorkParents -> BlockHashRecord
+_workParentsAdjacentHashes = BlockHashRecord
+    . fmap (view parentHeaderHash)
+    . _workAdjacentParents'
+
+workParentsAdjacentHashes :: Getter WorkParents BlockHashRecord
+workParentsAdjacentHashes = to _workParentsAdjacentHashes
+
+-- | Returns the work parents for a given cut and a given chain. Returns
+-- 'Nothing' if the chain in blocked for the cut.
+--
+workParents
+    :: HasCallStack
+    => Applicative m
+    => HasChainId cid
+    => (ChainValue BlockHash -> m BlockHeader)
+    -> Cut
+        -- ^ the cut which is to be extended
+    -> cid
+        -- ^ the chain which is to be extended
+    -> m (Maybe WorkParents)
+workParents hdb c cid = case getCutExtension c cid of
+    Nothing -> pure Nothing
+    Just e -> Just . WorkParents (_cutExtensionParent e)
+        <$> getAdjacentParentHeaders hdb e
+
+newWork
+    :: BlockCreationTime
+    -> WorkParents
+    -> BlockPayloadHash
+    -> WorkHeader
+newWork creationTime parents pldHash = WorkHeader
+    { _workHeaderBytes = SB.toShort $ runPutS $ encodeBlockHeaderWithoutHash nh
+    , _workHeaderTarget = view blockTarget nh
+    , _workHeaderChainId = _chainId nh
+    }
+  where
+    adjParents = _workAdjacentParents' parents
+    parent = _workParent' parents
+    nh = newBlockHeader adjParents pldHash (Nonce 0) creationTime parent
 
 -- -------------------------------------------------------------------------- --
 -- Solved Header
