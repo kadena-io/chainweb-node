@@ -84,6 +84,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
+import Chainweb.Core.Brief
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
@@ -93,12 +94,20 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
-import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
 
 -- | Witnesses that a cut can be extended for the respective header.
+--
+-- Essentially, this guarantees the following:
+--
+-- 1. The parent header is in the cut.
+-- 2. Adjacent hashes match the adjacent chains in the chain graph.
+-- 3. Adjacent hashes are in the cut or parents of headers in the cut.
+--
+-- There are a few additional corner cases related to genesis blocks and graph
+-- transitions.
 --
 data CutExtension = CutExtension
     { _cutExtensionCut' :: !Cut
@@ -107,9 +116,11 @@ data CutExtension = CutExtension
         -- This is overly restrictive, since the same cut extension can be
         -- valid for more than one cut. It's fine for now.
     , _cutExtensionParent' :: !ParentHeader
-        -- ^ the header onto which the new block is created. It is expected
+        -- ^ The header onto which the new block is created. It is expected
         -- that this header is contained in the cut.
     , _cutExtensionAdjacentHashes' :: !BlockHashRecord
+        -- ^ The adjacent hashes for the new block. These are either part of the
+        -- cut or are parents of headers in the cut.
     }
     deriving (Show, Eq, Generic)
 
@@ -385,6 +396,12 @@ encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
 decodeSolvedWork :: Get SolvedWork
 decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
 
+instance HasChainId SolvedWork where
+    _chainId (SolvedWork hdr) = _chainId hdr
+
+instance HasChainwebVersion SolvedWork where
+    _chainwebVersion (SolvedWork hdr) = _chainwebVersion hdr
+
 data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
@@ -405,6 +422,9 @@ instance Brief SolvedWork where
 --
 -- The result is 'Nothing' if the given cut can't be extended with the solved
 -- work.
+--
+-- FIXME: this should be the only function that can pattern match the Header out
+-- of a 'SolvedWork' value.
 --
 extend
     :: MonadThrow m
