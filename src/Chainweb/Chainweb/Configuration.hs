@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -20,8 +21,22 @@
 --
 module Chainweb.Chainweb.Configuration
 (
+
+-- * Placeholder for Pact Provider Config
+  PactProviderConfig(..)
+, defaultPactProviderConfig
+
+-- * Payload Provider Config
+, PayloadProviderConfig(..)
+, payloadProviderConfigMinimal
+, payloadProviderConfigPact
+, payloadProviderConfigEvm
+, defaultPayloadProviderConfig
+, minimalPayloadProviderConfig
+, validatePayloadProviderConfig
+
 -- * Throttling Configuration
-  ThrottlingConfig(..)
+, ThrottlingConfig(..)
 , throttlingRate
 , throttlingPeerRate
 , throttlingMempoolRate
@@ -77,53 +92,231 @@ module Chainweb.Chainweb.Configuration
 
 ) where
 
+import Chainweb.BlockHeight
+import Chainweb.Difficulty
+import Chainweb.HostAddress
+import Chainweb.Mempool.Mempool qualified as Mempool
+import Chainweb.Mempool.P2pConfig
+import Chainweb.Miner.Config
+import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
+import Chainweb.Pact.Types (RewindLimit(..))
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
+import Chainweb.PayloadProvider.EVM (EvmProviderConfig, defaultEvmProviderConfig, pEvmProviderConfig)
+import Chainweb.PayloadProvider.Minimal (MinimalProviderConfig, defaultMinimalProviderConfig, pMinimalProviderConfig)
+import Chainweb.Time hiding (second)
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
+import Chainweb.Version.RecapDevelopment
+import Chainweb.Version.Registry
 import Configuration.Utils hiding (Error, Lens', disabled)
-
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Except
 import Control.Monad.Writer
-
+import Data.Aeson.Key qualified as K
+import Data.Aeson.KeyMap qualified as KM
+import Data.Bifunctor
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.List qualified as L
 import Data.Maybe
-import qualified Data.Text as T
-
+import Data.Text qualified as T
+import Data.Text.Read qualified as T
 import GHC.Generics hiding (from)
-
 import Network.Wai.Handler.Warp hiding (Port)
-
 import Numeric.Natural (Natural)
-
-import qualified Pact.JSON.Encode as J
-
+import P2P.Node.Configuration
+import Pact.JSON.Encode qualified as J
 import Prelude hiding (log)
-
 import System.Directory
 
--- internal modules
+-- -------------------------------------------------------------------------- --
+-- Payload Provider Configuration
 
-import Chainweb.BlockHeight
-import Chainweb.Difficulty
-import Chainweb.HostAddress
-import qualified Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Mempool.P2pConfig
-import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
-import Chainweb.Pact.Types (RewindLimit(..))
-import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
-import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.Version.Development
-import Chainweb.Version.RecapDevelopment
-import Chainweb.Version.Mainnet
-import Chainweb.Version.Registry
-import Chainweb.Time
+-- | Placeholder for PactProviderConfig
+--
+data PactProviderConfig = PactProviderConfig
+    deriving (Show, Eq, Generic)
 
-import P2P.Node.Configuration
-import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
+instance ToJSON PactProviderConfig where
+    toJSON PactProviderConfig = object []
+
+instance FromJSON PactProviderConfig where
+    parseJSON = withObject "PactProviderConfig" $ \_ -> pure PactProviderConfig
+
+instance FromJSON (PactProviderConfig -> PactProviderConfig) where
+    parseJSON = withObject "PactProviderConfig" $ \_ -> pure id
+
+defaultPactProviderConfig :: PactProviderConfig
+defaultPactProviderConfig = PactProviderConfig
+
+-- | Payload Provider Configurations
+--
+-- There is only a single Default Minimal Payload Provider Configuration.
+--
+data PayloadProviderConfig = PayloadProviderConfig
+    { _payloadProviderConfigMinimal :: !MinimalProviderConfig
+    , _payloadProviderConfigPact :: !(HM.HashMap ChainId PactProviderConfig)
+    , _payloadProviderConfigEvm :: !(HM.HashMap ChainId EvmProviderConfig)
+    }
+    deriving (Show, Eq, Generic)
+
+makeLenses ''PayloadProviderConfig
+
+-- | This has to depend on the Chainweb Version
+--
+defaultPayloadProviderConfig :: ChainwebVersion -> PayloadProviderConfig
+defaultPayloadProviderConfig v = PayloadProviderConfig
+    { _payloadProviderConfigMinimal = defaultMinimalProviderConfig
+    , _payloadProviderConfigPact = pacts
+    , _payloadProviderConfigEvm = evms
+    }
+  where
+    (pacts, evms) = go (toList $ chainIds v)
+    go :: [ChainId] -> (HM.HashMap ChainId PactProviderConfig, HM.HashMap ChainId EvmProviderConfig)
+    go [] = (mempty, mempty)
+    go (h:t) = case payloadProviderTypeForChain v h of
+        MinimalProvider -> go t
+        PactProvider -> first (HM.insert h defaultPactProviderConfig) $ go t
+        EvmProvider _ -> second (HM.insert h defaultEvmProviderConfig) $ go t
+
+
+minimalPayloadProviderConfig :: MinimalProviderConfig -> PayloadProviderConfig
+minimalPayloadProviderConfig m = PayloadProviderConfig
+    { _payloadProviderConfigMinimal = m
+    , _payloadProviderConfigPact = mempty
+    , _payloadProviderConfigEvm = mempty
+    }
+
+validatePayloadProviderConfig :: ChainwebVersion -> ConfigValidation PayloadProviderConfig []
+validatePayloadProviderConfig v conf = do
+    go (toList $ chainIds v)
+  where
+    go [] = return ()
+    go (c:t) = go t <* case payloadProviderTypeForChain v c of
+        PactProvider -> unless (HM.member c (_payloadProviderConfigPact conf)) $
+            if (HM.member c (_payloadProviderConfigEvm conf))
+              then throwError $ mconcat $
+                [ "Wrong payload provdider type configuration for chain " <> sshow c
+                , ". Expected Pact but found EVM"
+                ] <> msg
+              else throwError $ mconcat
+                    $ "Missing Pact payload provider configuration for chain " <> sshow c
+                    : msg
+        EvmProvider _ -> unless (HM.member c (_payloadProviderConfigEvm conf)) $
+            if (HM.member c (_payloadProviderConfigPact conf))
+              then throwError $ mconcat $
+                [ "Wrong payload provdider type configuration for chain " <> sshow c
+                , ". Expected EVM but found Pact"
+                ] <> msg
+              else throwError $ mconcat
+                    $ "Missing EVM payload provider configuration for chain " <> sshow c
+                    : msg
+        MinimalProvider -> return ()
+    msg =
+        [ ". In order to use chainweb-node with chainweb version " <> sshow v
+        , " you must provide a configuraton for all payload providers except"
+        , " the chains that use the default payload provider."
+        , " The following is the default payload provider configuration for"
+        , " chainweb version " <> sshow v
+        , ": " <> encodeToText (defaultPayloadProviderConfig v)
+        ]
+
+instance ToJSON PayloadProviderConfig where
+    toJSON o = object
+        $ ("default" .= _payloadProviderConfigMinimal o)
+        : others
+      where
+        pacts =
+            [ key c .= tag "pact" v
+            | (c, v) <- HM.toList (_payloadProviderConfigPact o)
+            ]
+        evms =
+            [ key c .= tag "evm" v
+            | (c, v) <- HM.toList (_payloadProviderConfigEvm o)
+            ]
+        others = L.sort $ pacts <> evms
+
+        tag :: ToJSON v => T.Text -> v -> Value
+        tag t v = case toJSON v of
+            Object l -> Object $ KM.insert "type" (toJSON t) l
+            x -> x
+
+        key :: ChainId -> Key
+        key cid = K.fromText $ "chain-" <> toText cid
+
+-- | NOTE: This creates unsafe ChainIds. The result should only be used after
+-- validation against the chainweb version.
+--
+instance FromJSON PayloadProviderConfig where
+    parseJSON = withObject "PayloadProviderConfig" $ \o -> do
+        minimal <- o .: "default"
+        ifoldlM go (minimalPayloadProviderConfig minimal) (KM.toMapText o)
+      where
+        parseKey k = case T.stripPrefix "chain-" k of
+            Nothing -> fail $ "failed to parse chain key: " <> sshow k
+            Just x -> case T.decimal x of
+                Left e -> fail $ "failed to parse chain value: " <> e
+                Right (n, "") -> return $ unsafeChainId n
+                Right _ -> fail $ "trailng garabage when parsing chain value: " <> sshow x
+
+        go "default" c = const (return c)
+        go k c = withObject "ProviderConfig for Chain" $ \o -> do
+            cid <- parseKey k
+            (o .: "type") >>= \case
+                "pact" -> do
+                    x <- parseJSON (Object o)
+                    return $ c & payloadProviderConfigPact . at cid .~ Just x
+                "evm" -> do
+                    x <- parseJSON (Object o)
+                    return $ c & payloadProviderConfigEvm . at cid .~ Just x
+                (x :: T.Text) -> fail $ "unknown payload provider type: " <> sshow x
+
+-- | FIXME: test this instance.
+--
+instance FromJSON (PayloadProviderConfig -> PayloadProviderConfig) where
+    parseJSON = withObject "PayloadProviderConfig" $ \o -> do
+        updateMinimal <- payloadProviderConfigMinimal %.: "default" % o
+        ifoldlM go updateMinimal (KM.toMapText o)
+      where
+        parseKey k = case T.stripPrefix "chain-" k of
+            Nothing -> fail $ "failed to parse chain key: " <> sshow k
+            Just x -> case T.decimal x of
+                Left e -> fail $ "failed to parse chain value: " <> e
+                Right (n, "") -> return $ unsafeChainId n
+                Right _ -> fail $ "trailng garabage when parsing chain value: " <> sshow x
+
+        go "default" c = const (return c)
+        go k c = withObject "ProviderConfig for Chain" $ \o -> do
+            cid <- parseKey k
+            (o .: "type") >>= \case
+                "pact" ->  do
+                    x <- parseJSON (Object o)
+                    return $ (payloadProviderConfigPact . at cid %~ x) . c
+                "evm" -> do
+                    x <- parseJSON (Object o)
+                    return $ (payloadProviderConfigEvm . at cid %~ x) . c
+                (x :: T.Text) -> fail $ "unknown payload provider type: " <> sshow x
+
+pPayloadProviderConfig :: MParser PayloadProviderConfig
+pPayloadProviderConfig = id
+    <$< payloadProviderConfigMinimal %:: pMinimalProviderConfig
+    <*< pevm
+  where
+    cids = [ unsafeChainId i | i <- [0..20]]
+        -- FIXME this is is really ugly and also clutters the help message.
+        -- At least use the largest know graph. Ideally, we would use the
+        -- chainweb version -- but we don't know it yet.
+        --
+        -- FIXME: at the very least we should hide the all but the first options
+        -- from the help message!
+    pevm = foldr (\a b -> a . b) id <$> traverse go cids
+    go cid = (payloadProviderConfigEvm . ix cid %~) <$> (pEvmProviderConfig cid)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -407,6 +600,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configModuleCacheLimit :: !DbCacheLimitBytes
         -- ^ module cache size limit in bytes
     , _configEnableLocalTimeout :: !Bool
+    , _configPayloadProviders :: PayloadProviderConfig
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -422,6 +616,7 @@ validateChainwebConfiguration c = do
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
     validateChainwebVersion (_configChainwebVersion c)
+    validatePayloadProviderConfig (_configChainwebVersion c) (_configPayloadProviders c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = do
@@ -467,6 +662,21 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
     , _configEnableLocalTimeout = False
+    , _configPayloadProviders = minimalPayloadProviderConfig defaultMinimalProviderConfig
+        -- Similar to bootstrap-peers, there is no default configuration that
+        -- is valid accross chainweb versions.
+        --
+        -- We have to options:
+        -- 1. require that users explicitely configure all payload providers
+        --    that they want to use (FIXME: implement support for opting out of
+        --    payload providers for some chains, and force miners to keep them
+        --    all)
+        -- 2. use the default value for mainnet. That configuration will simply
+        --    fail validation on other networks.
+        --
+        -- However, even on mainnet users will most likely have to provide an
+        -- explicit configuration once we have external providers on mainet. At
+        -- that point it probably makes sense to use the first option.
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -494,6 +704,7 @@ instance ToJSON ChainwebConfiguration where
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
         , "enableLocalTimeout" .= _configEnableLocalTimeout o
+        , "payloadProviders" .= _configPayloadProviders o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -525,6 +736,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
         <*< configEnableLocalTimeout ..: "enableLocalTimeout" % o
+        <*< configPayloadProviders %.: "payloadProviders" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -585,6 +797,9 @@ pChainwebConfiguration = id
     <*< configEnableLocalTimeout .:: option auto
         % long "enable-local-timeout"
         <> help "Enable timeout support on /local endpoints"
+
+    -- FIXME support payload providers
+    <*< configPayloadProviders %:: pPayloadProviderConfig
 
 parseVersion :: MParser ChainwebVersion
 parseVersion = constructVersion

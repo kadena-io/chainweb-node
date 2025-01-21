@@ -342,7 +342,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                     (_peerResConfig peerRes)
                     myInfo
                     peerDb
-                    defaultMinimalProviderConfig
+                    (_configPayloadProviders conf)
                     x
             )
 
@@ -430,8 +430,8 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
     initLogger = setComponent "init" logger
 
     providerLogger :: HasChainId p => HasPayloadProviderType p => p -> logger
-    providerLogger p = addLabel ("provider", toText (_payloadProviderType p))
-        $ chainLogger p
+    providerLogger p = chainLogger p
+        & addLabel ("provider", toText (_payloadProviderType p))
 
     logg :: LogFunctionText
     logg = logFunctionText initLogger

@@ -25,7 +25,9 @@
 -- Allocate chainweb resources for individual chains
 --
 module Chainweb.Chainweb.ChainResources
-( ChainResources(..)
+(
+-- * Chain Resources
+  ChainResources(..)
 , chainResBlockHeaderDb
 , chainResLogger
 , chainResPayloadProvider
@@ -55,10 +57,12 @@ module Chainweb.Chainweb.ChainResources
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockPayloadHash
 import Chainweb.ChainId
-import Chainweb.Chainweb.Configuration (ServiceApiConfig(_serviceApiPayloadBatchLimit))
+import Chainweb.Chainweb.Configuration
+    -- FIXME this module should not depend on the global configuration
 import Chainweb.Logger
 import Chainweb.Pact.Types
 import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.EVM
 import Chainweb.PayloadProvider.Minimal
 import Chainweb.PayloadProvider.P2P.RestAPI
 import Chainweb.PayloadProvider.P2P.RestAPI.Server
@@ -69,8 +73,11 @@ import Chainweb.Storage.Table.RocksDB
 import Chainweb.Utils
 import Chainweb.Version
 import Control.Lens hiding ((.=), (<.>))
+import Data.Foldable
+import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.PQueue (PQueue)
+import Data.Singletons
 import Data.Text qualified as T
 import Network.HTTP.Client qualified as HTTP
 import P2P.Node
@@ -80,10 +87,6 @@ import P2P.Peer (PeerInfo)
 import P2P.Session
 import P2P.TaskQueue
 import Prelude hiding (log)
-import Data.HashMap.Strict qualified as HM
-import Data.Foldable
-import Chainweb.PayloadProvider.EVM
-import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Payload P2P Network Resources
@@ -184,7 +187,6 @@ payloadServiceApiResources config pdb = PayloadServiceApiResources
   where
     batchLimit = int $ _serviceApiPayloadBatchLimit config
 
-
 -- -------------------------------------------------------------------------- --
 -- Payload Provider Resources
 
@@ -206,12 +208,6 @@ instance HasChainId ProviderResources where
     _chainId = _chainId . _providerResPayloadProvider
     {-# INLINE _chainId #-}
 
-    -- FIXME
-    -- initialize payload store
-    -- payloadStore <- newWebPayloadStore mgr pact payloadDb (logFunction logger)
-    -- Where is this done? The queue is used by the P2p Session and
-    -- the Payload Provider.
-
 withPayloadProviderResources
     :: Logger logger
     => HasChainwebVersion v
@@ -224,10 +220,10 @@ withPayloadProviderResources
     -> PeerDb
     -> RocksDb
     -> HTTP.Manager
-    -> MinimalProviderConfig
+    -> PayloadProviderConfig
     -> (ProviderResources -> IO a)
     -> IO a
-withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr mpConfig inner = do
+withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs inner = do
     SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal v
     SomeChainIdT @c' _ <- return $ someChainIdVal c
     withSomeSing provider $ \case
@@ -241,7 +237,8 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr mpConfig
             -- It would allow the server to be integrated more closely with the
             -- provider.
 
-            p <- newMinimalPayloadProvider logger v c rdb mgr mpConfig
+            let config = _payloadProviderConfigMinimal configs
+            p <- newMinimalPayloadProvider logger v c rdb mgr config
             let pdb = view minimalPayloadDb p
             let queue = view minimalPayloadQueue p
             p2pRes <- payloadP2pResources @v' @c' @'MinimalProvider
@@ -252,15 +249,22 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr mpConfig
                 , _providerResP2pApiResources = Just p2pRes
                 }
 
-        SPactProvider ->
+        SPactProvider -> do
+            _config <- case HM.lookup cid (_payloadProviderConfigPact configs) of
+                Just x -> return x
+                Nothing -> error $ "Chainweb.Chainweb.ChainResources.withPayloadProviderResources: missing payload provider configuration for chain " <> sshow cid
             error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: providerResources not implemented for Pact"
 
-        SEvmProvider @n _ ->
+        SEvmProvider @n _ -> do
+            config <- case HM.lookup cid (_payloadProviderConfigEvm configs) of
+                Just x -> return x
+                Nothing -> error $ "Chainweb.Chainweb.ChainResources.withPayloadProviderResources: missing payload provider configuration for chain " <> sshow cid
+
             -- This assumes that the respective execution client is available
             -- and answering API requests.
             -- It also starts to awaiting and devlivering new payloads if mining
             -- is enabled.
-            withEvmPayloadProvider logger v c rdb mgr evmConfig $ \p -> do
+            withEvmPayloadProvider logger v c rdb mgr config $ \p -> do
                 let pdb = view evmPayloadDb p
                 let queue = view evmPayloadQueue p
                 p2pRes <- payloadP2pResources @v' @c' @('EvmProvider n)
@@ -271,10 +275,9 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr mpConfig
                     , _providerResP2pApiResources = Just p2pRes
                     }
   where
+    cid = _chainId c
     provider :: PayloadProviderType
     provider = payloadProviderTypeForChain v c
-
-    evmConfig = defaultEvmProviderConfig
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
@@ -322,11 +325,10 @@ withChainResources
     -> P2pConfiguration
     -> PeerInfo
     -> PeerDb
-    -> MinimalProviderConfig
-        -- ^ FIXME create a a type that bundles different provider configs
+    -> PayloadProviderConfig
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources logger v c rdb mgr _pactDbDir _pConf p2pConf myInfo peerDb mConf inner =
+withChainResources logger v c rdb mgr _pactDbDir _pConf p2pConf myInfo peerDb configs inner =
 
     -- This uses the the CutNetwork for fetching block headers.
     withBlockHeaderDb rdb (_chainwebVersion v) (_chainId c) $ \cdb -> do
@@ -334,13 +336,18 @@ withChainResources logger v c rdb mgr _pactDbDir _pConf p2pConf myInfo peerDb mC
         -- Payload Providers are using per chain payload networks for fetching
         -- block headers.
         withPayloadProviderResources
-            logger v c p2pConf myInfo peerDb rdb mgr mConf $ \provider -> do
+            providerLogger v c p2pConf myInfo peerDb rdb mgr configs $ \provider -> do
 
                 inner ChainResources
                     { _chainResBlockHeaderDb = cdb
                     , _chainResPayloadProvider = provider
                     , _chainResLogger = logger
                     }
+  where
+    providerType = payloadProviderTypeForChain v c
+    providerLogger = logger
+        & setComponent "payload-provider"
+        & addLabel ("provider", toText providerType)
 
 -- | Return P2P Payload Servers for all chains
 --
