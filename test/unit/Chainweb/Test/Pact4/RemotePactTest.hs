@@ -193,6 +193,7 @@ tests rdb = testGroup "Chainweb.Test.Pact4.RemotePactTest"
             ]
       , testCase "txlogsCompactionTest" $ txlogsCompactionTest rdb
       , testCase "invalid command test" $ invalidCommandTest rdb
+      , testCase "db error test" $ dbErrorTest rdb
     ]
 
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
@@ -201,6 +202,41 @@ responseGolden cenv rks = do
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
+
+-- this tests the exact content of dberrors which make it into outputs
+dbErrorTest :: RocksDb -> IO ()
+dbErrorTest rdb = runResourceT $ do
+    nodeDbDirs <- withNodeDbDirs rdb nNodes
+    net <- withNodesAtLatestBehavior v id nodeDbDirs
+    liftIO $ do
+      iot <- liftIO $ toTxCreationTime @Integer <$> getCurrentTimeIntegral
+      let cenv = _getServiceClientEnv net
+      cmd <- liftIO $ buildTextCmd "err" v
+          $ set cbSigners [mkEd25519Signer' sender00 []]
+          $ set cbTTL defaultMaxTTL
+          $ set cbCreationTime iot
+          $ set cbChainId cid
+          $ set cbGasLimit 70000
+          $ set cbRPC (mkExec
+            (T.unlines
+              [ "(namespace 'free)"
+              , "(module m G"
+              , "(defcap G () true)"
+              , "(defschema s i:integer)"
+              , "(deftable tbl:{s})"
+              , "(defun f () (update tbl 'x {'i: 4})))"
+              , "(create-table tbl)"
+              , "(f)"
+              ]
+              )
+            (mkKeySetData "sender00" [sender00]))
+          $ defaultCmd
+      let expectedMessage =
+            ": Failure: Database exception: {\"tag\":\"PactInternalError\",\"contents\":\"checkInsertIsOK: Update: no row found for key x\"}"
+      r <- local v cid cenv cmd
+      assertEqual "something"
+        (over _Left show $ _pactResult $ _crResult r)
+        (Left expectedMessage)
 
 invalidCommandTest :: RocksDb -> IO ()
 invalidCommandTest rdb = runResourceT $ do
