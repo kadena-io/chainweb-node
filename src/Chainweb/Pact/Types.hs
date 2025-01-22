@@ -391,8 +391,44 @@ data PactException
     { _earliestBlockHeight :: !BlockHeight
     , _genesisHeight :: !BlockHeight
     }
-  deriving stock (Show, Generic)
+  deriving stock (Generic)
   deriving anyclass (Exception)
+
+instance Show PactException where
+    show = T.unpack . J.encodeText
+
+instance J.Encode PactException where
+  build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
+  build (PactInternalError _stack msg) = tagged "PactInternalError" msg
+  build (PactTransactionExecError h msg) = tagged "PactTransactionExecError" (J.Array (h, msg))
+  build (CoinbaseFailure msg) = tagged "CoinbaseFailure" msg
+  build NoBlockValidatedYet = tagged "NoBlockValidatedYet" J.null
+  build (Pact4TransactionValidationException l) = tagged "TransactionValidationException" (J.Array $ J.Array <$> l)
+  build (Pact5TransactionValidationException l) = tagged "TransactionValidationException" (J.Array $ J.Array <$> l)
+  build (PactDuplicateTableError msg) = tagged "PactDuplicateTableError" msg
+  build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
+  build o@(RewindLimitExceeded{}) = tagged "RewindLimitExceeded" $ J.object
+    [ "_rewindExceededLimit" J..= J.Aeson (_rewindLimit $ _rewindExceededLimit o)
+    , "_rewindExceededLast" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededLast o)
+    , "_rewindExceededTarget" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededTarget o)
+    ]
+  build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
+  build (Pact4BuyGasFailure failure) = tagged "BuyGasFailure" failure
+  build (Pact5BuyGasFailure failure) = tagged "BuyGasFailure" (sshow @_ @Text failure)
+  build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
+  build (Pact5GenesisCommandFailed hash text) = tagged "BlockGasLimitExceeded" (J.Array $ [sshow @_ @Text hash, text])
+  build (Pact5GenesisCommandsInvalid errs) = tagged "BlockGasLimitExceeded" (J.Array $ sshow @_ @Text <$> errs)
+  build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
+  build o@(FullHistoryRequired{}) = tagged "FullHistoryRequired" $ J.object
+    [ "_fullHistoryRequiredEarliestBlockHeight" J..= J.Aeson @Int (fromIntegral $ _earliestBlockHeight o)
+    , "_fullHistoryRequiredGenesisHeight" J..= J.Aeson @Int (fromIntegral $ _genesisHeight o)
+    ]
+
+tagged :: J.Encode v => Text -> v -> J.Builder
+tagged t v = J.object
+    [ "tag" J..= t
+    , "contents" J..= v
+    ]
 
 instance Eq PactException where
   BlockValidationFailure m == BlockValidationFailure m' = m == m'
