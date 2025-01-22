@@ -135,7 +135,7 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
           # The first version in this list is the version to be used for release
-          "ghc": ["9.8.2", "9.10.1", "9.6.6"],
+          "ghc": ["9.10.1", "9.6.6"],
           "cabal": ["3.12"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
@@ -153,7 +153,7 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.8.2", "9.10.1", "9.6.6"],
+          "ghc": ["9.10.1", "9.6.6"],
           "cabal": ["3.12"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
@@ -250,6 +250,18 @@ jobs:
     - name: Set permissions for .ghcup
       if: startsWith(matrix.os, 'ubuntu-')
       run: sudo chown -R $USER /usr/local/.ghcup
+    - uses: actions/cache@v4
+      name: cache
+      with:
+        path: |
+          ~/.ghcup
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ env.key }}-${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ env.key }}-${{ matrix.os }}-${{ matrix.ghc }}-
+
     - name: Install GHC and Cabal
       id: setup
       uses: haskell-actions/setup@v2
@@ -261,8 +273,11 @@ jobs:
         echo "setup ghc-version: ${{ steps.setup.outputs.ghc-version }}"
         echo "setup cabal-version: ${{ steps.setup.outputs.cabal-version }}"
         echo "setup cabal-store: ${{ steps.setup.outputs.cabal-store }}"
+        which ghc
         ghc --version
+        which cabal
         cabal --version
+
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
@@ -314,19 +329,6 @@ jobs:
           ghc-options: -debug
         EOF
 
-    # dist cache
-    # the cache-key forces uploading of cache at least once a day, which ensures that
-    # upstream dependency changes are captured regularly.
-    - uses: actions/cache@v4
-      name: Cache dist-newstyle
-      with:
-        path: |
-          dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-
-          ${{ matrix.os }}-${{ matrix.ghc }}-
-
     # Build
     - name: Delete Freeze file if it exists
       if: matrix.use-freeze-file != 'true'
@@ -354,13 +356,11 @@ jobs:
         store_path: ${{ steps.setup.outputs.cabal-store }}
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
-    - name: Install build dependencies
-      run: cabal build chainweb --only-dependencies
-    - name: Build chainweb library
-      run: cabal build --ghc-options=-j2 lib:chainweb
+    - name: Build chainweb
+      run: cabal build -j --semaphore lib:chainweb
     - name: Build chainweb applications
       run: |
-        cabal build -j2 --ghc-options=-j2 \
+        cabal build -j --semaphore \
           chainweb:bench:bench \
           exe:b64 \
           exe:calculate-release \
@@ -379,7 +379,7 @@ jobs:
           test:remote-tests \
           test:chainweb-storage-tests
     - name: Build chainweb-node application
-      run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
+      run: cabal build -j --semaphore chainweb-node:exe:chainweb-node
 
     # Checks
     - name: Check that working directory tree is clean
@@ -525,7 +525,7 @@ jobs:
   rocksdb-library-tests:
     name: RocksDB library tests
     needs: [config, build]
-    runs-on: $${ matrix.os }}
+    runs-on: ${ matrix.os }}
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     strategy:
