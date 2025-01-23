@@ -40,8 +40,8 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Decimal
 import Data.Functor.Product
+import Data.HashMap.Strict qualified as HashMap
 import Data.IORef
-import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.String (fromString)
@@ -467,9 +467,9 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $ do
             ? P.fun _pendingWrites
             ? P.checkAll
                 [ P.fun InMemDb.userTables
-                    ? P.alignExact ? Map.fromList
+                    ? P.alignExact ? HashMap.fromList
                         [ TableName "coin-table" (ModuleName "coin" Nothing) :=>
-                            P.alignExact ? Map.fromList
+                            P.alignExact ? HashMap.fromList
                                 [ RowKey "NoMiner" :=>
                                     P.match InMemDb._WriteEntry P.succeed
                                 , RowKey "sender00" :=>
@@ -478,7 +478,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $ do
                         ]
 
                 , P.fun InMemDb.modules
-                    ? P.alignExact ? Map.fromList
+                    ? P.alignExact ? HashMap.fromList
                         [ ModuleName "coin" Nothing :=>
                             P.match InMemDb._ReadEntry P.succeed
                         ]
@@ -889,7 +889,7 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
             ? P.fail "no writes made to module table"
         , P.fun InMemDb.userTables
             ? P.match (ix (TableName "coin-table" (ModuleName "coin" Nothing)))
-            ? P.alignExact ? Map.fromList
+            ? P.alignExact ? HashMap.fromList
                 [ RowKey "NoMiner" :=> P.match InMemDb._WriteEntry P.succeed
                 , RowKey "sender00" :=> P.match InMemDb._WriteEntry P.succeed
                 ]
