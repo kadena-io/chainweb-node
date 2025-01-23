@@ -17,7 +17,6 @@ module Chainweb.Pact.Backend.InMemDb
     , insert
     , lookup
     , keys
-    , merge
     ) where
 
 import Prelude hiding (lookup)
@@ -98,16 +97,6 @@ keys d Store {..} = case d of
     DNamespaces -> Map.keys namespaces
     DDefPacts -> Map.keys defPacts
     DModuleSource -> Map.keys moduleSources
-
-merge :: Store -> Store -> Store
-merge old new = Store
-    { keySets = mergeEntries (keySets old) (keySets new)
-    , modules = mergeEntries (modules old) (modules new)
-    , namespaces = mergeEntries (namespaces old) (namespaces new)
-    , defPacts = mergeEntries (defPacts old) (defPacts new)
-    , moduleSources = mergeEntries (moduleSources old) (moduleSources new)
-    , userTables = Map.unionWith mergeEntries (userTables old) (userTables new)
-    }
 
 mergeEntries :: Ord k => Map k (Entry a) -> Map k (Entry a) -> Map k (Entry a)
 mergeEntries oldMap newMap =

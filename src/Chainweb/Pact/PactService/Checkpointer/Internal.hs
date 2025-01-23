@@ -531,7 +531,7 @@ lookupHistorical db blockHeader d k = do
       let sql = "SELECT rowKey, rowdata FROM [" <> Pact5.domainTableName d <>
                 "] WHERE txid < ? AND rowkey = ? ORDER BY txid DESC LIMIT 1;"
       r <- qry db sql
-        [SInt e, SText (Pact5.convRowKey k)]
+        [SInt e, SText (toUtf8 $ Pact5.convRowKey k)]
         [RText, RBlob]
       case r of
         [[SText key, SBlob value]] -> Just <$> Pact5.toTxLog (Pact5.renderDomain d) key value

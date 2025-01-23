@@ -48,7 +48,6 @@ module Chainweb.Pact.Backend.Utils
   -- * SQLite conversions and assertions
   , toUtf8
   , fromUtf8
-  , toTextUtf8
   , asStringUtf8
   , convSavepointName
   , expectSingleRowCol
@@ -130,10 +129,6 @@ fromUtf8 :: SQ3.Utf8 -> Text
 fromUtf8 (SQ3.Utf8 bytes) = T.decodeUtf8 bytes
 {-# INLINE fromUtf8 #-}
 
-toTextUtf8 :: HasTextRepresentation a => a -> SQ3.Utf8
-toTextUtf8 = toUtf8 . toText
-{-# INLINE toTextUtf8 #-}
-
 asStringUtf8 :: AsString a => a -> SQ3.Utf8
 asStringUtf8 = toUtf8 . asString
 {-# INLINE asStringUtf8 #-}
@@ -170,7 +165,7 @@ commitSavepoint db name =
   Pact4.exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 convSavepointName :: SavepointName -> SQ3.Utf8
-convSavepointName = toTextUtf8
+convSavepointName = toUtf8 . toText
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and restarts the transaction.
