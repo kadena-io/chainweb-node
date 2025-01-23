@@ -863,8 +863,10 @@ benchmark bench
     type: exitcode-stdio-1.0
     other-modules:
         Chainweb.MempoolBench
+        Chainweb.Pact.Backend.ApplyCmd
         Chainweb.Pact.Backend.Bench
         Chainweb.Pact.Backend.ForkingBench
+        Chainweb.Pact.Backend.PactService
         Chainweb.Utils.Bench
         JSONEncoding
 
@@ -884,15 +886,22 @@ benchmark bench
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
+        , direct-sqlite
         , exceptions >= 0.8
         , file-embed >= 0.0
         , lens >= 4.17
         , loglevel >= 0.1
         , mtl >= 2.3
         , pact
+        , pact-tng
+        , pact-tng:pact-request-api
+        , property-matchers
         , random >= 1.2
+        , safe-exceptions
         , streaming
+        , tasty-hunit
         , text >= 2.0
+        , unordered-containers
         , vector >= 0.12.2
         , yaml >= 0.11
         , property-matchers ^>= 0.4

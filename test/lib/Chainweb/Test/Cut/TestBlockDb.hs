@@ -11,6 +11,7 @@
 module Chainweb.Test.Cut.TestBlockDb
   ( TestBlockDb(..)
   , mkTestBlockDb
+  , mkTestBlockDbIO
   , addTestBlockDb
   , getParentTestBlockDb
   , getParentBlockTestBlockDb
@@ -66,6 +67,19 @@ mkTestBlockDb cv rdb = do
     initCut <- newMVar $ genesisCut cv
     return $! TestBlockDb wdb pdb initCut
 
+-- | Initialize TestBlockDb in 'IO'. This is discouraged in most test environments.
+--   Use this only when you cannot use 'ResourceT'.
+--
+--   Take care to call 'deleteNamespaceRocksDb' on the 'RocksDb' that this returns
+--   in between test runs.
+mkTestBlockDbIO :: ChainwebVersion -> RocksDb -> IO (T2 TestBlockDb RocksDb)
+mkTestBlockDbIO v rdb = do
+  testRdb <- testRocksDb "mkTestBlockDbIO" rdb
+  wdb <- initWebBlockHeaderDb testRdb v
+  let pdb = newPayloadDb testRdb
+  initializePayloadDb v pdb
+  initCut <- newMVar $ genesisCut v
+  return $! T2 (TestBlockDb wdb pdb initCut) testRdb
 
 -- | Add a block.
 --
