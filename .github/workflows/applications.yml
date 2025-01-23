@@ -525,7 +525,7 @@ jobs:
   rocksdb-library-tests:
     name: RocksDB library tests
     needs: [config, build]
-    runs-on: $${ matrix.os }}
+    runs-on: ${ matrix.os }}
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     strategy:
