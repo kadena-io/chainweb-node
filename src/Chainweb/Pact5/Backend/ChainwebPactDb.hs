@@ -87,6 +87,7 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
 import Data.List(sort)
 import qualified Data.HashSet as HashSet
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
@@ -693,23 +694,29 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
         -> IO ()
     backendWriteUpdateBatch store = do
         writeTable (domainToTableName Pact.DKeySets)
-            $ M.mapMaybeWithKey (prepRow . convKeySetName) $ InMemDb.keySets store
+            $ mapMaybe (uncurry $ prepRow . convKeySetName)
+            $ HashMap.toList (InMemDb.keySets store)
 
         writeTable (domainToTableName Pact.DModules)
-            $ M.mapMaybeWithKey (prepRow . convModuleName) $ InMemDb.modules store
+            $ mapMaybe (uncurry $ prepRow . convModuleName)
+            $ HashMap.toList (InMemDb.modules store)
 
         writeTable (domainToTableName Pact.DNamespaces)
-            $ M.mapMaybeWithKey (prepRow . convNamespaceName) $ InMemDb.namespaces store
+            $ mapMaybe (uncurry $ prepRow . convNamespaceName)
+            $ HashMap.toList (InMemDb.namespaces store)
 
         writeTable (domainToTableName Pact.DDefPacts)
-            $ M.mapMaybeWithKey (prepRow . convPactId) $ InMemDb.defPacts store
+            $ mapMaybe (uncurry $ prepRow . convPactId)
+            $ HashMap.toList (InMemDb.defPacts store)
 
         writeTable (domainToTableName Pact.DModuleSource)
-            $ M.mapMaybeWithKey (prepRow . convHashedModuleName) $ InMemDb.moduleSources store
+            $ mapMaybe (uncurry $ prepRow . convHashedModuleName)
+            $ HashMap.toList (InMemDb.moduleSources store)
 
         iforM_ (InMemDb.userTables store) $ \tableName tableContents -> do
             writeTable (domainToTableName (Pact.DUserTables tableName))
-                $ M.mapMaybeWithKey (prepRow . convRowKey) tableContents
+                $ mapMaybe (uncurry $ prepRow . convRowKey)
+                $ HashMap.toList tableContents
 
         where
         domainToTableName = SQ3.Utf8 . T.encodeUtf8 . Pact.renderDomain
@@ -721,7 +728,7 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
                 ]
         prepRow _ InMemDb.ReadEntry {} = Nothing
 
-        writeTable :: SQ3.Utf8 -> M.Map k [SType] -> IO ()
+        writeTable :: SQ3.Utf8 -> [[SType]] -> IO ()
         writeTable table writes = when (not (null writes)) $ do
             execMulti db q writes
             markTableMutation table bh
@@ -743,9 +750,8 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
             , SBlob (runPutS (encodeBlockHash hsh))
             , SInt (fromIntegral t)
             ]
-      where
-        stmt =
-          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+        where
+        stmt = "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 
     createUserTable :: SQ3.Utf8 -> IO ()
     createUserTable tablename = do
@@ -756,7 +762,7 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
     -- to drop it if we rewind past this block.
     markTableCreation tablename =
         exec' db insertstmt insertargs
-      where
+        where
         insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
         insertargs = [SText tablename, SInt (fromIntegral bh)]
 
@@ -766,9 +772,9 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
         let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
         dbIndexTransactions txs
 
-      where
+        where
         toRow b = [SBlob b, SInt (fromIntegral bh)]
         dbIndexTransactions txs = do
             let rows = map toRow $ toList txs
-            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
-                         \ VALUES (?, ?)" rows
+            let q = "INSERT INTO TransactionIndex (txhash, blockheight) VALUES (?, ?)"
+            execMulti db q rows

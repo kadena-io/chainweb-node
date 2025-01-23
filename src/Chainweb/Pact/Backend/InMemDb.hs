@@ -22,8 +22,8 @@ module Chainweb.Pact.Backend.InMemDb
 import Prelude hiding (lookup)
 import Control.Lens
 import Data.ByteString (ByteString)
-import Data.Map.Strict(Map)
-import Data.Map.Strict qualified as Map
+import Data.HashMap.Strict(HashMap)
+import Data.HashMap.Strict qualified as HashMap
 
 import Pact.Core.Persistence
 import Pact.Core.Builtin
@@ -33,6 +33,8 @@ import Pact.Core.Names
 import Pact.Core.Namespace
 import Pact.Core.DefPacts.Types
 import Pact.Core.IR.Term (ModuleCode)
+import Data.Hashable
+import Data.Maybe
 
 data Entry a
     = ReadEntry !Int !a
@@ -45,13 +47,12 @@ data Entry a
 makePrisms ''Entry
 
 data Store = Store
-    -- TODO: hashmap instead of map? Or maybe an intmap?
-    { userTables :: Map TableName (Map RowKey (Entry RowData))
-    , keySets :: Map KeySetName (Entry KeySet)
-    , modules :: Map ModuleName (Entry (ModuleData CoreBuiltin Info))
-    , namespaces :: Map NamespaceName (Entry Namespace)
-    , defPacts :: Map DefPactId (Entry (Maybe DefPactExec))
-    , moduleSources :: Map HashedModuleName (Entry ModuleCode)
+    { userTables :: HashMap TableName (HashMap RowKey (Entry RowData))
+    , keySets :: HashMap KeySetName (Entry KeySet)
+    , modules :: HashMap ModuleName (Entry (ModuleData CoreBuiltin Info))
+    , namespaces :: HashMap NamespaceName (Entry Namespace)
+    , defPacts :: HashMap DefPactId (Entry (Maybe DefPactExec))
+    , moduleSources :: HashMap HashedModuleName (Entry ModuleCode)
     }
     deriving (Show, Eq)
 
@@ -65,9 +66,7 @@ insert
 insert d k v Store {..} = case d of
     DUserTables tn -> Store
         { userTables =
-            Map.insertWith
-                (\new old -> mergeEntries old new)
-                tn (Map.singleton k v) userTables
+            userTables & at tn %~ Just . insertProperlyInto . fromMaybe mempty
         , ..}
     DKeySets -> Store {keySets = insertProperlyInto keySets, ..}
     DModules -> Store {modules = insertProperlyInto modules, ..}
@@ -75,32 +74,28 @@ insert d k v Store {..} = case d of
     DDefPacts -> Store {defPacts = insertProperlyInto defPacts, ..}
     DModuleSource -> Store {moduleSources = insertProperlyInto moduleSources, ..}
     where
-    insertProperlyInto :: Ord k => Map k (Entry v) -> Map k (Entry v)
-    insertProperlyInto m = Map.insertWith takeLatestEntry k v m
+    insertProperlyInto :: Hashable k => HashMap k (Entry v) -> HashMap k (Entry v)
+    insertProperlyInto m = HashMap.insertWith (\new old -> takeLatestEntry old new) k v m
 
 lookup
     :: Domain k v CoreBuiltin Info
     -> k -> Store -> Maybe (Entry v)
 lookup d k Store {..} = case d of
-    DUserTables tn -> Map.lookup tn userTables >>= Map.lookup k
-    DKeySets -> Map.lookup k keySets
-    DModules -> Map.lookup k modules
-    DNamespaces -> Map.lookup k namespaces
-    DDefPacts -> Map.lookup k defPacts
-    DModuleSource -> Map.lookup k moduleSources
+    DUserTables tn -> HashMap.lookup tn userTables >>= HashMap.lookup k
+    DKeySets -> HashMap.lookup k keySets
+    DModules -> HashMap.lookup k modules
+    DNamespaces -> HashMap.lookup k namespaces
+    DDefPacts -> HashMap.lookup k defPacts
+    DModuleSource -> HashMap.lookup k moduleSources
 
 keys :: Domain k v CoreBuiltin Info -> Store -> [k]
 keys d Store {..} = case d of
-    DUserTables tn -> maybe [] Map.keys $ Map.lookup tn userTables
-    DKeySets -> Map.keys keySets
-    DModules -> Map.keys modules
-    DNamespaces -> Map.keys namespaces
-    DDefPacts -> Map.keys defPacts
-    DModuleSource -> Map.keys moduleSources
-
-mergeEntries :: Ord k => Map k (Entry a) -> Map k (Entry a) -> Map k (Entry a)
-mergeEntries oldMap newMap =
-    Map.unionWith takeLatestEntry oldMap newMap
+    DUserTables tn -> maybe [] HashMap.keys $ HashMap.lookup tn userTables
+    DKeySets -> HashMap.keys keySets
+    DModules -> HashMap.keys modules
+    DNamespaces -> HashMap.keys namespaces
+    DDefPacts -> HashMap.keys defPacts
+    DModuleSource -> HashMap.keys moduleSources
 
 takeLatestEntry :: Entry a -> Entry a -> Entry a
 takeLatestEntry ReadEntry {} newEntry = newEntry
