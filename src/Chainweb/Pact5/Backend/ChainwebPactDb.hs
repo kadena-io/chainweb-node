@@ -367,17 +367,17 @@ doReadRow mlim d k = do
         Dict () -> do
             lookupWithKey pendingData encodedKey (fmap (view Pact.document) . decodeValue) >>= \case
                 Nothing -> return Nothing
-                Just (encodedValue, decodedValue) -> do
+                Just (encodedValueLength, decodedValue) -> do
                     case d of
                         Pact.DModules -> do
                             BlockHandler $ lift $ lift
-                                $ Pact.chargeGasM (Pact.GModuleOp (Pact.MOpLoadModule (BS.length encodedValue)))
-                            bsPendingTx . _Just . _1 . pendingWrites %=
-                                InMemDb.insert d k (InMemDb.ReadEntry encodedValue decodedValue)
-                        Pact.DUserTables {} -> do
-                            bsPendingTx . _Just . _1 . pendingWrites %=
-                                InMemDb.insert d k (InMemDb.ReadEntry encodedValue decodedValue)
+                                $ Pact.chargeGasM (Pact.GModuleOp (Pact.MOpLoadModule encodedValueLength))
                         _ -> return ()
+                    case d of
+                        Pact.DModuleSource -> return ()
+                        _ ->
+                            bsPendingTx . _Just . _1 . pendingWrites %=
+                                InMemDb.insert d k (InMemDb.ReadEntry encodedValueLength decodedValue)
                     return (Just decodedValue)
   where
     tablename = domainTableName d
@@ -387,7 +387,7 @@ doReadRow mlim d k = do
         => [SQLitePendingData InMemDb.Store]
         -> SQ3.Utf8
         -> (BS.ByteString -> Maybe v)
-        -> BlockHandler logger (Maybe (BS.ByteString, v))
+        -> BlockHandler logger (Maybe (Int, v))
     lookupWithKey pds key f = do
         let lookPD = asum $ map lookupInMem pds
         let lookDB = lookupInDb f key
@@ -396,19 +396,19 @@ doReadRow mlim d k = do
     lookupInMem
         :: Ord k
         => SQLitePendingData InMemDb.Store
-        -> MaybeT (BlockHandler logger) (BS.ByteString, v)
+        -> MaybeT (BlockHandler logger) (Int, v)
     lookupInMem p = do
         -- we get the latest-written value at this rowkey
         let store = _pendingWrites p
         case InMemDb.lookup d k store of
             Nothing -> empty
             Just (InMemDb.ReadEntry bs a) -> return (bs, a)
-            Just (InMemDb.WriteEntry _ bs a) -> return (bs, a)
+            Just (InMemDb.WriteEntry _ bs a) -> return (BS.length bs, a)
 
     lookupInDb
         :: (BS.ByteString -> Maybe v)
         -> SQ3.Utf8
-        -> MaybeT (BlockHandler logger) (BS.ByteString, v)
+        -> MaybeT (BlockHandler logger) (Int, v)
     lookupInDb decode rowkey = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
@@ -425,7 +425,7 @@ doReadRow mlim d k = do
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $ (a,) <$> decode a
+            [[SBlob a]] -> MaybeT $ return $ (BS.length a,) <$> decode a
             err -> internalDbError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
