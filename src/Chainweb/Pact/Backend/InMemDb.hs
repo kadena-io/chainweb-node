@@ -36,7 +36,7 @@ import Pact.Core.DefPacts.Types
 import Pact.Core.IR.Term (ModuleCode)
 
 data Entry a
-    = ReadEntry !ByteString !a
+    = ReadEntry !Int !a
     -- WriteEntry bytestring could be intentionally lazy, as most of the time
     -- we don't need this until we commit to the db. However, encoding these is
     -- gassed, and thus cannot be done lazily.
