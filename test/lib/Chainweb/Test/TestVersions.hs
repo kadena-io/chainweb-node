@@ -310,8 +310,8 @@ slowForks = tabulateHashMap \case
     Chainweb224Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 125)
     Chainweb225Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 130)
     Chainweb226Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 135)
-    Chainweb227Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 140)
     Pact5Fork -> AllChains ForkNever
+    Chainweb228Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 145)
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap ForkHeight)
@@ -347,8 +347,8 @@ fastForks = tabulateHashMap $ \case
     Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
     Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 42
     Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 44
-    Chainweb227Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 46
-    Pact5Fork -> AllChains ForkNever
+    Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 46
+    Chainweb228Pact -> AllChains ForkNever
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.
 slowForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
