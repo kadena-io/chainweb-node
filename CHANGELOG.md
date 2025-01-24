@@ -1,3 +1,26 @@
+## 2.27 (2025-01-29)
+This is a major version update. This release replaces all previous versions.
+
+Any prior version will stop working on **2025-02-05T00:00:00Z**. Node administrators must upgrade to this version before that date. The 2.27 feature upgrade, which includes the switchover to Pact 5, will occur at block height 5555698 which is estimated to be mined at **2025-02-10T00:00:00Z**.
+
+### Changes
+- Add Pact 5. See the [`Documentation here`](https://docs.kadena.io/smart-contracts/install/migrating-to-pact5). [`138d21f`](https://github.com/kadena-io/chainweb-node/commit/138d21f6577af6190978730418a79043f2eb0048)
+- Update to Pact 4 version to 4.13.2 [``](https://github.com/kadena-io/chainweb-node/commit/)
+- Delete Rosetta [`ce711bc`](https://github.com/kadena-io/chainweb-node/commit/ce711bcc304439fa1b292d11107a667427628148)
+- Provide better error messages for gas purchase failures [`5f200ab`](https://github.com/kadena-io/chainweb-node/commit/5f200ab76dfddbf54c2202c6cfff58a91425b772)
+- Improve error messages in /send api [`0585b4e`](https://github.com/kadena-io/chainweb-node/commit/0585b4e62f77f784fce6d5063c399416fe177ec2)
+- Provide a more straightforward BlockValidationFailure message. [`2dfadf7`](https://github.com/kadena-io/chainweb-node/commit/2dfadf7bc79bbb3338d9d660472505ed23766fea)
+- Provide a better error message when starting devnet with the database from a different network. [`8b0dc3e`](https://github.com/kadena-io/chainweb-node/commit/8b0dc3e31943bb542f24f9deceb2e0e2163bc7f7)
+- Upgrade to TLS 2.1.3 [`f1d7549`](https://github.com/kadena-io/chainweb-node/commit/f1d75498643495099bf7f2e1a112835d8e899c05)
+- Memoize some Cut properties [`f50341e`](https://github.com/kadena-io/chainweb-node/commit/f50341e66f6f56768160dc7556e0f808faaf0805)
+- Optimize some Cut operations [`ebef365`](https://github.com/kadena-io/chainweb-node/commit/ebef365cbef03879da4154660f1acbb8c73d1448)
+- Fix bug in request logging on Debug log level [`973bf1f`](https://github.com/kadena-io/chainweb-node/commit/973bf1fd02871e5e6870e318482c9a5b19bcc131)
+- Include difficulty as a Double in BlockUpdate telemetry [`668cb81`](https://github.com/kadena-io/chainweb-node/commit/668cb812c97ad9f1047d9589920797fbec26a2e2)
+- Use block height parameter when fetching payloads during catchup [`8aab452`](https://github.com/kadena-io/chainweb-node/commit/8aab4523d11a8c4d07278fe6b89b02141a065375)
+- Increment failures of failed peer synchronisations. This will help minimize unnecessary traffic to unreliable peers. [`1f23b81`](https://github.com/kadena-io/chainweb-node/commit/1f23b812f95629174ebbe22418e9d049e72bacf9)
+- Add libmpfr6 to Dockerfile dependencies [`1ff9305`](https://github.com/kadena-io/chainweb-node/commit/1ff9305713356009ed02f942c07f2ceb3e2e7b70)
+- Fold in external library `chainweb-storage` [`caf8393`](https://github.com/kadena-io/chainweb-node/commit/caf83932fb6a5411a326b6d6936b7f0d39277dab)
+
 ## 2.26.1 (2024-12-03)
 This is a minor point release. Upgrading is **strongly recommended**.
 
@@ -28,8 +51,7 @@ restart the node with the same configuration file as before.
 ## 2.26 (2024-11-13)
 This is a major version update. This release replaces all previous versions.
 
-Any prior version will stop working on **2024-11-13T00:00:00Z**. Node administrators must
-upgrade to this version before that date. The 2.26 feature upgrade will
+Any prior version will stop working on **2024-11-13T00:00:00Z**. Node administrators must upgrade to this version before that date. The 2.26 feature upgrade will
 occur at block height 5302559 which is estimated to be mined at **2024-11-14T00:00:00Z**.
 
 ### Changes
