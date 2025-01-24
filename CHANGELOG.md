@@ -5,7 +5,7 @@ Any prior version will stop working on **2025-02-05T00:00:00Z**. Node administra
 
 ### Changes
 - Add Pact 5. See the [`Documentation here`](https://docs.kadena.io/smart-contracts/install/migrating-to-pact5). [`138d21f`](https://github.com/kadena-io/chainweb-node/commit/138d21f6577af6190978730418a79043f2eb0048)
-- Update to Pact 4 version to 4.13.2 [``](https://github.com/kadena-io/chainweb-node/commit/)
+- Update to Pact 4 version to 4.13.2 [`47bc69a`](https://github.com/kadena-io/chainweb-node/commit/47bc69a6279354f6a6b43378e4093f7b526237ce)
 - Delete Rosetta [`ce711bc`](https://github.com/kadena-io/chainweb-node/commit/ce711bcc304439fa1b292d11107a667427628148)
 - Provide better error messages for gas purchase failures [`5f200ab`](https://github.com/kadena-io/chainweb-node/commit/5f200ab76dfddbf54c2202c6cfff58a91425b772)
 - Improve error messages in /send api [`0585b4e`](https://github.com/kadena-io/chainweb-node/commit/0585b4e62f77f784fce6d5063c399416fe177ec2)
