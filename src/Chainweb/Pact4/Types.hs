@@ -262,7 +262,7 @@ catchesPactError logger exnPrinting action = catches (Right <$> action)
             return (viaShow e)
           CensorsUnexpectedError -> do
             liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-            return ("unknown error " <> sshow e)
+            return "unknown error"
       return $ Left $ PactError EvalError noInfo [] err
   ]
 
