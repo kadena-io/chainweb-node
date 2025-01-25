@@ -704,8 +704,8 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     "execReadOnlyReplay: missing block: " <> sshow bh
                 handleMissingBlock (Historical ()) = return ()
             payload <- liftIO $ fromJuste <$>
-                lookupPayloadDataWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
-            let isPayloadEmpty = V.null (view payloadDataTransactions payload)
+                lookupPayloadWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
+            let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
             let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . atChain (_chainId bhdb) . ix (view blockHeight bh)
             liftIO $ writeIORef heightRef (view blockHeight bh)
             unless (isPayloadEmpty && not isUpgradeBlock)
@@ -714,8 +714,8 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                 $ runPact
                 $ Checkpointer.readFrom (Just $ ParentHeader bhParent) $
                     SomeBlockM $ Pair
-                        (void $ Pact4.execBlock bh (CheckablePayload payload))
-                        (void $ Pact5.execExistingBlock bh (CheckablePayload payload))
+                        (void $ Pact4.execBlock bh (CheckablePayloadWithOutputs payload))
+                        (void $ Pact5.execExistingBlock bh (CheckablePayloadWithOutputs payload))
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
