@@ -978,7 +978,7 @@ dumpGasLogs :: (Logger logger)
   -> IO ()
 dumpGasLogs ctx txHash maybeGasLogger gasEnv = do
   forM_ ((,) <$> _geGasLog gasEnv <*> maybeGasLogger) $ \(gasLogRef, gasLogger) -> do
-    gasLogs <- readIORef gasLogRef
+    gasLogs <- reverse <$> readIORef gasLogRef
     let prettyLogs = Pact5.prettyGasLogs (_geGasModel gasEnv) (_gleArgs <$> gasLogs)
     let logger = addLabel ("transactionExecContext", ctx) $ addLabel ("cmdHash", hashToText txHash) $ gasLogger
     logFunctionText logger L.Debug $ "gas logs: " <> prettyLogs
