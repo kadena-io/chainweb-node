@@ -57,7 +57,6 @@ import Test.Tasty.Hedgehog
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import Chainweb.Pact5.Types (noInfo)
-import GHC.Stack
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Checkpointer
 
@@ -203,7 +202,7 @@ runBlocks cp ph blks = do
 
 -- Check that a block's result at the time it was added to the checkpointer
 -- is consistent with us executing that block with `readFrom`
-assertBlock :: HasCallStack => Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
+assertBlock :: Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
 assertBlock cp ph (expectedBh, blk) = do
     hist <- Checkpointer.readFrom cp (Just ph) Pact5T $ \db startHandle -> do
         ((), _endHandle) <- doPact5DbTransaction db startHandle Nothing $ \txdb -> do
@@ -240,7 +239,7 @@ tests = testGroup "Pact5 Checkpointer tests"
     , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
         testProperty "readFrom with linear block history is valid" $ withTests 1000 $ property $ do
             blocks <- forAll genBlockHistory
-            liftIO $ do
+            evalIO $ do
                 cp <- cpIO
                 -- extend this empty chain with the genesis block
                 ((), ()) <- Checkpointer.restoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->

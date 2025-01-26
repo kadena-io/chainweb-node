@@ -1295,7 +1295,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
         [ "pendingSuccessfulTxs" J..= J.array
           (encodeB64UrlNoPaddingText <$> List.sort (toList _pendingSuccessfulTxs))
         , "pendingTableCreation" J..= J.array
-            (T.decodeUtf8 <$> List.sort (toList _pendingTableCreation))
+            (List.sort (toList _pendingTableCreation))
         , "pendingWrites" J..= pendingWritesJson
         ]
       , "txId" J..= J.Aeson (fromIntegral @_ @Int $ _blockHandleTxId _blockInProgressHandle)
@@ -1303,7 +1303,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
       where
       SQLitePendingData{..} = _blockHandlePending _blockInProgressHandle
       pendingWritesJson = J.Object
-            [ (T.decodeUtf8 _dkTable, J.Object
+            [ (_dkTable, J.Object
                 [ (T.decodeUtf8 _dkRowKey, J.Object
                     [ ((sshow @_ @T.Text. fromIntegral @TxId @Word) _deltaTxId, T.decodeUtf8 _deltaData)
                     | SQLiteRowDelta {..} <- toList rowKeyWrites

@@ -47,18 +47,21 @@ import Control.Lens
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Version
 import Database.SQLite3.Direct (Database)
-import qualified Pact.Types.Persistence as Pact4
 import Control.Concurrent.MVar
 import Data.ByteString (ByteString)
-import GHC.Generics
-import qualified Pact.Types.Names as Pact4
+import Data.Text (Text)
 import Data.DList (DList)
 import Data.Map (Map)
 import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.List.NonEmpty (NonEmpty)
 import Control.DeepSeq (NFData)
+import GHC.Generics
+
 import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
+
+import qualified Pact.Types.Persistence as Pact4
+import qualified Pact.Types.Names as Pact4
 
 -- | Whether we write rows to the database that were already overwritten
 -- in the same block.
@@ -83,7 +86,7 @@ type SQLiteEnv = Database
 -- the row value.
 --
 data SQLiteRowDelta = SQLiteRowDelta
-    { _deltaTableName :: !ByteString -- utf8?
+    { _deltaTableName :: !Text
     , _deltaTxId :: {-# UNPACK #-} !Pact4.TxId
     , _deltaRowKey :: !ByteString
     , _deltaData :: !ByteString
@@ -103,14 +106,14 @@ type TxLogMap = Map Pact4.TableName (DList Pact4.TxLogJson)
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
 -- can be performed upon block save).
-type SQLitePendingTableCreations = HashSet ByteString
+type SQLitePendingTableCreations = HashSet Text
 
 -- | Pact transaction hashes resolved during this block.
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
 -- Structured as a map from table name to a map from rowkey to inserted row delta.
-type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLiteRowDelta))
+type SQLitePendingWrites = HashMap Text (HashMap ByteString (NonEmpty SQLiteRowDelta))
 
 -- Note [TxLogs in SQLitePendingData]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

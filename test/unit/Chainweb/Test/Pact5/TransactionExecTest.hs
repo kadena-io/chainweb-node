@@ -96,6 +96,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "event spec" (testEvents baseRdb)
     , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
     , testCase "quirk spec" (quirkSpec baseRdb)
+    , testCase "test writes to nonexistent tables" (testWritesToNonExistentTables baseRdb)
     ]
 
 -- | Run with the context being that the parent block is the genesis block
@@ -894,6 +895,30 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
                 , RowKey "sender00" :=> P.match InMemDb._WriteEntry P.succeed
                 ]
         ]
+
+testWritesToNonExistentTables :: RocksDb -> IO ()
+testWritesToNonExistentTables rdb = readFromAfterGenesis v rdb $ do
+    txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
+    pactTransaction Nothing $ \pactDb -> do
+        cmd <- buildCwCmd v
+            $ set cbRPC (mkExec' $ T.concat
+                [ "(namespace 'free)"
+                , "(module m G"
+                , "(defcap G () true)"
+                , "(defschema o i:integer)"
+                , "(deftable t:{o})"
+                , ")"
+                , "(insert t 'k {'i: 2})"
+                ]
+                )
+            $ defaultCmd cid
+
+        logger <- testLogger
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            >>= P.match _Right
+            ? P.fun _crResult
+            ? P.match (_PactResultErr . _PEExecutionError . _1)
+            ? P.equals (DbOpFailure (NoSuchTable (TableName "t" (ModuleName "m" (Just "free")))))
 
 cid :: ChainId
 cid = unsafeChainId 0
