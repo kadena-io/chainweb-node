@@ -550,7 +550,7 @@ doKeys mlim d = do
               Nothing -> internalDbError $ "doKeys.DModuleSources: unexpected decoding"
     case ordDict of
         Dict () ->
-            return $ sort (parsedKeys ++ memKeys)
+            return $ sort (memKeys ++ parsedKeys)
 
     where
     blockLimitStmt = maybe "" (const " WHERE txid < ?;") mlim
