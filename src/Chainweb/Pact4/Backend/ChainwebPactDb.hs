@@ -12,6 +12,7 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact4.Backend.ChainwebPactDb
@@ -24,7 +25,6 @@
 module Chainweb.Pact4.Backend.ChainwebPactDb
 ( chainwebPactDb
 , rewoundPactDb
-, initSchema
 , indexPactTransaction
 , vacuumDb
 , toTxLog
@@ -123,8 +123,21 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Utils.Serialization (runPutS)
 import Data.Foldable
 
-domainTableName :: Domain k v -> SQ3.Utf8
-domainTableName = asStringUtf8
+execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> IO ()
+execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
+    forM_ rows $ \row -> do
+        SQ3.reset stmt >>= checkError
+        SQ3.clearBindings stmt
+        bindParams stmt row
+        SQ3.step stmt >>= checkError
+  where
+    checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
+    checkError (Right _) = return ()
+
+    destroy x = void (SQ3.finalize x >>= checkError)
+
+domainTableName :: Domain k v -> Text
+domainTableName = asString
 
 convKeySetName :: KeySetName -> SQ3.Utf8
 convKeySetName = toUtf8 . asString
@@ -289,7 +302,7 @@ forModuleNameFix :: (Bool -> BlockHandler logger a) -> BlockHandler logger a
 forModuleNameFix f = view blockHandlerModuleNameFix >>= f
 
 -- TODO: speed this up, cache it?
-tableExistsInDbAtHeight :: Utf8 -> BlockHeight -> BlockHandler logger Bool
+tableExistsInDbAtHeight :: Text -> BlockHeight -> BlockHandler logger Bool
 tableExistsInDbAtHeight tableName bh = do
     let knownTbls =
           ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces", "SYS:ModuleSources"]
@@ -299,7 +312,7 @@ tableExistsInDbAtHeight tableName bh = do
       let tableExistsStmt =
             -- table names are case-sensitive
             "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND lower(tablename) = lower(?)"
-      qry db tableExistsStmt [SInt $ max 0 (fromIntegral bh), SText tableName] [RText] >>= \case
+      qry db tableExistsStmt [SInt $ max 0 (fromIntegral bh), SText (toUtf8 tableName)] [RText] >>= \case
         [] -> return False
         _ -> return True
 
@@ -321,7 +334,6 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         Pacts -> lookupWithKey (convPactId k) noCache
   where
     tableName = domainTableName d
-    (Utf8 tableNameBS) = tableName
 
     lookupWithKey
         :: forall logger v . FromJSON v
@@ -341,7 +353,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -> MaybeT (BlockHandler logger) v
     lookupInPendingData (Utf8 rowkey) p = do
         -- we get the latest-written value at this rowkey
-        allKeys <- hoistMaybe $ HashMap.lookup tableNameBS (_pendingWrites p)
+        allKeys <- hoistMaybe $ HashMap.lookup tableName (_pendingWrites p)
         ddata <- _deltaData . NE.head <$> hoistMaybe (HashMap.lookup rowkey allKeys)
         MaybeT $ return $! decodeStrict' ddata
 
@@ -360,7 +372,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         let blockLimitStmt = maybe "" (const " AND txid < ?") mlim
         let blockLimitParam = maybe [] (\(TxId txid) -> [SInt $ fromIntegral txid]) (snd <$> mlim)
         let queryStmt =
-                "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt
+                "SELECT rowdata FROM " <> tbl (toUtf8 tableName) <> " WHERE rowkey = ?" <> blockLimitStmt
                 <> " ORDER BY txid DESC LIMIT 1;"
         result <- lift $ callDb "doReadRow"
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
@@ -386,13 +398,11 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     noCache _key rowdata = MaybeT $ return $! decodeStrict' rowdata
 
 
-checkDbTablePendingCreation :: Utf8 -> MaybeT (BlockHandler logger) ()
+checkDbTablePendingCreation :: Text -> MaybeT (BlockHandler logger) ()
 checkDbTablePendingCreation tableName = do
     pds <- lift getPendingData
     forM_ pds $ \p ->
-        when (HashSet.member tableNameBS (_pendingTableCreation p)) mzero
-  where
-    (Utf8 tableNameBS) = tableName
+        when (HashSet.member tableName (_pendingTableCreation p)) mzero
 
 writeSys
     :: (AsString k, J.Encode v)
@@ -405,9 +415,8 @@ writeSys d k v = gets _bsTxId >>= go
     go txid = do
         forModuleNameFix $ \mnFix ->
           recordPendingUpdate (getKeyString mnFix k) tableName txid v
-        recordTxLog (toTableName tableName) d k v
+        recordTxLog (TableName tableName) d k v
 
-    toTableName (Utf8 str) = TableName $ T.decodeUtf8 str
     tableName = domainTableName d
 
     getKeyString mnFix = case d of
@@ -420,11 +429,11 @@ writeSys d k v = gets _bsTxId >>= go
 recordPendingUpdate
     :: J.Encode v
     => Utf8
-    -> Utf8
+    -> Text
     -> TxId
     -> v
     -> BlockHandler logger ()
-recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
+recordPendingUpdate (Utf8 key) tn txid v = modifyPendingData modf
   where
     !vs = J.encodeStrict v
     delta = SQLiteRowDelta tn txid key vs
@@ -465,9 +474,8 @@ writeUser
     -> BlockHandler logger ()
 writeUser mlim wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
-    toTableName = TableName . fromUtf8
     tn = domainTableName d
-    ttn = toTableName tn
+    ttn = TableName tn
 
     go txid = do
         m <- checkInsertIsOK mlim wt d k
@@ -524,26 +532,25 @@ doKeys mlim d = do
     blockLimitStmt = maybe "" (const " WHERE txid < ?;") mlim
     blockLimitParam = maybe [] (\(TxId txid) -> [SInt (fromIntegral txid)]) (snd <$> mlim)
     getDbKeys = do
-        m <- runMaybeT $ checkDbTablePendingCreation $ Utf8 tnS
+        m <- runMaybeT $ checkDbTablePendingCreation $ tn
         case m of
             Nothing -> return mempty
             Just () -> do
                 forM_ mlim (failIfTableDoesNotExistInDbAtHeight "doKeys" tn . fst)
                 ks <- callDb "doKeys" $ \db ->
-                          qry db ("SELECT DISTINCT rowkey FROM " <> tbl tn <> blockLimitStmt) blockLimitParam [RText]
+                          qry db ("SELECT DISTINCT rowkey FROM " <> tbl (toUtf8 tn) <> blockLimitStmt) blockLimitParam [RText]
                 forM ks $ \row -> do
                     case row of
                         [SText k] -> return $! T.unpack $ fromUtf8 k
                         _ -> internalError "doKeys: The impossible happened."
 
     tn = domainTableName d
-    tnS = let (Utf8 x) = tn in x
     collect p =
-        concatMap NE.toList $ HashMap.elems $ fromMaybe mempty $ HashMap.lookup tnS (_pendingWrites p)
+        concatMap NE.toList $ HashMap.elems $ fromMaybe mempty $ HashMap.lookup tn (_pendingWrites p)
 {-# INLINE doKeys #-}
 
 failIfTableDoesNotExistInDbAtHeight
-  :: Text -> Utf8 -> BlockHeight -> BlockHandler logger ()
+  :: Text -> Text -> BlockHeight -> BlockHandler logger ()
 failIfTableDoesNotExistInDbAtHeight caller tn bh = do
     exists <- tableExistsInDbAtHeight tn bh
     -- we must reproduce errors that were thrown in earlier blocks from tables
@@ -567,7 +574,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
 
   where
     getFromDb = do
-        m <- runMaybeT $ checkDbTablePendingCreation $ Utf8 tnS
+        m <- runMaybeT $ checkDbTablePendingCreation tn
         case m of
             Nothing -> return mempty
             Just () -> do
@@ -581,13 +588,12 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
 
     stmt = "SELECT DISTINCT txid FROM " <> tbl (toUtf8 tn) <> " WHERE txid > ?"
 
-    tnS = T.encodeUtf8 tn
     collect p =
         let txids = fmap _deltaTxId $
                     concatMap NE.toList $
                     HashMap.elems $
                     fromMaybe mempty $
-                    HashMap.lookup tnS (_pendingWrites p)
+                    HashMap.lookup tn (_pendingWrites p)
         in filter (> _tid) txids
 {-# INLINE doTxIds #-}
 
@@ -626,23 +632,23 @@ doCreateUserTable
     -> BlockHandler logger ()
 doCreateUserTable mbh tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
-    m <- runMaybeT $ checkDbTablePendingCreation (Utf8 $ T.encodeUtf8 ttxt)
+    m <- runMaybeT $ checkDbTablePendingCreation ttxt
     case m of
       Nothing -> throwM $ PactDuplicateTableError ttxt
       Just () -> do
           -- then check if it is in the db
           lcTables <- view blockHandlerLowerCaseTables
-          cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 ttxt
+          cond <- inDb lcTables ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
           modifyPendingData
-            $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
+            $ over pendingTableCreation (HashSet.insert ttxt)
             . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
     inDb lcTables t = do
       r <- callDb "doCreateUserTable" $ \db ->
-        qry db (tableLookupStmt lcTables) [SText t] [RText]
+        qry db (tableLookupStmt lcTables) [SText (toUtf8 t)] [RText]
       case r of
-        [[SText rname]] ->
+        [[SText (Utf8 (T.decodeUtf8 -> rname))]] ->
           case mbh of
               -- if lowercase matching, no need to check equality
               -- (wasn't needed before either but leaving alone for replay)
@@ -738,7 +744,6 @@ doGetTxLog d txid = do
 
   where
     tableName = domainTableName d
-    Utf8 tableNameBS = tableName
 
     readFromPending = do
         allPendingData <- getPendingData
@@ -748,7 +753,7 @@ doGetTxLog d txid = do
                 pending <- allPendingData
                 -- all writes to the table
                 let writesAtTableByKey =
-                        fromMaybe mempty $ HashMap.lookup tableNameBS $ _pendingWrites pending
+                        fromMaybe mempty $ HashMap.lookup tableName $ _pendingWrites pending
                 -- a list of all writes to the table for some particular key
                 allWritesForSomeKey <- HashMap.elems writesAtTableByKey
                 -- the single latest write to the table for that key which is
@@ -771,7 +776,7 @@ doGetTxLog d txid = do
             err -> internalError $
               "readHistoryResult: Expected single row with two columns as the \
               \result, got: " <> T.pack (show err)
-    stmt = "SELECT rowkey, rowdata FROM " <> tbl tableName <> " WHERE txid = ?"
+    stmt = "SELECT rowkey, rowdata FROM " <> tbl (toUtf8 tableName) <> " WHERE txid = ?"
 
 
 toTxLog :: MonadThrow m =>
@@ -796,7 +801,7 @@ vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")
 commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle Pact4 -> IO ()
 commitBlockStateToDatabase db hsh bh blockHandle = do
   let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
-  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
+  mapM_ (\tn -> createUserTable tn) newTables
   let writeV = toChunks $ _pendingWrites (_blockHandlePending blockHandle)
   backendWriteUpdateBatch writeV
   indexPendingPactTransactions
@@ -805,7 +810,7 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
   where
     toChunks writes =
       over _2 (concatMap toList . HashMap.elems) .
-      over _1 Utf8 <$> HashMap.toList writes
+      over _1 toUtf8 <$> HashMap.toList writes
 
     backendWriteUpdateBatch
         :: [(Utf8, [SQLiteRowDelta])]
@@ -843,8 +848,8 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
         stmt =
           "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 
-    createUserTable :: Utf8 -> IO ()
-    createUserTable tablename = do
+    createUserTable :: Text -> IO ()
+    createUserTable (toUtf8 -> tablename) = do
         createVersionedTable tablename db
         markTableCreation tablename
 
@@ -868,3 +873,19 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
             let rows = map toRow $ toList txs
             execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
                          \ VALUES (?, ?)" rows
+
+
+createVersionedTable :: Utf8 -> Database -> IO ()
+createVersionedTable tablename db = do
+    exec_ db createtablestmt
+    exec_ db indexcreationstmt
+    where
+    ixName = tablename <> "_ix"
+    createtablestmt =
+        "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
+                \ (rowkey TEXT\
+                \, txid UNSIGNED BIGINT NOT NULL\
+                \, rowdata BLOB NOT NULL\
+                \, UNIQUE (rowkey, txid));"
+    indexcreationstmt =
+        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"

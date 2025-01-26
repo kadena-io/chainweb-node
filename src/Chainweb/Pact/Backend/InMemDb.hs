@@ -14,6 +14,8 @@ module Chainweb.Pact.Backend.InMemDb
     , _ReadEntry
     , _WriteEntry
     , empty
+    , markTableSeen
+    , checkTableSeen
     , insert
     , lookup
     , keys
@@ -22,8 +24,12 @@ module Chainweb.Pact.Backend.InMemDb
 import Prelude hiding (lookup)
 import Control.Lens
 import Data.ByteString (ByteString)
+import Data.Hashable
 import Data.HashMap.Strict(HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
+import Data.Maybe
 
 import Pact.Core.Persistence
 import Pact.Core.Builtin
@@ -33,8 +39,6 @@ import Pact.Core.Names
 import Pact.Core.Namespace
 import Pact.Core.DefPacts.Types
 import Pact.Core.IR.Term (ModuleCode)
-import Data.Hashable
-import Data.Maybe
 
 data Entry a
     = ReadEntry !Int !a
@@ -53,11 +57,19 @@ data Store = Store
     , namespaces :: HashMap NamespaceName (Entry Namespace)
     , defPacts :: HashMap DefPactId (Entry (Maybe DefPactExec))
     , moduleSources :: HashMap HashedModuleName (Entry ModuleCode)
+    , seenTables :: HashSet TableName
     }
     deriving (Show, Eq)
 
 empty :: Store
-empty = Store mempty mempty mempty mempty mempty mempty
+empty = Store mempty mempty mempty mempty mempty mempty mempty
+
+markTableSeen :: TableName -> Store -> Store
+markTableSeen tn Store{..} = Store
+    {seenTables = HashSet.insert tn seenTables, ..}
+
+checkTableSeen :: TableName -> Store -> Bool
+checkTableSeen tn Store{..} = HashSet.member tn seenTables
 
 insert
     :: forall k v
@@ -103,3 +115,4 @@ takeLatestEntry ReadEntry {} newEntry = newEntry
 -- we would never overwrite with a read.
 takeLatestEntry oldEntry ReadEntry {} = oldEntry
 takeLatestEntry _ newEntry = newEntry
+{-# INLINE CONLIKE takeLatestEntry #-}

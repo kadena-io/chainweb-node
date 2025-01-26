@@ -92,7 +92,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
-import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Names as Pact5
@@ -130,7 +129,7 @@ initCheckpointerResources
     -> ChainId
     -> IO (Checkpointer logger)
 initCheckpointerResources dbCacheLimit sql p loggr v cid = do
-    initSchema loggr sql
+    Pact5.initSchema sql
     moduleCacheVar <- newMVar (emptyDbCache dbCacheLimit)
     return Checkpointer
         { cpLogger = loggr
@@ -202,7 +201,6 @@ readFrom res maybeParent pactVersion doRead = do
             PactDb.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
             let
               -- is the parent the latest header, i.e., can we get away without rewinding?
-              -- TODO: just do this inside of the chainwebPactCoreBlockDb function?
               parentIsLatestHeader = case (latestHeader, maybeParent) of
                 (Nothing, Nothing) -> True
                 (Just (_, latestHash), Just (ParentHeader ph)) ->
@@ -215,12 +213,10 @@ readFrom res maybeParent pactVersion doRead = do
                 , Pact5._blockHandlerChainId = res.cpChainId
                 , Pact5._blockHandlerBlockHeight = currentHeight
                 , Pact5._blockHandlerMode = Pact5.Transactional
+                , Pact5._blockHandlerUpperBoundTxId = Pact5.TxId $ fromIntegral startTxId
+                , Pact5._blockHandlerAtTip = parentIsLatestHeader
                 }
-            let upperBound
-                  | parentIsLatestHeader = Nothing
-                  | otherwise = Just (currentHeight, coerce @Pact4.TxId @Pact5.TxId startTxId)
-            let pactDb
-                  = Pact5.chainwebPactBlockDb upperBound blockHandlerEnv
+            let pactDb = Pact5.chainwebPactBlockDb blockHandlerEnv
             r <- doRead pactDb (emptyPact5BlockHandle startTxId)
             return (r, sharedModuleCache)
           | otherwise ->
@@ -358,8 +354,10 @@ restoreAndSave res rewindParent blocks = do
                   , Pact5._blockHandlerBlockHeight = bh
                   , Pact5._blockHandlerChainId = res.cpChainId
                   , Pact5._blockHandlerMode = Pact5.Transactional
+                  , Pact5._blockHandlerUpperBoundTxId = Pact5.TxId $ fromIntegral txid
+                  , Pact5._blockHandlerAtTip = True
                   }
-                pactDb = Pact5.chainwebPactBlockDb Nothing blockEnv
+                pactDb = Pact5.chainwebPactBlockDb blockEnv
               -- run the block
               ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyPact5BlockHandle txid)
               -- compute the accumulator early

@@ -30,9 +30,7 @@ module Chainweb.Pact.Backend.Utils
   , chainDbFileName
     -- * Shared Pact database interactions
   , doLookupSuccessful
-  , createVersionedTable
   , tbl
-  , initSchema
   , rewindDbTo
   , rewindDbToBlock
   , rewindDbToGenesis
@@ -52,7 +50,6 @@ module Chainweb.Pact.Backend.Utils
   , convSavepointName
   , expectSingleRowCol
   , expectSingle
-  , execMulti
   -- * SQLite runners
   , withSqliteDb
   , startSqliteDb
@@ -90,8 +87,6 @@ import System.LogLevel
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.SQLite as Pact4
 import Pact.Types.Util (AsString(..))
-
-import qualified Pact.Core.Persistence as Pact5
 
 
 -- chainweb
@@ -242,19 +237,6 @@ chainwebPragmas =
   , "page_size = 1024"
   ]
 
-execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [Pact4.SType] -> IO ()
-execMulti db q rows = bracket (Pact4.prepStmt db q) destroy $ \stmt -> do
-    forM_ rows $ \row -> do
-        SQ3.reset stmt >>= checkError
-        SQ3.clearBindings stmt
-        Pact4.bindParams stmt row
-        SQ3.step stmt >>= checkError
-  where
-    checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
-    checkError (Right _) = return ()
-
-    destroy x = void (SQ3.finalize x >>= checkError)
-
 withSqliteDb
     :: Logger logger
     => ChainId
@@ -348,22 +330,6 @@ tbl t@(Utf8 b)
     | B8.elem ']' b = error $ "Chainweb.Pact4.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
-createVersionedTable :: Utf8 -> Database -> IO ()
-createVersionedTable tablename db = do
-    Pact4.exec_ db createtablestmt
-    Pact4.exec_ db indexcreationstmt
-  where
-    ixName = tablename <> "_ix"
-    createtablestmt =
-      "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
-             \ (rowkey TEXT\
-             \, txid UNSIGNED BIGINT NOT NULL\
-             \, rowdata BLOB NOT NULL\
-             \, UNIQUE (rowkey, txid));"
-    indexcreationstmt =
-        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
-
-
 doLookupSuccessful :: Database -> BlockHeight -> V.Vector SB.ShortByteString -> IO (HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash))
 doLookupSuccessful db curHeight hashes = do
   fmap buildResultMap $ do -- swizzle results of query into a HashMap
@@ -374,14 +340,14 @@ doLookupSuccessful db curHeight hashes = do
             [ "SELECT blockheight, hash, txhash"
             , "FROM TransactionIndex"
             , "INNER JOIN BlockHistory USING (blockheight)"
-            , "WHERE txhash IN (" <> params <> ")" <> " AND blockheight <= ?;"
+            , "WHERE txhash IN (" <> params <> ")" <> " AND blockheight < ?;"
             ]
         qvals
           -- match query params above. first, hashes
           = map (\h -> Pact4.SBlob $ SB.fromShort h) hss
           -- then, the block height; we don't want to see txs from the
           -- current block in the db, because they'd show up in pending data
-          ++ [Pact4.SInt $ fromIntegral (pred curHeight)]
+          ++ [Pact4.SInt $ fromIntegral curHeight]
 
       Pact4.qry db qtext qvals [Pact4.RInt, Pact4.RBlob, Pact4.RBlob] >>= mapM go
   where
@@ -399,61 +365,6 @@ doLookupSuccessful db curHeight hashes = do
         let !txhash' = SB.toShort txhash
         return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
-
--- | Create all tables that exist pre-genesis
--- TODO: migrate this logic to the checkpointer itself?
-initSchema :: (Logger logger) => logger -> SQLiteEnv -> IO ()
-initSchema logger sql =
-    withSavepoint sql DbTransaction $ do
-        createBlockHistoryTable
-        createTableCreationTable
-        createTableMutationTable
-        createTransactionIndexTable
-        create (toUtf8 $ Pact5.renderDomain Pact5.DKeySets)
-        create (toUtf8 $ Pact5.renderDomain Pact5.DModules)
-        create (toUtf8 $ Pact5.renderDomain Pact5.DNamespaces)
-        create (toUtf8 $ Pact5.renderDomain Pact5.DDefPacts)
-        create (toUtf8 $ Pact5.renderDomain Pact5.DModuleSource)
-  where
-    create tablename = do
-      logDebug_ logger $ "initSchema: "  <> fromUtf8 tablename
-      createVersionedTable tablename sql
-
-    createBlockHistoryTable :: IO ()
-    createBlockHistoryTable =
-      Pact4.exec_ sql
-        "CREATE TABLE IF NOT EXISTS BlockHistory \
-        \(blockheight UNSIGNED BIGINT NOT NULL,\
-        \ hash BLOB NOT NULL,\
-        \ endingtxid UNSIGNED BIGINT NOT NULL, \
-        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
-
-    createTableCreationTable :: IO ()
-    createTableCreationTable =
-      Pact4.exec_ sql
-        "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
-        \(tablename TEXT NOT NULL\
-        \, createBlockheight UNSIGNED BIGINT NOT NULL\
-        \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
-
-    createTableMutationTable :: IO ()
-    createTableMutationTable =
-      Pact4.exec_ sql
-        "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
-         \(tablename TEXT NOT NULL\
-         \, blockheight UNSIGNED BIGINT NOT NULL\
-         \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
-
-    createTransactionIndexTable :: IO ()
-    createTransactionIndexTable = do
-      Pact4.exec_ sql
-        "CREATE TABLE IF NOT EXISTS TransactionIndex \
-         \ (txhash BLOB NOT NULL, \
-         \ blockheight UNSIGNED BIGINT NOT NULL, \
-         \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
-      Pact4.exec_ sql
-        "CREATE INDEX IF NOT EXISTS \
-         \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
 getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO (Historical Pact4.TxId)
 getEndTxId msg sql pc = case pc of
