@@ -38,7 +38,11 @@ suite = independentSequentialTestGroup "MultiNodeNetworkTests"
     , testCaseSteps "ConsensusNetwork - FastTimedCPM pairChainGraph - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-fasttimedcpm-single-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-fasttimedcpm-single-pact" $ \pactDbDir ->
-        Chainweb.Test.MultiNode.test loglevel (fastForkingCpmTestVersion singletonChainGraph) 10 30 rdb pactDbDir step
+        Chainweb.Test.MultiNode.test loglevel (fastForkingCpmTestVersion pairChainGraph) 10 30 rdb pactDbDir step
+    , testCaseSteps "ConsensusNetwork - InstantPact5TimedCPM pairChainGraph - 10 nodes - 30 seconds" $ \step ->
+        withTempRocksDb "multinode-tests-pact5instanttimedcpm-single-rocks" $ \rdb ->
+        withSystemTempDirectory "multinode-tests-pact5instanttimedcpm-single-pact" $ \pactDbDir ->
+        Chainweb.Test.MultiNode.test loglevel (pact5InstantCpmTestVersion pairChainGraph) 10 30 rdb pactDbDir step
     , testCaseSteps "Replay - FastTimedCPM - 6 nodes" $ \step ->
         withTempRocksDb "replay-test-fasttimedcpm-pair-rocks" $ \rdb ->
         withSystemTempDirectory "replay-test-fasttimedcpm-pair-pact" $ \pactDbDir ->
