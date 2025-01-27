@@ -276,7 +276,7 @@ initializeCoinContract v cid pwo = do
         Just currentBlockHeader ->
             if currentBlockHeader /= ParentHeader genesisHeader
             then
-                unless (pact5 v cid (view blockHeight genesisHeader)) $ do
+                unless (pact5 v cid (view (parentHeader . blockHeight) currentBlockHeader)) $ do
                     !mc <- Checkpointer.readFrom (Just currentBlockHeader)
                         (SomeBlockM $ Pair Pact4.readInitModules (error "pact5")) >>= \case
                             NoHistory -> throwM $ BlockHeaderLookupFailure
