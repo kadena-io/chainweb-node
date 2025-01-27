@@ -569,8 +569,8 @@ execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
         case _blockInProgressPactVersion blockInProgress of
             -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
             -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
-            Pact4T -> SomeBlockM $ Pair (Pact4.continueBlock mpAccess blockInProgress) (error "pact5")
-            Pact5T -> SomeBlockM $ Pair (error "pact4") (Pact5.continueBlock mpAccess blockInProgress)
+            Pact4T -> SomeBlockM $ Pair (Pact4.continueBlock mpAccess blockInProgress) (return blockInProgress)
+            Pact5T -> SomeBlockM $ Pair (return blockInProgress) (Pact5.continueBlock mpAccess blockInProgress)
     where
     newBlockParent = _blockInProgressParentHeader blockInProgress
 
