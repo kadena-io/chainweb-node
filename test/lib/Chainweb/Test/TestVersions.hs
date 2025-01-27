@@ -347,7 +347,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
     Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 42
     Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 44
-    Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 46
+    Pact5Fork -> AllChains ForkNever
     Chainweb228Pact -> AllChains ForkNever
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.
