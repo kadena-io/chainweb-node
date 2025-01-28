@@ -9,9 +9,11 @@
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE KindSignatures #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM.SPV
@@ -47,8 +49,14 @@ import Ethereum.Utils (HexBytes(..))
 -- Utils
 
 -- TODO: move to ethereum package
-dropN :: KnownNat m => KnownNat n => n <= m => BytesN m -> BytesN n
-dropN @m @n b = unsafeBytesN @n (BS.drop (int d) (_getBytesN b))
+dropN
+    :: forall (m :: Natural) (n :: Natural)
+    . KnownNat m
+    => KnownNat n
+    => n <= m
+    => BytesN m
+    -> BytesN n
+dropN b = unsafeBytesN @n (BS.drop (int d) (_getBytesN b))
   where
     d = natVal_ @m - natVal_ @n
 
