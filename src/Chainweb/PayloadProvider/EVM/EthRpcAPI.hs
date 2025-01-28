@@ -26,6 +26,8 @@ module Chainweb.PayloadProvider.EVM.EthRpcAPI
 , type Eth_GetBlockByHash
 , type Eth_Syncing
 , type Eth_Call
+, type Eth_GetBlockReceipts
+, type Eth_GetLogs
 ) where
 
 import Chainweb.PayloadProvider.EVM.Header
@@ -46,6 +48,8 @@ import GHC.Generics
 
 import Network.HTTP.Client qualified as HTTP
 import Network.URI.Static (uri)
+import Ethereum.Receipt
+import Data.Tuple
 
 -- -------------------------------------------------------------------------- --
 -- Errors
@@ -164,6 +168,32 @@ instance JsonRpcMethod "eth_call" where
     methodErrors = []
 
 type Eth_Call = "eth_call"
+
+-- -------------------------------------------------------------------------- --
+
+instance JsonRpcMethod "eth_getBlockReceipts" where
+    type MethodRequest "eth_getBlockReceipts" = Solo DefaultBlockParameter
+    type MethodResponse "eth_getBlockReceipts" = [RpcReceipt]
+    type ServerErrors "eth_getBlockReceipts" = Int
+    type ApplicationErrors "eth_getBlockReceipts" = Int
+    responseTimeoutMs = Nothing
+    methodErrors = []
+
+type Eth_GetBlockReceipts = "eth_getBlockReceipts"
+
+-- -------------------------------------------------------------------------- --
+-- eth_getLogs
+
+instance JsonRpcMethod "eth_getLogs" where
+    type MethodRequest "eth_getLogs" = [Value] -- FIXME FIXME FIXME
+    type MethodResponse "eth_getLogs" = [RpcLogEntry]
+    type ServerErrors "eth_getLogs" = Int
+    type ApplicationErrors "eth_getLogs" = Int
+    responseTimeoutMs = Nothing
+    methodErrors = []
+
+type Eth_GetLogs = "eth_getLogs"
+
 
 -- -------------------------------------------------------------------------- --
 -- | Default Engine Context

@@ -71,6 +71,12 @@ module Chainweb.PayloadProvider
 , payloadProviders
 , withPayloadProvider
 
+-- * SPV
+, TransactionIndex(..)
+, EventIndex(..)
+, XEventId(..)
+, SpvProof(..)
+
 -- * Utils
 
 -- ** Consensus State Accessors
@@ -806,6 +812,9 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
     latestPayloadIO :: p -> IO NewPayload
     latestPayloadIO = atomically . latestPayloadSTM
 
+    -- FIXME FIXME FIXME
+    eventProof :: p -> XEventId -> IO SpvProof
+
 nextPayloadStm :: PayloadProvider p => p -> NewPayload -> STM NewPayload
 nextPayloadStm p cur = do
     new <- latestPayloadSTM p
@@ -825,6 +834,42 @@ payloadStream p = do
         n <- liftIO $ nextPayload p c
         S.yield n
         go n
+
+-- -------------------------------------------------------------------------- --
+-- SPV
+
+newtype TransactionIndex = TransactionIndex Natural
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral)
+
+instance HasTextRepresentation TransactionIndex where
+    toText (TransactionIndex n) = toText n
+    fromText = fmap TransactionIndex <$> fromText
+
+newtype EventIndex = EventIndex Natural
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral)
+
+instance HasTextRepresentation EventIndex where
+    toText (EventIndex n) = toText n
+    fromText = fmap EventIndex <$> fromText
+
+-- | A way to identify cross chain events.
+--
+-- It is not required that this is payload provider independent. It is just
+-- convenient.
+--
+data XEventId = XEventId
+    { _xEventBlockHeight :: !BlockHeight
+    , _xEventTransactionIndex :: !TransactionIndex
+    , _xEventEventIndex :: !EventIndex
+    }
+    deriving (Show, Eq, Generic)
+
+-- | Preliminary Type for SPV Event Proofs.
+--
+newtype SpvProof = SpvProof Value
+    deriving (Show, Eq, Generic)
 
 -- -------------------------------------------------------------------------- --
 -- Some Payload Provider
