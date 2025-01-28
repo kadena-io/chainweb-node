@@ -44,6 +44,7 @@ import GHC.Generics (Generic)
 import GHC.TypeNats
 import Data.Aeson
 import Ethereum.Utils (HexBytes(..))
+import Chainweb.PayloadProvider.EVM.Utils hiding (ChainId)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -117,9 +118,9 @@ newtype XChainData = XChainData B.ByteString
 --
 data XLogData = XLogData
     { _xLogDataOperationName :: !XChainOperationName
-    , _xLogDataSenderAddress :: !Address
+    , _xLogDataSenderAddress :: !Address32
     , _xLogDataTargetChain :: !ChainId
-    , _xLogDataTargetContract :: !Address
+    , _xLogDataTargetContract :: !Address32
     , _xLogDataMessage :: !XChainData
     }
     deriving (Show, Eq, Generic)
@@ -141,9 +142,9 @@ parseXLogData v h e = do
 
     return XLogData
         { _xLogDataOperationName = operationName
-        , _xLogDataSenderAddress = _logEntryAddress e
+        , _xLogDataSenderAddress = toAddress32 $ _logEntryAddress e
         , _xLogDataTargetChain = targetChain
-        , _xLogDataTargetContract = Address $ dropN $ t2
+        , _xLogDataTargetContract = Address32 t2
         , _xLogDataMessage = XChainData $ bytes $ _logEntryData e
         }
   where
