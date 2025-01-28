@@ -23,6 +23,9 @@ module Chainweb.SPV
 , proofChainId
 , TransactionOutputProof(..)
 , outputProofChainId
+, EventProof(..)
+, eventProofChainId
+, FakeEventProof(..)
 ) where
 
 import Control.Applicative
@@ -212,3 +215,73 @@ instance FromJSON (TransactionOutputProof SHA512t_256) where
 --
 outputProofChainId :: Getter (TransactionOutputProof a) ChainId
 outputProofChainId = to (\(TransactionOutputProof cid _) -> cid)
+
+-- -------------------------------------------------------------------------- --
+-- Event Proofs
+
+-- | Witness that a event is included in the head of a chain in a chainweb.
+--
+data EventProof a = EventProof
+    !ChainId
+        -- ^ the target chain of the proof, i.e the chain which contains
+        -- the root of the proof.
+    !(MerkleProof a)
+        -- ^ the Merkle proof blob, which contains both the proof object and
+        -- the subject.
+    deriving (Show, Eq)
+
+instance ToJSON (EventProof SHA512t_256) where
+    toJSON (EventProof cid p) = object $ proofProperties cid p
+    toEncoding (EventProof cid p) = pairs . mconcat $ proofProperties cid p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON (EventProof SHA512t_256) where
+    parseJSON = parseProof "EventProof" EventProof
+    {-# INLINE parseJSON #-}
+
+-- | Getter into the chain id of a 'EventProof'
+--
+eventProofChainId :: Getter (EventProof a) ChainId
+eventProofChainId = to (\(EventProof cid _) -> cid)
+
+-- -------------------------------------------------------------------------- --
+-- Fake Event Proof
+
+-- | Fake event proof
+--
+data FakeEventProof = FakeEventProof
+    !ChainId
+        -- ^ the target chain of the proof, i.e the chain which contains
+        -- the root of the proof.
+    !Value
+        -- ^ the Merkle proof blob, which contains both the proof object and
+        -- the subject.
+    deriving (Show, Eq)
+
+instance ToJSON FakeEventProof where
+    toJSON = object . fakeEventProofProperties
+    toEncoding = pairs . mconcat . fakeEventProofProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON FakeEventProof where
+    parseJSON = withObject "FakeEventProof" $ \o -> FakeEventProof
+        <$> o .: "chain"
+        <*> o .: "subject"
+    {-# INLINE parseJSON #-}
+
+fakeEventProofProperties
+    :: forall e kv
+    . KeyValue e kv
+    => FakeEventProof
+    -> [kv]
+fakeEventProofProperties (FakeEventProof cid v) =
+    [ "chain" .= cid
+    , "object" .= obj "SNAKEOIL"
+    , "subject" .= v
+    , "algorithm" .= ("SHA512t_256" :: T.Text)
+    ]
+  where
+    obj = encodeB64UrlNoPaddingText
+

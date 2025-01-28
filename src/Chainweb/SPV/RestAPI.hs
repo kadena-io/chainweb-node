@@ -23,6 +23,10 @@ module Chainweb.SPV.RestAPI
 , SpvGetTransactionOutputProofApi
 , spvGetTransactionOutputProofApi
 
+-- * Event Proof API
+, SpvGetEventProofApi
+, spvGetEventProofApi
+
 -- * SPV API
 , SpvApi
 , spvApi
@@ -86,10 +90,31 @@ spvGetTransactionOutputProofApi
 spvGetTransactionOutputProofApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- GET Event Output Proof
+
+type SpvGetEventProofApi_
+    = "spv"
+    :> "chain" :> Capture "spvChain" ChainId
+    :> "height" :> Capture "spvHeight" BlockHeight
+    :> "transaction" :> Capture "spvTransactionactionIndex" Natural
+    :> "event" :> Capture "spvEventIndex" Natural
+    :> Get '[JSON] FakeEventProof
+
+type SpvGetEventProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetEventProofApi_
+
+spvGetEventProofApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (SpvGetEventProofApi v c)
+spvGetEventProofApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- SPV API
 
 type SpvApi v c
-    = SpvGetTransactionProofApi v c :<|> SpvGetTransactionOutputProofApi v c
+    = SpvGetEventProofApi v c
+    -- :<|>SpvGetTransactionProofApi v c
+    -- :<|> SpvGetTransactionOutputProofApi v c
 
 spvApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) . Proxy (SpvApi v c)
 spvApi = Proxy

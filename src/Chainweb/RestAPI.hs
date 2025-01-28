@@ -351,7 +351,7 @@ someServiceApiServer v dbs mr (HeaderStream hs) backupEnv pbl =
     <> maybe mempty (someNodeInfoServer v) cuts
     <> mempty -- PactAPI.somePactServers v
     <> maybe mempty (Mining.someMiningServer v) mr
-    -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
+    <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts

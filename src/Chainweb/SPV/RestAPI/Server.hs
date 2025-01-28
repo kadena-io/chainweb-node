@@ -48,6 +48,8 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Data.Singletons
+import Chainweb.PayloadProvider
+import Control.Lens (view)
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Proof Handler
@@ -95,6 +97,39 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
     -- FIXME: add proper error handling
 
 -- -------------------------------------------------------------------------- --
+-- SPV Event Output Proof Handler
+
+spvGetEventProofHandler
+    :: CutDb
+    -> ChainId
+        -- ^ the target chain of the proof. This is the chain for which inclusion
+        -- is proved.
+    -> ChainId
+        -- ^ the source chain of the proof. This is the chain where the proof
+        -- subject, the transaction  output for which inclusion is proven, is
+        -- located.
+    -> BlockHeight
+        -- ^ the block height of the proof subject, the transaction output for
+        -- which inclusion is proven.
+    -> Natural
+        -- ^ the index of the proof subject, the transaction output for which
+        -- inclusion is proven.
+    -> Natural
+        -- ^ The event index in the transaction
+    -> Handler FakeEventProof
+spvGetEventProofHandler db tcid scid bh i e = liftIO $ do
+    withPayloadProvider providers scid $ \p -> do
+        (SpvProof v) <- liftIO $ eventProof p xevent
+        return $ FakeEventProof tcid v
+  where
+    providers = view cutDbPayloadProviders db
+    xevent = XEventId
+        { _xEventBlockHeight = bh
+        , _xEventTransactionIndex = int i
+        , _xEventEventIndex = int e
+        }
+
+-- -------------------------------------------------------------------------- --
 -- SPV API Server
 
 spvServer
@@ -103,8 +138,9 @@ spvServer
     => CutDbT v
     -> Server (SpvApi v c)
 spvServer (CutDbT db)
-    = spvGetTransactionProofHandler db tcid
-    :<|> spvGetTransactionOutputProofHandler db tcid
+    = spvGetEventProofHandler db tcid
+    -- = spvGetTransactionProofHandler db tcid
+    -- :<|> spvGetTransactionOutputProofHandler db tcid
   where
     tcid = fromSing (sing :: Sing c)
 
