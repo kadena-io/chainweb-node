@@ -57,13 +57,14 @@ import Chainweb.ChainId
 import Chainweb.Core.Brief
 import Chainweb.Logger
 import Chainweb.MinerReward
-import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider hiding (TransactionIndex)
 import Chainweb.PayloadProvider.EVM.EngineAPI
 import Chainweb.PayloadProvider.EVM.EthRpcAPI
 import Chainweb.PayloadProvider.EVM.Header qualified as EVM
 import Chainweb.PayloadProvider.EVM.HeaderDB qualified as EvmDB
 import Chainweb.PayloadProvider.EVM.JsonRPC (JsonRpcHttpCtx, callMethodHttp)
 import Chainweb.PayloadProvider.EVM.JsonRPC qualified as RPC
+import Chainweb.PayloadProvider.EVM.SPV
 import Chainweb.PayloadProvider.EVM.Utils (decodeRlpM)
 import Chainweb.PayloadProvider.EVM.Utils qualified as EVM
 import Chainweb.PayloadProvider.EVM.Utils qualified as Utils
@@ -85,15 +86,18 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
 import Data.ByteString.Short qualified as BS
+import Data.List qualified as L
 import Data.LogMessage
 import Data.Maybe
 import Data.PQueue
 import Data.Singletons
 import Data.Text qualified as T
+import Data.Tuple
 import Ethereum.Misc
 import Ethereum.Misc qualified as EVM
 import Ethereum.Misc qualified as Ethereum
 import Ethereum.RLP
+import Ethereum.Receipt
 import GHC.Generics (Generic)
 import GHC.TypeNats (fromSNat)
 import Network.HTTP.Client qualified as HTTP
@@ -102,6 +106,7 @@ import Network.URI.Static
 import P2P.Session (ClientEnv)
 import P2P.TaskQueue
 import System.LogLevel
+import Data.Function
 
 -- -------------------------------------------------------------------------- --
 -- Types (to keep the code clean and avoid confusion)
@@ -425,6 +430,13 @@ data EvmHeaderNotFoundException
     | EvmHeaderNotFoundByPayloadHash BlockPayloadHash
     deriving (Eq, Show, Generic)
 instance Exception EvmHeaderNotFoundException
+
+data LogEntryNotFoundException
+    = InvalidTransactionIndex XEventId
+    | InvalidEventIndex XEventId
+    | AmbiguousLogEntries XEventId [RpcLogEntry]
+    deriving (Eq, Show, Generic)
+instance Exception LogEntryNotFoundException
 
 data InvalidEvmState
     = EvmGenesisHeaderNotFound
@@ -1240,6 +1252,95 @@ instance Logger logger => PayloadProvider (EvmPayloadProvider logger) where
     prefetchPayloads _ _ _ = return ()
     syncToBlock = evmSyncToBlock
     latestPayloadSTM p = ssnd <$> readTMVar (_evmPayloadVar p)
+    eventProof = getSpvProof
+
+-- -------------------------------------------------------------------------- --
+-- SPV
+
+-- | Obtains all RpcReceipts for a block. It is an exception if the block can
+-- not be found.
+--
+-- Returns: a list of EVM RpcReceipts
+--
+-- Throws:
+--
+-- * EvmHeaderNotFoundException
+-- * Eth RPC failures
+-- * JSON RPC failures
+--
+-- FIXME: filter for topic
+--
+getLogEntries
+    :: EvmPayloadProvider logger
+    -> EVM.BlockNumber
+    -> IO [RpcLogEntry]
+getLogEntries p n = do
+    callMethodHttp
+        @Eth_GetLogs (_evmEngineCtx p)
+            [ object
+                [ "fromBlock" .= DefaultBlockNumber n
+                , "toBlock" .= DefaultBlockNumber n
+                ]
+            ]
+
+getLogEntry
+    :: EvmPayloadProvider logger
+    -> XEventId
+    -> IO LogEntry
+getLogEntry p e = do
+    -- it would be nice if we could just use the long entry index, but that is
+    -- over the whole block and not just the tx
+    logs <- L.groupBy ((==) `on` _rpcLogEntryTransactionIndex)
+        <$> getLogEntries p (int $ _xEventBlockHeight e)
+    case logs L.!? (int $ _xEventTransactionIndex e) of
+        Nothing -> throwM $ InvalidTransactionIndex e
+        Just tx -> case tx L.!? (int $ _xEventEventIndex e) of
+            Nothing -> throwM $ InvalidEventIndex e
+            Just l -> return $ fromRpcLogEntry l
+
+    -- case filter ftx logs of
+    --     [] -> throwM $ InvalidTransactionIndex e
+    --     txLogs -> case filter fev txLogs of
+    --         [] -> throwM $ InvalidEventIndex e
+    --         [l] -> return $ fromRpcLogEntry l
+    --         ls -> throwM $ AmbiguousLogEntries e ls
+    -- r <- getBlockReceipts p (int $ _xEventBlockHeight e)
+    -- case r L.!? (int $ _xEventTransactionIndex e) of
+    --     Nothing -> throwM $ InvalidTransactionIndex e
+    --     Just tx -> case _rpcReceiptLogs tx L.!? (int $ _xEventEventIndex e) of
+    --         Nothing -> throwM $ InvalidEventIndex e
+    --         Just l -> return $ fromRpcLogEntry l
+  -- where
+  --   ftx RpcLogEntry { _rpcLogEntryTransactionIndex = TransactionIndex l } =
+  --       l == int (_xEventTransactionIndex e)
+  --   fev RpcLogEntry { _rpcLogEntryLogIndex = TransactionIndex l } =
+  --       l == int (_xEventEventIndex e)
+
+getSpvProof
+    :: Logger logger
+    => EvmPayloadProvider logger
+    -> XEventId
+    -> IO SpvProof
+getSpvProof p e = do
+    le <- getLogEntry p e
+    lf Info $ "got logEntry: " <> encodeToText le
+    ld <- parseXLogData (_chainwebVersion p) (_xEventBlockHeight e)  le
+    lf Info $ "got logData: " <> sshow ld
+    return $ SpvProof $ object
+        [ "origin" .= object
+            [ "chainId" .= _chainId p
+            , "contract" .= _xLogDataSenderAddress ld
+            , "height" .= _xEventBlockHeight e
+            , "transactionIdx" .= _xEventTransactionIndex e
+            , "eventIdx" .= _xEventEventIndex e
+            ]
+        , "targetChainId" .= _xLogDataTargetChain ld
+        , "targetContract" .= _xLogDataTargetContract ld
+        , "operationName" .= _xLogDataOperationName ld
+        , "data" .= _xLogDataMessage ld
+        ]
+  where
+    lf = loggS p "getSpvProof"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -1258,7 +1359,6 @@ encodedPayloadData = EncodedPayloadData . putRlpByteString
 
 decodePayloadData :: MonadThrow m => EncodedPayloadData -> m Payload
 decodePayloadData (EncodedPayloadData bs) = decodeRlpM bs
-
 
 -- -------------------------------------------------------------------------- --
 -- ATTIC
