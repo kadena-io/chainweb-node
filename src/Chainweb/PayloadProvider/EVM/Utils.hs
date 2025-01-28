@@ -25,6 +25,8 @@ module Chainweb.PayloadProvider.EVM.Utils
 ( ChainId(..)
 , Randao(..)
 , BlockValue(..)
+, Address32(..)
+, toAddress32
 , _blockValueStu
 , DefaultBlockParameter(..)
 
@@ -182,6 +184,28 @@ instance FromJSON (HexBytes Chainweb.BlockHash) where
 newtype ChainId = ChainId { _chainId :: Natural }
     deriving (Show, Eq, Ord, Generic)
     deriving (ToJSON, FromJSON) via (HexQuantity Natural)
+
+-- -------------------------------------------------------------------------- --
+-- Address 32
+
+newtype Address32 = Address32 (BytesN 32)
+    deriving (Show, Eq, Ord)
+    deriving newtype (RLP, Bytes, Storable)
+    deriving (FromJSON, ToJSON) via (HexBytes (BytesN 32))
+
+instance HasTextRepresentation Address32 where
+    toText = toText . HexBytes . bytes
+    fromText = fmap (Address32 . fromHexBytes) . fromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+toAddress32
+    :: Address
+    -> Address32
+toAddress32 (Address b) = Address32 (appendN zeroN b)
+
+zeroN :: KnownNat n => BytesN n
+zeroN = replicateN 0
 
 -- -------------------------------------------------------------------------- --
 -- Randao
