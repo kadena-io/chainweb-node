@@ -1290,31 +1290,15 @@ getLogEntry
 getLogEntry p e = do
     -- it would be nice if we could just use the long entry index, but that is
     -- over the whole block and not just the tx
-    logs <- L.groupBy ((==) `on` _rpcLogEntryTransactionIndex)
-        <$> getLogEntries p (int $ _xEventBlockHeight e)
-    case logs L.!? (int $ _xEventTransactionIndex e) of
-        Nothing -> throwM $ InvalidTransactionIndex e
-        Just tx -> case tx L.!? (int $ _xEventEventIndex e) of
+    logs <- getLogEntries p (int $ _xEventBlockHeight e)
+    case filter ftx logs of
+        [] -> throwM $ InvalidTransactionIndex e
+        tx -> case tx L.!? (int $ _xEventEventIndex e) of
             Nothing -> throwM $ InvalidEventIndex e
             Just l -> return $ fromRpcLogEntry l
-
-    -- case filter ftx logs of
-    --     [] -> throwM $ InvalidTransactionIndex e
-    --     txLogs -> case filter fev txLogs of
-    --         [] -> throwM $ InvalidEventIndex e
-    --         [l] -> return $ fromRpcLogEntry l
-    --         ls -> throwM $ AmbiguousLogEntries e ls
-    -- r <- getBlockReceipts p (int $ _xEventBlockHeight e)
-    -- case r L.!? (int $ _xEventTransactionIndex e) of
-    --     Nothing -> throwM $ InvalidTransactionIndex e
-    --     Just tx -> case _rpcReceiptLogs tx L.!? (int $ _xEventEventIndex e) of
-    --         Nothing -> throwM $ InvalidEventIndex e
-    --         Just l -> return $ fromRpcLogEntry l
-  -- where
-  --   ftx RpcLogEntry { _rpcLogEntryTransactionIndex = TransactionIndex l } =
-  --       l == int (_xEventTransactionIndex e)
-  --   fev RpcLogEntry { _rpcLogEntryLogIndex = TransactionIndex l } =
-  --       l == int (_xEventEventIndex e)
+  where
+    ftx RpcLogEntry { _rpcLogEntryTransactionIndex = TransactionIndex l } =
+        l == int (_xEventTransactionIndex e)
 
 getSpvProof
     :: Logger logger
