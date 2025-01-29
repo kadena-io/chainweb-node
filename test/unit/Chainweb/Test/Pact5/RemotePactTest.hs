@@ -588,9 +588,13 @@ allocationTest rdb step = runResourceT $ do
                     $ set cbSigners [mkEd25519Signer' allocation01KeyPair [], mkEd25519Signer' sender00 []]
                     $ defaultCmd cid)
                 >>= local fx v cid Nothing Nothing Nothing
-                >>= P.match _Pact5LocalResultLegacy ?
-                    P.fun _crResult ? P.match (_PactResultErr . _PEPact5Error . to _peMsg) ?
-                        P.fun _boundedText ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
+                >>= P.match _Pact5LocalResultLegacy
+                    ? P.fun _crResult
+                    ? P.match _PactResultErr
+                    ? P.checkAll
+                        [ P.fun _peType ? P.equals ? ErrorType "TxFailure"
+                        , P.fun _peMsg ? P.fun _boundedText ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
+                        ]
 
             buildTextCmd v
                 (set cbRPC
@@ -599,10 +603,10 @@ allocationTest rdb step = runResourceT $ do
                     $ defaultCmd cid)
                 >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
                 >>= P.match (_Pact5LocalResultWithWarns . _1) ?
-                    P.fun _crResult ? P.match (_PactResultErr . _PELegacyError) ?
+                    P.fun _crResult ? P.match _PactResultErr ?
                     P.checkAll
-                        [ P.fun _leMessage ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
-                        , P.fun _leType ? P.equals LegacyTxFailure
+                        [ P.fun _peType ? P.equals ? ErrorType "TxFailure"
+                        , P.fun _peMsg ? P.fun _boundedText ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
                         ]
 
         step "allocation02"
@@ -666,10 +670,10 @@ gasPurchaseFailureMessages rdb _step = runResourceT $ do
                 >>= P.match _Pact5LocalResultWithWarns
                 ? P.fun fst
                 ? P.fun _crResult
-                ? P.match (_PactResultErr . _PELegacyError)
+                ? P.match _PactResultErr
                 ? P.checkAll
-                    [ P.fun _leType ? P.equals LegacyGasError
-                    , P.fun _leMessage ? textContains "Failed to buy gas: Insufficient funds"
+                    [ P.fun _peType ? P.equals ? ErrorType "EvalError"
+                    , P.fun _peMsg ? P.fun _boundedText ? textContains "Failed to buy gas: Insufficient funds"
                     ]
 
             send fx v cid [cmd]
@@ -696,10 +700,10 @@ gasPurchaseFailureMessages rdb _step = runResourceT $ do
                 >>= P.match _Pact5LocalResultWithWarns
                 ? P.fun fst
                 ? P.fun _crResult
-                ? P.match (_PactResultErr . _PELegacyError)
+                ? P.match _PactResultErr
                 ? P.checkAll
-                    [ P.fun _leType ? P.equals LegacyGasError
-                    , P.fun _leMessage ? textContains "Failed to buy gas: Multiple gas payer capabilities"
+                    [ P.fun _peType ? P.equals ? ErrorType "EvalError"
+                    , P.fun _peMsg ? P.fun _boundedText ? textContains "Failed to buy gas: Multiple gas payer capabilities"
                     ]
 
             send fx v cid [cmd]
