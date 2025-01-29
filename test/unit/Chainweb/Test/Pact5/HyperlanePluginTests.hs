@@ -140,8 +140,8 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
         poll fx v chain0 [cmdToRequestKey useBadSignature]
             >>= P.list
                 [ P.match _Just ? P.checkAll
-                    [ P.fun _crResult ? P.match (_PactResultErr  . _PEPact5Error) ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                    [ P.fun _crResult ? P.match _PactResultErr ? P.checkAll
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Failed to recover the address from the signature"
                         ]
                     , P.fun _crGas ? P.equals (Gas 100000)
@@ -191,8 +191,8 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
         poll fx v chain0 [cmdToRequestKey useWrongSigner]
             >>= P.list
                 [ P.match _Just ? P.checkAll
-                    [ P.fun _crResult ? P.match (_PactResultErr  . _PEPact5Error) ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                    [ P.fun _crResult ? P.match _PactResultErr ? P.checkAll
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Incorrect signer. Expected: PLiteral (LString {_lString = \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\"}) but got PLiteral (LString {_lString = \"0x5c414e7a15088023e28af44ad0e1d593671e4b15\"})"
                         ]
                     , P.fun _crGas ? P.equals (Gas 100000)
@@ -357,9 +357,8 @@ checkVerifierNotInTx fx pluginName = do
         [ P.match _Just
             ? P.fun _crResult
             ? P.match _PactResultErr
-            ? P.match _PEPact5Error
             ? P.checkAll
-                [ P.fun _peCode ? P.equals (ErrorCode 1133596488237056)
+                [ P.fun _peType ? P.equals (ErrorType "TxFailure")
                 , P.fun _peMsg ? P.fun _boundedText ? P.equals
                     ("Verifier " <> pluginName <> " failed with the message: not in transaction")
                 ]
@@ -451,9 +450,9 @@ hyperlaneVerifyThresholdZeroError baseRdb step = runResourceT $ do
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
-                    ? P.match (_PactResultErr . _PEPact5Error)
+                    ? P.match _PactResultErr
                     ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Threshold should be greater than 0"
                         ]
                 , P.fun _crGas ? P.equals (Gas 20000)
@@ -476,9 +475,9 @@ hyperlaneVerifyWrongSignersFailure baseRdb step = runResourceT $ do
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
-                    ? P.match (_PactResultErr . _PEPact5Error)
+                    ? P.match _PactResultErr
                     ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Verification failed"
                         ]
                 , P.fun _crGas ? P.equals (Gas 20000)
@@ -503,9 +502,9 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure baseRdb step = runResourceT $
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
-                    ? P.match (_PactResultErr . _PEPact5Error)
+                    ? P.match _PactResultErr
                     ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "The number of signatures can't be less than threshold"
                         ]
                 , P.fun _crGas ? P.equals (Gas 20000)
@@ -533,9 +532,9 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure baseRdb step = runResourceT 
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
-                    ? P.match (_PactResultErr . _PEPact5Error)
+                    ? P.match _PactResultErr
                     ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Verification failed"
                         ]
                 , P.fun _crGas ? P.equals (Gas 40000)
@@ -562,9 +561,9 @@ hyperlaneVerifyMerkleIncorrectProofFailure baseRdb step = runResourceT $ do
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
-                    ? P.match (_PactResultErr . _PEPact5Error)
+                    ? P.match _PactResultErr
                     ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Verification failed"
                         ]
                 , P.fun _crGas ? P.equals (Gas 20000)
@@ -594,9 +593,9 @@ hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold baseRdb step = runResou
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
-                    ? P.match (_PactResultErr . _PEPact5Error)
+                    ? P.match _PactResultErr
                     ? P.checkAll
-                        [ P.fun _peCode ? P.equals (ErrorCode 1407374883553280)
+                        [ P.fun _peType ? P.equals (ErrorType "EvalError")
                         , P.fun _peMsg ? P.equals "Verification failed"
                         ]
                 , P.fun _crGas ? P.equals (Gas 40000)

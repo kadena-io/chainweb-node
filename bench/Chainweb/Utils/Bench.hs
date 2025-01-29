@@ -64,29 +64,8 @@ instance NFData (MempoolBackend a) where
 instance NFData PactQueue where
     rnf !_ = ()
 
-instance (NFData info) => NFData (PactErrorCompat info) where
-    rnf = \case
-        PEPact5Error errorCode -> rnf errorCode
-        PELegacyError legacyError -> rnf legacyError
-
-instance (NFData info) => NFData (PactErrorCode info) where
-    rnf (PactErrorCode a b c) = rnf a `seq` rnf b `seq` rnf c
-
-deriving newtype instance NFData ErrorCode
-
-instance NFData (BoundedText k) where
-    rnf !_ = ()
-
 instance NFData LegacyPactErrorType where
     rnf !_ = ()
 
 instance NFData LegacyPactError where
     rnf (LegacyPactError a b c d) = rnf a `seq` rnf b `seq` rnf c `seq` rnf d
-
-instance (NFData info) => NFData (LocatedErrorInfo info) where
-    rnf (LocatedErrorInfo a b) = rnf a `seq` rnf b
-
-instance NFData PactErrorOrigin where
-    rnf = \case
-        TopLevelErrorOrigin -> ()
-        FunctionErrorOrigin fqn -> rnf fqn

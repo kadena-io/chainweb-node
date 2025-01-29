@@ -866,7 +866,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                         earlyReturn $ Pact5LocalResultLegacy Pact5.CommandResult
                             { _crReqKey = pact5RequestKey
                             , _crTxId = Nothing
-                            , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $ Pact5.toPrettyLegacyError parseError
+                            , _crResult = Pact5.PactResultErr $
+                                Pact5.pactErrorToOnChainError parseError
                             , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
                             , _crLogs = Nothing
                             , _crContinuation = Nothing
@@ -913,8 +914,13 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                 earlyReturn $ Pact5LocalResultWithWarns Pact5.CommandResult
                                     { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                                     , _crTxId = Nothing
-                                    , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $
-                                        Pact5.LegacyPactError Pact5.LegacyGasError "" [] (prettyPact5GasPurchaseFailure err)
+                                    , _crResult = Pact5.PactResultErr $
+                                        Pact5.PactOnChainError
+                                            -- the only legal error type, once chainweaver is really gone, we
+                                            -- can use a real error type
+                                            (Pact5.ErrorType "EvalError")
+                                            (Pact5.mkBoundedText $ prettyPact5GasPurchaseFailure err)
+                                            (Pact5.LocatedErrorInfo Pact5.TopLevelErrorOrigin Pact5.noInfo)
                                     , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
                                     , _crLogs = Nothing
                                     , _crContinuation = Nothing
@@ -928,13 +934,13 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                         let commandResult' = hashPact5TxLogs $ set Pact5.crMetaData (Just metadata) commandResult
                         -- TODO: once Pact 5 has warnings, include them here.
                         pure $ Pact5LocalResultWithWarns
-                            (Pact5.PELegacyError . Pact5.toPrettyLegacyError <$> commandResult')
+                            (Pact5.pactErrorToOnChainError <$> commandResult')
                             []
                     _ -> lift $ do
                         -- default is legacy mode: use applyLocal, don't buy gas, don't do any
                         -- metadata checks beyond signature and hash checking
                         cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
-                            fmap convertPact5Error <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
+                            fmap Pact5.pactErrorToOnChainError <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
                         pure $ Pact5LocalResultLegacy (hashPact5TxLogs cr)
 
     let doLocal = Checkpointer.readFromNthParent (fromIntegral rewindDepth)

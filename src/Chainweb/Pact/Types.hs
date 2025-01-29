@@ -860,11 +860,11 @@ _Pact4LocalResultLegacy = prism' Pact4LocalResultLegacy $ \case
   _ -> Nothing
 
 pattern Pact5LocalResultLegacy
-  :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
+  :: Pact5.CommandResult Pact5.Hash Pact5.PactOnChainError
   -> LocalResult
 pattern Pact5LocalResultLegacy cr <- ConvertLocalResultLegacy cr where
   Pact5LocalResultLegacy cr = ConvertLocalResultLegacy cr
-_Pact5LocalResultLegacy :: Prism' LocalResult (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
+_Pact5LocalResultLegacy :: Prism' LocalResult (Pact5.CommandResult Pact5.Hash Pact5.PactOnChainError)
 _Pact5LocalResultLegacy = prism' Pact5LocalResultLegacy $ \case
   Pact5LocalResultLegacy cr -> Just cr
   _ -> Nothing
@@ -885,12 +885,12 @@ _Pact4LocalResultWithWarns = prism' (uncurry Pact4LocalResultWithWarns) $ \case
   _ -> Nothing
 
 pattern Pact5LocalResultWithWarns
-  :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
+  :: Pact5.CommandResult Pact5.Hash Pact5.PactOnChainError
   -> [Text]
   -> LocalResult
 pattern Pact5LocalResultWithWarns cr warns <- ConvertLocalResultWithWarns cr warns where
   Pact5LocalResultWithWarns cr warns = ConvertLocalResultWithWarns cr warns
-_Pact5LocalResultWithWarns :: Prism' LocalResult (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)), [Text])
+_Pact5LocalResultWithWarns :: Prism' LocalResult (Pact5.CommandResult Pact5.Hash Pact5.PactOnChainError, [Text])
 _Pact5LocalResultWithWarns = prism' (uncurry Pact5LocalResultWithWarns) $ \case
   Pact5LocalResultWithWarns cr warns -> Just (cr, warns)
   _ -> Nothing
@@ -1244,12 +1244,11 @@ pact5CommandToBytes tx = Transaction
 -- be stored on-chain.
 pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash (Pact5.PactError Pact5.Info) -> ByteString
 pact5CommandResultToBytes cr =
-    J.encodeStrict (fmap convertPact5Error cr)
+    J.encodeStrict (fmap Pact5.pactErrorToOnChainError cr)
 
-convertPact5Error :: Pact5.PactError Pact5.Info -> Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)
+convertPact5Error :: Pact5.PactError Pact5.Info -> Pact5.PactOnChainError
 convertPact5Error err =
-  Pact5.PEPact5Error $
-      Pact5.pactErrorToLocatedErrorCode err
+  Pact5.pactErrorToOnChainError err
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
 hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)

@@ -253,7 +253,6 @@ import Data.Semigroup
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Data.Aeson as Aeson
 import qualified Pact.Core.Errors as Pact5
-import qualified Pact.Core.Info as Pact5
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Core.Hash as Pact5
 import qualified Pact.Types.Hash as Pact4
@@ -1186,7 +1185,7 @@ independentSequentialTestGroup tn tts =
 unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
 unsafeHeadOf l s = s ^?! l
 
-type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.LineInfo))
+type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash Pact5.PactOnChainError
 
 toPact4RequestKey :: Pact5.RequestKey -> Pact4.RequestKey
 toPact4RequestKey = \case
