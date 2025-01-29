@@ -138,6 +138,7 @@ import Data.Singletons (Dict(..))
 import Pact.Core.Persistence (throwDbOpErrorGasM)
 import Data.Int
 import GHC.Stack
+import GHC.Compact
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -329,7 +330,7 @@ runOnBlockGassed env stateVar act = do
 chainwebPactBlockDb :: (Logger logger) => BlockHandlerEnv logger -> Pact5Db
 chainwebPactBlockDb env = Pact5Db
     { doPact5DbTransaction = \blockHandle maybeRequestKey kont -> do
-        stateVar <- newMVar $ BlockState blockHandle (_blockHandlePending blockHandle) Nothing
+        stateVar <- newMVar $ BlockState blockHandle (getCompact <$> _blockHandlePending blockHandle) Nothing
         let pactDb = Pact.PactDb
                 { Pact._pdbPurity = Pact.PImpure
                 , Pact._pdbRead = \d k -> runOnBlockGassed env stateVar $ doReadRow d k
@@ -401,7 +402,7 @@ doReadRow d k = do
             store <- use (bsPendingTxWrites . pendingWrites)
             return $ InMemDb.lookup d k store <&> \case
                 (InMemDb.ReadEntry len a) -> (len, a)
-                (InMemDb.WriteEntry _ bs a) -> (BS.length bs, a)
+                (InMemDb.WriteEntry _ bs a) -> (SB.length bs, a)
 
     decodeValue = fmap (view Pact.document) . decodeValueDoc
     encodedKeyUtf8 = toUtf8 encodedKey
@@ -533,7 +534,7 @@ recordPendingUpdate
     -> BlockHandler logger ()
 recordPendingUpdate d k txid (encodedValue, decodedValue) =
     bsPendingTxWrites . pendingWrites %=
-        InMemDb.insert d k (InMemDb.WriteEntry txid encodedValue decodedValue)
+        InMemDb.insert d k (InMemDb.WriteEntry txid (SB.toShort encodedValue) decodedValue)
 
 writeUser
     :: Pact.WriteType
@@ -571,9 +572,10 @@ doWriteRow
     -> k
     -> v
     -> BlockHandler logger ()
-doWriteRow wt d k v = case d of
-    Pact.DUserTables tableName -> writeUser wt tableName k v
-    _ -> writeSys d k v
+doWriteRow wt d k v = do
+    case d of
+        Pact.DUserTables tableName -> writeUser wt tableName k v
+        _ -> writeSys d k v
 
 doKeys
     :: forall k v logger
@@ -670,7 +672,7 @@ doCreateUserTable tableName = do
 doRollback :: BlockHandler logger ()
 doRollback = do
     blockWrites <- use (bsBlockHandle . blockHandlePending)
-    bsPendingTxWrites .= blockWrites
+    bsPendingTxWrites .= fmap getCompact blockWrites
     bsPendingTxLog .= Nothing
 
 -- | Commit a Pact transaction
@@ -684,7 +686,10 @@ doCommit = view blockHandlerMode >>= \case
             txLogs <- getPendingTxLogOrError "doCommit"
 
             -- merge pending tx into pending block data
-            bsBlockHandle . blockHandlePending .= pendingTx
+            pendingBlockWrites <- use (bsBlockHandle . blockHandlePending . pendingWrites)
+            compactedPendingTxWrites <- liftIO $ compactAdd pendingBlockWrites (pendingTx ^. pendingWrites)
+            bsBlockHandle . blockHandlePending .=
+                (pendingTx & pendingWrites .~ compactedPendingTxWrites)
             bsPendingTxLog .= Nothing
             return txLogs
         else doRollback >> return mempty
@@ -714,7 +719,7 @@ commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHand
 commitBlockStateToDatabase db hsh bh blockHandle = throwOnDbError $ do
     let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
     mapM_ (\tn -> createUserTable (toUtf8 tn)) newTables
-    backendWriteUpdateBatch (_pendingWrites (_blockHandlePending blockHandle))
+    backendWriteUpdateBatch $ getCompact $ blockHandle ^. blockHandlePending . pendingWrites
     indexPendingPactTransactions
     let nextTxId = _blockHandleTxId blockHandle
     blockHistoryInsert nextTxId
@@ -756,7 +761,7 @@ commitBlockStateToDatabase db hsh bh blockHandle = throwOnDbError $ do
             Just
                 [ SText (toUtf8 rowkey)
                 , SInt (fromIntegral txid)
-                , SBlob rowdataEncoded
+                , SBlob (SB.fromShort rowdataEncoded)
                 ]
         prepRow _ InMemDb.ReadEntry {} = Nothing
 

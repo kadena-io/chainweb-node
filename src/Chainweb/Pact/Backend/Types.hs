@@ -62,6 +62,7 @@ import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
 
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Names as Pact4
+import GHC.Compact
 
 -- | Whether we write rows to the database that were already overwritten
 -- in the same block.
@@ -134,13 +135,13 @@ data SQLitePendingData w = SQLitePendingData
     , _pendingTxLogMap :: !TxLogMap
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
-    deriving (Eq, Show)
+    deriving (Functor, Eq, Show)
 
 makeLenses ''SQLitePendingData
 
 type family PendingWrites (pv :: PactVersion) = w | w -> pv where
     PendingWrites Pact4 = SQLitePendingWrites
-    PendingWrites Pact5 = InMemDb.Store
+    PendingWrites Pact5 = Compact InMemDb.Store
 
 emptySQLitePendingData :: w -> SQLitePendingData w
 emptySQLitePendingData w = SQLitePendingData mempty w mempty mempty
@@ -150,16 +151,17 @@ data BlockHandle (pv :: PactVersion) = BlockHandle
     , _blockHandlePending :: !(SQLitePendingData (PendingWrites pv))
     }
 deriving instance Eq (BlockHandle Pact4)
-deriving instance Eq (BlockHandle Pact5)
+instance Eq (BlockHandle Pact5) where
+    BlockHandle txid pending == BlockHandle txid' pending' =
+        txid == txid' && fmap getCompact pending == fmap getCompact pending'
 deriving instance Show (BlockHandle Pact4)
-deriving instance Show (BlockHandle Pact5)
 makeLenses ''BlockHandle
 
 emptyPact4BlockHandle :: Pact4.TxId -> BlockHandle Pact4
 emptyPact4BlockHandle txid = BlockHandle txid (emptySQLitePendingData mempty)
 
-emptyPact5BlockHandle :: Pact4.TxId -> BlockHandle Pact5
-emptyPact5BlockHandle txid = BlockHandle txid (emptySQLitePendingData InMemDb.empty)
+emptyPact5BlockHandle :: Pact4.TxId -> IO (BlockHandle Pact5)
+emptyPact5BlockHandle txid = BlockHandle txid . emptySQLitePendingData <$> compact InMemDb.empty
 
 -- | The result of a historical lookup which might fail to even find the
 -- header the history is being queried for.

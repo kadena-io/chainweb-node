@@ -217,7 +217,7 @@ readFrom res maybeParent pactVersion doRead = do
                 , Pact5._blockHandlerAtTip = parentIsLatestHeader
                 }
             let pactDb = Pact5.chainwebPactBlockDb blockHandlerEnv
-            r <- doRead pactDb (emptyPact5BlockHandle startTxId)
+            r <- doRead pactDb =<< liftIO (emptyPact5BlockHandle startTxId)
             return (r, sharedModuleCache)
           | otherwise ->
             internalError $
@@ -359,7 +359,7 @@ restoreAndSave res rewindParent blocks = do
                   }
                 pactDb = Pact5.chainwebPactBlockDb blockEnv
               -- run the block
-              ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyPact5BlockHandle txid)
+              ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent =<< liftIO (emptyPact5BlockHandle txid)
               -- compute the accumulator early
               let !m'' = m <> m'
               case maybeParent of

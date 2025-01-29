@@ -23,7 +23,7 @@ module Chainweb.Pact.Backend.InMemDb
 
 import Prelude hiding (lookup)
 import Control.Lens
-import Data.ByteString (ByteString)
+import Data.ByteString.Short (ShortByteString)
 import Data.Hashable
 import Data.HashMap.Strict(HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -45,7 +45,7 @@ data Entry a
     -- WriteEntry bytestring could be intentionally lazy, as most of the time
     -- we don't need this until we commit to the db. However, encoding these is
     -- gassed, and thus cannot be done lazily.
-    | WriteEntry !TxId !ByteString !a
+    | WriteEntry !TxId !ShortByteString !a
     deriving (Show, Eq)
 
 makePrisms ''Entry
