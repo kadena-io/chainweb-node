@@ -63,6 +63,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Pact.JSON.Encode (getJsonText)
 import Data.Text.Encoding qualified as T
 import Data.Text.Lazy qualified as TL
@@ -149,6 +150,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "gasPurchaseFailureMessages" (gasPurchaseFailureMessages rdb)
         , testCaseSteps "transition occurs" (transitionOccurs rdb)
         , testCaseSteps "transition crosschain" (transitionCrosschain rdb)
+        , testCaseSteps "upgradeNamespaceTests" (upgradeNamespaceTests rdb)
         , localTests rdb
         ]
 
@@ -1120,6 +1122,49 @@ pollingMetadataTest baseRdb _step = runResourceT $ do
                 , ("prevBlockHash", P.match A._String P.succeed)
                 ]
             ]
+
+upgradeNamespaceTests :: RocksDb -> Step -> IO ()
+upgradeNamespaceTests baseRdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let cid = unsafeChainId 0
+    fx <- mkFixture v baseRdb
+
+    liftIO $ do
+        upgradeNsContract <- T.readFile "pact/namespaces/ns.pact"
+        do
+            unprivilegedUpgradeCmd <- buildTextCmd v $
+                set cbRPC (mkExec' upgradeNsContract) $
+                set cbSigners
+                    [mkEd25519Signer' sender00
+                        -- sender00 controls ns, but module upgrades require unscoped signatures
+                        [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
+                    ] $
+                defaultCmd cid
+            send fx v cid [unprivilegedUpgradeCmd]
+            advanceAllChains_ fx
+            poll fx v cid [cmdToRequestKey unprivilegedUpgradeCmd]
+                >>= P.match (_head . _Just)
+                ? P.fun _crResult
+                ? P.match _PactResultErr
+                ? P.fun _peMsg
+                ? P.fun _boundedText
+                ? textContains "Keyset failure"
+        do
+            privilegedUpgradeCmd <- buildTextCmd v $
+                set cbRPC (mkExec' upgradeNsContract) $
+                set cbSigners
+                    -- sender00 controls ns, and module upgrades require unscoped signatures
+                    [mkEd25519Signer' sender00 []
+                    ] $
+                defaultCmd cid
+            send fx v cid [privilegedUpgradeCmd]
+            advanceAllChains_ fx
+            poll fx v cid [cmdToRequestKey privilegedUpgradeCmd]
+                >>= P.match (_head . _Just)
+                ? P.fun _crResult
+                ? P.match _PactResultOk
+                ? P.match _PString
+                ? textContains "Loaded module ns"
 
 
 ----------------------------------------------------
