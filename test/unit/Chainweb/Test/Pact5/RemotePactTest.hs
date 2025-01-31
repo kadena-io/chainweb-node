@@ -138,7 +138,7 @@ httpManager = unsafePerformIO $ HTTP.newTlsManagerWith (HTTP.mkManagerSettings d
 tests :: RocksDb -> TestTree
 tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
     testGroup "Pact5 RemotePactTest"
-        [ testCaseSteps "spvTest" (spvTest rdb)
+        [ testCaseSteps "crosschainTest" (crosschainTest rdb)
         , sendInvalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
         , testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
@@ -229,8 +229,8 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
 
         return ()
 
-spvTest :: RocksDb -> Step -> IO ()
-spvTest baseRdb step = runResourceT $ do
+crosschainTest :: RocksDb -> Step -> IO ()
+crosschainTest baseRdb step = runResourceT $ do
     let v = pact5InstantCpmTestVersion petersonChainGraph
     fx <- mkFixture v baseRdb
 
