@@ -272,7 +272,7 @@ crosschainTest baseRdb step = runResourceT $ do
             ? P.equals "SPV target not reachable: target chain not reachable. Chainweb instance is too young"
 
         step "waiting"
-        replicateM_ (int $ diameter petersonChainGraph + 1) $ advanceAllChains_ fx
+        replicateM_ (int $ diameter petersonChainGraph) $ advanceAllChains_ fx
         TransactionOutputProofB64 spvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
         let contMsg = ContMsg
                 { _cmPactId = _peDefPactId cont
