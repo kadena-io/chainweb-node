@@ -138,6 +138,7 @@ import Data.Singletons (Dict(..))
 import Pact.Core.Persistence (throwDbOpErrorGasM)
 import Data.Int
 import GHC.Stack
+import System.LogLevel (LogLevel(..))
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -364,9 +365,8 @@ chainwebPactBlockDb env = Pact5Db
     }
 
 doReadRow
-    :: forall k v logger
-    -- ^ the highest block we should be reading writes from
-    . Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    :: forall k v logger. (Logger logger)
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> BlockHandler logger (Maybe v)
 doReadRow d k = do
@@ -412,7 +412,8 @@ doReadRow d k = do
             Pact.DUserTables pactTableName -> do
                 -- if the table is pending creation, we also return Nothing
                 fmap join $ withTableExistenceCheck pactTableName fetchRowFromDb
-            _ -> throwOnDbError $ fetchRowFromDb
+            _ -> do
+                throwOnDbError fetchRowFromDb
         where
         fetchRowFromDb :: ExceptT SQ3.Error (BlockHandler logger) (Maybe (Int, v))
         fetchRowFromDb = do
@@ -426,7 +427,22 @@ doReadRow d k = do
                 qry db queryStmt [SText encodedKeyUtf8, SInt (fromIntegral txIdUpperBoundWord64)] [RBlob]
             case result of
                 [] -> return Nothing
-                [[SBlob a]] -> return $ (BS.length a,) <$> decodeValue a
+                [[SBlob a]] -> do
+                    logger <- view blockHandlerLogger
+                    () <- liftIO $ case d of
+                        Pact.DUserTables _ -> logFunctionText logger Error $
+                            sshow $ (d, BS.length a,) <$> decodeValue a
+                        Pact.DNamespaces -> logFunctionText logger Error $
+                            sshow $ (d, BS.length a,) <$> decodeValue a
+                        Pact.DDefPacts -> logFunctionText logger Error $
+                            sshow $ (d, BS.length a,) <$> decodeValue a
+                        Pact.DKeySets -> logFunctionText logger Error $
+                            sshow $ (d, BS.length a,) <$> decodeValue a
+                        Pact.DModuleSource -> logFunctionText logger Error $
+                            sshow $ (d, BS.length a,) <$> decodeValue a
+                        Pact.DModules -> logFunctionText logger Error $
+                            sshow $ (d, BS.length a,) <$> decodeValue a
+                    return $ (BS.length a,) <$> decodeValue a
                 err -> internalDbError $
                     "doReadRow: Expected (at most) a single result, but got: " <>
                     sshow err
@@ -536,7 +552,8 @@ recordPendingUpdate d k txid (encodedValue, decodedValue) =
         InMemDb.insert d k (InMemDb.WriteEntry txid encodedValue decodedValue)
 
 writeUser
-    :: Pact.WriteType
+    :: (Logger logger)
+    => Pact.WriteType
     -> Pact.TableName
     -> Pact.RowKey
     -> Pact.RowData
@@ -565,8 +582,8 @@ writeUser wt tableName k (Pact.RowData newRow) = do
             (Nothing, Pact.Update) -> liftGas $ Pact.throwDbOpErrorGasM (Pact.NoRowFound tableName k)
 
 doWriteRow
-    -- ^ the highest block we should be reading writes from
-    :: Pact.WriteType
+    :: (Logger logger)
+    => Pact.WriteType
     -> Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> v
