@@ -283,6 +283,19 @@ crosschainTest baseRdb step = runResourceT $ do
                 }
         step "xchain recv"
 
+        -- what if we try to finish the xchain on the wrong chain?
+        recvWrongChain <- buildTextCmd v
+            $ set cbRPC (mkCont contMsg)
+            $ defaultCmd srcChain
+        send fx v srcChain [recvWrongChain]
+        let recvWrongChainReqKey = cmdToRequestKey recvWrongChain
+        advanceAllChains_ fx
+        poll fx v srcChain [recvWrongChainReqKey]
+            >>= P.match (_head . _Just)
+            ? P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg
+            -- sic
+            ? P.equals "Continuation error: verifyCont: cannot redeem continuation proof on wrong targget chain"
+
         recv <- buildTextCmd v
             $ set cbRPC (mkCont contMsg)
             $ defaultCmd targetChain
@@ -291,19 +304,31 @@ crosschainTest baseRdb step = runResourceT $ do
         advanceAllChains_ fx
         poll fx v targetChain [recvReqKey]
             >>= P.match (_head . _Just)
-                ? P.checkAll
-                    [ P.fun _crResult ? P.match _PactResultOk P.succeed
-                    , P.fun _crEvents ? P.alignExact
-                        [ P.succeed
-                        , P.checkAll
-                            [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
-                            , P.fun _peArgs ? P.equals
-                                [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
-                            ]
-                        , P.fun _peName ? P.equals "X_RESUME"
-                        , P.succeed
+            ? P.checkAll
+                [ P.fun _crResult ? P.match _PactResultOk P.succeed
+                , P.fun _crEvents ? P.alignExact
+                    [ P.succeed
+                    , P.checkAll
+                        [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
+                        , P.fun _peArgs ? P.equals
+                            [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
                         ]
+                    , P.fun _peName ? P.equals "X_RESUME"
+                    , P.succeed
                     ]
+                ]
+
+        -- what if we try to complete an already-completed xchain?
+        recvRepeated <- buildTextCmd v
+            $ set cbRPC (mkCont contMsg)
+            $ defaultCmd targetChain
+        send fx v targetChain [recvRepeated]
+        let recvRepeatedReqKey = cmdToRequestKey recvRepeated
+        advanceAllChains_ fx
+        poll fx v targetChain [recvRepeatedReqKey]
+            >>= P.match (_head . _Just)
+            ? P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg ? P.fun _boundedText
+            ? P.equals ("Requested defpact execution already completed for defpact id: " <> T.take 20 (renderDefPactId $ _peDefPactId cont) <> "...")
 
 -- this test suite really wants you not to put any transactions into the final block.
 sendInvalidTxsTest :: RocksDb -> TestTree
