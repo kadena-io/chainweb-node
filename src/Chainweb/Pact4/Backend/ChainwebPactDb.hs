@@ -317,7 +317,7 @@ tableExistsInDbAtHeight tableName bh = do
         _ -> return True
 
 doReadRow
-    :: (IsString k, FromJSON v)
+    :: (Logger logger, IsString k, FromJSON v)
     => Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> Domain k v
@@ -336,7 +336,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     tableName = domainTableName d
 
     lookupWithKey
-        :: forall logger v . FromJSON v
+        :: forall logger v . (Logger logger, FromJSON v)
         => Utf8
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger ) v)
         -> BlockHandler logger (Maybe v)
@@ -347,7 +347,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
-        :: forall logger v . FromJSON v
+        :: forall logger v . (Logger logger, FromJSON v)
         => Utf8
         -> SQLitePendingData (PendingWrites Pact4)
         -> MaybeT (BlockHandler logger) v
@@ -358,7 +358,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         MaybeT $ return $! decodeStrict' ddata
 
     lookupInDb
-        :: forall logger v . FromJSON v
+        :: forall logger v . (Logger logger, FromJSON v)
         => Utf8
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger) v)
         -> MaybeT (BlockHandler logger) v
@@ -378,7 +378,8 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> checkCache rowkey a
+            [[SBlob a]] -> do
+                checkCache rowkey a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
@@ -446,7 +447,8 @@ recordPendingUpdate (Utf8 key) tn txid v = modifyPendingData modf
 
 
 checkInsertIsOK
-    :: Maybe (BlockHeight, TxId)
+    :: Logger logger
+    => Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData
@@ -465,7 +467,8 @@ checkInsertIsOK mlim wt d k = do
     err msg = internalError $ "checkInsertIsOK: " <> msg <> asString k
 
 writeUser
-    :: Maybe (BlockHeight, TxId)
+    :: Logger logger
+    => Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData
@@ -495,7 +498,7 @@ writeUser mlim wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
             return rowdata
 
 doWriteRow
-  :: (AsString k, J.Encode v)
+    :: (AsString k, J.Encode v, Logger logger)
     => Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType

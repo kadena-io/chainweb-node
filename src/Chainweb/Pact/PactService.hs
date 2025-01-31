@@ -52,7 +52,6 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import Data.Aeson qualified as Aeson
 import Data.Either
 import Data.Foldable (toList)
 import Data.IORef
@@ -706,13 +705,6 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                 handleMissingBlock (Historical ()) = return ()
             payload <- liftIO $ fromJuste <$>
                 lookupPayloadWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
-            txsAndOutputs <- forM (_payloadWithOutputsTransactions payload) $ \(tx, txOut) -> do
-                let pact5Tx :: Pact5.Command Text
-                    pact5Tx = case tx of { Transaction t -> fromJuste $ Aeson.decodeStrict' t; }
-                let pact5TxOut :: Pact5.CommandResult Aeson.Value Pact5.Hash
-                    pact5TxOut = case txOut of { TransactionOutput t -> fromJuste $ Aeson.decodeStrict' t; }
-                pure (pact5Tx, pact5TxOut)
-            logFunctionText logger Error $ sshow txsAndOutputs
             let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
             let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . atChain (_chainId bhdb) . ix (view blockHeight bh)
             liftIO $ writeIORef heightRef (view blockHeight bh)
