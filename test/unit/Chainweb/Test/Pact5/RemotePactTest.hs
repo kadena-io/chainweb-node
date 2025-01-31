@@ -256,9 +256,20 @@ crosschainTest baseRdb step = runResourceT $ do
 
         send fx v srcChain [initiator]
         let initiatorReqKey = cmdToRequestKey initiator
+
+        -- what if the source chain hasn't got the xchain transfer in a block yet?
+        spvTxOutProof fx v targetChain srcChain initiatorReqKey
+            & P.fails ? P.match _FailureResponse ? P.fun responseBody
+            ? P.equals ("Transaction hash not found: " <> sshow initiatorReqKey)
+
         advanceAllChains_ fx
         [Just sendCr] <- pollWithDepth fx v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
+
+        -- what if the target chain isn't aware of the source xchain transfer yet?
+        spvTxOutProof fx v targetChain srcChain initiatorReqKey
+            & P.fails ? P.match _FailureResponse ? P.fun responseBody
+            ? P.equals "SPV target not reachable: target chain not reachable. Chainweb instance is too young"
 
         step "waiting"
         replicateM_ (int $ diameter petersonChainGraph + 1) $ advanceAllChains_ fx
