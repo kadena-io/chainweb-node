@@ -163,6 +163,8 @@ EOF
 
 FROM chainweb-build AS chainweb-build-ctx
 ARG TARGETPLATFORM
+ARG UNFREEZE
+ENV UNFREEZE=$UNFREEZE
 # RUN git clone --filter=tree:0 https://github.com/kadena-io/chainweb-node
 # WORKDIR /chainweb/chainweb-node
 COPY . .
@@ -175,6 +177,7 @@ if [ -d ".git" ] && ! [ -f "/tools/wip" ] && ! git diff --exit-code; then \
     exit 1 ; \
 fi
 EOF
+RUN [ -z "$UNFREEZE" ] || rm -f cabal.project.freeze
 RUN sh /tools/check-git-clean.sh || touch /tools/wip
 
 # ############################################################################ #
