@@ -645,7 +645,6 @@ test-suite chainweb-tests
         Chainweb.Test.Pact4.PactMultiChainTest
         Chainweb.Test.Pact4.PactReplay
         Chainweb.Test.Pact4.PactSingleChainTest
-        Chainweb.Test.Pact4.RemotePactTest
         Chainweb.Test.Pact4.RewardsTest
         Chainweb.Test.Pact4.SPV
         Chainweb.Test.Pact4.SQLite
