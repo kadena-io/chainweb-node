@@ -96,7 +96,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad (replicateM, unless)
 
-import Crypto.Hash (hash)
+import qualified Crypto.Hash
 import Crypto.Hash.Algorithms (SHA512t_256)
 
 import Data.Aeson
@@ -104,11 +104,10 @@ import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
 import qualified Data.ByteString.Base64.URL as B64
 import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (traverse_)
-import Data.Hashable (Hashable(hashWithSalt))
+import Data.Hashable (Hashable(hash, hashWithSalt), hashByteArrayWithSalt)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
@@ -147,6 +146,9 @@ import Data.LogMessage (LogFunctionText)
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Hash as Pact5
+import Data.Primitive (ByteArray(..))
+import System.IO.Unsafe (unsafeDupablePerformIO)
+import System.Random (randomIO)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -583,9 +585,6 @@ syncMempools log us localMempool remoteMempool =
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.
 --
--- TODO: production versions of this kind of DB should salt with a
--- runtime-generated constant to avoid collision attacks; see the \"hashing and
--- security\" section of the hashable docs.
 newtype TransactionHash = TransactionHash { unTransactionHash :: SB.ShortByteString }
   deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
@@ -594,10 +593,19 @@ instance Show TransactionHash where
     show = T.unpack . encodeToText
 
 instance Hashable TransactionHash where
-  hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
-    where
-      hashCode = either error id $ runGetEitherS (fromIntegral <$> getWord64le) (B.take 8 $ SB.fromShort h)
+  hashWithSalt s (TransactionHash (SB.ShortByteString (ByteArray h))) =
+    hashByteArrayWithSalt h 0 8 (hashWithSalt txHashSalt s)
+  hash (TransactionHash (SB.ShortByteString (ByteArray h))) =
+    hashByteArrayWithSalt h 0 8 txHashSalt
   {-# INLINE hashWithSalt #-}
+  {-# INLINE hash #-}
+
+-- This salt is generated at runtime to avoid hash DoS attacks, whereby known
+-- tx hash collisions are used to decrease mempool performance. See the
+-- "hashing and security" section of the Data.Hashable docs.
+txHashSalt :: Int
+txHashSalt = hash $ unsafeDupablePerformIO (randomIO @Int)
+{-# NOINLINE txHashSalt #-}
 
 instance ToJSON TransactionHash where
   toJSON = toJSON . toText
@@ -668,8 +676,9 @@ data HashMeta = HashMeta {
 }
 
 chainwebTestHasher :: ByteString -> TransactionHash
-chainwebTestHasher s = let !b = SB.toShort $ convert $ hash @_ @SHA512t_256 $ "TEST" <> s
-                       in TransactionHash b
+chainwebTestHasher s =
+  let !b = SB.toShort $ convert $ Crypto.Hash.hash @_ @SHA512t_256 $ "TEST" <> s
+  in TransactionHash b
 
 chainwebTestHashMeta :: HashMeta
 chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32
