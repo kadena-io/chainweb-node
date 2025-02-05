@@ -1,4 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+{-# options_ghc -fno-warn-orphans #-}
+
 -- |
 -- Module: Chainweb.Test.Cut.TestBlockDb
 -- Copyright: Copyright © 2020 Kadena LLC.
@@ -46,7 +50,6 @@ import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.BlockHeight
-import Control.Monad
 import Control.DeepSeq
 
 data TestBlockDb = TestBlockDb
@@ -54,6 +57,12 @@ data TestBlockDb = TestBlockDb
   , _bdbPayloadDb :: PayloadDb RocksDbTable
   , _bdbCut :: MVar Cut
   }
+
+instance NFData WebBlockHeaderDb where
+  rnf !_ = ()
+
+instance NFData (PayloadDb_ a b) where
+  rnf !_ = ()
 
 instance NFData TestBlockDb where
   rnf (TestBlockDb a b c) = rnf a `seq` rnf b `seq` rnf c

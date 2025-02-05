@@ -92,7 +92,6 @@ import Pact.Types.PactValue
 import Pact.Types.Util hiding (unwrap)
 import System.LogLevel
 import System.Random
-import Text.Printf (printf)
 
 -- -------------------------------------------------------------------------- --
 -- Benchmarks

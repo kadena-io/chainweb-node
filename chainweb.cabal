@@ -882,6 +882,7 @@ benchmark bench
         , async >= 2.2
         , base >= 4.12 && < 5
         , resourcet
+        , lens-aeson
         , unordered-containers
         , direct-sqlite
         , pact-tng

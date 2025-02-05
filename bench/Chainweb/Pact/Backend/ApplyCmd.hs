@@ -7,10 +7,7 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
-<<<<<<< HEAD
 {-# LANGUAGE OverloadedRecordDot #-}
-=======
->>>>>>> 5675d1977 (wip benching)
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QuantifiedConstraints #-}

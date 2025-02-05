@@ -17,11 +17,13 @@
 #-}
 
 {-# options_ghc -fno-warn-orphans #-}
+{-# options_ghc -fno-warn-unused-imports #-}
 
 module Chainweb.Pact.Backend.PactService
     ( bench
     ) where
 
+import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
@@ -31,7 +33,8 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool (InsertType (..), MempoolBackend (..))
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.InMemDb qualified as PactStore
+import Chainweb.Pact.Backend.Types (SQLiteEnv, BlockHandle(..), blockHandlePending, pendingWrites)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
@@ -40,6 +43,7 @@ import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact5.Transaction (parsePact4Command)
 import Chainweb.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb(..), addTestBlockDb, getCutTestBlockDb, setCutTestBlockDb, getParentTestBlockDb, mkTestBlockDbIO)
@@ -62,17 +66,27 @@ import Control.Lens hiding (only)
 import Control.Monad
 import Control.Monad.IO.Class
 import Criterion.Main qualified as C
+import Data.Aeson qualified as A
+import Data.Aeson.Lens qualified as AL
+import Data.Aeson.Text qualified as A
 import Data.ByteString.Lazy qualified as LBS
 import Data.Decimal
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HashSet
+import Data.List qualified as List
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Text.Lazy qualified as TL
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Pact.Core.Capabilities
 import Pact.Core.Gas.Types
 import Pact.Core.Names
 import Pact.Core.PactValue
+import Pact.Types.ChainMeta qualified as Pact4
+import Pact.Types.Command qualified as Pact4
 import Pact.Types.Gas qualified as Pact4
 import PropertyMatchers qualified as P
 import Test.Tasty.HUnit (assertEqual)
@@ -106,6 +120,16 @@ bench rdb = do
             , C.bench "80 txs" $ oneBlock pact5Version rdb 80
             , C.bench "90 txs" $ oneBlock pact5Version rdb 90
             , C.bench "100 txs" $ oneBlock pact5Version rdb 100
+            ]
+        , C.bgroup "Real World Blocks"
+            [ C.bgroup "Chain 0"
+                [ C.bgroup "Pact4"
+                    [ C.bench "Height 4833261" $ realWorldBlock_Chain0_Height4833261 pact4Version rdb
+                    ]
+                , C.bgroup "Pact 5"
+                    [ C.bench "Height 4833261" $ realWorldBlock_Chain0_Height4833261 pact5Version rdb
+                    ]
+                ]
             ]
         ]
 
@@ -189,6 +213,133 @@ oneBlock v rdb numTxs =
             fromIntegral @_ @Word (Vector.length (_payloadWithOutputsTransactions block))
                 & P.equals numTxs
             return block
+        revert fx prevCut
+        return result
+
+{-
+data BlockHandle (pv :: PactVersion) = BlockHandle
+    { _blockHandleTxId :: !Pact4.TxId
+    , _blockHandlePending :: !(SQLitePendingData (PendingWrites pv))
+    }
+
+data SQLitePendingData w = SQLitePendingData
+    { _pendingTableCreation :: !SQLitePendingTableCreations
+    , _pendingWrites :: !w
+    -- See Note [TxLogs in SQLitePendingData]
+    , _pendingTxLogMap :: !TxLogMap
+    , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
+    }
+
+type family PendingWrites (pv :: PactVersion) = w | w -> pv where
+    PendingWrites Pact4 = SQLitePendingWrites
+    PendingWrites Pact5 = InMemDb.Store
+
+-}
+
+-- Real World Block.
+-- Chain 0
+-- Height 4833261
+-- Explorer Link: https://explorer.chainweb.com/mainnet/chain/0/block/yIzRLBfACHGyt8ZIaIpODGcoNd-1-meayt-lcYcRQSA
+realWorldBlock_Chain0_Height4833261 :: ChainwebVersion -> RocksDb -> C.Benchmarkable
+realWorldBlock_Chain0_Height4833261 v rdb =
+    let cfg = testPactServiceConfig
+        cid = unsafeChainId 0
+
+        setupEnv = do
+            fx <- createFixture v rdb cfg
+            latestBlock <- getCut fx <&> \cut -> cut ^?! ixg cid
+            originalTxs <- fromMaybe (error "failed to decode txs FROM FILE")
+                <$> A.decodeFileStrict @A.Value "bench/data/chain0_block4833261_txs.json"
+            let updatedTxs :: A.Value
+                updatedTxs = originalTxs
+                    -- overwrite some fields
+                    & over (AL._Array . traverse . AL.key "cmd") (\cmdObj ->
+                        -- We have to overwrite the networkId
+                        -- and the creationTime needs to be relative the parent in the test harness
+                        cmdObj
+                            & AL.key "networkId" .~ A.String (getChainwebVersionName (_versionName v))
+                            & AL.key "meta" . AL.key "creationTime" .~ A.Number (fromIntegral (encodeTimeToWord64 (add second (_bct (view blockCreationTime latestBlock)))))
+                    )
+                    -- turn the cmd object into a string
+                    & over (AL._Array . traverse) (\obj ->
+                        obj
+                            & AL.key "cmd" %~ \cmdObj ->
+                                A.String (TL.toStrict $ A.encodeToLazyText cmdObj)
+                    )
+
+            let pact4Cmds = case A.fromJSON @[Pact4.Command Text] updatedTxs of
+                    A.Success cmds -> cmds
+                    A.Error e -> error $ "failed to decode txs AFTER UPDATING: " <> e
+            let pact4UnparsedTxs = flip List.map pact4Cmds $ \cmd ->
+                    let payloadBytes = T.encodeUtf8 (Pact4._cmdPayload cmd)
+                        decodedPayload = case A.eitherDecodeStrict' @(Pact4.Payload Pact4.PublicMeta Text) payloadBytes of
+                            Left e -> error $ "failed to decode payload: " <> e
+                            Right p -> p
+                    in
+                    Pact4.mkPayloadWithText $ cmd
+                        { Pact4._cmdPayload = (payloadBytes, decodedPayload)
+                        }
+            let txs = case traverse parsePact4Command pact4UnparsedTxs of
+                    Left e -> error $ "failed to parsePact4Command txs: " <> show e
+                    Right t -> t
+
+            return (fx, txs)
+
+        cleanupEnv (fx, _) = do
+            destroyFixture fx
+
+    in
+    C.perRunEnvWithCleanup setupEnv cleanupEnv $ \ ~(fx, txs) -> do
+        prevCut <- getCut fx
+        result <- advanceAllChains fx $ onChain cid $ \ph pactQueue mempool -> do
+            mempoolClear mempool
+            mempoolInsertPact5 (fx._fixtureMempools ^?! atChain cid) UncheckedInsert txs
+
+            -- Create an empty BlockInProgress to modify its BlockHandle
+            bipEmpty <- throwIfNoHistory =<<
+                newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+            block :: PayloadWithOutputs <- case bipEmpty of
+                ForSomePactVersion Pact4T bipStart -> do
+                    let bip = bipStart
+                            & over (blockInProgressHandle . blockHandlePending . pendingWrites) (\_ ->
+                                {-
+                                -- Pending writes to the pact db during a block, to be recorded in 'BlockState'.
+                                -- Structured as a map from table name to a map from rowkey to inserted row delta.
+                                type SQLitePendingWrites = HashMap Text (HashMap ByteString (NonEmpty SQLiteRowDelta))
+
+                                data SQLiteRowDelta = SQLiteRowDelta
+                                    { _deltaTableName :: !Text
+                                    , _deltaTxId :: {-# UNPACK #-} !Pact4.TxId
+                                    , _deltaRowKey :: !ByteString
+                                    , _deltaData :: !ByteString
+                                    }
+                                -}
+
+                                -- chessai questions:
+                                -- 1. how do the more straightforward read values
+                                --    correspond to the shape of 'SQLitePendingWrites'?
+                                --
+                                -- 2. What do we do for the 'TxId's in the 'SQLiteRowDelta'?
+                                HM.empty
+                            )
+                    bipContinued <- throwIfNoHistory =<< continueBlock bip pactQueue
+                    let block = finalizeBlock bipContinued
+                    pure block
+                ForSomePactVersion Pact5T bipStart -> do
+                    let bip = bipStart
+                            & over (blockInProgressHandle . blockHandlePending . pendingWrites) (\_ ->
+                                PactStore.empty
+                                {- insert :: forall k v. Domain k v CoreBuiltin Info -> k -> Entry v -> Store -> Store -}
+                            )
+                    bipContinued <- throwIfNoHistory =<< continueBlock bip pactQueue
+                    let block = finalizeBlock bipContinued
+                    pure block
+
+            Vector.length (_payloadWithOutputsTransactions block)
+                & P.equals 207 -- 207 txs in the block
+
+            return block
+
         revert fx prevCut
         return result
 
