@@ -145,6 +145,7 @@ import Chainweb.Pact.PactService.Checkpointer (SomeBlockM(..))
 import qualified Pact.Core.StableEncoding as Pact5
 import Control.Monad.Cont (evalContT)
 import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Text.IO as T
 
 
 runPactService
@@ -718,7 +719,9 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                         (void $ Pact4.execBlock bh (CheckablePayloadWithOutputs payload))
                         (void $ Pact5.execExistingBlock bh (CheckablePayloadWithOutputs payload))
             pact4DbReads <- Pact4.printPactDbReads
-            writeFile ("pact4_db_reads_block_" <> show (view blockHeight bh) <> ".txt") pact4DbReads
+            T.writeFile
+                ("pact4_db_reads_block_" <> show (view blockHeight bh) <> ".txt")
+                (J.encodeText $ J.array pact4DbReads)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $

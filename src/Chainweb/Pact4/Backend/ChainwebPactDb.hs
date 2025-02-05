@@ -325,7 +325,7 @@ tableExistsInDbAtHeight tableName bh = do
         [] -> return False
         _ -> return True
 
-data SomeDomainKey = forall k v. (Ord k) => SomeDomainKey (Domain k v) k
+data SomeDomainKey = forall k v. SomeDomainKey (Domain k v) J.JsonText
 
 instance Eq SomeDomainKey where
     SomeDomainKey d1 k1 == SomeDomainKey d2 k2 = case (d1, d2) of
@@ -362,19 +362,18 @@ pactDbReads = unsafePerformIO $ do
 clearPactDbReads :: IO ()
 clearPactDbReads = atomicModifyIORef' pactDbReads $ const (PactDbReads M.empty, ())
 
-printPactDbReads :: IO String
+printPactDbReads :: IO [J.Builder]
 printPactDbReads = do
     PactDbReads m <- readIORef pactDbReads
-    fmap unlines $ forM (M.toList m) $ \(SomeDomainKey d k, v) -> do
-        return $ case d of
-            UserTables _ -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
-            KeySets -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
-            Modules -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
-            Namespaces -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
-            Pacts -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
+    return $ M.toList m <&> \(SomeDomainKey d k, v) ->
+        J.object
+            [ "domain" J..= domainTableName d
+            , "key" J..= k
+            , "value" J..= T.decodeUtf8 v
+            ]
 
 -- insert a read into the pact db reads, but if the (domain, key) pair already exist, do nothing
-insertPactDbRead :: forall k v. (Ord k) => Domain k v -> k -> ByteString -> IO ()
+insertPactDbRead :: forall k v. (Ord k) => Domain k v -> J.JsonText -> ByteString -> IO ()
 insertPactDbRead d k v = atomicModifyIORef' pactDbReads $ \(PactDbReads m) ->
     let key = SomeDomainKey d k
     in
@@ -446,11 +445,11 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
             [] -> mzero
             [[SBlob a]] -> do
                 () <- liftIO $ case d of
-                    UserTables _ -> insertPactDbRead d k a
-                    KeySets -> insertPactDbRead d k a
-                    Modules -> insertPactDbRead d k a
-                    Namespaces -> insertPactDbRead d k a
-                    Pacts -> insertPactDbRead d k a
+                    UserTables _ -> insertPactDbRead d (J.encodeJsonText (case k of RowKey t -> t)) a
+                    KeySets -> insertPactDbRead d (J.encodeJsonText k) a
+                    Modules -> insertPactDbRead d (J.encodeJsonText k) a
+                    Namespaces -> insertPactDbRead d (J.encodeJsonText k) a
+                    Pacts -> insertPactDbRead d (J.encodeJsonText k) a
                 checkCache rowkey a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
