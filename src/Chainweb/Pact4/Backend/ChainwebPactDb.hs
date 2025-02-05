@@ -5,10 +5,13 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -60,6 +63,9 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , convPactId
 
 , commitBlockStateToDatabase
+
+, clearPactDbReads
+, printPactDbReads
 ) where
 
 import Control.Applicative
@@ -70,9 +76,11 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson hiding ((.=))
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List(sort)
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
@@ -122,6 +130,7 @@ import Pact.Types.Command (RequestKey)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Utils.Serialization (runPutS)
 import Data.Foldable
+import System.IO.Unsafe (unsafePerformIO)
 
 execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> IO ()
 execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
@@ -316,6 +325,63 @@ tableExistsInDbAtHeight tableName bh = do
         [] -> return False
         _ -> return True
 
+data SomeDomainKey = forall k v. (Ord k) => SomeDomainKey (Domain k v) k
+
+instance Eq SomeDomainKey where
+    SomeDomainKey d1 k1 == SomeDomainKey d2 k2 = case (d1, d2) of
+        (KeySets, KeySets) -> k1 == k2
+        (Modules, Modules) -> k1 == k2
+        (Namespaces, Namespaces) -> k1 == k2
+        (Pacts, Pacts) -> k1 == k2
+        (UserTables _, UserTables _) -> k1 == k2
+        _ -> False
+
+instance Ord SomeDomainKey where
+    compare (SomeDomainKey d1 k1) (SomeDomainKey d2 k2) = case (d1, d2) of
+        (KeySets, KeySets) -> compare k1 k2
+        (Modules, Modules) -> compare k1 k2
+        (Namespaces, Namespaces) -> compare k1 k2
+        (Pacts, Pacts) -> compare k1 k2
+        (UserTables tbl1, UserTables tbl2) -> compare tbl1 tbl2 <> compare k1 k2
+        (UserTables _, _) -> LT
+        (_, UserTables _) -> GT
+        (KeySets, _) -> LT
+        (_, KeySets) -> GT
+        (Modules, _) -> LT
+        (_, Modules) -> GT
+        (Namespaces, _) -> LT
+        (_, Namespaces) -> GT
+
+data PactDbReads = PactDbReads (M.Map SomeDomainKey ByteString)
+
+pactDbReads :: IORef PactDbReads
+pactDbReads = unsafePerformIO $ do
+    newIORef $ PactDbReads M.empty
+{-# noinline pactDbReads #-}
+
+clearPactDbReads :: IO ()
+clearPactDbReads = atomicModifyIORef' pactDbReads $ const (PactDbReads M.empty, ())
+
+printPactDbReads :: IO String
+printPactDbReads = do
+    PactDbReads m <- readIORef pactDbReads
+    fmap unlines $ forM (M.toList m) $ \(SomeDomainKey d k, v) -> do
+        return $ case d of
+            UserTables _ -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
+            KeySets -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
+            Modules -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
+            Namespaces -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
+            Pacts -> "(" <> show d <> ", " <> show k <> ", " <> T.unpack (T.decodeUtf8 v) <> ")"
+
+-- insert a read into the pact db reads, but if the (domain, key) pair already exist, do nothing
+insertPactDbRead :: forall k v. (Ord k) => Domain k v -> k -> ByteString -> IO ()
+insertPactDbRead d k v = atomicModifyIORef' pactDbReads $ \(PactDbReads m) ->
+    let key = SomeDomainKey d k
+    in
+    if M.member key m
+    then (PactDbReads m, ())
+    else (PactDbReads $ M.insert key v m, ())
+
 doReadRow
     :: (Logger logger, IsString k, FromJSON v)
     => Maybe (BlockHeight, TxId)
@@ -379,6 +445,12 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         case result of
             [] -> mzero
             [[SBlob a]] -> do
+                () <- liftIO $ case d of
+                    UserTables _ -> insertPactDbRead d k a
+                    KeySets -> insertPactDbRead d k a
+                    Modules -> insertPactDbRead d k a
+                    Namespaces -> insertPactDbRead d k a
+                    Pacts -> insertPactDbRead d k a
                 checkCache rowkey a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>

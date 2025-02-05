@@ -694,6 +694,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
         logger <- runPact $ view psLogger
         validationFailedRef <- newIORef False
         r <- blocks & Stream.mapM_ (\bh -> do
+            Pact4.clearPactDbReads
             bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
             let
                 printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
@@ -716,6 +717,8 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     SomeBlockM $ Pair
                         (void $ Pact4.execBlock bh (CheckablePayloadWithOutputs payload))
                         (void $ Pact5.execExistingBlock bh (CheckablePayloadWithOutputs payload))
+            pact4DbReads <- Pact4.printPactDbReads
+            writeFile ("pact4_db_reads_block_" <> show (view blockHeight bh) <> ".txt") pact4DbReads
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
