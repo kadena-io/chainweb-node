@@ -30,6 +30,7 @@ import Pact.Types.Command
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Set as S
 import Data.IORef
+import Data.List (unfoldr)
 
 txCfg :: Mempool.TransactionConfig UnparsedTransaction
 txCfg = Mempool.pact4TransactionConfig
@@ -104,6 +105,20 @@ allPendingTxHashes mp = do
     void $ Mempool.mempoolGetPendingTransactions mp Nothing (\pending -> modifyIORef' allRef (pending :))
     concatMap V.toList <$> readIORef allRef
 
+chunksOf :: Int -> V.Vector a -> [V.Vector a]
+chunksOf i = unfoldr go
+    where
+    go vec
+        | V.null vec = Nothing
+        | otherwise = Just (V.splitAt i vec)
+
+overlappingChunksOf :: Int -> V.Vector a -> [V.Vector a]
+overlappingChunksOf i = unfoldr go
+    where
+    go vec
+        | V.null vec = Nothing
+        | otherwise = Just (V.take i vec, V.drop (i `div` 2) vec)
+
 bench :: C.Benchmark
 bench = C.bgroup "mempool" $ concat
     [
@@ -131,6 +146,22 @@ bench = C.bgroup "mempool" $ concat
             )
             $ \(NoopNFData ~(mp, txs)) -> do
                 Mempool.mempoolInsert mp Mempool.UncheckedInsert txs
+        , C.bench "mempoolInsertMultipleBatches" $ C.perRunEnvWithCleanup
+            (setupMakeTxs (V.take 2000 cmds))
+            (\(NoopNFData (mp, _)) ->
+                allPendingTxHashes mp >>= P.fun length ? P.equals 2000
+            )
+            $ \(NoopNFData ~(mp, txs)) -> do
+                forM_ (chunksOf 100 txs) $ \chunk ->
+                    Mempool.mempoolInsert mp Mempool.UncheckedInsert chunk
+        , C.bench "mempoolInsertOverlappingBatches" $ C.perRunEnvWithCleanup
+            (setupMakeTxs (V.take 2000 cmds))
+            (\(NoopNFData (mp, _)) ->
+                allPendingTxHashes mp >>= P.fun length ? P.equals 2000
+            )
+            $ \(NoopNFData ~(mp, txs)) -> do
+                forM_ (overlappingChunksOf 100 txs) $ \chunk ->
+                    Mempool.mempoolInsert mp Mempool.UncheckedInsert chunk
         , C.bench "mempoolAddToBadList" $ C.perRunEnvWithCleanup
             (setupMakeTxs (V.take 2000 cmds))
             (\(NoopNFData (mp, _)) ->
