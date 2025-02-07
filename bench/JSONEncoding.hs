@@ -45,6 +45,7 @@ import Chainweb.RestAPI.NodeInfo
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Utils.Paging
 import Chainweb.Version.Mainnet
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- Main
@@ -140,11 +141,11 @@ config :: ChainwebConfiguration
 config = defaultChainwebConfiguration Mainnet01
 {-# NOINLINE config #-}
 
-headerPage :: Natural -> Page BlockHash BlockHeader
+headerPage :: HasVersion => Natural -> Page BlockHash BlockHeader
 headerPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE headerPage #-}
 
-objHeaderPage :: Natural -> Page BlockHash (ObjectEncoded BlockHeader)
+objHeaderPage :: HasVersion => Natural -> Page BlockHash (ObjectEncoded BlockHeader)
 objHeaderPage n = pageItems %~ fmap ObjectEncoded $ unsafePerformIO
     $ generate $ arbitraryPage n
 {-# NOINLINE objHeaderPage #-}
@@ -152,4 +153,3 @@ objHeaderPage n = pageItems %~ fmap ObjectEncoded $ unsafePerformIO
 payloadPage :: Natural -> Page BlockHash PayloadWithOutputs
 payloadPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE payloadPage #-}
-

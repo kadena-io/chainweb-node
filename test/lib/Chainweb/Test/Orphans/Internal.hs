@@ -291,22 +291,23 @@ instance Arbitrary NodeInfo where
     arbitrary = do
         v <- arbitrary
         curHeight <- arbitrary
-        let graphs = unpackGraphs v
-        let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
-        let curChains = map fst $ snd curGraph
-        return $ NodeInfo
-            { nodeVersion = _versionName v
-            , nodePackageVersion = chainwebNodeVersionHeaderValue
-            , nodeApiVersion = prettyApiVersion
-            , nodeChains = T.pack . show <$> curChains
-            , nodeNumberOfChains = length curChains
-            , nodeGraphHistory = graphs
-            , nodeLatestBehaviorHeight = latestBehaviorAt v
-            , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList $ chainIds v
-            , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
-            , nodeServiceDate = T.pack <$> _versionServiceDate v
-            , nodeBlockDelay = _versionBlockDelay v
-            }
+        withVersion v $ do
+            let graphs = unpackGraphs
+            let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+            let curChains = map fst $ snd curGraph
+            return $ NodeInfo
+                { nodeVersion = _versionName v
+                , nodePackageVersion = chainwebNodeVersionHeaderValue
+                , nodeApiVersion = prettyApiVersion
+                , nodeChains = T.pack . show <$> curChains
+                , nodeNumberOfChains = length curChains
+                , nodeGraphHistory = graphs
+                , nodeLatestBehaviorHeight = latestBehaviorAt
+                , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
+                , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+                , nodeServiceDate = T.pack <$> _versionServiceDate v
+                , nodeBlockDelay = _versionBlockDelay v
+                }
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -335,15 +336,15 @@ instance Arbitrary EpochStartTime where
 instance Arbitrary FeatureFlags where
     arbitrary = return mkFeatureFlags
 
-instance Arbitrary BlockHeader where
-    arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
+instance HasVersion => Arbitrary BlockHeader where
+    arbitrary = arbitraryBlockHeaderVersion
 
 arbitraryBlockHashRecordVersionHeightChain
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> ChainId
     -> Gen BlockHashRecord
-arbitraryBlockHashRecordVersionHeightChain v h cid
+arbitraryBlockHashRecordVersionHeightChain h cid
     | isWebChain graph cid = BlockHashRecord
         . HM.fromList
         . zip (toList $ adjacentChainIds graph cid)
@@ -351,29 +352,29 @@ arbitraryBlockHashRecordVersionHeightChain v h cid
     | otherwise = discard
   where
     graph
-        | h == genesisHeight v cid = chainGraphAt v h
-        | otherwise = chainGraphAt v (h - 1)
+        | h == genesisHeight cid = chainGraphAt h
+        | otherwise = chainGraphAt (h - 1)
 
-arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
-arbitraryBlockHeaderVersion v = do
+arbitraryBlockHeaderVersion :: HasVersion => Gen BlockHeader
+arbitraryBlockHeaderVersion = do
     h <- arbitrary
-    arbitraryBlockHeaderVersionHeight v h
+    arbitraryBlockHeaderVersionHeight h
 
 arbitraryBlockHeaderVersionHeight
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> Gen BlockHeader
-arbitraryBlockHeaderVersionHeight v h = do
-    cid <- elements $ toList $ chainIdsAt v h
-    arbitraryBlockHeaderVersionHeightChain v h cid
+arbitraryBlockHeaderVersionHeight h = do
+    cid <- elements $ toList $ chainIdsAt h
+    arbitraryBlockHeaderVersionHeightChain h cid
 
 arbitraryBlockHeaderVersionHeightChain
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> ChainId
     -> Gen BlockHeader
-arbitraryBlockHeaderVersionHeightChain v h cid
-    | isWebChain (chainGraphAt v h) cid = do
+arbitraryBlockHeaderVersionHeightChain h cid
+    | isWebChain (chainGraphAt h) cid = do
         t <- chooseEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
         fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
     | otherwise = discard
@@ -387,13 +388,13 @@ arbitraryBlockHeaderVersionHeightChain v h cid
         $ liftA2 (:+:) (pure cid) -- chain id
         $ liftA2 (:+:) arbitrary -- weight
         $ liftA2 (:+:) (pure h) -- height
-        $ liftA2 (:+:) (pure (_versionCode v)) -- version
+        $ liftA2 (:+:) (pure (_versionCode implicitVersion)) -- version
         $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
-            (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents
+            (arbitraryBlockHashRecordVersionHeightChain h cid) -- adjacents
 
-instance Arbitrary HeaderUpdate where
+instance HasVersion => Arbitrary HeaderUpdate where
     arbitrary = HeaderUpdate
         <$> (ObjectEncoded <$> arbitrary)
         <*> arbitrary
@@ -415,10 +416,10 @@ instance Arbitrary CutId where
             Left e -> error $ "Arbitrary Instance for CutId: " <> show e
             Right x -> return x
 
-instance Arbitrary CutHashes where
+instance HasVersion => Arbitrary CutHashes where
     arbitrary = CutHashes
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary <*> (fmap EncodedPayloadData <$> arbitrary)
+        <*> arbitrary <*> arbitrary <*> (fmap EncodedPayloadData <$> arbitrary)
         <*> return Nothing
 
 instance Arbitrary CutHeight where
@@ -428,7 +429,7 @@ instance Arbitrary CutHeight where
 -- -------------------------------------------------------------------------- --
 -- Mining Work
 
-instance Arbitrary MiningWork where
+instance HasVersion => Arbitrary MiningWork where
     arbitrary = do
         hdr <- arbitrary
         return $ MiningWork
@@ -437,7 +438,7 @@ instance Arbitrary MiningWork where
             , _miningWorkBytes = BS.toShort $ runPutS $ encodeAsMiningWork hdr
             }
 
-instance Arbitrary SolvedWork where
+instance HasVersion => Arbitrary SolvedWork where
     arbitrary = fromJuste . runGetS decodeSolvedWork . BS.fromShort . work <$> arbitrary
       where
         work hdr = BS.toShort $ runPutS $ encodeAsMiningWork hdr
@@ -493,11 +494,11 @@ instance MerkleHashAlgorithm a => Arbitrary (OutputTree_ a) where
 instance Arbitrary (MerkleTree ChainwebMerkleHashAlgorithm) where
     arbitrary = oneof
         [ arbitraryPayloadMerkleTree
-        , arbitraryMerkleTree @_ @BlockHeader
+        , arbitrary >>= \v -> withVersion v $ arbitraryMerkleTree @_ @BlockHeader
         ]
 
 arbitraryHeaderMerkleTree :: Gen (MerkleTree ChainwebMerkleHashAlgorithm)
-arbitraryHeaderMerkleTree = arbitraryMerkleTree @_ @BlockHeader
+arbitraryHeaderMerkleTree = arbitrary >>= \v -> withVersion v $ arbitraryMerkleTree @_ @BlockHeader
 
 arbitraryPayloadMerkleTree
     :: forall a

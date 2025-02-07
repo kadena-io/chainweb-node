@@ -17,7 +17,7 @@
 module Chainweb.Test.Pact.TransactionExecTest (tests) where
 
 import Chainweb.BlockHeader
-import Chainweb.Graph (petersonChainGraph)
+import Chainweb.Graph (petersenChainGraph)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerGuard(..), noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, mkFakeParentCreationTime)
@@ -71,7 +71,6 @@ import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
 import Chainweb.Pact.Backend.Types
 import Control.Monad.State.Strict
-import qualified Data.Pool as Pool
 import Chainweb.Parent
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as PIN0
 
@@ -104,28 +103,28 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 -- focused on the transaction level. Tests that need to be aware of blocks, for
 -- example to observe database writes, belong in a different suite, like
 -- PactServiceTest or RemotePactTest.
-readFromAfterGenesis :: ChainwebVersion -> RocksDb -> (BlockEnv -> BlockHandle -> IO a) -> IO a
-readFromAfterGenesis ver rdb act = runResourceT $ do
+readFromAfterGenesis :: HasVersion => RocksDb -> (BlockEnv -> BlockHandle -> IO a) -> IO a
+readFromAfterGenesis rdb act = runResourceT $ do
     (writeSql, readPool) <- withTempChainSqlite cid
-    tdb <- mkTestBlockDb ver rdb
+    tdb <- mkTestBlockDb rdb
     -- fake ro-sql pool, assuming we're using this single-threaded
     logger <- liftIO $ testLogger
-    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) readPool writeSql defaultPactServiceConfig (GenesisPayload PIN0.payloadBlock)
+    serviceEnv <- withPactService cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) readPool writeSql defaultPactServiceConfig (GenesisPayload PIN0.payloadBlock)
     liftIO $ do
         initialPayloadState logger serviceEnv
         fakeParentCreationTime <- mkFakeParentCreationTime
         throwIfNoHistory =<<
-            readFrom logger ver cid writeSql fakeParentCreationTime
-                (Parent (gh ver cid ^. rankedBlockHash))
+            readFrom logger cid writeSql fakeParentCreationTime
+                (Parent (gh cid ^. rankedBlockHash))
                 act
 
 buyGasShouldTakeGasTokensFromTheTransactionSender :: RocksDb -> IO ()
-buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
+buyGasShouldTakeGasTokensFromTheTransactionSender rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 200)
             }
@@ -138,7 +137,7 @@ buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v r
         assertEqual "balance after buying gas" (Just $ 100_000_000 - 200 * 2) endSender00Bal
 
 buyGasFailures :: RocksDb -> IO ()
-buyGasFailures rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+buyGasFailures rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -146,7 +145,7 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
         -- buying gas with insufficient balance to pay for the full supply
         -- (gas price * gas limit) should return an error
         do
-            cmd <- buildCwCmd v (defaultCmd cid)
+            cmd <- buildCwCmd (defaultCmd cid)
                 { _cbGasPrice = GasPrice 70_000
                 , _cbGasLimit = GasLimit (Gas 100_000)
                 }
@@ -160,7 +159,7 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
         -- multiple gas payer caps should lead to an error, because it's unclear
         -- which module will pay for gas
         do
-            cmd <- buildCwCmd v (defaultCmd cid)
+            cmd <- buildCwCmd (defaultCmd cid)
                 { _cbSigners =
                     [ mkEd25519Signer' sender00
                         [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
@@ -176,13 +175,13 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
 
 redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner :: RocksDb -> IO ()
 redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb =
-    readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+    withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
         flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
             startSender00Bal <- readBal pactDb "sender00"
             assertEqual "starting balance" (Just 100_000_000) startSender00Bal
             startMinerBal <- readBal pactDb "NoMiner"
 
-            cmd <- buildCwCmd v (defaultCmd cid)
+            cmd <- buildCwCmd (defaultCmd cid)
                 { _cbGasPrice = GasPrice 2
                 , _cbGasLimit = GasLimit (Gas 10)
                 }
@@ -199,7 +198,7 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb =
             assertEqual "miner balance after redeeming gas" (Just $ fromMaybe 0 startMinerBal + 3 * 2) endMinerBal
 
 redeemGasFailure :: RocksDb -> IO ()
-redeemGasFailure rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+redeemGasFailure rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         let miner = Miner (MinerId "sender00")
                 $ MinerGuard
@@ -208,7 +207,7 @@ redeemGasFailure rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
                     (Set.singleton (Pact.PublicKeyText $ fst sender00))
                     Pact.KeysAll
 
-        cmd <- buildCwCmd v
+        cmd <- buildCwCmd
             $ set cbRPC (mkExec ("(coin.rotate \"sender00\" (read-keyset 'ks))") (mkKeySetData "ks" [sender01]))
             $ set cbSigners
                 [ mkEd25519Signer' sender00
@@ -225,9 +224,9 @@ redeemGasFailure rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
             ? P.equals (UserEnforceError "account guards do not match")
 
 purchaseGasTxTooBig :: RocksDb -> IO ()
-purchaseGasTxTooBig rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+purchaseGasTxTooBig rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v
+        cmd <- buildCwCmd
             $ set cbSender "sender00"
             $ set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbGasLimit (GasLimit (Gas 1)) -- We set the gas limit to lower than the initialGas passed to applyCmd so that this test fails
@@ -239,13 +238,13 @@ purchaseGasTxTooBig rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> 
             ? P.succeed
 
 payloadFailureShouldPayAllGasToTheMinerTypeError :: RocksDb -> IO ()
-payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+payloadFailureShouldPayAllGasToTheMinerTypeError rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(+ 1 \"hello\")"
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1000)
@@ -283,13 +282,13 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
         assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
 
 payloadFailureShouldPayAllGasToTheMinerInsufficientFunds :: RocksDb -> IO ()
-payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
+payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' $ fromString $
                 "(coin.transfer \"sender00\" \"sender01\" "
                 <> printf "%.f" (realToFrac @_ @Double $ fromMaybe 0 startSender00Bal + 1)
@@ -337,9 +336,9 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
 
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
-runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             }
         gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas $ Gas 10)) GasLogsEnabled
@@ -366,13 +365,13 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
 
 -- applyLocal should mostly be the same as applyCmd, this is mostly a smoke test
 applyLocalSpec :: RocksDb -> IO ()
-applyLocalSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+applyLocalSpec rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbSigners = []
             }
@@ -396,14 +395,14 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
         assertEqual "miner balance after redeeming gas should have increased" startMinerBal endMinerBal
 
 applyCmdSpec :: RocksDb -> IO ()
-applyCmdSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+applyCmdSpec rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     bh <- flip execStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         let expectedStartingBal = 100_000_000
         assertEqual "starting balance" (Just expectedStartingBal) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
@@ -477,9 +476,9 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
             ]
 
 quirkSpec :: RocksDb -> IO ()
-quirkSpec rdb = readFromAfterGenesis quirkVer rdb $ \blockEnv blockHandle ->
+quirkSpec rdb = withVersion quirkVer $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(* 1000 200000)"
             , _cbSigners = [mkEd25519Signer' sender00 []]
             , _cbSender = "sender00"
@@ -503,14 +502,14 @@ quirkSpec rdb = readFromAfterGenesis quirkVer rdb $ \blockEnv blockHandle ->
                 , P.fun _crGas ? P.equals ? Gas 1
                 ]
     where
-    quirkVer = quirkedGasPact5InstantCpmTestVersion peterson
+    quirkVer = quirkedGasPact5InstantCpmTestVersion petersen
 
 applyCmdVerifierSpec :: RocksDb -> IO ()
-applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
+applyCmdVerifierSpec rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         -- Define module with capability
         do
-            cmd <- buildCwCmd v (defaultCmd cid)
+            cmd <- buildCwCmd (defaultCmd cid)
                 { _cbRPC = mkExec' $ T.unlines
                     [ "(namespace 'free)"
                     , "(module m G"
@@ -546,7 +545,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
 
         -- Invoke module when verifier capability isn't present. Should fail.
         do
-            cmd <- buildCwCmd v baseCmd
+            cmd <- buildCwCmd baseCmd
             logger <- testLogger
             applyCmd logger Nothing pactDb noMiner (_psBlockCtx blockEnv) (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
@@ -571,7 +570,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
         do
             let cap :: SigCapability
                 cap = SigCapability $ CapToken (QualifiedName "G" (ModuleName "m" (Just (NamespaceName "free")))) []
-            cmd <- buildCwCmd v baseCmd
+            cmd <- buildCwCmd baseCmd
                 { _cbVerifiers =
                     [ Verifier
                         { _verifierName = VerifierName "allow"
@@ -599,13 +598,13 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
                     ]
 
 applyCmdFailureSpec :: RocksDb -> IO ()
-applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
+applyCmdFailureSpec rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(+ 1 \"abc\")"
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
@@ -650,13 +649,13 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
             endMinerBal
 
 applyCmdCoinTransfer :: RocksDb -> IO ()
-applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+applyCmdCoinTransfer rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0)"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
@@ -723,7 +722,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
             endMinerBal
 
 applyCoinbaseSpec :: RocksDb -> IO ()
-applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
+applyCoinbaseSpec rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         startMinerBal <- readBal pactDb "NoMiner"
 
@@ -754,9 +753,9 @@ applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
             endMinerBal
 
 testEvents :: RocksDb -> IO ()
-testEvents rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+testEvents rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v (defaultCmd cid)
+        cmd <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0) (coin.transfer 'sender00 'sender01 69.0)"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
@@ -801,10 +800,10 @@ testEvents rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
                 ]
 
 testLocalOnlyFailsOutsideOfLocal :: RocksDb -> IO ()
-testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+testLocalOnlyFailsOutsideOfLocal rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
         let testLocalOnly txt = do
-                cmd <- buildCwCmd v (defaultCmd cid)
+                cmd <- buildCwCmd (defaultCmd cid)
                     { _cbRPC = mkExec' txt
                     }
 
@@ -822,10 +821,10 @@ testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis v rdb $ \blockEnv bl
         testLocalOnly "(describe-module \"coin\")"
 
 testWritesFromFailedTxDontMakeItIn :: RocksDb -> IO ()
-testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+testWritesFromFailedTxDontMakeItIn rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     bh <- flip execStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
 
-        moduleDeploy <- buildCwCmd v (defaultCmd cid)
+        moduleDeploy <- buildCwCmd (defaultCmd cid)
             { _cbRPC = mkExec' "(module m g (defcap g () (enforce false \"non-upgradeable\"))) (enforce false \"boom\")"
             , _cbGasLimit = GasLimit (Gas 200_000)
             , _cbSigners = [mkEd25519Signer' sender00 []]
@@ -855,9 +854,9 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ \blockEnv 
         ]
 
 testWritesToNonExistentTables :: RocksDb -> IO ()
-testWritesToNonExistentTables rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+testWritesToNonExistentTables rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v
+        cmd <- buildCwCmd
             $ set cbRPC (mkExec' $ T.concat
                 [ "(namespace 'free)"
                 , "(module m G"
@@ -878,9 +877,9 @@ testWritesToNonExistentTables rdb = readFromAfterGenesis v rdb $ \blockEnv block
             ? P.equals (DbOpFailure (NoSuchTable (TableName "t" (ModuleName "m" (Just "free")))))
 
 testKeccak256 :: RocksDb -> IO ()
-testKeccak256 rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
+testKeccak256 rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle -> do
     flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v
+        cmd <- buildCwCmd
             $ set cbRPC (mkExec' "(hash-keccak256 [\"T73FllCNJKKgAQ4UCYC4CfucbVXsdRJYkd2YXTdmW9gPm-tqUCB1iKvzzu6Md82KWtSKngqgdO04hzg2JJbS-yyHVDuzNJ6mSZfOPntCTqktEi9X27CFWoAwWEN_4Ir7DItecXm5BEu_TYGnFjsxOeMIiLU2sPlX7_macWL0ylqnVqSpgt-tvzHvJVCDxLXGwbmaEH19Ov_9uJFHwsxMmiZD9Hjl4tOTrqN7THy0tel9rc8WtrUKrg87VJ7OR3Rtts5vZ91EBs1OdVldUQPRP536eTcpJNMo-N0fy-taji6L9Mdt4I4_xGqgIfmJxJMpx6ysWmiFVte8vLKl1L5p0yhOnEDsSDjuhZISDOIKC2NeytqoT9VpBQn1T3fjWkF8WEZIvJg5uXTge_qwA46QKV0LE5AlMKgw0cK91T8fnJ-u1Dyk7tCo3XYbx-292iiih8YM1Cr1-cdY5cclAjHAmlglY2ia_GXit5p6K2ggBmd1LpEBdG8DGE4jmeTtiDXLjprpDilq8iCuI0JZ_gvQvMYPekpf8_cMXtTenIxRmhDpYvZzyCxek1F4aoo7_VcAMYV71Mh_T8ox7U1Q4U8hB9oCy1BYcAt06iQai0HXhGFljxsrkL_YSkwsnWVDhhqzxWRRdX3PubpgMzSI290C1gG0Gq4xfKdHTrbm3Q\"])")
             $ defaultCmd cid
 
@@ -895,14 +894,14 @@ testKeccak256 rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
 cid :: ChainId
 cid = unsafeChainId 0
 
-gh :: ChainwebVersion -> ChainId -> BlockHeader
+gh :: HasVersion => ChainId -> BlockHeader
 gh = genesisBlockHeader
 
 -- vUpgrades :: ChainwebVersion
 -- vUpgrades = slowCpmTestVersion singletonChainGraph
 
 v :: ChainwebVersion
-v = instantCpmTestVersion petersonChainGraph
+v = instantCpmTestVersion petersenChainGraph
 
 -- | this utility for reading balances from the pactdb also takes care of
 -- making a transaction for the read to live in

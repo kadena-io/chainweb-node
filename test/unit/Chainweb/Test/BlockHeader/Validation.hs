@@ -68,14 +68,14 @@ tests :: TestTree
 tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
     , prop_validateTestnet04
-    , prop_fail_validate
-    , prop_da_validate
-    , prop_legacy_da_validate
-    , prop_featureFlag (barebonesTestVersion petersenChainGraph) 10
-    , testProperty "validate arbitrary test header" prop_validateArbitrary
-    , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
-    , testProperty "validate arbitrary test header for testnet04" $ prop_validateArbitrary Testnet04
-    , testProperty "validate arbitrary test header for devnet" $ prop_validateArbitrary RecapDevelopment
+    , withVersion mainnet prop_fail_validate
+    , withVersion mainnet prop_da_validate
+    , withVersion mainnet prop_legacy_da_validate
+    , withVersion (barebonesTestVersion petersenChainGraph) prop_featureFlag 10
+    , testProperty "validate arbitrary test header" $ \v -> withVersion v prop_validateArbitrary
+    , testProperty "validate arbitrary test header for mainnet" $ withVersion Mainnet01 $ prop_validateArbitrary
+    , testProperty "validate arbitrary test header for testnet04" $ withVersion Testnet04 $ prop_validateArbitrary
+    , testProperty "validate arbitrary test header for devnet" $ withVersion RecapDevelopment $ prop_validateArbitrary
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -84,11 +84,11 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
 -- There is an input for which the rule fails.
 --
 
-prop_featureFlag :: ChainwebVersion -> BlockHeight -> TestTree
-prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <> sshow v) $ do
+prop_featureFlag :: HasVersion => BlockHeight -> TestTree
+prop_featureFlag h = testCase ("Invalid feature flags fail validation for " <> sshow implicitVersion) $ do
     hdr <- (blockHeight .~ h)
         . (blockFlags .~ fromJuste (decode "1"))
-        . (blockChainwebVersion .~ _versionCode v)
+        . (blockChainwebVersion .~ _versionCode implicitVersion)
         <$> generate arbitrary
     let r = prop_block_featureFlags hdr
     assertBool
@@ -116,16 +116,16 @@ prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <>
 -- * New minded blocks
 
 prop_validateMainnet :: TestTree
-prop_validateMainnet = prop_validateHeaders "validate Mainnet01 BlockHeaders" mainnet01Headers
+prop_validateMainnet = withVersion mainnet $ prop_validateHeaders "validate Mainnet01 BlockHeaders" mainnet01Headers
 
 prop_validateTestnet04 :: TestTree
-prop_validateTestnet04 = prop_validateHeaders "validate Testnet04 BlockHeaders" testnet04Headers
+prop_validateTestnet04 = withVersion testnet04 $ prop_validateHeaders "validate Testnet04 BlockHeaders" testnet04Headers
 
-prop_validateHeaders :: String -> [TestHeader] -> TestTree
+prop_validateHeaders :: HasVersion => String -> [TestHeader] -> TestTree
 prop_validateHeaders msg hdrs = testGroup msg $ do
     [ prop_validateHeader ("header " <> show @Int i) h | h <- hdrs | i <- [0..] ]
 
-prop_validateHeader :: String -> TestHeader -> TestTree
+prop_validateHeader :: HasVersion => String -> TestHeader -> TestTree
 prop_validateHeader msg h = testCase msg $ do
     now <- getCurrentTimeIntegral
     case validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h) of
@@ -143,16 +143,16 @@ prop_validateHeader msg h = testCase msg $ do
 -- would have to be valid.
 --
 
-prop_fail_validate :: TestTree
+prop_fail_validate :: HasVersion => TestTree
 prop_fail_validate = validate_cases "validate invalid BlockHeaders" validationFailures
 
-prop_da_validate :: TestTree
+prop_da_validate :: HasVersion => TestTree
 prop_da_validate = validate_cases "difficulty adjustment validation" daValidation
 
-prop_legacy_da_validate :: TestTree
+prop_legacy_da_validate :: HasVersion => TestTree
 prop_legacy_da_validate = validate_cases "legacy difficulty adjustment validation" legacyDaValidation
 
-validate_cases :: String -> [(TestHeader, [ValidationFailureType])] -> TestTree
+validate_cases :: HasVersion => String -> [(TestHeader, [ValidationFailureType])] -> TestTree
 validate_cases msg testCases = testCase msg $ do
     now <- getCurrentTimeIntegral
     traverse_ (f now) $ zip [0 :: Int ..] testCases
@@ -184,12 +184,12 @@ validate_cases msg testCases = testCase msg $ do
 -- -------------------------------------------------------------------------- --
 -- Validation of Arbitrary Test Headers
 
-prop_validateArbitrary :: ChainwebVersion -> Property
-prop_validateArbitrary v =
-    forAll (elements $ toList $ chainIds v) $ \cid ->
-        forAll (arbitraryTestHeader v cid) validateTestHeader
+prop_validateArbitrary :: HasVersion => Property
+prop_validateArbitrary =
+    forAll (elements $ toList chainIds) $ \cid ->
+        forAll (arbitraryTestHeader cid) validateTestHeader
 
-validateTestHeader :: TestHeader -> Property
+validateTestHeader :: HasVersion => TestHeader -> Property
 validateTestHeader h = case try val of
     Right (Left ValidationFailure{ _validationFailureFailures = errs }) -> verify errs
     Right _ -> property True
@@ -422,7 +422,7 @@ legacyDaValidation =
 -- history
 --
 mainnet01Headers :: [TestHeader]
-mainnet01Headers = genesisTestHeaders Mainnet01 <>
+mainnet01Headers = withVersion Mainnet01 genesisTestHeaders <>
     [ testHeader
         [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
         , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
@@ -444,7 +444,7 @@ mainnet01Headers = genesisTestHeaders Mainnet01 <>
     ]
 
 testnet04Headers :: [TestHeader]
-testnet04Headers = genesisTestHeaders Testnet04
+testnet04Headers = withVersion Testnet04 genesisTestHeaders
 
 -- TODO replace these by "interesting headers" form mainnet (e.g. fork block heights)
 _testnet04InvalidHeaders :: [(Parent BlockHeader, BlockHeader, [ValidationFailureType])]

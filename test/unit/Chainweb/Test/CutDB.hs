@@ -112,8 +112,8 @@ cutFetchTimeout = 3_000_000
 --
 withTestCutDb
     :: HasCallStack
+    => HasVersion
     => RocksDb
-    -> ChainwebVersion
         -- ^ the chainweb version
     -> (CutDbParams -> CutDbParams)
         -- ^ any alterations to the CutDB's configuration
@@ -131,15 +131,15 @@ withTestCutDb
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb)
-withTestCutDb rdb v conf n providers logfun = do
+withTestCutDb rdb conf n providers logfun = do
     rocksDb <- liftIO $ testRocksDb "withTestCutDb" rdb
     let cutHashesDb = cutHashesTable rocksDb
-    webDb <- liftIO $ initWebBlockHeaderDb rocksDb v
+    webDb <- liftIO $ initWebBlockHeaderDb rocksDb
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
     headerStore <- withLocalWebBlockHeaderStore mgr webDb
-    cutDb <- withCutDb (conf $ defaultCutDbParams v cutFetchTimeout) logfun headerStore providers cutHashesDb
+    cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logfun headerStore providers cutHashesDb
     liftIO $ logfun @Text Debug "GOING TO MINE AT THE START"
-    liftIO $ foldM_ (\c _ -> view _1 <$> mine providers cutDb c) (genesisCut v) [1..n]
+    liftIO $ foldM_ (\c _ -> view _1 <$> mine cutDb c) genesisCut [1..n]
     return (cutHashesDb, cutDb)
 
 -- -- | Adds the requested number of new blocks to the given 'CutDb'.
@@ -227,8 +227,8 @@ awaitBlockHeight cdb bh cid = atomically $ do
 --
 withTestCutDbWithoutPact
     :: HasCallStack
+    => HasVersion
     => RocksDb
-    -> ChainwebVersion
         -- ^ the chainweb version
     -> (CutDbParams -> CutDbParams)
         -- ^ any alterations to the CutDB's configuration
@@ -237,42 +237,41 @@ withTestCutDbWithoutPact
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb)
-withTestCutDbWithoutPact rdb v conf n =
-    withTestCutDb rdb v conf n (onAllChains v DisabledPayloadProvider)
+withTestCutDbWithoutPact rdb conf n =
+    withTestCutDb rdb conf n (onAllChains DisabledPayloadProvider)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
 withTestPayloadResource
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> Int
     -> LogFunction
     -> ResourceT IO CutDb
-withTestPayloadResource rdb v n logfun
+withTestPayloadResource rdb n logfun
     = view _2 . snd <$> allocate start stopTestPayload
   where
-    start = startTestPayload rdb v logfun n
+    start = startTestPayload rdb logfun n
 
 -- -------------------------------------------------------------------------- --
 -- Internal Utils for mocking up the backends
 
 startTestPayload
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> LogFunction
     -> Int
     -> IO (Async (), CutDb)
-startTestPayload rdb v logfun n = do
+startTestPayload rdb logfun n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
     let cutHashesDb = cutHashesTable rocksDb
-    webDb <- initWebBlockHeaderDb rocksDb v
+    webDb <- initWebBlockHeaderDb rocksDb
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
-    let disabledPayloadProviders = onAllChains v DisabledPayloadProvider
-    cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) logfun hstore disabledPayloadProviders cutHashesDb
-    foldM_ (\c _ -> view _1 <$> mine disabledPayloadProviders cutDb c) (genesisCut v) [0..n]
+    let disabledPayloadProviders = onAllChains DisabledPayloadProvider
+    cutDb <- startCutDb (defaultCutDbParams cutFetchTimeout) logfun hstore disabledPayloadProviders cutHashesDb
+    foldM_ (\c _ -> view _1 <$> mine cutDb c) genesisCut [0..n]
     return (hserver, cutDb)
-
 
 stopTestPayload :: (Async (), CutDb) -> IO ()
 stopTestPayload (hserver, cutDb) = do
@@ -302,14 +301,12 @@ startLocalWebBlockHeaderStore mgr webDb = do
 --
 mine
     :: HasCallStack
+    => HasVersion
         -- ^ The miner. For testing you may use 'defaultMiner'.
-    => ChainMap ConfiguredPayloadProvider
-        -- ^ only the new-block generator is used. For testing you may use
-        -- 'fakePact'.
-    -> CutDb
+    => CutDb
     -> Cut
     -> IO (Cut, ChainId, NewPayload)
-mine pact cutDb c = do
+mine cutDb c = do
 
     -- Pick a chain that isn't blocked. With that mining is guaranteed to
     -- succeed if
@@ -320,7 +317,7 @@ mine pact cutDb c = do
     -- - the transaction generator produces valid blocks.
     cid <- getRandomUnblockedChain c
 
-    tryMineForChain pact cutDb c cid >>= \case
+    tryMineForChain cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
             "Failed to create new cut. This is a bug in Chainweb.Test.CutDB or one of it's users"
         Right x -> do
@@ -348,17 +345,15 @@ getRandomUnblockedChain c = do
 --
 tryMineForChain
     :: HasCallStack
+    => HasVersion
         -- ^ The miner. For testing you may use 'defaultMiner'.
         -- miner.
-    => ChainMap ConfiguredPayloadProvider
-        -- ^ only the new-block generator is used. For testing you may use
-        -- 'fakePact'.
-    -> CutDb
+    => CutDb
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, NewPayload))
-tryMineForChain providers cutDb c cid = do
-    newPayload <- case providers ^?! atChain cid of
+tryMineForChain cutDb c cid = do
+    newPayload <- case view cutDbPayloadProviders cutDb ^?! atChain cid of
         ConfiguredPayloadProvider p -> latestPayloadIO p
         DisabledPayloadProvider -> error "missing payload provider, cannot mine for chain"
     let payloadHash = _newPayloadBlockPayloadHash newPayload
@@ -385,6 +380,7 @@ tryMineForChain providers cutDb c cid = do
 --
 randomBlockHeader
     :: HasCallStack
+    => HasVersion
     => CutDb
     -> IO BlockHeader
 randomBlockHeader cutDb = do
@@ -402,6 +398,7 @@ randomBlockHeader cutDb = do
 --
 randomTransaction
     :: HasCallStack
+    => HasVersion
     => CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> CutDb
@@ -474,11 +471,10 @@ tests rdb = testGroup "CutDB"
     ]
 
 testCutPruning :: RocksDb -> TestTree
-testCutPruning rdb = testCase "cut pruning" $ runResourceT $ do
+testCutPruning rdb = testCase "cut pruning" $ runResourceT $ withVersion (barebonesTestVersion pairChainGraph) $ do
     -- initialize cut DB and mine enough to trigger pruning
-    let v = barebonesTestVersion pairChainGraph
-    (cutHashesStore, _) <- withTestCutDbWithoutPact rdb v alterPruningSettings
-        (int $ avgCutHeightAt v minedBlockHeight)
+    (cutHashesStore, _) <- withTestCutDbWithoutPact rdb alterPruningSettings
+        (int $ avgCutHeightAt minedBlockHeight)
         (\_ _ -> return ())
     liftIO $ do
         -- peek inside the cut DB's store to find the oldest and newest cuts
@@ -488,10 +484,10 @@ testCutPruning rdb = testCase "cut pruning" $ runResourceT $ do
         let fuzz = 10 :: Integer
         -- we must have pruned the older cuts
         assertBool "oldest cuts are too old" $
-            round (avgBlockHeightAtCutHeight v leastCutHeight) >= fuzz
+            round (avgBlockHeightAtCutHeight leastCutHeight) >= fuzz
         -- we must keep the latest cut
         assertBool "newest cut is too old" $
-            round (avgBlockHeightAtCutHeight v mostCutHeight) >= int minedBlockHeight - fuzz
+            round (avgBlockHeightAtCutHeight mostCutHeight) >= int minedBlockHeight - fuzz
   where
     alterPruningSettings =
         set cutDbParamsAvgBlockHeightPruningDepth 50 .
@@ -499,13 +495,12 @@ testCutPruning rdb = testCase "cut pruning" $ runResourceT $ do
     minedBlockHeight = 300
 
 testCutGet :: RocksDb -> TestTree
-testCutGet rdb = testCase "cut get" $ runResourceT $ do
-    let v = barebonesTestVersion pairChainGraph
+testCutGet rdb = testCase "cut get" $ withVersion (barebonesTestVersion pairChainGraph) $ runResourceT $ do
     let bh = BlockHeight 300
-    let ch = avgCutHeightAt v bh
+    let ch = avgCutHeightAt bh
     let halfCh = ch `div` 2
 
-    (_, cutDb) <- withTestCutDbWithoutPact rdb v id (2 * int ch) (\_ _ -> return ())
+    (_, cutDb) <- withTestCutDbWithoutPact rdb id (2 * int ch) (\_ _ -> return ())
     liftIO $ do
         curHeight <- _cutHeight <$> _cut cutDb
         assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)

@@ -85,23 +85,14 @@ import Chainweb.Storage.Table.RocksDB
 --
 data WebBlockHeaderDb = WebBlockHeaderDb
     { _webBlockHeaderDb :: !(ChainMap BlockHeaderDb)
-    , _webChainwebVersion :: !ChainwebVersion
     }
-
-instance HasChainGraph (WebBlockHeaderDb, BlockHeight) where
-    _chainGraph (v, h) = _chainGraph (_webChainwebVersion v, h)
-    {-# INLINE _chainGraph #-}
-
-instance HasChainwebVersion WebBlockHeaderDb where
-    _chainwebVersion = _webChainwebVersion
-    {-# INLINE _chainwebVersion #-}
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (ChainMap BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
 
 -- | Returns all blocks in all block header databases.
 --
-webEntries :: WebBlockHeaderDb -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
+webEntries :: HasVersion => WebBlockHeaderDb -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
 webEntries db f = go (view (webBlockHeaderDb . to toList) db) mempty
   where
     go [] s = f s
@@ -116,32 +107,30 @@ instance IxedGet WebBlockHeaderDb where
     ixg i = webBlockHeaderDb . ixg i
     {-# INLINE ixg #-}
 
-instance (k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHeaderDb k (ChainValue BlockHeader) where
+instance (HasVersion, k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHeaderDb k (ChainValue BlockHeader) where
     tableLookup db k = case preview (ixg (_chainId k)) db of
         Nothing -> return Nothing
         Just cdb -> sequence <$> traverse (tableLookup cdb) k
     {-# INLINE tableLookup #-}
 
 initWebBlockHeaderDb
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> IO WebBlockHeaderDb
-initWebBlockHeaderDb db v = WebBlockHeaderDb
-    <$!> tabulateChainsM v (\cid -> initBlockHeaderDb (conf cid db))
-    <*> pure v
+initWebBlockHeaderDb db = WebBlockHeaderDb
+    <$!> tabulateChainsM (\cid -> initBlockHeaderDb (conf cid db))
   where
-    conf cid = Configuration (genesisBlockHeader v cid)
+    conf cid = Configuration (genesisBlockHeader cid)
 
 -- | FIXME: this needs some consistency checks
 --
 mkWebBlockHeaderDb
-    :: ChainwebVersion
-    -> ChainMap BlockHeaderDb
+    :: ChainMap BlockHeaderDb
     -> WebBlockHeaderDb
-mkWebBlockHeaderDb v m = WebBlockHeaderDb m v
+mkWebBlockHeaderDb m = WebBlockHeaderDb m
 
 getWebBlockHeaderDb
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => HasChainId p
     => WebBlockHeaderDb
     -> p
@@ -150,21 +139,22 @@ getWebBlockHeaderDb db p = do
     checkWebChainId graph p
     return $! _webBlockHeaderDb db ^?! atChain (_chainId p)
   where
-    v = _chainwebVersion db
-    graph = chainGraphAt v maxBound
+    graph = chainGraphAt maxBound
 
 lookupWebBlockHeaderDb
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ChainId
     -> BlockHash
     -> IO BlockHeader
 lookupWebBlockHeaderDb wdb c h = do
-    checkWebChainId (wdb, maxBound @BlockHeight) c
+    checkWebChainId (chainGraphAt $ maxBound @BlockHeight) c
     db <- getWebBlockHeaderDb wdb c
     lookupM db h
 
 blockAdjacentParentHeaders
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> IO (HM.HashMap ChainId (Parent BlockHeader))
 blockAdjacentParentHeaders db h
@@ -173,21 +163,23 @@ blockAdjacentParentHeaders db h
     $ view blockAdjacentHashes h
 
 lookupAdjacentParentHeader
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> ChainId
     -> IO (Parent BlockHeader)
 lookupAdjacentParentHeader db h cid = do
-    checkWebChainId (db, view blockHeight h) h
+    checkWebChainId (chainGraphAt $ view blockHeight h) h
     let ph = h ^?! (blockAdjacentHashes . ix cid)
     traverse (lookupWebBlockHeaderDb db cid) ph
 
 lookupParentHeader
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> IO (Parent BlockHeader)
 lookupParentHeader db h = do
-    checkWebChainId (db, view blockHeight h) h
+    checkWebChainId (chainGraphAt $ view blockHeight h) h
     traverse (lookupWebBlockHeaderDb db (_chainId h)) (view blockParent h)
 
 -- -------------------------------------------------------------------------- --
@@ -196,7 +188,8 @@ lookupParentHeader db h = do
 -- TODO create monotonic IsCas that doesn't support deletion
 
 insertWebBlockHeaderDbValidated
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ValidatedHeader
     -> IO ()
 insertWebBlockHeaderDbValidated wdb h = do
@@ -204,7 +197,8 @@ insertWebBlockHeaderDbValidated wdb h = do
     insertBlockHeaderDb db h
 
 insertWebBlockHeaderDb
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> IO ()
 insertWebBlockHeaderDb wdb h = do
@@ -213,7 +207,8 @@ insertWebBlockHeaderDb wdb h = do
     insertWebBlockHeaderDbValidated wdb valHdr
 
 insertWebBlockHeaderDbManyValidated
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ValidatedHeaders
     -> IO ()
 insertWebBlockHeaderDbManyValidated wdb hdrs = do
@@ -227,7 +222,8 @@ insertWebBlockHeaderDbManyValidated wdb hdrs = do
         unsafeInsertBlockHeaderDb db h
 
 insertWebBlockHeaderDbMany
-    :: Foldable f
+    :: HasVersion
+    => Foldable f
     => WebBlockHeaderDb
     -> f BlockHeader
     -> IO ()
@@ -250,7 +246,7 @@ insertWebBlockHeaderDbMany db es = do
 -- the graph of the parent headers.
 --
 checkBlockHeaderGraph
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => BlockHeader
     -> m ()
 checkBlockHeaderGraph b = void
@@ -258,14 +254,15 @@ checkBlockHeaderGraph b = void
   where
     graph
         | isGenesisBlockHeader b = _chainGraph b
-        | otherwise = chainGraphAt (_chainwebVersion b) (view blockHeight b - 1)
+        | otherwise = chainGraphAt (view blockHeight b - 1)
 {-# INLINE checkBlockHeaderGraph #-}
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
 -- all referenced adjacent parents block headers exist in @db@.
 --
 checkBlockAdjacentParents
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> IO ()
 checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db

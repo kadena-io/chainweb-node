@@ -111,26 +111,22 @@ handleErrs = flip catchAllSynchronous $ \e ->
 
 someMempoolServer
     :: (Show t)
-    => ChainwebVersion
-    -> SomeMempool t
+    => HasVersion
+    => SomeMempool t
     -> SomeServer
-someMempoolServer ver (SomeMempool (mempool :: Mempool_ v c t))
-  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer ver mempool)
+someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
+  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer mempool)
 
 someMempoolServers
     :: (Show t)
-    => ChainwebVersion
-    -> ChainMap (MempoolBackend t)
-    -> SomeServer
-someMempoolServers v = ifoldMap
-    (\cid mempool -> someMempoolServer v (someMempoolVal v cid mempool))
+    => HasVersion
+    => ChainMap (MempoolBackend t) -> SomeServer
+someMempoolServers = mconcat
+    . fmap (someMempoolServer . uncurry someMempoolVal)
+    . itoList
 
-mempoolServer
-    :: Show t
-    => ChainwebVersion
-    -> Mempool_ v c t
-    -> Server (MempoolApi v c)
-mempoolServer _v (Mempool_ mempool) =
+mempoolServer :: HasVersion => Show t => Mempool_ v c t -> Server (MempoolApi v c)
+mempoolServer (Mempool_ mempool) =
     insertHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool

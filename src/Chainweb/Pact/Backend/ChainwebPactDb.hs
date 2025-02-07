@@ -149,7 +149,6 @@ import Chainweb.Ranked
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
     , _blockHandlerLogger :: !logger
-    , _blockHandlerVersion :: !ChainwebVersion
     , _blockHandlerBlockHeight :: !BlockHeight
     , _blockHandlerUpperBoundTxId :: !Pact.TxId
     , _blockHandlerChainId :: !ChainId
@@ -159,9 +158,6 @@ data BlockHandlerEnv logger = BlockHandlerEnv
 
 instance HasChainId (BlockHandlerEnv logger) where
     _chainId = _blockHandlerChainId
-
-instance HasChainwebVersion (BlockHandlerEnv logger) where
-    _chainwebVersion = _blockHandlerVersion
 
 -- | The state used by database operations.
 -- Includes both the state re: the whole block, and the state re: a transaction in progress.
@@ -236,7 +232,7 @@ runOnBlockGassed env stateVar act = do
         return (newState, fmap fst r)
     liftEither r
 
-chainwebPactBlockDb :: (Logger logger) => BlockHandlerEnv logger -> ChainwebPactDb
+chainwebPactBlockDb :: (Logger logger) => HasVersion => BlockHandlerEnv logger -> ChainwebPactDb
 chainwebPactBlockDb env = ChainwebPactDb
     { doChainwebPactDbTransaction = \blockHandle maybeRequestKey kont -> do
         stateVar <- newMVar $ BlockState blockHandle (_blockHandlePending blockHandle) Nothing
@@ -281,7 +277,8 @@ chainwebPactBlockDb env = ChainwebPactDb
 doReadRow
     :: forall k v logger
     -- ^ the highest block we should be reading writes from
-    . Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    . HasVersion
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> BlockHandler logger (Maybe v)
 doReadRow d k = do
@@ -427,7 +424,8 @@ latestTxId :: Lens' BlockState Pact.TxId
 latestTxId = bsBlockHandle . blockHandleTxId . coerced
 
 writeSys
-    :: Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    :: HasVersion
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> v
     -> BlockHandler logger ()
@@ -445,7 +443,8 @@ writeSys d k v = do
     recordTxLog d encodedKey encodedValue
 
 recordPendingUpdate
-    :: Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    :: HasVersion
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> Pact.TxId
     -> (ByteString, v)
@@ -455,7 +454,8 @@ recordPendingUpdate d k txid (encodedValue, decodedValue) =
         InMemDb.insert d k (InMemDb.WriteEntry txid encodedValue decodedValue)
 
 writeUser
-    :: Pact.WriteType
+    :: HasVersion
+    => Pact.WriteType
     -> Pact.TableName
     -> Pact.RowKey
     -> Pact.RowData
@@ -485,8 +485,8 @@ writeUser wt tableName k (Pact.RowData newRow) = do
             (Nothing, Pact.Update) -> liftGas $ Pact.throwDbOpErrorGasM (Pact.NoRowFound tableName k)
 
 doWriteRow
-    -- ^ the highest block we should be reading writes from
-    :: Pact.WriteType
+    :: HasVersion
+    => Pact.WriteType
     -> Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> k
     -> v
@@ -497,8 +497,9 @@ doWriteRow wt d k v = case d of
 
 doKeys
     :: forall k v logger
+    . HasVersion
     -- ^ the highest block we should be reading writes from
-    . Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> BlockHandler logger [k]
 doKeys d = do
     dbKeys <- getDbKeys
@@ -572,8 +573,8 @@ recordTableCreationTxLog tn = do
     !uti = Pact.UserTableInfo (Pact._tableModuleName tn)
 
 doCreateUserTable
-    -- ^ the highest block we should be seeing tables from
-    :: Pact.TableName
+    :: HasVersion
+    => Pact.TableName
     -> BlockHandler logger ()
 doCreateUserTable tableName = do
     -- first check if tablename already exists in pending queues
@@ -621,9 +622,12 @@ doBegin _m = do
             bsPendingTxLog .= Just mempty
             Just <$> use latestTxId
 
-toTxLog :: MonadThrow m => ChainwebVersion -> ChainId -> BlockHeight -> T.Text -> SQ3.Utf8 -> BS.ByteString -> m (Pact.TxLog Pact.RowData)
-toTxLog version cid bh d key value = do
-    let serialiser = pact5Serialiser version cid bh
+toTxLog
+    :: (MonadThrow m, HasVersion)
+    => ChainId -> BlockHeight
+    -> T.Text -> SQ3.Utf8 -> BS.ByteString -> m (Pact.TxLog Pact.RowData)
+toTxLog cid bh d key value = do
+    let serialiser = pact5Serialiser cid bh
     case fmap (view Pact.document) $ Pact._decodeRowData serialiser value of
         Nothing -> error $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
         Just v -> return $! Pact.TxLog d (fromUtf8 key) v
@@ -859,12 +863,11 @@ initSchema sql =
             "CREATE INDEX IF NOT EXISTS \
             \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-getSerialiser :: BlockHandler logger (Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo)
+getSerialiser :: HasVersion => BlockHandler logger (Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo)
 getSerialiser = do
-    version <- view blockHandlerVersion
     cid <- view blockHandlerChainId
     blockHeight <- view blockHandlerBlockHeight
-    return $ pact5Serialiser version cid blockHeight
+    return $ pact5Serialiser cid blockHeight
 
 getPayloadsAfter :: HasCallStack => SQLiteEnv -> Parent BlockHeight -> ExceptT LocatedSQ3Error IO [Ranked BlockPayloadHash]
 getPayloadsAfter db parentHeight = do

@@ -67,7 +67,8 @@ testLogLevel = Warn
 --     | otherwise = return ()
 
 withDbs
-    :: IO RocksDb
+    :: HasVersion
+    => IO RocksDb
     -> (RocksDb -> BlockHeaderDb -> PayloadDb RocksDbTable -> BlockHeader -> IO ())
     -> IO ()
 withDbs rio inner = do
@@ -77,7 +78,7 @@ withDbs rio inner = do
     rdb <- rio >>= testRocksDb (sshow x)
 
     let pdb = newPayloadDb rdb
-    initializePayloadDb toyVersion pdb
+    initializePayloadDb pdb
     bracket
         (initBlockHeaderDb (Configuration h rdb))
         closeBlockHeaderDb
@@ -86,7 +87,8 @@ withDbs rio inner = do
     h = toyGenesis cid
 
 createForks
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> PayloadDb RocksDbTable
     -> BlockHeader
     -> IO ([BlockHeader], [BlockHeader])
@@ -95,7 +97,8 @@ createForks bdb pdb h = (,)
     <*> insertWithPayloads bdb pdb h (Nonce 2) 5
 
 insertWithPayloads
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> PayloadDb RocksDbTable
     -> BlockHeader
     -> Nonce
@@ -120,7 +123,7 @@ delHdr cdb k = do
 -- Test cases
 
 tests :: TestTree
-tests = withResourceT withRocksResource $ \rio ->
+tests = withVersion toyVersion $ withResourceT withRocksResource $ \rio ->
     testGroup "Chainweb.BlockHeaderDb.PruneForks"
         [ testCaseSteps "simple 1" (test0 rio)
         , testCaseSteps "simple 2" (test1 rio)
@@ -139,7 +142,7 @@ tests = withResourceT withRocksResource $ \rio ->
         , testCaseSteps "full gc" $ testFullGc rio
         ]
 
-pruneWithChecksTests :: IO RocksDb -> TestTree
+pruneWithChecksTests :: HasVersion => IO RocksDb -> TestTree
 pruneWithChecksTests rio = testGroup "prune with checks" $ go <$>
     [ [CheckPayloads]
     , [CheckPayloadsExist]
@@ -151,7 +154,7 @@ pruneWithChecksTests rio = testGroup "prune with checks" $ go <$>
   where
     go checks = testCaseSteps (sshow checks) $ testPruneWithChecks rio checks
 
-failPruningChecksTests :: IO RocksDb -> TestTree
+failPruningChecksTests :: HasVersion => IO RocksDb -> TestTree
 failPruningChecksTests rio = testGroup "fail pruning checks"
     [ testCaseSteps "CheckPayloadExists" $ failPayloadCheck rio [CheckPayloadsExist] 7
     , testCaseSteps "CheckPayload" $ failPayloadCheck rio [CheckPayloads] 7
@@ -166,7 +169,8 @@ failPruningChecksTests rio = testGroup "fail pruning checks"
     ]
 
 singleForkTest
-    :: IO RocksDb
+    :: HasVersion
+    => IO RocksDb
     -> (String -> IO ())
     -> Natural
     -> Int
@@ -183,12 +187,12 @@ singleForkTest rio step d expect msg =
   where
     logg = logFunctionText $ genericLogger testLogLevel (step . T.unpack)
 
-assertHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
+assertHeaders :: HasVersion => BlockHeaderDb -> [BlockHeader] -> IO ()
 assertHeaders db f =
     unlessM (fmap and $ mapM (tableMember db) $ view blockHash <$> f) $
         assertFailure "missing block header that should not have been pruned"
 
-assertPrunedHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
+assertPrunedHeaders :: HasVersion => BlockHeaderDb -> [BlockHeader] -> IO ()
 assertPrunedHeaders db f =
     whenM (fmap or $ mapM (tableMember db) $ view blockHash <$> f) $
         assertFailure "failed to prune some block header"
@@ -224,26 +228,26 @@ lookupPayloadWithHeightExists db h k = lookupPayloadWithHeight db h k >>= \case
 -- -------------------------------------------------------------------------- --
 -- Header Pruning Tests
 
-test0 :: IO RocksDb -> (String -> IO ()) -> IO ()
+test0 :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 test0 rio step = singleForkTest rio step 1 5 "5 block headers pruned"
 
-test1 :: IO RocksDb -> (String -> IO ()) -> IO ()
+test1 :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 test1 rio step = singleForkTest rio step 2 5 "5 block headers pruned"
 
-test2 :: IO RocksDb -> (String -> IO ()) -> IO ()
+test2 :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 test2 rio step = singleForkTest rio step 4 5 "5 block headers pruned"
 
-test3 :: IO RocksDb -> (String -> IO ()) -> IO ()
+test3 :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 test3 rio step = singleForkTest rio step 5 0 "0 block headers pruned"
 
-test4 :: IO RocksDb -> (String -> IO ()) -> IO ()
+test4 :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 test4 rio step = singleForkTest rio step 9 0 "Skipping: max bound 1"
 
-test5 :: IO RocksDb -> (String -> IO ()) -> IO ()
+test5 :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 test5 rio step = singleForkTest rio step 10 0
     "Skipping: depth == max block height"
 
-failTest :: IO RocksDb -> Natural -> (String -> IO ()) -> IO ()
+failTest :: HasVersion => IO RocksDb -> Natural -> (String -> IO ()) -> IO ()
 failTest rio n step = withDbs rio $ \_rdb db pdb h -> do
     (f0, _) <- createForks db pdb h
     delHdr db $ f0 !! (int n)
@@ -263,10 +267,10 @@ failTest rio n step = withDbs rio $ \_rdb db pdb h -> do
 -- -------------------------------------------------------------------------- --
 -- GC Tests
 
-testFullGc :: IO RocksDb -> (String -> IO ()) -> IO ()
+testFullGc :: HasVersion => IO RocksDb -> (String -> IO ()) -> IO ()
 testFullGc rio step = withDbs rio $ \rdb db pdb h -> do
     (f0, f1) <- createForks db pdb h
-    fullGc logger rdb toyVersion
+    fullGc logger rdb
     assertHeaders db f0
     assertPrunedHeaders db f1
     assertPayloads pdb f0
@@ -274,10 +278,10 @@ testFullGc rio step = withDbs rio $ \rdb db pdb h -> do
   where
     logger = genericLogger testLogLevel (step . T.unpack)
 
-testPruneWithChecks :: IO RocksDb -> [PruningChecks] -> (String -> IO ()) -> IO ()
+testPruneWithChecks :: HasVersion => IO RocksDb -> [PruningChecks] -> (String -> IO ()) -> IO ()
 testPruneWithChecks rio checks step = withDbs rio $ \rdb db pdb h -> do
     (f0, f1) <- createForks db pdb h
-    pruneAllChains logger rdb toyVersion checks
+    pruneAllChains logger rdb checks
     assertHeaders db f0
     assertPrunedHeaders db f1
   where
@@ -285,14 +289,14 @@ testPruneWithChecks rio checks step = withDbs rio $ \rdb db pdb h -> do
 
 -- | Remove BlockPayload from the Payload.
 --
-failIntrinsicCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
+failIntrinsicCheck :: HasVersion => IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
     delHdr bdb b
     unsafeInsertBlockHeaderDb bdb $ b
       & blockChainwebVersion .~ _versionCode RecapDevelopment
-    try (pruneAllChains logger rdb toyVersion checks) >>= \case
+    try (pruneAllChains logger rdb checks) >>= \case
         Left e
             | CheckFull `elem` checks
                 && VersionMismatch `elem` _validationFailureFailures e
@@ -317,7 +321,7 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
 --
 -- CheckPayloadsExist and CheckPayload fail for this scenario
 --
-failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
+failPayloadCheck :: HasVersion => IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
@@ -326,7 +330,7 @@ failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
         Just x -> return x
     deletePayload pdb (payloadDataToBlockPayload p)
 
-    try (pruneAllChains logger rdb toyVersion checks) >>= \case
+    try (pruneAllChains logger rdb checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
             $ "Expected MissingPayloadException but got: "
@@ -343,7 +347,7 @@ failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
 --
 -- CheckPayloadsExist succeeds for this scenario. CheckPayload fails.
 --
-failPayloadCheck2 :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
+failPayloadCheck2 :: HasVersion => IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
@@ -352,7 +356,7 @@ failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
         Just x -> return x
     tableDelete (_newTransactionDbBlockTransactionsTbl $ _transactionDb pdb)
         (view blockHeight b, _payloadWithOutputsTransactionsHash payload)
-    try (pruneAllChains logger rdb toyVersion checks) >>= \case
+    try (pruneAllChains logger rdb checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
             $ "Expected MissingPayloadException but got: "

@@ -187,28 +187,28 @@ defaultCmd cid = CmdBuilder
 
 -- | Build parsed + verified Pact command
 -- TODO: Use the new `assertPact4Command` function.
-buildCwCmd :: (HasCallStack, MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact.Transaction
-buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
-  case validateCommand v c of
+buildCwCmd :: (HasCallStack, HasVersion, MonadThrow m, MonadIO m) => CmdBuilder -> m Pact.Transaction
+buildCwCmd cmd = buildTextCmd cmd >>= \(c :: Command Text) ->
+  case validateCommand c of
     Left err -> error $ "buildCwCmd failed: " ++ err
     Right cmd' -> return cmd'
 
 -- | Build parsed, not verified Pact command
-buildCwCmdNoSigCheck :: (HasCallStack, MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact.Transaction
-buildCwCmdNoSigCheck v cmd = buildTextCmd v cmd >>= \(cmdText :: Command Text) ->
+buildCwCmdNoSigCheck :: (HasCallStack, HasVersion, MonadThrow m, MonadIO m) => CmdBuilder -> m Pact.Transaction
+buildCwCmdNoSigCheck cmd = buildTextCmd cmd >>= \(cmdText :: Command Text) ->
     case Pact.parseCommand cmdText of
       Left err -> error $ "buildCwCmd failed: " ++ sshow err
       Right parsedCmd -> return parsedCmd
 
 -- | Build unparsed, unverified command
 --
-buildTextCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command Text)
-buildTextCmd v = fmap (fmap T.decodeUtf8) . buildRawCmd v
+buildTextCmd :: (MonadThrow m, MonadIO m, HasVersion) => CmdBuilder -> m (Command Text)
+buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
 
 -- | Build a raw bytestring command
 --
-buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command ByteString)
-buildRawCmd v CmdBuilder{..} = do
+buildRawCmd :: (MonadThrow m, MonadIO m, HasVersion) => CmdBuilder -> m (Command ByteString)
+buildRawCmd CmdBuilder{..} = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
     nonce <- liftIO $ maybe (fmap T.pack $ replicateM 10 $ randomRIO ('a', 'z')) return _cbNonce
     creationTime <- liftIO $ do
@@ -229,7 +229,7 @@ buildRawCmd v CmdBuilder{..} = do
     cmd <- liftIO $ mkCommandWithDynKeys kps _cbVerifiers (StableEncoding pm) nonce (Just nid) _cbRPC
     pure cmd
   where
-    nid = NetworkId (sshow v)
+    nid = NetworkId (sshow implicitVersion)
     cid = Pact.ChainId _cbChainId
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a

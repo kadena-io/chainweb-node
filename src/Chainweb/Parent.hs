@@ -31,8 +31,6 @@ instance Applicative Parent where
 
 instance HasChainId h => HasChainId (Parent h) where
     _chainId = _chainId . unwrapParent
-instance HasChainwebVersion h => HasChainwebVersion (Parent h) where
-    _chainwebVersion = _chainwebVersion . unwrapParent
 instance HasChainGraph h => HasChainGraph (Parent h) where
     _chainGraph = _chainGraph . unwrapParent
 

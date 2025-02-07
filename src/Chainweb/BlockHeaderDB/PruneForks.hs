@@ -67,7 +67,8 @@ import Data.LogMessage
 -- Chain Database Pruning
 
 pruneForksLogg
-    :: Logger logger
+    :: HasVersion
+    => Logger logger
     => logger
     -> BlockHeaderDb
     -> Natural
@@ -102,7 +103,8 @@ pruneForksLogg = pruneForks . logFunctionText
 -- indicates whether the related block is pruned or not.
 --
 pruneForks
-    :: LogFunctionText
+    :: HasVersion
+    => LogFunctionText
     -> BlockHeaderDb
     -> Natural
         -- ^ The depth at which pruning starts. Block at this depth are used as
@@ -137,9 +139,8 @@ pruneForks logg cdb depth callback = do
             let mar = MaxRank $ Max $ int (view blockHeight hdr) - depth
             pruneForks_ logg cdb mar (MinRank $ Min $ int genHeight) callback
   where
-    v = _chainwebVersion cdb
     cid = _chainId cdb
-    genHeight = genesisHeight v cid
+    genHeight = genesisHeight cid
 
 data PruneForksException
     = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
@@ -158,7 +159,7 @@ instance Exception PruneForksException
 -- TODO add option to also validate the block headers
 --
 pruneForks_
-    :: HasCallStack
+    :: (HasCallStack, HasVersion)
     => LogFunctionText
     -> BlockHeaderDb
     -> MaxRank

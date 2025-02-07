@@ -85,14 +85,14 @@ import Control.Concurrent.STM
 localTest
     :: HasCallStack
     => Logger logger
+    => HasVersion
     => LogFunction
-    -> ChainwebVersion
     -> MiningCoordination logger
     -> CutDb
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v coord cdb gen miners =
+localTest lf coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
         wh <- work coord
@@ -105,7 +105,7 @@ localTest lf v coord cdb gen miners =
                 void $ awaitNewCut cdb c
   where
     meanBlockTime :: Double
-    meanBlockTime = int (_getBlockDelay (_versionBlockDelay v)) / 1_000_000
+    meanBlockTime = int (_getBlockDelay (_versionBlockDelay implicitVersion)) / 1_000_000
 
     go :: BlockHeight -> MiningWork -> IO SolvedWork
     go height w = do
@@ -116,7 +116,7 @@ localTest lf v coord cdb gen miners =
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1_000_000)
 
         graphOrder :: Natural
-        graphOrder = order $ chainGraphAt v height
+        graphOrder = order $ chainGraphAt height
 
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
@@ -137,6 +137,7 @@ mempoolNoopMiner lf chainRes =
 --
 localPOW
     :: Logger logger
+    => HasVersion
     => LogFunctionText
     -> MiningCoordination logger
     -> CutDb
@@ -177,5 +178,3 @@ localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
         c <- _cutStm cdb
         let h' = view blockHeight $ c ^?! ixg cid
         guard (h <= h')
-
-

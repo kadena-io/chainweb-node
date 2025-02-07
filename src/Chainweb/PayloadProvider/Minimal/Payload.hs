@@ -179,9 +179,6 @@ data Payload = Payload
     }
     deriving (Show, Generic)
 
-instance HasChainwebVersion Payload where
-    _chainwebVersion = lookupVersionByCode . _payloadChainwebVersion
-
 instance HasChainId Payload where
     _chainId = _payloadChainId
 
@@ -319,19 +316,18 @@ decodePayload = do
 
 genesisPayload
     :: HasCallStack
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId cid
-    => v
-    -> cid
+    => cid
     -> Payload
-genesisPayload v cid
-    | payloadProviderTypeForChain v cid /= MinimalProvider =
+genesisPayload cid
+    | payloadProviderTypeForChain cid /= MinimalProvider =
         error "Chainweb.PayloadProvider.Minimal.Payload.genesisPayload: chain does not use minimal provider"
     | otherwise = pld
   where
-    genHeight = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
+    genHeight = genesisBlockHeight (_chainId cid)
     pld = Payload
-        { _payloadChainwebVersion = _versionCode (_chainwebVersion v)
+        { _payloadChainwebVersion = _versionCode implicitVersion
         , _payloadChainId = _chainId cid
         , _payloadBlockHeight = genHeight
         , _payloadMinerReward = MinerReward 0
@@ -347,19 +343,18 @@ genesisPayload v cid
 
 newPayload
     :: HasCallStack
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId cid
-    => v
-    -> cid
+    => cid
     -> BlockHeight
     -> MinerReward
     -> ChainId
     -> Account
     -> Payload
-newPayload v c h r rc acc = pld
+newPayload c h r rc acc = pld
   where
     pld = Payload
-        { _payloadChainwebVersion = _versionCode (_chainwebVersion v)
+        { _payloadChainwebVersion = _versionCode implicitVersion
         , _payloadChainId = _chainId c
         , _payloadBlockHeight = h
         , _payloadMinerReward = r
@@ -421,4 +416,3 @@ payloadRedeemAccount = to _payloadRedeemAccount
 
 payloadHash :: Getter Payload BlockPayloadHash
 payloadHash = to _payloadHash
-

@@ -274,7 +274,8 @@ headerHandler db k = liftIO (lookup db k) >>= \case
 -- Full BlockHeader DB API (used for Service API)
 --
 blockHeaderDbServer
-    :: BlockHeaderDb_ v c
+    :: HasVersion
+    => BlockHeaderDb_ v c
     -> Server (BlockHeaderDbApi v c)
 blockHeaderDbServer (BlockHeaderDb_ db)
     = hashesHandler db
@@ -285,7 +286,7 @@ blockHeaderDbServer (BlockHeaderDb_ db)
 
 -- Restricted P2P BlockHeader DB API
 --
-p2pBlockHeaderDbServer :: BlockHeaderDb_ v c -> Server (P2pBlockHeaderDbApi v c)
+p2pBlockHeaderDbServer :: HasVersion => BlockHeaderDb_ v c -> Server (P2pBlockHeaderDbApi v c)
 p2pBlockHeaderDbServer (BlockHeaderDb_ db)
     = headersHandler db p2pEntryLimit
     :<|> headerHandler db
@@ -295,35 +296,37 @@ p2pBlockHeaderDbServer (BlockHeaderDb_ db)
 -- Multichain Server
 
 someBlockHeaderDbServer
-    :: SomeBlockHeaderDb
+    :: HasVersion
+    => SomeBlockHeaderDb
     -> SomeServer
 someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
     = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
 
 someBlockHeaderDbServers
-    :: ChainwebVersion
-    -> ChainMap BlockHeaderDb
+    :: HasVersion
+    => ChainMap BlockHeaderDb
     -> SomeServer
-someBlockHeaderDbServers v cdbs = ifoldMap
-    (\cid cdb -> someBlockHeaderDbServer (someBlockHeaderDbVal v cid cdb))
+someBlockHeaderDbServers cdbs = ifoldMap
+    (\cid cdb -> someBlockHeaderDbServer (someBlockHeaderDbVal cid cdb))
     cdbs
 
-someP2pBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
+someP2pBlockHeaderDbServer :: HasVersion => SomeBlockHeaderDb -> SomeServer
 someP2pBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
     = SomeServer (Proxy @(P2pBlockHeaderDbApi v c)) (p2pBlockHeaderDbServer db)
 
-someP2pBlockHeaderDbServers :: ChainwebVersion -> ChainMap BlockHeaderDb -> SomeServer
-someP2pBlockHeaderDbServers v = ifoldMap
-    (\cid bhdb -> someP2pBlockHeaderDbServer (someBlockHeaderDbVal v cid bhdb))
+someP2pBlockHeaderDbServers :: HasVersion => ChainMap BlockHeaderDb -> SomeServer
+someP2pBlockHeaderDbServers = ifoldMap
+    (\cid bhdb -> someP2pBlockHeaderDbServer (someBlockHeaderDbVal cid bhdb))
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someBlockStreamServer :: ChainwebVersion -> CutDb -> SomeServer
-someBlockStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
-    SomeServer (Proxy @(BlockStreamApi v)) $ blockStreamHandler cdb
+someBlockStreamServer :: HasVersion => CutDb -> SomeServer
+someBlockStreamServer  cdb = runIdentity $ do
+    SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
+    Identity $ SomeServer (Proxy @(BlockStreamApi v)) $ blockStreamHandler cdb
 
-blockStreamHandler :: CutDb -> Tagged Handler Application
+blockStreamHandler :: HasVersion => CutDb -> Tagged Handler Application
 blockStreamHandler db = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp

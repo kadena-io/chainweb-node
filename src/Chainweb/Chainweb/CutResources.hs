@@ -32,7 +32,6 @@ module Chainweb.Chainweb.CutResources
 ) where
 
 import Control.Lens
-import Control.Lens.TH
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 
@@ -75,12 +74,9 @@ data CutResources = CutResources
 
 makeLenses ''CutResources
 
-instance HasChainwebVersion CutResources where
-    _chainwebVersion = _chainwebVersion . _cutResCutDb
-    {-# INLINE _chainwebVersion #-}
-
 withCutResources
     :: Logger logger
+    => HasVersion
     => logger
     -> CutDbParams
     -> P2pConfiguration
@@ -129,7 +125,7 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
 
 -- | The networks that are used by the cut DB.
 --
-cutNetworks :: CutResources -> [IO ()]
+cutNetworks :: HasVersion => CutResources -> [IO ()]
 cutNetworks cuts =
     [ p2pRunNode (_cutResCutP2pNode cuts)
     , p2pRunNode (_cutResHeaderP2pNode cuts)

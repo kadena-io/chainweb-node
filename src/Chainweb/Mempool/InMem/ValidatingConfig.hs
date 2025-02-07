@@ -28,13 +28,13 @@ import qualified Pact.Core.Command.Types as Pact
 import qualified Pact.Core.ChainData as Pact
 
 validatingMempoolConfig
-    :: ChainId
-    -> ChainwebVersion
+    :: HasVersion
+    => ChainId
     -> GasLimit
     -> GasPrice
     -> (V.Vector Pact.Transaction -> IO (V.Vector (Maybe InsertError)))
     -> InMemConfig Pact.Transaction
-validatingMempoolConfig cid v gl gp preInsertCheck = InMemConfig
+validatingMempoolConfig cid gl gp preInsertCheck = InMemConfig
     { _inmemTxCfg = pactTransactionConfig
     , _inmemTxBlockSizeLimit = gl
     , _inmemTxMinGasPrice = gp
@@ -59,10 +59,10 @@ validatingMempoolConfig cid v gl gp preInsertCheck = InMemConfig
             pcid = Pact._pmChainId $ Pact._pMeta pay
             sigs = Pact._cmdSigs tx
             ver  = Pact._pNetworkId pay
-        if | not $ assertChainId cid pcid  -> Left InsertErrorMetadataMismatch
-           | not $ assertSigSize sigs      -> Left InsertErrorTooManySigs
-           | not $ assertNetworkId v ver   -> Left InsertErrorMetadataMismatch
-           | otherwise                     -> Right tx
+        if | not $ assertChainId cid pcid -> Left InsertErrorMetadataMismatch
+           | not $ assertSigSize sigs     -> Left InsertErrorTooManySigs
+           | not $ assertNetworkId ver    -> Left InsertErrorMetadataMismatch
+           | otherwise                    -> Right tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
     -- the mempool. A rejection at this stage means that something is

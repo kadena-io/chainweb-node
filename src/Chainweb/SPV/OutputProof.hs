@@ -65,6 +65,7 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 
 import Chainweb.Storage.Table
+import Chainweb.Version (HasVersion)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -200,6 +201,7 @@ createOutputProofDb_
     :: forall a tbl
     . MerkleHashAlgorithm a
     => CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -232,6 +234,7 @@ createOutputProofDb_ headerDb payloadDb d h reqKey = do
 --
 createOutputProofDb
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -249,6 +252,7 @@ createOutputProofDb = createOutputProofDb_
 --
 createOutputProofDbKeccak256
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural

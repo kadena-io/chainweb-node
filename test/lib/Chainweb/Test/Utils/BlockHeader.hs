@@ -67,9 +67,9 @@ testPayload n = newPayloadWithOutputs
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayload'.
 --
-testBlockPayloadFromParent :: Parent BlockHeader -> PayloadWithOutputs
+testBlockPayloadFromParent :: HasVersion => Parent BlockHeader -> PayloadWithOutputs
 testBlockPayloadFromParent (Parent b) = testPayload $ B8.intercalate ","
-    [ sshow (_chainwebVersion b)
+    [ sshow implicitVersion
     , sshow (view blockHeight b + 1)
     ]
 
@@ -79,9 +79,9 @@ testBlockPayloadFromParent (Parent b) = testPayload $ B8.intercalate ","
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayloadFromParent'.
 --
-testBlockPayload :: BlockHeader -> PayloadWithOutputs
+testBlockPayload :: HasVersion => BlockHeader -> PayloadWithOutputs
 testBlockPayload b = testPayload $ B8.intercalate ","
-    [ sshow (_chainwebVersion b)
+    [ sshow implicitVersion
     , sshow (view blockHeight b)
     ]
 
@@ -92,9 +92,9 @@ testBlockPayload b = testPayload $ B8.intercalate ","
 -- that are created with 'testBlockPayload_', assuming that the same nonce is
 -- used.
 --
-testBlockPayloadFromParent_ :: Nonce -> Parent BlockHeader -> PayloadWithOutputs
+testBlockPayloadFromParent_ :: HasVersion => Nonce -> Parent BlockHeader -> PayloadWithOutputs
 testBlockPayloadFromParent_ n (Parent b) = testPayload $ B8.intercalate ","
-    [ sshow (_chainwebVersion b)
+    [ sshow implicitVersion
     , sshow (view blockHeight b + 1)
     , sshow n
     ]
@@ -105,9 +105,9 @@ testBlockPayloadFromParent_ n (Parent b) = testPayload $ B8.intercalate ","
 -- that are created with 'testBlockPayloadFromParent_', assuming that the same
 -- nonce is used.
 --
-testBlockPayload_ :: BlockHeader -> PayloadWithOutputs
+testBlockPayload_ :: HasVersion => BlockHeader -> PayloadWithOutputs
 testBlockPayload_ b = testPayload $ B8.intercalate ","
-    [ sshow (_chainwebVersion b)
+    [ sshow implicitVersion
     , sshow (view blockHeight b)
     , sshow (view blockNonce b)
     ]
@@ -118,18 +118,19 @@ testBlockPayload_ b = testPayload $ B8.intercalate ","
 testGetNewAdjacentParentHeaders
     :: HasCallStack
     => Applicative m
-    => ChainwebVersion
-    -> (ChainValue BlockHash -> m BlockHeader)
+    => HasVersion
+    => (ChainValue BlockHash -> m BlockHeader)
     -> BlockHashRecord
     -> m (HM.HashMap ChainId (Either (Parent BlockHash) (Parent BlockHeader)))
-testGetNewAdjacentParentHeaders v hdb = itraverse select . _getBlockHashRecord
+testGetNewAdjacentParentHeaders hdb = itraverse select . _getBlockHashRecord
   where
     select cid h
-        | h == genesisParentBlockHash v cid = pure $ Left $ h
+        | h == genesisParentBlockHash cid = pure $ Left $ h
         | otherwise = Right . Parent <$> hdb (ChainValue cid (unwrapParent h))
 
 testBlockHeader
-    :: HM.HashMap ChainId (Parent BlockHeader)
+    :: HasVersion
+    => HM.HashMap ChainId (Parent BlockHeader)
         -- ^ Adjacent parent hashes
     -> Nonce
         -- ^ Randomness to affect the block hash. It is also included into
@@ -148,7 +149,7 @@ testBlockHeader adj nonce p@(Parent b) =
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeaders :: Parent BlockHeader -> [BlockHeader]
+testBlockHeaders :: HasVersion => Parent BlockHeader -> [BlockHeader]
 testBlockHeaders (Parent p) = L.unfoldr (Just . (id &&& id) . f) p
   where
     f b = testBlockHeader mempty (view blockNonce b) $ Parent b
@@ -158,7 +159,7 @@ testBlockHeaders (Parent p) = L.unfoldr (Just . (id &&& id) . f) p
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeadersWithNonce :: Nonce -> Parent BlockHeader -> [BlockHeader]
+testBlockHeadersWithNonce :: HasVersion => Nonce -> Parent BlockHeader -> [BlockHeader]
 testBlockHeadersWithNonce n (Parent p) = L.unfoldr (Just . (id &&& id) . f) p
   where
     f b = testBlockHeader mempty n $ Parent b

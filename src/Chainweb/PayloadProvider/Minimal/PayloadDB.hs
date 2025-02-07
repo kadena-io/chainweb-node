@@ -68,8 +68,7 @@ instance Exception PayloadNotFoundException
 --
 
 data Configuration = Configuration
-    { _configChainwebVersion' :: !ChainwebVersion
-    , _configChainId' :: !ChainId
+    { _configChainId' :: !ChainId
     , _configRocksDb' :: !RocksDb
     }
 
@@ -78,23 +77,18 @@ _configRocksDb = _configRocksDb'
 
 configuration
     :: HasCallStack
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> RocksDb
     -> Configuration
-configuration v c rdb
-    | payloadProviderTypeForChain v c /= MinimalProvider =
+configuration c rdb
+    | payloadProviderTypeForChain c /= MinimalProvider =
         error "Chainweb.PayloadProvider.Minimal.PayloadDB.configuration: chain does not use minimal provider"
     | otherwise = Configuration
-        { _configChainwebVersion' = _chainwebVersion v
-        , _configChainId' = _chainId c
+        { _configChainId' = _chainId c
         , _configRocksDb' = rdb
         }
-
-instance HasChainwebVersion Configuration where
-    _chainwebVersion = _configChainwebVersion'
 
 instance HasChainId Configuration where
     _chainId = _configChainId'
@@ -144,7 +138,6 @@ type PayloadDb tbl = PayloadDb_ ChainwebMerkleHashAlgorithm tbl
 
 data PayloadDb_ a tbl = PayloadDb
     { _payloadDbChainId' :: !ChainId
-    , _payloadDbChainwebVersion' :: !ChainwebVersion
     , _payloadDbTable' :: !(tbl RankedBlockPayloadHash RankedPayload)
     }
 
@@ -154,10 +147,6 @@ _payloadDbTable = _payloadDbTable'
 instance HasChainId (PayloadDb_ a tbl) where
     _chainId = _payloadDbChainId'
     {-# INLINE _chainId #-}
-
-instance HasChainwebVersion (PayloadDb_ a tbl) where
-    _chainwebVersion = _payloadDbChainwebVersion'
-    {-# INLINE _chainwebVersion #-}
 
 instance ReadableTable1 tbl => ReadableTable (PayloadDb_ a tbl) RankedBlockPayloadHash Payload where
     tableLookup db k = fmap _getRankedPayload <$> tableLookup (_payloadDbTable db) k
@@ -174,10 +163,10 @@ instance Table1 tbl => Table (PayloadDb_ a tbl) RankedBlockPayloadHash Payload w
 
 -- | Initialize a database handle
 --
-initPayloadDb :: Configuration -> IO (PayloadDb_ a RocksDbTable)
+initPayloadDb :: HasVersion => Configuration -> IO (PayloadDb_ a RocksDbTable)
 initPayloadDb config = do
     -- Add genesis payload
-    dbAddChecked db (genesisPayload config config)
+    dbAddChecked db (genesisPayload config)
     return db
   where
     cid = _chainId config
@@ -191,7 +180,6 @@ initPayloadDb config = do
 
     !db = PayloadDb
         { _payloadDbChainId' = cid
-        , _payloadDbChainwebVersion' = _chainwebVersion config
         , _payloadDbTable' = payloadTable
         }
 
@@ -201,14 +189,14 @@ closePayloadDb :: PayloadDb_ a tbl -> IO ()
 closePayloadDb _ = return ()
 
 withPayloadDb
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> ChainId
     -> (PayloadDb_ a RocksDbTable -> IO b)
     -> IO b
-withPayloadDb db v cid = bracket start closePayloadDb
+withPayloadDb db cid = bracket start closePayloadDb
   where
-    start = initPayloadDb $ configuration v cid db
+    start = initPayloadDb $ configuration cid db
 
 -- -------------------------------------------------------------------------- --
 -- Validated Payload
@@ -266,4 +254,3 @@ dbAddChecked db e =
     -- * Item is not yet in database
     --
     dbAddCheckedInternal = casInsert (_payloadDbTable db) (RankedPayload e)
-

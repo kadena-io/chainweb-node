@@ -61,7 +61,7 @@ tests baseRdb = testGroup "Pact5 HyperlanePluginTests"
     ]
 
 v :: ChainwebVersion
-v = pact5InstantCpmTestVersion petersonChainGraph
+v = pact5InstantCpmTestVersion petersenChainGraph
 
 chain0 :: ChainId
 chain0 = unsafeChainId 0

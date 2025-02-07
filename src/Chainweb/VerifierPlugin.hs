@@ -51,7 +51,8 @@ newtype VerifierPlugin
     = VerifierPlugin
     { runVerifierPlugin
         :: forall s
-        . (ChainwebVersion, ChainId, BlockHeight)
+        . HasVersion
+        => (ChainId, BlockHeight)
         -> PactValue
         -> Set SigCapability
         -> STRef s Gas
@@ -71,8 +72,8 @@ chargeGas r g = do
     lift $ writeSTRef r (Gas $ _gas gasRemaining - _gas g)
 
 runVerifierPlugins
-    :: Logger logger
-    => (ChainwebVersion, ChainId, BlockHeight)
+    :: (Logger logger, HasVersion)
+    => (ChainId, BlockHeight)
     -> logger
     -> Map VerifierName VerifierPlugin
     -> Gas

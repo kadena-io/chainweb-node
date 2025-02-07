@@ -196,33 +196,31 @@ runBlocks
     -> Parent RankedBlockHash
     -> [DbBlock (Const ())]
     -> IO [(BlockCtx, (BlockHash, BlockPayloadHash), DbBlock Identity)]
-runBlocks sql rootBlockCtx blks = do
+runBlocks sql rootBlockCtx blks =
     loop rootBlockCtx blks
     where
-    loop parent (block:blocks) = do
+    loop parent (block:blocks) = withVersion testVer $ do
         logger <- getTestLogger
         fakeParentCreationTime <- Checkpointer.mkFakeParentCreationTime
         (fakeBlockInfo, block', _finalBlockHandle) <-
             (throwIfNoHistory =<<) $
-                Checkpointer.readFrom logger testVer cid sql fakeParentCreationTime parent $
+                Checkpointer.readFrom logger cid sql fakeParentCreationTime parent $
                     executeBlockTransaction parent block
         let childBlockCtx = BlockCtx
                 { _bctxParentCreationTime = fakeParentCreationTime
                 , _bctxParentHash = Parent $ fst fakeBlockInfo
-                , _bctxParentHeight = Parent $ childBlockHeight testVer cid parent
+                , _bctxParentHeight = Parent $ childBlockHeight cid parent
                 , _bctxChainId = cid
-                , _bctxChainwebVersion = testVer
-                , _bctxMinerReward = blockMinerReward testVer (childBlockHeight testVer cid parent)
+                , _bctxMinerReward = blockMinerReward (childBlockHeight cid parent)
                 }
         let parentBlockCtx = BlockCtx
                 { _bctxParentCreationTime = fakeParentCreationTime
                 , _bctxParentHash = _rankedBlockHashHash <$> parent
                 , _bctxParentHeight = _rankedBlockHashHeight <$> parent
                 , _bctxChainId = cid
-                , _bctxChainwebVersion = testVer
-                , _bctxMinerReward = blockMinerReward testVer (unwrapParent $ _rankedBlockHashHeight <$> parent)
+                , _bctxMinerReward = blockMinerReward (unwrapParent $ _rankedBlockHashHeight <$> parent)
                 }
-        _ <- Checkpointer.restoreAndSave logger testVer cid sql
+        _ <- Checkpointer.restoreAndSave logger cid sql
             (NE.singleton (parentBlockCtx, \blockEnv -> do
                 blockHandle <- get
                 (fakeBlockInfo', _blk, finalBlockHandle) <-
@@ -245,10 +243,10 @@ runBlocks sql rootBlockCtx blks = do
 -- Check that a block's result at the time it was added to the checkpointer
 -- is consistent with us executing that block with `readFrom`
 assertBlock :: SQLiteEnv -> BlockCtx -> (BlockHash, BlockPayloadHash) -> DbBlock Identity -> IO ()
-assertBlock sql blockCtx expectedBlockInfo blk = do
+assertBlock sql blockCtx expectedBlockInfo blk = withVersion testVer $ do
     fakeNewBlockCtx <- Checkpointer.mkFakeParentCreationTime
     logger <- getTestLogger
-    hist <- Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx (_bctxParentRankedBlockHash blockCtx) $ \blockEnv startHandle -> do
+    hist <- Checkpointer.readFrom logger cid sql fakeNewBlockCtx (_bctxParentRankedBlockHash blockCtx) $ \blockEnv startHandle -> do
         ((), _endHandle) <- doChainwebPactDbTransaction (_psBlockDbEnv blockEnv) startHandle Nothing $ \txdb _spv -> do
             _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
             blk' <- forM blk (runDbAction' txdb)
@@ -273,32 +271,32 @@ assertBlock sql blockCtx expectedBlockInfo blk = do
 
 tests :: TestTree
 tests = testGroup "Pact5 Checkpointer tests"
-    [ withResourceT withTempSQLiteResource $ \sqlIO ->
-        testCase "valid PactDb before genesis" $ do
-            sql <- sqlIO
+    [ withResourceT (withTempChainSqlite cid) $ \sqlIO ->
+        testCase "valid PactDb before genesis" $ withVersion testVer $ do
+            (sql, _sqlReadPool) <- sqlIO
             ChainwebPactDb.initSchema sql
-            Checkpointer.setConsensusState sql $ genesisConsensusState testVer cid
+            Checkpointer.setConsensusState sql $ genesisConsensusState cid
             logger <- getTestLogger
             fakeNewBlockCtx <- Checkpointer.mkFakeParentCreationTime
             ((), _handle) <- (throwIfNoHistory =<<) $
-                Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx genesisParentRanked
+                Checkpointer.readFrom logger cid sql fakeNewBlockCtx genesisParentRanked
                     $ \db blockHandle -> do
                     doChainwebPactDbTransaction (_psBlockDbEnv db) blockHandle Nothing $ \txdb _spv ->
                         Pact.Core.runPactDbRegression txdb
             return ()
-    , withResourceT withTempSQLiteResource $ \sqlIO ->
-        testProperty "readFrom with linear block history is valid" $ withTests 1000 $ property $ do
+    , withResourceT (withTempChainSqlite cid) $ \sqlIO ->
+        testProperty "readFrom with linear block history is valid" $ withTests 1000 $ property $ withVersion testVer $ do
             blocks <- forAll genBlockHistory
-            sql <- evalIO sqlIO
+            (sql, _sqlReadPool) <- evalIO sqlIO
             finishedBlocks <- evalIO $ do
                 ChainwebPactDb.initSchema sql
-                Checkpointer.setConsensusState sql $ genesisConsensusState testVer cid
+                Checkpointer.setConsensusState sql $ genesisConsensusState cid
                 logger <- getTestLogger
                 -- extend this empty chain with the genesis block
-                _ <- Checkpointer.restoreAndSave logger testVer cid sql $
+                _ <- Checkpointer.restoreAndSave logger cid sql $
                     (
-                        NE.singleton (blockCtxOfEvaluationCtx testVer cid (genesisEvalCtx cid),
-                        \_ -> return ((), (view blockHash (genesisBlockHeader testVer cid), genesisBlockPayloadHash testVer cid)))
+                        NE.singleton (blockCtxOfEvaluationCtx cid (genesisEvalCtx cid),
+                        \_ -> return ((), (view blockHash (genesisBlockHeader cid), genesisBlockPayloadHash cid)))
                     )
                 handle @_ @SomeException
                     (\ex -> putStrLn (displayException ex) >> throw ex)
@@ -311,14 +309,14 @@ tests = testGroup "Pact5 Checkpointer tests"
                 assertBlock sql parent blockInfo block
     ]
     where
-    genesisEvalCtx c = EvaluationCtx
-        { _evaluationCtxParentCreationTime = Parent $ testVer ^?! versionGenesis . genesisTime . atChain c
-        , _evaluationCtxParentHash = genesisParentBlockHash testVer c
-        , _evaluationCtxParentHeight = Parent $ genesisHeight testVer c
+    genesisEvalCtx c = withVersion testVer $ EvaluationCtx
+        { _evaluationCtxParentCreationTime = Parent $ implicitVersion ^?! versionGenesis . genesisTime . atChain c
+        , _evaluationCtxParentHash = genesisParentBlockHash c
+        , _evaluationCtxParentHeight = Parent $ genesisHeight c
         -- should not be used
         , _evaluationCtxMinerReward = MinerReward 0
         , _evaluationCtxPayload = ConsensusPayload
-            { _consensusPayloadHash = genesisBlockPayloadHash testVer c
+            { _consensusPayloadHash = genesisBlockPayloadHash c
             , _consensusPayloadData = Just $ EncodedPayloadData $ Chainweb.encodePayloadData $
                 Chainweb.payloadWithOutputsToPayloadData emptyPayload
             }
@@ -332,12 +330,13 @@ cid :: ChainId
 cid = unsafeChainId 0
 
 gh :: BlockHeader
-gh = genesisBlockHeader testVer cid
+gh = withVersion testVer $ genesisBlockHeader cid
 
 genesisParentRanked :: Parent RankedBlockHash
-genesisParentRanked = Parent $ RankedBlockHash
-        (genesisHeight testVer cid)
-        (unwrapParent $ genesisParentBlockHash testVer cid)
+genesisParentRanked = withVersion testVer $
+    Parent $ RankedBlockHash
+        (genesisHeight cid)
+        (unwrapParent $ genesisParentBlockHash cid)
 
 instance (forall a. Show a => Show (f a)) => Show (DbAction f) where
     showsPrec n (DbRead tn k v) = showParen (n > 10) $

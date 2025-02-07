@@ -52,22 +52,22 @@ pattern EvmDevelopment <- ((== evmDevnet) -> True) where
 -- TODO (use ea?)
 
 evmDevnet :: ChainwebVersion
-evmDevnet = ChainwebVersion
+evmDevnet = withVersion evmDevnet $ ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x0000_000a
     , _versionName = ChainwebVersionName "evm-development"
     , _versionForks = tabulateHashMap $ \case
         -- TODO: for now, Pact 5 is never enabled on EVM devnet.
         -- this will change as it stabilizes.
-        Pact5Fork -> onAllChains evmDevnet ForkNever
-        _ -> onAllChains evmDevnet ForkAtGenesis
-    , _versionUpgrades = onAllChains evmDevnet mempty
+        Pact5Fork -> onAllChains ForkNever
+        _ -> onAllChains ForkAtGenesis
+    , _versionUpgrades = onAllChains mempty
     , _versionGraphs = Bottom (minBound, d4k4ChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = onAllChains evmDevnet $ HashTarget (maxBound `div` 500_000)
+        { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 500_000)
         , _genesisTime = onChains
             $ [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [0..19] ]
             <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) | i <- [20..39] ]
@@ -189,9 +189,9 @@ evmDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = onAllChains evmDevnet $ Bottom
+    , _versionVerifierPluginNames = onAllChains $ Bottom
         (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
-    , _versionQuirks = noQuirks evmDevnet
+    , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
 
     -- FIXME make this safe for graph changes

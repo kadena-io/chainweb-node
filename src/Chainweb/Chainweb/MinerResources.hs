@@ -59,6 +59,7 @@ import System.Random.MWC qualified as MWC
 --
 withMiningCoordination
     :: Logger logger
+    => HasVersion
     => logger
     -> MiningConfig
     -> CutDb
@@ -78,7 +79,6 @@ withMiningCoordination logger conf cdb inner
     coordConf = _miningCoordination conf
 
 -- -------------------------------------------------------------------------- --
-
 -- | Miner resources are used by the test-miner when in-node mining is
 -- configured or by the mempool noop-miner (which keeps the mempool updated) in
 -- production setups.
@@ -121,14 +121,14 @@ withMinerResources logger conf chainRes cutDb tpw inner =
 runMiner
     :: forall logger
     .  Logger logger
-    => ChainwebVersion
-    -> MinerResources logger
+    => HasVersion
+    => MinerResources logger
     -> IO ()
-runMiner v mr
+runMiner mr
     | enabled = case _minerResCoordination mr of
         Nothing -> error
             "Mining coordination must be enabled in order to use the in-node test miner"
-        Just coord -> case v ^. versionCheats . disablePow of
+        Just coord -> case implicitVersion ^. versionCheats . disablePow of
             True -> testMiner coord
             False -> powMiner coord
     | otherwise = return ()
@@ -150,6 +150,6 @@ runMiner v mr
 
     testMiner coord = do
         gen <- MWC.createSystemRandom
-        localTest lf v coord cdb gen (_nodeTestMiners conf)
+        localTest lf coord cdb gen (_nodeTestMiners conf)
 
     powMiner coord = localPOW lf coord cdb

@@ -49,8 +49,7 @@ import P2P.Session
 -- Client Env
 
 data CutClientEnv = CutClientEnv
-    { _envChainwebVersion :: !ChainwebVersion
-    , _envClientEnv :: !ClientEnv
+    { _envClientEnv :: !ClientEnv
     }
     deriving (Generic)
 
@@ -58,16 +57,18 @@ runClientThrowM :: ClientM a -> ClientEnv -> IO a
 runClientThrowM req = fromEitherM <=< runClientM req
 
 putCut
-    :: CutClientEnv
+    :: HasVersion
+    => CutClientEnv
     -> CutHashes
     -> IO ()
-putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
+putCut (CutClientEnv env) = void . flip runClientThrowM env . cutPutClient
 
 getCut
-    :: CutClientEnv
+    :: HasVersion
+    => CutClientEnv
     -> CutHeight
     -> IO CutHashes
-getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
+getCut (CutClientEnv env) h = runClientThrowM (cutGetClientLimit (int h)) env
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session
@@ -84,7 +85,8 @@ catchupStepSize :: CutHeight
 catchupStepSize = 100
 
 syncSession
-    :: PeerInfo
+    :: HasVersion
+    => PeerInfo
     -> CutDb
     -> P2pSession
 syncSession p db logg env pinf = do
@@ -101,8 +103,7 @@ syncSession p db logg env pinf = do
     logg @T.Text Error "unexpectedly exited cut sync session"
     return False
   where
-    v = _chainwebVersion db
-    cenv = CutClientEnv v env
+    cenv = CutClientEnv env
 
     send c = do
         putCut cenv c

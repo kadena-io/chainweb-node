@@ -78,10 +78,7 @@ makeLenses ''TestHeader
 instance HasChainId TestHeader where
     _chainId = _chainId . _testHeaderHdr
 
-instance HasChainwebVersion TestHeader where
-    _chainwebVersion = _chainwebVersion . _testHeaderHdr
-
-instance HasChainGraph TestHeader where
+instance HasVersion => HasChainGraph TestHeader where
     _chainGraph = _chainGraph . _testHeaderHdr
 
 instance (k ~ CasKeyType BlockHeader) => ReadableTable TestHeader k BlockHeader where
@@ -129,25 +126,25 @@ testHeader v = case fromJSON (object v) of
 -- This construction will satisfy all block header valdiation properties except
 -- for POW.
 --
-arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
-arbitraryTestHeader v cid = do
-    h <- chooseEnum (genesisHeight v cid, maxBound `div` 2)
-    arbitraryTestHeaderHeight v cid h
+arbitraryTestHeader :: HasVersion => ChainId -> Gen TestHeader
+arbitraryTestHeader cid = do
+    h <- chooseEnum (genesisHeight cid, maxBound `div` 2)
+    arbitraryTestHeaderHeight cid h
 
 arbitraryTestHeaderHeight
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BlockHeight
     -> Gen TestHeader
-arbitraryTestHeaderHeight v cid h = do
-    parent <- Parent <$> arbitraryBlockHeaderVersionHeightChain v h cid
+arbitraryTestHeaderHeight cid h = do
+    parent <- Parent <$> arbitraryBlockHeaderVersionHeightChain h cid
     trace "a" $ return ()
 
     -- TODO: support graph changes in arbitary?
     as <- fmap HM.fromList
-        $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain v h c)
+        $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain h c)
         $ toList
-        $ adjacentChainIds (chainGraphAt v h) cid
+        $ adjacentChainIds (chainGraphAt h) cid
     nonce <- arbitrary
     payloadHash <- arbitrary
     let pt = maximum $ _bct . view blockCreationTime
@@ -175,21 +172,20 @@ testHeaderChainLookup h x = pure $! testHeaderLookup h $ _chainValueValue x
 -- Genesis Test Headers
 
 genesisTestHeaders
-    :: HasChainwebVersion v
-    => v -> [TestHeader]
-genesisTestHeaders v = genesisTestHeader v <$> toList (chainIds v)
+    :: HasVersion
+    => [TestHeader]
+genesisTestHeaders = genesisTestHeader <$> toList chainIds
 
 genesisTestHeader
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> TestHeader
-genesisTestHeader v cid = TestHeader
+genesisTestHeader cid = TestHeader
     { _testHeaderHdr = gen
     , _testHeaderParent = Parent gen
-    , _testHeaderAdjs = Parent . genesisBlockHeader (_chainwebVersion v)
+    , _testHeaderAdjs = Parent . genesisBlockHeader
         <$> toList (adjacentChainIds (_chainGraph gen) cid)
     }
   where
-    gen = genesisBlockHeader (_chainwebVersion v) (_chainId cid)
+    gen = genesisBlockHeader (_chainId cid)

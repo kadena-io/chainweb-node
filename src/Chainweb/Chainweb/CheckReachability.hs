@@ -80,16 +80,16 @@ instance Exception ReachabilityException
 --
 checkReachability
     :: Logger logger
+    => HasVersion
     => Socket
     -> HTTP.Manager
-    -> ChainwebVersion
     -> logger
     -> PeerDb
     -> [PeerInfo]
     -> Peer
     -> Double
     -> IO ()
-checkReachability sock mgr v logger pdb peers peer threshold = do
+checkReachability sock mgr logger pdb peers peer threshold = do
     nis <- if null peers
       then return []
       else withPeerDbServer $ do
@@ -123,7 +123,7 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
     logg = logFunctionText logger
 
     run p = runClientM
-        (peerPutClient v CutNetwork pinf)
+        (peerPutClient CutNetwork pinf)
         (peerInfoClientEnv mgr p)
 
     withPeerDbServer inner = withAsync servePeerDb $ const inner
@@ -137,7 +137,6 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
         (_peerCertificateChain peer)
         (_peerKey peer)
         sock
-        v
         CutNetwork
         pdb
         id -- TODO add middleware for request logging?

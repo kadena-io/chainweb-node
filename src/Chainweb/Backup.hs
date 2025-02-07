@@ -42,6 +42,7 @@ import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
 import Chainweb.Utils
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version (HasVersion)
 
 data BackupOptions = BackupOptions
     { _backupIdentifier :: !FilePath
@@ -76,7 +77,7 @@ instance MimeRender PlainText BackupStatus where
 instance MimeUnrender PlainText BackupStatus where
     mimeUnrender = const (over _Left show . fromText . TL.toStrict . TL.decodeUtf8)
 
-makeBackup :: Logger logger => BackupEnv logger -> BackupOptions -> IO ()
+makeBackup :: (Logger logger, HasVersion) => BackupEnv logger -> BackupOptions -> IO ()
 makeBackup env options = do
     logCr Info ("making backup to " <> T.pack thisBackup)
     createDirectoryIfMissing True (thisBackup </> "0" </> "sqlite")

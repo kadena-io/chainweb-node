@@ -135,6 +135,7 @@ createTransactionOutputProof cutDb tcid scid =
 --
 createSmallTransactionOutputProof
     :: HasCallStack
+    => HasVersion
     => PayloadProvider p
     => WebBlockHeaderDb
         -- ^ Block Header Database
@@ -214,6 +215,7 @@ type PayloadProofPrefix =
 --
 createPayloadProof_
     :: HasCallStack
+    => HasVersion
     => (Int -> BlockHeight -> BlockPayloadHash -> IO PayloadProofPrefix)
     -> WebBlockHeaderDb
     -> ChainId
@@ -326,7 +328,8 @@ createPayloadProof_ getPrefix headerDb tcid scid txHeight txIx trgHeader = do
 -- Returns 'Nothing' if @i >= view blockHeight h@.
 --
 crumbsOnChain
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> BlockHeight
     -> IO (Maybe (N.NonEmpty BlockHeader))
@@ -346,16 +349,17 @@ crumbsOnChain db trgHeader srcHeight
 -- Returns 'Nothing' if no such path exists.
 --
 crumbsToChain
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ChainId
     -> BlockHeader
     -> IO (Maybe (BlockHeader, [(Int, BlockHeader)]))
         -- ^ bread crumbs that lead from to source Chain to targetHeader
 crumbsToChain db srcCid trgHeader
-    | (int (view blockHeight trgHeader) + 1) < length path = return Nothing
+    | int (view blockHeight trgHeader) + 1 < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    graph = chainGraphAt db (view blockHeight trgHeader)
+    graph = chainGraphAt (view blockHeight trgHeader)
     path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
@@ -374,7 +378,8 @@ crumbsToChain db srcCid trgHeader
         go adjpHdr t ((adjIdx, cur) : acc)
 
 minimumTrgHeader
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -403,7 +408,7 @@ minimumTrgHeader headerDb tcid scid bh = do
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
 
-    srcGraph = chainGraphAt headerDb bh
+    srcGraph = chainGraphAt bh
     srcDistance = length $ shortestPath tcid scid srcGraph
-    trgGraph = chainGraphAt headerDb (bh + int srcDistance)
+    trgGraph = chainGraphAt (bh + int srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph

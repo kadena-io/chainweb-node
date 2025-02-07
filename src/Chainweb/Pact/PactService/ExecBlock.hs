@@ -83,6 +83,7 @@ import qualified Chainweb.Pact.Types as Pact
 
 runCoinbase
     :: (Logger logger)
+    => HasVersion
     => logger
     -> BlockEnv
     -> Miner
@@ -104,6 +105,7 @@ runCoinbase logger blockEnv miner = do
 continueBlock
     :: forall logger tbl
     . (Logger logger)
+    => HasVersion
     => logger
     -> ServiceEnv tbl
     -> ChainwebPactDb
@@ -296,6 +298,7 @@ type InvalidTransactions = [Pact.RequestKey]
 -- This function completely ignores timeouts!
 applyCmdInBlock
   :: (Traversable t, Logger logger)
+  => HasVersion
   => logger
   -> ServiceEnv tbl
   -> BlockEnv
@@ -414,6 +417,7 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
 --
 validateParsedChainwebTx
     :: (Logger logger)
+    => HasVersion
     => logger
     -> BlockEnv
         -- ^ reference time for tx validation.
@@ -432,7 +436,6 @@ validateParsedChainwebTx _logger blockEnv tx
     db = _psBlockDbEnv blockEnv
     blockCtx = _psBlockCtx blockEnv
     cid = blockCtx ^. chainId
-    v = blockCtx ^. chainwebVersion
     bh = _bctxCurrentBlockHeight blockCtx
     txValidationTime = _bctxParentCreationTime blockCtx
 
@@ -454,7 +457,7 @@ validateParsedChainwebTx _logger blockEnv tx
 
     checkTimes :: Pact.Transaction -> ExceptT InsertError IO ()
     checkTimes t = do
-        if | skipTxTimingValidation v cid bh -> pure ()
+        if | skipTxTimingValidation cid bh -> pure ()
            | not (Pact.assertTxNotInFuture txValidationTime (view Pact.payloadObj <$> t)) -> do
                throwError InsertErrorTimeInFuture
            | not (Pact.assertTxTimeRelativeToParent txValidationTime (view Pact.payloadObj <$> t)) -> do
@@ -466,7 +469,7 @@ validateParsedChainwebTx _logger blockEnv tx
     checkTxHash t = do
         case Pact.verifyHash (Pact._cmdHash t) (SB.fromShort $ view Pact.payloadBytes $ Pact._cmdPayload t) of
             Left _
-                | doCheckTxHash v cid bh -> throwError InsertErrorInvalidHash
+                | doCheckTxHash cid bh -> throwError InsertErrorInvalidHash
                 | otherwise -> pure ()
             Right _ -> pure ()
 
@@ -503,6 +506,7 @@ pact5TransactionsFromPayload plData = do
 
 execExistingBlock
   :: (CanReadablePayloadCas tbl, Logger logger)
+  => HasVersion
   => logger
   -> ServiceEnv tbl
   -> BlockEnv
@@ -513,7 +517,6 @@ execExistingBlock logger serviceEnv blockEnv payload = do
   let plData = checkablePayloadToPayloadData payload
   miner :: Miner <- decodeStrictOrThrow (_minerData $ view payloadDataMiner plData)
   txs <- lift $ pact5TransactionsFromPayload plData
-  let v = view chainwebVersion serviceEnv
   let
   errors <- liftIO $ flip foldMap txs $ \tx -> do
     errorOrSuccess <- runExceptT $
@@ -530,7 +533,7 @@ execExistingBlock logger serviceEnv blockEnv payload = do
     $ runCoinbase logger blockEnv miner
 
   let blockGasLimit =
-        Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit v (_bctxCurrentBlockHeight blockCtx)
+        Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit (_bctxCurrentBlockHeight blockCtx)
 
   (V.fromList -> results, _finalBlockGasLimit) <- flip weaveStatesFst blockGasLimit $
     -- flip runStateT (postCoinbaseBlockHandle, blockGasLimit) $

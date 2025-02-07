@@ -19,5 +19,5 @@ import Chainweb.VerifierPlugin
 import qualified Chainweb.VerifierPlugin.Hyperlane.Message.After225 as After225
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \(v, cid, bh) proof caps gasRef ->
+plugin = VerifierPlugin $ \(cid, bh) proof caps gasRef ->
   After225.runPlugin proof caps gasRef

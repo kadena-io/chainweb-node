@@ -91,10 +91,10 @@ import Chainweb.Storage.Table.RocksDB
 --
 tests :: RocksDb -> TestTree
 tests rdb = testGroup  "SPV tests"
-    [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
-    , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
-    , apiTests rdb version
-    , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
+    [ testCaseStepsN "SPV transaction proof" 10 (withVersion version $ spvTransactionRoundtripTest rdb)
+    , testCaseStepsN "SPV transaction output proof" 10 (withVersion version spvTransactionOutputRoundtripTest rdb )
+    , withVersion version $ apiTests rdb
+    , testCaseSteps "SPV transaction proof test" (withVersion version $ spvTest rdb)
     , properties
     ]
   where
@@ -110,9 +110,9 @@ testCaseStepsN name n test = testGroup name $ flip map [1..n] $ \i ->
 
 -- Find a reachable target chain
 --
-targetChain :: Cut -> BlockHeader -> IO ChainId
+targetChain :: HasVersion => Cut -> BlockHeader -> IO ChainId
 targetChain c srcBlock = do
-    cids <- generate (shuffle $ toList $ chainIds c)
+    cids <- generate (shuffle $ toList chainIds)
     go cids
   where
     graph = _chainGraph c
@@ -211,9 +211,9 @@ prop_outputProof_valid = forAll arbitraryPayloadWithStructuredOutputs go
 --
 -- Also checks that the size of the created proofs meets the expectations.
 --
-spvTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
-spvTest rdb v step = do
-    withTestCutDbWithoutPact rdb v id 100 logg $ \_ cutDb -> do
+spvTest :: HasVersion => RocksDb -> Step -> IO ()
+spvTest rdb step = do
+    withTestCutDbWithoutPact rdb id 100 logg $ \_ cutDb -> do
         curCut <- _cutMap <$> _cut cutDb
 
         -- for each blockheader h in cut
@@ -223,7 +223,7 @@ spvTest rdb v step = do
             -- for each transaction in ah
             & flip S.for (getPayloads cutDb)
             -- for each target chain c
-            & flip S.for (\(a,b,c,d) -> S.each $ (a,b,c,d,) <$> toList (chainIds cutDb))
+            & flip S.for (\(a,b,c,d) -> S.each $ (a,b,c,d,) <$> toList chainIds)
             -- Create and verify transaction output proof
             & S.mapM (go cutDb)
             -- Ingore all cases where a proof couldn't be created
@@ -294,7 +294,7 @@ spvTest rdb v step = do
                     [ int $ BL.length $ encode proof
                     , int n
                     , int $ view blockHeight h
-                    , int $ distance cutDb h trgChain
+                    , int $ distance h trgChain
                     , int $ B.length (_transactionOutputBytes txOut)
                     ]
 
@@ -303,14 +303,14 @@ spvTest rdb v step = do
             Right x -> do
                 let msg = "SPV proof creation succeeded although target chain is not reachable ("
                         <> "source height: " <> sshow (view blockHeight h)
-                        <> ", distance: " <> sshow (distance cutDb h trgChain)
+                        <> ", distance: " <> sshow (distance h trgChain)
                         <> ")"
                 assertBool msg isReachable
                 return (Just x)
             Left SpvExceptionTargetNotReachable{} -> do
                 let msg = "SPV proof creation failed although target chain is reachable ("
                         <> "source height: " <> sshow (view blockHeight h)
-                        <> ", distance: " <> sshow (distance cutDb h trgChain)
+                        <> ", distance: " <> sshow (distance h trgChain)
                         <> ")"
                 assertBool msg (not isReachable)
                 return Nothing
@@ -318,16 +318,16 @@ spvTest rdb v step = do
 
     -- Distance between source chain an target chain
     --
-    distance cutDb h trgChain = length
+    distance h trgChain = length
         $ shortestPath (_chainId h) trgChain
-        $ chainGraphAt cutDb (view blockHeight h)
+        $ chainGraphAt (view blockHeight h)
 
     -- Check whether target chain is reachable from the source block
     --
     reachable :: CutDb as -> BlockHeader -> ChainId -> IO Bool
     reachable cutDb h trgChain = do
         m <- maxRank $ cutDb ^?! cutDbBlockHeaderDb trgChain
-        return $ (int m - int (view blockHeight h)) >= distance cutDb h trgChain
+        return $ (int m - int (view blockHeight h)) >= distance h trgChain
 
     -- regression model with @createTransactionOutputProof@. Proof size doesn't
     -- depend on target height.
@@ -352,10 +352,10 @@ spvTest rdb v step = do
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
 
-spvTransactionRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
-spvTransactionRoundtripTest rdb v step = do
+spvTransactionRoundtripTest :: HasVersion => RocksDb -> Step -> IO ()
+spvTransactionRoundtripTest rdb step = do
     step "setup cut db"
-    withTestCutDbWithoutPact rdb v id 100 (\_ _ -> return ()) $ \_ cutDb -> do
+    withTestCutDbWithoutPact rdb id 100 (\_ _ -> return ()) $ \_ cutDb -> do
         step "pick random transaction"
         (h, txIx, tx, _) <- randomTransaction cutDb
 
@@ -387,10 +387,10 @@ spvTransactionRoundtripTest rdb v step = do
         step "confirm that proof subject matches transaction"
         assertEqual "proof subject matches transaction" tx subj
 
-spvTransactionOutputRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
-spvTransactionOutputRoundtripTest rdb v step = do
+spvTransactionOutputRoundtripTest :: HasVersion => RocksDb -> Step -> IO ()
+spvTransactionOutputRoundtripTest rdb step = do
     step "setup cut db"
-    withTestCutDbWithoutPact rdb v id 100 (\_ _ -> return ()) $ \_ cutDb -> do
+    withTestCutDbWithoutPact rdb id 100 (\_ _ -> return ()) $ \_ cutDb -> do
 
         step "pick random transaction output"
         (h, outIx, _, out) <- randomTransaction cutDb
@@ -428,24 +428,24 @@ spvTransactionOutputRoundtripTest rdb v step = do
 
 type TestClientEnv_ tbl = TestClientEnv MockTx tbl
 
-apiTests :: RocksDb -> ChainwebVersion -> TestTree
-apiTests rdb v = withResourceT (withTestPayloadResource rdb v 100 (\_ _ -> pure ())) $ \dbIO ->
+apiTests :: HasVersion => RocksDb -> TestTree
+apiTests rdb = withResourceT (withTestPayloadResource rdb 100 (\_ _ -> pure ())) $ \dbIO ->
     testGroup "SPV API tests"
         -- TODO: there is no openapi spec for this SPV API.
-        [ withResourceT (join $ withPayloadServer DoNotValidateSpec False v <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
+        [ withResourceT (join $ withPayloadServer DoNotValidateSpec False <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withResourceT (join $ withPayloadServer DoNotValidateSpec True v <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
+        , withResourceT (join $ withPayloadServer DoNotValidateSpec True <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
-    cids = toList $ chainIds v
+    cids = toList chainIds
 
     payloadDbs :: CanReadablePayloadCas tbl' => PayloadDb tbl' -> [(ChainId, PayloadDb tbl')]
     payloadDbs db = (, db) <$> cids
 
-txApiTests :: CanReadablePayloadCas tbl => IO (TestClientEnv_ tbl) -> Step -> IO ()
+txApiTests :: HasVersion => CanReadablePayloadCas tbl => IO (TestClientEnv_ tbl) -> Step -> IO ()
 txApiTests envIO step = do
-    PayloadTestClientEnv env cutDb _payloadDbs v <- envIO
+    PayloadTestClientEnv env cutDb _payloadDbs <- envIO
     step "pick random transaction"
     (h, txIx, tx, out) <- randomTransaction cutDb
 
@@ -459,7 +459,7 @@ txApiTests envIO step = do
 
     step "request transaction proof"
     txProof <- flip runClientM env $
-        spvGetTransactionProofClient v trgChain (_chainId h) (view blockHeight h) (int txIx)
+        spvGetTransactionProofClient trgChain (_chainId h) (view blockHeight h) (int txIx)
 
     case txProof of
 
@@ -477,7 +477,7 @@ txApiTests envIO step = do
 
     step "request transaction output proof"
     outProof <- flip runClientM env $
-        spvGetTransactionOutputProofClient v trgChain (_chainId h) (view blockHeight h) (int txIx)
+        spvGetTransactionOutputProofClient trgChain (_chainId h) (view blockHeight h) (int txIx)
 
     case outProof of
 

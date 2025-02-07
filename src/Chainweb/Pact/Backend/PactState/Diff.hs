@@ -29,9 +29,9 @@ import Chainweb.Logger (logFunctionText, logFunctionJson)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, doesPactDbExist, withChainDb, allChains)
 import Chainweb.Utils (fromText, toText)
-import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
+import Chainweb.Version (ChainwebVersion(..), withVersion, ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Registry (lookupVersionByName)
+import Chainweb.Version.Registry (findKnownVersion)
 import Control.Monad (forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson ((.=))
@@ -74,56 +74,57 @@ instance Monoid IsDifferent where
 main :: IO ()
 main = do
   cfg <- execParser opts
-
-  when (cfg.firstDbDir == cfg.secondDbDir) $ do
-    Text.putStrLn "Source and target Pact database directories cannot be the same."
-    exitFailure
-
-  let cids = allChains cfg.chainwebVersion
-
-  isDifferentRef <- newIORef @(Map ChainId IsDifferent) M.empty
-
-  forM_ cids $ \cid -> do
-    C.withPerChainFileLogger cfg.logDir cid Info $ \logger -> do
-      let logText = logFunctionText logger
-
-      sqliteFileExists1 <- doesPactDbExist cid cfg.firstDbDir
-      sqliteFileExists2 <- doesPactDbExist cid cfg.secondDbDir
-
-      if | not sqliteFileExists1 -> do
-              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
-         | not sqliteFileExists2 -> do
-              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
-         | otherwise -> runResourceT $ do
-            db1 <- withChainDb cid logger cfg.firstDbDir
-            db2 <- withChainDb cid logger cfg.secondDbDir
-            liftIO $ do
-              logText Info "[Starting diff]"
-              let getPactState db = getLatestPactStateAtDiffable db cfg.target
-              let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
-                  diff = diffLatestPactState (getPactState db1) (getPactState db2)
-              isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
-                logText Info $ "[Starting table " <> tblName <> "]"
-                d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-                  logFunctionJson logger Warn $ rowKeyDiffExistsToObject d
-                  pure Difference
-                logText Info $ "[Finished table " <> tblName <> "]"
-                pure d
-
-              logText Info $ case isDifferent of
-                Difference -> "[Non-empty diff]"
-                NoDifference -> "[Empty diff]"
-              logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
-
-              atomicModifyIORef' isDifferentRef $ \m -> (M.insert cid isDifferent m, ())
-
-  isDifferent <- readIORef isDifferentRef
-  case M.foldMapWithKey (\_ d -> d) isDifferent of
-    Difference -> do
-      Text.putStrLn "Diff complete. Differences found."
+  withVersion cfg.chainwebVersion $ do
+    when (cfg.firstDbDir == cfg.secondDbDir) $ do
+      Text.putStrLn "Source and target Pact database directories cannot be the same."
       exitFailure
-    NoDifference -> do
-      Text.putStrLn "Diff complete. No differences found."
+
+    let cids = allChains
+
+    isDifferentRef <- newIORef @(Map ChainId IsDifferent) M.empty
+
+    forM_ cids $ \cid -> do
+      C.withPerChainFileLogger cfg.logDir cid Info $ \logger -> do
+        let logText = logFunctionText logger
+
+        sqliteFileExists1 <- doesPactDbExist cid cfg.firstDbDir
+        sqliteFileExists2 <- doesPactDbExist cid cfg.secondDbDir
+
+        if
+          | not sqliteFileExists1 -> do
+                logText Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
+          | not sqliteFileExists2 -> do
+                logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
+          | otherwise -> runResourceT $ do
+              db1 <- withChainDb cid logger cfg.firstDbDir
+              db2 <- withChainDb cid logger cfg.secondDbDir
+              liftIO $ do
+                logText Info "[Starting diff]"
+                let getPactState db = getLatestPactStateAtDiffable db cfg.target
+                let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+                    diff = diffLatestPactState (getPactState db1) (getPactState db2)
+                isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
+                  logText Info $ "[Starting table " <> tblName <> "]"
+                  d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
+                    logFunctionJson logger Warn $ rowKeyDiffExistsToObject d
+                    pure Difference
+                  logText Info $ "[Finished table " <> tblName <> "]"
+                  pure d
+
+                logText Info $ case isDifferent of
+                  Difference -> "[Non-empty diff]"
+                  NoDifference -> "[Empty diff]"
+                logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
+
+                atomicModifyIORef' isDifferentRef $ \m -> (M.insert cid isDifferent m, ())
+
+    isDifferent <- readIORef isDifferentRef
+    case M.foldMapWithKey (\_ d -> d) isDifferent of
+      Difference -> do
+        Text.putStrLn "Diff complete. Differences found."
+        exitFailure
+      NoDifference -> do
+        Text.putStrLn "Diff complete. No differences found."
   where
     opts :: ParserInfo PactDiffConfig
     opts = info (parser <**> helper)
@@ -138,7 +139,7 @@ main = do
       <*> strOption (long "log-dir" <> help "Directory where logs will be placed" <> value ".")
 
     parseChainwebVersion :: Text -> ChainwebVersion
-    parseChainwebVersion = lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText
+    parseChainwebVersion = fromMaybe (error "ChainwebVersion parse failed") . (>>= findKnownVersion) . fromText
 
 -- | We don't include the entire rowdata in the diff, only the rowkey.
 --   This is just a space-saving measure.

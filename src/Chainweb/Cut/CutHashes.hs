@@ -44,7 +44,6 @@ module Chainweb.Cut.CutHashes
 , BlockHashWithHeight(..)
 , CutHashes(..)
 , cutHashes
-, cutHashesChainwebVersion
 , cutHashesId
 , cutOrigin
 , cutHashesWeight
@@ -63,7 +62,7 @@ module Chainweb.Cut.CutHashes
 import Control.Arrow
 import Control.DeepSeq
 import Control.Lens (Getter, Lens', makeLenses, to, view)
-import Control.Monad ((<$!>))
+import Control.Monad ((<$!>), unless)
 import Control.Monad.Catch
 
 import qualified Crypto.Hash as C
@@ -100,7 +99,7 @@ import Chainweb.Storage.Table
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.Registry (fabricateVersionWithName)
+import Chainweb.Version.Registry
 import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs(..))
 
 import P2P.Peer
@@ -275,7 +274,6 @@ data CutHashes = CutHashes
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
     , _cutHashesHeight :: !CutHeight
-    , _cutHashesChainwebVersion :: ChainwebVersion
     , _cutHashesId :: !CutId
     , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
         -- ^ optional block headers
@@ -333,13 +331,14 @@ instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
     {-# INLINE compare #-}
 
-cutHashesProperties :: forall e kv . KeyValue e kv => CutHashes -> [kv]
+cutHashesProperties
+    :: forall e kv . KeyValue e kv => HasVersion => CutHashes -> [kv]
 cutHashesProperties c =
     [ "hashes" .= _cutHashes c
     , "origin" .= _cutOrigin c
     , "weight" .= _cutHashesWeight c
     , "height" .= _cutHashesHeight c
-    , "instance" .= _versionName (_cutHashesChainwebVersion c)
+    , "instance" .= _versionName implicitVersion
     , "id" .= _cutHashesId c
     ]
     <> ifNotEmpty "headers" cutHashesHeaders
@@ -355,23 +354,27 @@ cutHashesProperties c =
         | x <- view l c, not (HM.null x) = [ s .= x ]
         | otherwise = mempty
 
-instance ToJSON CutHashes where
+instance HasVersion => ToJSON CutHashes where
     toJSON = object . cutHashesProperties
     toEncoding = pairs . mconcat . cutHashesProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON CutHashes where
-    parseJSON = withObject "CutHashes" $ \o -> CutHashes
-        <$> o .: "hashes"
-        <*> o .: "origin"
-        <*> o .: "weight"
-        <*> o .: "height"
-        <*> (fabricateVersionWithName <$> o .: "instance")
-        <*> o .: "id"
-        <*> o .:? "headers" .!= mempty
-        <*> o .:? "payloads" .!= mempty
-        <*> pure Nothing
+instance HasVersion => FromJSON CutHashes where
+    parseJSON = withObject "CutHashes" $ \o -> do
+        v <- o .: "instance"
+        unless (v == _versionName implicitVersion) $ fail $ T.unpack $
+            "incorrect version: expected " <> getChainwebVersionName (_versionName implicitVersion) <>
+            ", but got " <> getChainwebVersionName v
+        CutHashes
+            <$> o .: "hashes"
+            <*> o .: "origin"
+            <*> o .: "weight"
+            <*> o .: "height"
+            <*> o .: "id"
+            <*> o .:? "headers" .!= mempty
+            <*> o .:? "payloads" .!= mempty
+            <*> pure Nothing
 
 -- | Compute a 'CutHashes' structure from a 'Cut'. The result doesn't include
 -- any block headers or payloads.
@@ -382,7 +385,6 @@ cutToCutHashes p c = CutHashes
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c
-    , _cutHashesChainwebVersion = _chainwebVersion c
     , _cutHashesId = _cutId c
     , _cutHashesHeaders = mempty
     , _cutHashesPayloads = mempty

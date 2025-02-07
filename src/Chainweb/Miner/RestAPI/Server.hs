@@ -63,6 +63,7 @@ import System.Random
 
 workHandler
     :: Logger l
+    => HasVersion
     => MiningCoordination l
     -> Handler WorkBytes
 workHandler mr = do
@@ -75,6 +76,7 @@ workHandler mr = do
 solvedHandler
     :: forall l
     . Logger l
+    => HasVersion
     => MiningCoordination l
     -> HeaderBytes
     -> Handler NoContent
@@ -220,6 +222,7 @@ awaitWorkChange var payloadCache timer prevVar = go
 --
 updatesHandler
     :: Logger l
+    => HasVersion
     => MiningCoordination l
     -> ChainBytes
     -> Tagged Handler Application
@@ -269,10 +272,12 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
 miningServer
     :: forall l (v :: ChainwebVersionT)
     .  Logger l
+    => HasVersion
     => MiningCoordination l
     -> Server (MiningApi v)
 miningServer mr = workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr
 
-someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l -> SomeServer
-someMiningServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) mr =
-    SomeServer (Proxy @(MiningApi vT)) $ miningServer mr
+someMiningServer :: Logger l => HasVersion => MiningCoordination l -> SomeServer
+someMiningServer mr = case implicitVersion of
+    FromSingChainwebVersion (SChainwebVersion :: Sing vT) ->
+        SomeServer (Proxy @(MiningApi vT)) $ miningServer mr

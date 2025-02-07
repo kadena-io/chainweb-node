@@ -130,16 +130,12 @@ solvedId s =
 
 type PayloadCaches = ChainMap PayloadCache
 
-newPayloadCaches
-    :: HasChainwebVersion v
-    => HasChainGraph v
-    => v
-    -> IO PayloadCaches
-newPayloadCaches v = tabulateChainsM (_chainwebVersion v) (\_ -> newIO depth)
+newPayloadCaches :: HasVersion => IO PayloadCaches
+newPayloadCaches = tabulateChainsM (\_ -> newIO depth)
   where
     -- FIXME: Make this configurable?
     depth :: Natural
-    depth = diameter (_chainGraph v)
+    depth = diameter (chainGraphAt (maxBound :: BlockHeight))
 
 -- | Await the next payload for a cut that is different from the latest payload.
 --
@@ -253,17 +249,16 @@ instance Brief ParentState where
 -- -------------------------------------------------------------------------- --
 -- Mining State
 
-newMiningState :: Cut -> IO (ChainMap (TVar (Maybe ParentState)))
+newMiningState :: HasVersion => Cut -> IO (ChainMap (TVar (Maybe ParentState)))
 newMiningState c = do
     states <- forM cids $ \cid -> do
         var <- newTVarIO Nothing
         return (cid, var)
     return $! onChains states
   where
-    v = _chainwebVersion c
 
     cids :: [ChainId]
-    cids = HS.toList (chainIds v)
+    cids = HS.toList chainIds
 
 -- TODO: consider storing the mining state more efficiently:
 --
@@ -275,7 +270,8 @@ newMiningState c = do
 -- | Update work state for all chains for a new cut.
 --
 updateForCut
-    :: LogFunctionText
+    :: HasVersion
+    => LogFunctionText
     -> (ChainValue BlockHash -> IO BlockHeader)
     -> (ChainMap (TVar (Maybe ParentState)))
     -> Cut
@@ -301,7 +297,7 @@ updateForCut lf hdb ms c = do
                             , parentStateSolved = Nothing
                             }
 
-updateForSolved :: LogFunction -> CutDb -> PayloadCache -> TVar (Maybe ParentState) -> SolvedWork -> IO ()
+updateForSolved :: HasVersion => LogFunction -> CutDb -> PayloadCache -> TVar (Maybe ParentState) -> SolvedWork -> IO ()
 updateForSolved lf cdb payloadCache var sw = do
     stateOrErr <- runExceptT $ do
         solvedParentState <- mapExceptT atomically $ do
@@ -382,11 +378,10 @@ data MiningCoordination logger = MiningCoordination
     , _coordConf :: !CoordinationConfig
     , _coordPayloadCache :: !PayloadCaches
     }
-instance HasChainwebVersion (MiningCoordination logger) where
-    _chainwebVersion = _chainwebVersion . _coordCutDb
 
 newMiningCoordination
     :: Logger logger
+    => HasVersion
     => logger
     -> CoordinationConfig
     -> CutDb
@@ -394,7 +389,7 @@ newMiningCoordination
 newMiningCoordination logger conf cdb = do
     c <- _cut cdb
     state <- newMiningState c
-    caches <- newPayloadCaches c
+    caches <- newPayloadCaches
     return $ MiningCoordination
         { _coordLogger = logger
         , _coordCutDb = cdb
@@ -419,6 +414,7 @@ newMiningCoordination logger conf cdb = do
 runCoordination
     :: forall l
     .  Logger l
+    => HasVersion
     => MiningCoordination l
     -> IO ()
 runCoordination mr = do
@@ -566,7 +562,7 @@ awaitEvent cdb caches c p =
 -- 3. some payload providers are deadlocked, or
 -- 4. some payload providers are very slow in producing new payloads.
 --
-randomWork :: LogFunction -> PayloadCaches -> ChainMap (TVar (Maybe ParentState)) -> IO MiningWork
+randomWork :: HasVersion => LogFunction -> PayloadCaches -> ChainMap (TVar (Maybe ParentState)) -> IO MiningWork
 randomWork logFun caches state = do
 
     -- Pick a random chain.
@@ -680,6 +676,7 @@ staleMiningStateDelay = 2_000_000
 work
     :: forall l
     .  Logger l
+    => HasVersion
     => MiningCoordination l
     -> IO MiningWork
 work mr = randomWork lf (_coordPayloadCache mr) (_coordParentState mr)
@@ -728,6 +725,7 @@ instance Exception NoAsscociatedPayload
 solve
     :: forall l
     . Logger l
+    => HasVersion
     => MiningCoordination l
     -> SolvedWork
     -> IO ()
@@ -745,7 +743,8 @@ solve mr solved =
     lf = logFunction $ _coordLogger mr
 
 logMinedBlock
-    :: LogFunction
+    :: HasVersion
+    => LogFunction
     -> BlockHeader
     -> NewPayload
     -> IO ()

@@ -104,7 +104,8 @@ module Chainweb.Version
     , Sing(..)
 
     -- * HasChainwebVersion
-    , HasChainwebVersion(..)
+    , HasVersion(..)
+    , withVersion
     , mkChainId
     , chainIds
 
@@ -190,6 +191,7 @@ import Chainweb.Utils.Serialization
 import Data.Singletons
 
 import P2P.Peer
+import GHC.Exts (WithDict(..))
 
 -- -------------------------------------------------------------------------- --
 -- Forks
@@ -511,6 +513,12 @@ data ChainwebVersion
     deriving stock (Generic)
     deriving anyclass NFData
 
+class HasVersion where
+    implicitVersion :: ChainwebVersion
+
+withVersion :: ChainwebVersion -> (HasVersion => a) -> a
+withVersion = withDict @HasVersion
+
 instance Show ChainwebVersion where
     show = show . _versionName
 
@@ -586,11 +594,8 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionCheats
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionQuirks
 
-genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v cid = v
-    ^?! versionGenesis
-    . genesisBlockPayload
-    . atChain cid
+genesisBlockPayloadHash :: HasVersion => ChainId -> BlockPayloadHash
+genesisBlockPayloadHash cid = implicitVersion ^?! versionGenesis . genesisBlockPayload . atChain cid
 
 -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
@@ -608,8 +613,8 @@ instance (KnownSymbol n) => KnownChainwebVersionSymbol ('ChainwebVersionT n) whe
     type ChainwebVersionSymbol ('ChainwebVersionT n) = n
     chainwebVersionSymbolVal _ = T.pack $ symbolVal (Proxy @n)
 
-someChainwebVersionVal :: HasChainwebVersion v => v -> SomeChainwebVersionT
-someChainwebVersionVal v = someChainwebVersionVal' (_versionName (_chainwebVersion v))
+someChainwebVersionVal :: HasVersion => SomeChainwebVersionT
+someChainwebVersionVal = someChainwebVersionVal' (_versionName implicitVersion)
 
 someChainwebVersionVal' :: ChainwebVersionName -> SomeChainwebVersionT
 someChainwebVersionVal' v = case someSymbolVal (show v) of
@@ -642,28 +647,16 @@ pattern FromSingChainwebVersion sng <- (\v -> withSomeSing (_versionName v) Some
 -------------------------------------------------------------------------- --
 -- HasChainwebVersion Class
 
-class HasChainwebVersion a where
-    _chainwebVersion :: a -> ChainwebVersion
-    _chainwebVersion = view chainwebVersion
-
-    chainwebVersion :: Getter a ChainwebVersion
-    chainwebVersion = to _chainwebVersion
-
-    {-# MINIMAL _chainwebVersion | chainwebVersion #-}
-
-instance HasChainwebVersion ChainwebVersion where
-    _chainwebVersion = id
-
 -- | All known chainIds. This includes chains that are not yet "active".
 --
-chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
-chainIds = graphChainIds . snd . ruleHead . _versionGraphs . _chainwebVersion
+chainIds :: HasVersion => HS.HashSet ChainId
+chainIds = graphChainIds $ snd $ ruleHead $ _versionGraphs implicitVersion
 
 mkChainId
-    :: (MonadThrow m, HasChainwebVersion v)
-    => v -> BlockHeight -> Word32 -> m ChainId
-mkChainId v h i = cid
-    <$ checkWebChainId (chainGraphAt (_chainwebVersion v) h) cid
+    :: (MonadThrow m, HasVersion)
+    => BlockHeight -> Word32 -> m ChainId
+mkChainId h i = cid
+    <$ checkWebChainId (chainGraphAt h) cid
   where
     cid = unsafeChainId i
 
@@ -682,16 +675,15 @@ class HasPayloadProviderType p where
     {-# MINIMAL _payloadProviderType | payloadProviderType #-}
 
 payloadProviderTypeForChain
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> PayloadProviderType
-payloadProviderTypeForChain v c = v
-    ^?! chainwebVersion . versionPayloadProviderTypes . atChain c
+payloadProviderTypeForChain c = implicitVersion
+    ^?! versionPayloadProviderTypes . atChain c
 
-instance (HasChainwebVersion p, HasChainId p) => HasPayloadProviderType p where
-    _payloadProviderType p = payloadProviderTypeForChain p p
+instance (HasVersion, HasChainId p) => HasPayloadProviderType p where
+    _payloadProviderType p = payloadProviderTypeForChain p
     {-# INLINE _payloadProviderType #-}
 
 -------------------------------------------------------------------------- --
@@ -706,18 +698,15 @@ instance (HasChainwebVersion p, HasChainId p) => HasPayloadProviderType p where
 -- This function is safe because of invariants provided by 'chainwebGraphs'.
 -- (There are also unit tests the confirm this.)
 chainwebGraphsAt
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> Rule BlockHeight ChainGraph
-chainwebGraphsAt v h =
-    ruleDropWhile (> h) (_versionGraphs v)
+chainwebGraphsAt h =
+    ruleDropWhile (> h) (_versionGraphs implicitVersion)
 
 -- | The 'ChainGraph' for the given 'BlockHeight'
-chainGraphAt :: HasChainwebVersion v => v -> BlockHeight -> ChainGraph
-chainGraphAt v = snd . ruleHead . chainwebGraphsAt (_chainwebVersion v)
-
-instance HasChainGraph (ChainwebVersion, BlockHeight) where
-    _chainGraph = uncurry chainGraphAt
+chainGraphAt :: HasVersion => BlockHeight -> ChainGraph
+chainGraphAt = snd . ruleHead . chainwebGraphsAt
 
 -- | The genesis block height for a given chain.
 --
@@ -725,8 +714,8 @@ instance HasChainGraph (ChainwebVersion, BlockHeight) where
 -- (We generally assume that this invariant holds throughout the code base.
 -- It is enforced via the 'mkChainId' smart constructor for ChainId.)
 --
-genesisBlockHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
-genesisBlockHeight v c = fst $ genesisHeightAndGraph v c
+genesisBlockHeight :: (HasVersion, HasCallStack) => ChainId -> BlockHeight
+genesisBlockHeight = fst . genesisHeightAndGraph
 {-# inlinable genesisBlockHeight #-}
 
 -- | The genesis graph for a given Chain
@@ -739,13 +728,12 @@ genesisBlockHeight v c = fst $ genesisHeightAndGraph v c
 --
 genesisHeightAndGraph
     :: HasCallStack
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> (BlockHeight, ChainGraph)
-genesisHeightAndGraph v c =
-    case ruleSeek (\_ g -> not (isWebChain g c)) (_versionGraphs (_chainwebVersion v)) of
+genesisHeightAndGraph c =
+    case ruleSeek (\_ g -> not (isWebChain g c)) (_versionGraphs implicitVersion) of
         -- the chain was in every graph down to the bottom,
         -- so the bottom has the genesis graph
         (False, z) -> ruleZipperHere z
@@ -758,7 +746,7 @@ genesisHeightAndGraph v c =
     where
     missingChainError = error
         $ "Invalid ChainId " <> show (_chainId c)
-        <> " for chainweb version " <> show (_versionName (_chainwebVersion v))
+        <> " for chainweb version " <> show (_versionName implicitVersion)
 {-# inlinable genesisHeightAndGraph #-}
 
 -------------------------------------------------------------------------- --
@@ -770,10 +758,10 @@ domainAddr2PeerInfo = fmap (PeerInfo Nothing)
 -- | A utility to allow indexing behavior by forks, returning that behavior
 -- indexed by the block heights of those forks.
 indexByForkHeights
-    :: ChainwebVersion
-    -> [(Fork, ChainMap a)]
+    :: HasVersion
+    => [(Fork, ChainMap a)]
     -> ChainMap (HashMap BlockHeight a)
-indexByForkHeights v = ChainMap . foldl' go (HM.empty <$ HS.toMap (chainIds v))
+indexByForkHeights = ChainMap . foldl' go (HM.empty <$ HS.toMap chainIds)
   where
     conflictError fork h =
         error $ "conflicting behavior at block height " <> show h <> " when adding behavior for fork " <> show fork
@@ -786,14 +774,14 @@ indexByForkHeights v = ChainMap . foldl' go (HM.empty <$ HS.toMap (chainIds v))
             [ (cid, HM.singleton forkHeight upg)
             | cid <- HM.keys acc
             , Just upg <- [txsPerChain ^? atChain cid]
-            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . atChain cid]
+            , ForkAtBlockHeight forkHeight <- [implicitVersion ^?! versionForks . at fork . _Just . atChain cid]
             , forkHeight /= maxBound
             ]
 
 -- | The block height at all chains at which the latest known behavior changes
 -- will have taken effect: forks, upgrade transactions, or graph changes.
-latestBehaviorAt :: ChainwebVersion -> BlockHeight
-latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
+latestBehaviorAt :: HasVersion => BlockHeight
+latestBehaviorAt = foldlOf' behaviorChanges max 0 implicitVersion + 1
     where
     behaviorChanges = fold
         [ versionForks . folded . folded . _ForkAtBlockHeight
@@ -801,21 +789,21 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
         , versionGraphs . to ruleHead . _1
         ]
 
-onAllChains :: ChainwebVersion -> a -> ChainMap a
-onAllChains v a = tabulateChains v (\_ -> a)
+onAllChains :: HasVersion => a -> ChainMap a
+onAllChains a = tabulateChains (\_ -> a)
 
-tabulateChains :: ChainwebVersion -> (ChainId -> a) -> ChainMap a
-tabulateChains v f = runIdentity $ tabulateChainsM v (Identity . f)
+tabulateChains :: HasVersion => (ChainId -> a) -> ChainMap a
+tabulateChains f = runIdentity $ tabulateChainsM (Identity . f)
 
 -- | Easy construction of a `ChainMap` with entries for every chain
 -- in a `ChainwebVersion`.
-tabulateChainsM :: Applicative m => ChainwebVersion -> (ChainId -> m a) -> m (ChainMap a)
-tabulateChainsM v f = ChainMap <$>
+tabulateChainsM :: (HasVersion, Applicative m) => (ChainId -> m a) -> m (ChainMap a)
+tabulateChainsM f = ChainMap <$>
     HM.traverseWithKey
         (\cid () -> f cid)
-        (HS.toMap (chainIds v))
+        (HS.toMap chainIds)
 
-noQuirks :: ChainwebVersion -> VersionQuirks
-noQuirks v = VersionQuirks
-    { _quirkGasFees = onAllChains v HM.empty
+noQuirks :: HasVersion => VersionQuirks
+noQuirks = VersionQuirks
+    { _quirkGasFees = onAllChains HM.empty
     }

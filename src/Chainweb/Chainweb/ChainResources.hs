@@ -133,12 +133,10 @@ data PayloadP2pResources = PayloadP2pResources
         -- ^ API endpoints that are are served by the node P2P API
     }
 
-instance HasChainwebVersion PayloadP2pResources where
-    _chainwebVersion = _chainwebVersion . _payloadResPeerDb
-
 payloadP2pResources
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (p :: PayloadProviderType) logger tbl
     . Logger logger
+    => HasVersion
     => ReadableTable tbl RankedBlockPayloadHash (PayloadType p)
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
@@ -181,7 +179,7 @@ payloadP2pResources logger p2pConfig myInfo peerDb tbl queue mgr = do
 
 -- | IO actions for running Payload P2p Nodes
 --
-runPayloadP2pNodes :: PayloadP2pResources -> [IO ()]
+runPayloadP2pNodes :: HasVersion => PayloadP2pResources -> [IO ()]
 runPayloadP2pNodes r = [ p2pRunNode (_payloadResP2pNode r) ]
 
 -- -------------------------------------------------------------------------- --
@@ -223,8 +221,8 @@ makeLenses ''ProviderResources
 
 withPayloadProviderResources
     :: Logger logger
+    => HasVersion
     => logger
-    -> ChainwebVersion
     -> ChainId
     -> P2pConfiguration
     -> PeerInfo
@@ -237,8 +235,8 @@ withPayloadProviderResources
         -- ^ whether to allow unlimited rewind on startup
     -> PayloadProviderConfig
     -> ResourceT IO ProviderResources
-withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs = do
-    SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal v
+withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs = do
+    SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal
     SomeChainIdT @c' _ <- return $ someChainIdVal cid
     withSomeSing provider $ \case
         SMinimalProvider -> do
@@ -252,7 +250,7 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
             -- provider.
 
             let config = _payloadProviderConfigMinimal configs
-            p <- liftIO $ newMinimalPayloadProvider logger v cid rdb (Just mgr) config
+            p <- liftIO $ newMinimalPayloadProvider logger cid rdb (Just mgr) config
             let pdb = view minimalPayloadDb p
             let queue = view minimalPayloadQueue p
             p2pRes <- liftIO $ payloadP2pResources @v' @c' @'MinimalProvider
@@ -271,7 +269,7 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
 
                 -- FIXME move the following to the pact provider initialization
 
-                let maxGasLimit = Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit v maxBound
+                let maxGasLimit = Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit maxBound
                 case maxGasLimit of
                     Just maxGasLimit'
                         | _pactConfigBlockGasLimit conf > maxGasLimit' ->
@@ -300,7 +298,7 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
                 rec
                     pp <-
                         withPactPayloadProvider
-                            (_chainwebVersion v) cid
+                            cid
                             (Just mgr)
                             logger
                             Nothing
@@ -308,10 +306,10 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
                             pdb
                             pactDbDir
                             pactConfig
-                            (Pact.genesisPayload (_chainwebVersion v) ^? atChain cid)
+                            (Pact.genesisPayload ^? atChain cid)
                     let mempoolConfig =
                             Mempool.validatingMempoolConfig
-                                cid (_chainwebVersion v)
+                                cid
                                 (_pactNewBlockGasLimit pactConfig)
                                 (_pactConfigMinGasPrice conf)
                                 (\txs ->
@@ -319,7 +317,7 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
                                         (pactPayloadProviderLogger pp)
                                         (pactPayloadProviderServiceEnv pp) txs
                                 )
-                    mempool <- Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolConfig v
+                    mempool <- Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolConfig
                 let queue = _payloadStoreQueue $ _psPdb $ pactPayloadProviderServiceEnv pp
                 p2pRes <- liftIO $ payloadP2pResources @v' @c' @'PactProvider
                     logger p2pConfig myInfo peerDb pdb queue mgr
@@ -331,13 +329,13 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
                         , Pact._pactServerDataPact =
                             pactPayloadProviderServiceEnv pp
                         }
-                let pactServer = Pact.somePactServer (Pact.somePactServerData v cid pactServerData)
+                let pactServer = Pact.somePactServer (Pact.somePactServerData cid pactServerData)
                 return ProviderResources
                     { _providerResPayloadProvider = ConfiguredPayloadProvider pp
                     , _providerResServiceApi = Just $ PayloadServiceApiResources
                         -- TODO: I think this isn't what was in mind for this...
                         -- this seems to really just be for the payload API
-                        { _payloadResServiceApi = Pact.somePactServiceApi v cid
+                        { _payloadResServiceApi = Pact.somePactServiceApi cid
                         , _payloadResServiceServer = pactServer
                         }
                     , _providerResP2pApiResources = Just p2pRes
@@ -351,7 +349,7 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
                 -- and answering API requests.
                 -- It also starts to awaiting and devlivering new payloads if mining
                 -- is enabled.
-                p <- withEvmPayloadProvider logger v cid rdb (Just mgr) config
+                p <- withEvmPayloadProvider logger cid rdb (Just mgr) config
                 let pdb = view evmPayloadDb p
                 let queue = view evmPayloadQueue p
                 p2pRes <- liftIO $ payloadP2pResources @v' @c' @('EvmProvider n)
@@ -365,7 +363,7 @@ withPayloadProviderResources logger v cid p2pConfig myInfo peerDb rdb mgr rewind
 
   where
     provider :: PayloadProviderType
-    provider = payloadProviderTypeForChain v cid
+    provider = payloadProviderTypeForChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
@@ -390,18 +388,14 @@ _chainResServiceApiResources
     -> Maybe PayloadServiceApiResources
 _chainResServiceApiResources = _providerResServiceApi . _chainResPayloadProvider
 
-instance HasChainwebVersion (ChainResources logger) where
-    _chainwebVersion = _chainwebVersion . _chainResBlockHeaderDb
-    {-# INLINE _chainwebVersion #-}
-
 instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
     {-# INLINE _chainId #-}
 
 withChainResources
     :: Logger logger
+    => HasVersion
     => logger
-    -> ChainwebVersion
     -> ChainId
     -> RocksDb
     -> HTTP.Manager
@@ -416,15 +410,15 @@ withChainResources
         -- ^ whether to allow unlimited rewind on startup
     -> PayloadProviderConfig
     -> ResourceT IO (ChainResources logger)
-withChainResources logger v cid rdb mgr _pactDbDir p2pConf myInfo peerDb rewindLimit initialUnlimitedRewind configs = do
+withChainResources logger cid rdb mgr _pactDbDir p2pConf myInfo peerDb rewindLimit initialUnlimitedRewind configs = do
 
     -- This uses the the CutNetwork for fetching block headers.
-    cdb <- withBlockHeaderDb rdb v cid
+    cdb <- withBlockHeaderDb rdb cid
 
     -- Payload Providers are using per chain payload networks for fetching
     -- block headers.
     provider <- withPayloadProviderResources
-        providerLogger v cid p2pConf myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs
+        providerLogger cid p2pConf myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs
 
     return ChainResources
         { _chainResBlockHeaderDb = cdb
@@ -432,7 +426,7 @@ withChainResources logger v cid rdb mgr _pactDbDir p2pConf myInfo peerDb rewindL
         , _chainResLogger = logger
         }
   where
-    providerType = payloadProviderTypeForChain v cid
+    providerType = payloadProviderTypeForChain cid
     providerLogger = logger
         & setComponent "payload-provider"
         & addLabel ("provider", toText providerType)
@@ -477,6 +471,7 @@ payloadProvidersForAllChains chains =
 --
 runP2pNodesOfAllChains
     :: Foldable l
+    => HasVersion
     => l (ChainResources logger)
     -> [IO ()]
 runP2pNodesOfAllChains

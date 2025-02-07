@@ -92,37 +92,31 @@ import Chainweb.PayloadProvider.EVM.Utils (decodeRlpM)
 --
 
 data Configuration = Configuration
-    { _configChainwebVersion :: !ChainwebVersion
-    , _configChainId :: ChainId
+    { _configChainId :: ChainId
     , _configGenesis :: !Header
     , _configRocksDb :: !RocksDb
     }
 
 configuration
     :: HasCallStack
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> RocksDb
     -> Header
     -> Configuration
-configuration v c rdb gen
+configuration c rdb gen
     | not isEvmProvider =
         error "Chainweb.PayloadProvider.Evm.HeaderDB.configuration: chain does not use evm provider"
     | otherwise = Configuration
-        { _configChainwebVersion = _chainwebVersion v
-        , _configChainId = _chainId c
+        { _configChainId = _chainId c
         , _configRocksDb = rdb
         , _configGenesis = gen
         }
   where
-    isEvmProvider = case payloadProviderTypeForChain v c of
+    isEvmProvider = case payloadProviderTypeForChain c of
         EvmProvider{} -> True
         _ -> False
-
-instance HasChainwebVersion Configuration where
-    _chainwebVersion = _configChainwebVersion
 
 instance HasChainId Configuration where
     _chainId = _configChainId
@@ -172,17 +166,12 @@ type HeaderDb tbl = HeaderDb_ ChainwebMerkleHashAlgorithm tbl
 
 data HeaderDb_ a tbl = HeaderDb
     { _headerDbChainId :: !ChainId
-    , _headerDbChainwebVersion :: !ChainwebVersion
     , _headerDbTable :: !(tbl RankedBlockPayloadHash RankedHeader)
     }
 
 instance HasChainId (HeaderDb_ a tbl) where
     _chainId = _headerDbChainId
     {-# INLINE _chainId #-}
-
-instance HasChainwebVersion (HeaderDb_ a tbl) where
-    _chainwebVersion = _headerDbChainwebVersion
-    {-# INLINE _chainwebVersion #-}
 
 instance ReadableTable1 tbl => ReadableTable (HeaderDb_ a tbl) RankedBlockPayloadHash Header where
     tableLookup db k = fmap _getRankedHeader <$> tableLookup (_headerDbTable db) k
@@ -215,7 +204,6 @@ initHeaderDb config = do
 
     !db = HeaderDb
         { _headerDbChainId = cid
-        , _headerDbChainwebVersion = _configChainwebVersion config
         , _headerDbTable = headerTable
         }
 
@@ -226,16 +214,14 @@ closeHeaderDb _ = return ()
 
 withHeaderDb
     :: RocksDb
-    -> ChainwebVersion
     -> ChainId
     -> Header
     -> (HeaderDb_ a RocksDbTable -> IO b)
     -> IO b
-withHeaderDb db v cid genesisHeader = bracket start closeHeaderDb
+withHeaderDb db cid genesisHeader = bracket start closeHeaderDb
   where
     start = initHeaderDb Configuration
-        { _configChainwebVersion = v
-        , _configChainId = cid
+        { _configChainId = cid
         , _configGenesis = genesisHeader
         , _configRocksDb = db
         }
@@ -294,4 +280,3 @@ dbAddChecked db e =
     -- * Item is not yet in database
     --
     dbAddCheckedInternal = casInsert (_headerDbTable db) (RankedHeader e)
-

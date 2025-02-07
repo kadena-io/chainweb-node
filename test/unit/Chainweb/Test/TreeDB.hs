@@ -49,12 +49,14 @@ import Chainweb.Test.Utils.BlockHeader
 import Chainweb.TreeDB
 import Chainweb.Utils (int, len, tryAllSynchronous)
 import Chainweb.Utils.Paging
+import Chainweb.Version (HasVersion)
 
 type Insert db = db -> [DbEntry db] -> IO ()
 type WithTestDb db = forall prop . Testable prop => DbEntry db -> (db -> Insert db -> IO prop) -> IO prop
 
 treeDbInvariants
     :: (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db), Ord (DbKey db))
+    => HasVersion
     => WithTestDb db
         -- ^ Given a generic entry should yield a database and insert function for
         -- testing, and then safely close it after use.
@@ -169,7 +171,9 @@ handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db insert -> d
 -- | Property: The root node's parent must always be itself.
 --
 rootParent_prop
-    :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
+    :: forall db
+    . (TreeDb db, IsBlockHeader (DbEntry db))
+    => HasVersion
     => WithTestDb db
     -> SparseTree
     -> Property
@@ -228,6 +232,7 @@ maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
 --
 entryOrder_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
+    => HasVersion
     => WithTestDb db
     -> SparseTree
     -> Property
@@ -303,6 +308,7 @@ properties =
 prop_forkEntry
     :: forall db
     . TreeDb db
+    => HasVersion
     => IsBlockHeader (DbEntry db)
     => WithTestDb db
     -> Natural
@@ -320,7 +326,7 @@ prop_forkEntry f i j = do
     a = take (int i) $ branch (Nonce 0) g
     b = take (int j) $ branch (Nonce 1) g
 
-    branch n x = view (from isoBH) <$> testBlockHeadersWithNonce n (ParentHeader $ view isoBH x)
+    branch n x = view (from isoBH) <$> testBlockHeadersWithNonce n (Parent $ view isoBH x)
 
 -- -------------------------------------------------------------------------- --
 -- forward branch entries

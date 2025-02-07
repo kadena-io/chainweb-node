@@ -185,8 +185,8 @@ data CutDbParams = CutDbParams
 
 makeLenses ''CutDbParams
 
-defaultCutDbParams :: ChainwebVersion -> Int -> CutDbParams
-defaultCutDbParams v ft = CutDbParams
+defaultCutDbParams :: HasVersion => Int -> CutDbParams
+defaultCutDbParams ft = CutDbParams
     { _cutDbParamsInitialCutFile = Nothing
     , _cutDbParamsBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbParamsLogLevel = Warn
@@ -199,7 +199,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsReadOnly = False
     }
   where
-    g = _chainGraph (v, maxBound @BlockHeight)
+    g = chainGraphAt (maxBound @BlockHeight)
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -233,7 +233,7 @@ farAheadThreshold = 20
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
 
-cutHashesTable :: RocksDb -> Casify RocksDbTable CutHashes
+cutHashesTable :: HasVersion => RocksDb -> Casify RocksDbTable CutHashes
 cutHashesTable rdb = Casify $ newTable rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec
@@ -268,10 +268,6 @@ data CutDb = CutDb
     , _cutDbReadOnly :: !Bool
     , _cutDbFastForwardHeightLimit :: !(Maybe BlockHeight)
     }
-
-instance HasChainwebVersion CutDb where
-    _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
-    {-# INLINE _chainwebVersion #-}
 
 cutDbPayloadProviders :: Getter CutDb (ChainMap ConfiguredPayloadProvider)
 cutDbPayloadProviders = to _cutDbPayloadProviders
@@ -372,16 +368,16 @@ awaitNewCutByChainIdStm cdb cid c = do
     return c'
 
 pruneCuts
-    :: LogFunction
-    -> ChainwebVersion
+    :: HasVersion
+    => LogFunction
     -> CutDbParams
     -> BlockHeight
     -> Casify RocksDbTable CutHashes
     -> IO ()
-pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
+pruneCuts logfun conf curAvgBlockHeight cutHashesStore = do
     let avgBlockHeightPruningDepth = _cutDbParamsAvgBlockHeightPruningDepth conf
     let pruneCutHeight =
-            avgCutHeightAt v (curAvgBlockHeight - min curAvgBlockHeight avgBlockHeightPruningDepth)
+            avgCutHeightAt (curAvgBlockHeight - min curAvgBlockHeight avgBlockHeightPruningDepth)
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (unCasify cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
@@ -394,7 +390,8 @@ cutDbQueueSize :: CutDb -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
 
 withCutDb
-    :: CutDbParams
+    :: HasVersion
+    => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
@@ -415,7 +412,8 @@ withCutDb config logfun headerStore providers cutHashesStore
 -- read-only version of the payload store.
 --
 startCutDb
-    :: CutDbParams
+    :: HasVersion
+    => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
@@ -449,7 +447,6 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
-    v = _chainwebVersion headerStore
 
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
@@ -457,19 +454,21 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
 
     readInitialCut :: IO Cut
     readInitialCut = do
-        unsafeMkCut v <$> do
-            hm <- readHighestCutHeaders v logg wbhdb cutHashesStore
+        unsafeMkCut <$> do
+            hm <- readHighestCutHeaders logg wbhdb cutHashesStore
             case _cutDbParamsInitialHeightLimit config of
                 Nothing -> return hm
                 Just h -> do
                     limitedCutHeaders <- limitCutHeaders wbhdb h hm
-                    let limitedCut = unsafeMkCut v limitedCutHeaders
+                    let limitedCut = unsafeMkCut limitedCutHeaders
                     unless (_cutDbParamsReadOnly config) $
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
                     return limitedCutHeaders
 
-readHighestCutHeaders :: ChainwebVersion -> LogFunctionText -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
-readHighestCutHeaders v logg wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
+readHighestCutHeaders
+    :: HasVersion
+    => LogFunctionText -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
+readHighestCutHeaders logg wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
     iterLast it
     go it
   where
@@ -478,7 +477,7 @@ readHighestCutHeaders v logg wbhdb cutHashesStore = withTableIterator (unCasify 
     go it = iterValue it >>= \case
         Nothing -> do
             logg Warn "No initial cut found in database or configuration, falling back to genesis cut"
-            return $ view cutMap $ genesisCut v
+            return $ view cutMap genesisCut
         Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
             Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
                 logg Warn
@@ -491,16 +490,15 @@ readHighestCutHeaders v logg wbhdb cutHashesStore = withTableIterator (unCasify 
             Left e -> throwM e
             Right hm -> return hm
 
-fastForwardCutDb :: CutDb -> IO ()
+fastForwardCutDb :: HasVersion => CutDb -> IO ()
 fastForwardCutDb cutDb = do
     highestCutHeaders <-
-        readHighestCutHeaders v (_cutDbLogFunction cutDb) wbhdb (_cutDbCutStore cutDb)
+        readHighestCutHeaders (_cutDbLogFunction cutDb) wbhdb (_cutDbCutStore cutDb)
     limitedCutHeaders <-
         limitCutHeaders wbhdb (fromMaybe maxBound (_cutDbFastForwardHeightLimit cutDb)) highestCutHeaders
-    let limitedCut = unsafeMkCut (_chainwebVersion cutDb) limitedCutHeaders
+    let limitedCut = unsafeMkCut limitedCutHeaders
     atomically $ writeTVar (_cutDbCut cutDb) limitedCut
   where
-    v = _chainwebVersion cutDb
     wbhdb = _webBlockHeaderStoreCas $ _cutDbHeaderStore cutDb
 
 -- | Stop the cut validation pipeline.
@@ -516,15 +514,16 @@ stopCutDb db = do
 -- the lookup for some BlockHash in the input CutHashes.
 --
 lookupCutHashes
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> CutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
 lookupCutHashes wbhdb hs =
     flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
 
-cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
-cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
+cutAvgBlockHeight :: HasVersion => Cut -> BlockHeight
+cutAvgBlockHeight = BlockHeight . round . avgBlockHeightAtCutHeight . _cutHeight
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
@@ -537,7 +536,8 @@ cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHe
 -- stores the longest cut.
 --
 processCuts
-    :: CutDbParams
+    :: HasVersion
+    => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
@@ -567,7 +567,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
             unless (_cutDbParamsReadOnly conf) $ do
-                maybePrune rng (cutAvgBlockHeight v curCut)
+                maybePrune rng (cutAvgBlockHeight curCut)
                 loggCutId logFun Debug newCut "writing cut"
                 casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
@@ -585,12 +585,10 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
             )
   where
 
-    v = _chainwebVersion headerStore
-
     maybePrune rng curCutAvgBlockHeight = do
         r :: Double <- Prob.uniform rng
-        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
-            pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
+        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt maxBound)) $
+            pruneCuts logFun conf curCutAvgBlockHeight cutHashesStore
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
@@ -631,7 +629,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
     --
     isVeryOld x = do
         curMin <- _cutMinHeight <$> readTVarIO cutVar
-        let diam = diameter $ chainGraphAt headerStore curMin
+        let diam = diameter $ chainGraphAt curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
         when r $ loggCutId logFun Debug x "skip very old cut"
@@ -674,6 +672,7 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
 cutStreamToHeaderStream
     :: forall m r
     . MonadIO m
+    => HasVersion
     => CutDb
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of BlockHeader) m r
@@ -703,6 +702,7 @@ cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
 cutStreamToHeaderDiffStream
     :: forall m r
     . MonadIO m
+    => HasVersion
     => CutDb
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
@@ -740,18 +740,19 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
 --
 -- @chainId + blockHeight * graphOrder@
 --
-uniqueBlockNumber :: BlockHeader -> Natural
+uniqueBlockNumber :: HasVersion => BlockHeader -> Natural
 uniqueBlockNumber bh
     = chainIdInt (_chainId bh) + int (view blockHeight bh) * order (_chainGraph bh)
 
-blockStream :: MonadIO m => CutDb -> S.Stream (Of BlockHeader) m r
+blockStream :: (MonadIO m, HasVersion) => CutDb -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db
 
-blockDiffStream :: MonadIO m => CutDb -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
+blockDiffStream :: (MonadIO m, HasVersion) => CutDb -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
 cutHashesToBlockHeaderMap
-    :: CutDbParams
+    :: HasVersion
+    => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
@@ -839,7 +840,8 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
 -- Membership Queries
 
 memberOfHeader
-    :: CutDb
+    :: HasVersion
+    => CutDb
     -> ChainId
     -> BlockHash
         -- ^ the block hash to look up (the member)
@@ -856,7 +858,8 @@ memberOfHeader db cid h ctx = do
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 memberOfM
-    :: CutDb
+    :: HasVersion
+    => CutDb
     -> ChainId
     -> BlockHash
         -- ^ the block hash to look up (the member)
@@ -869,7 +872,12 @@ memberOfM db cid h ctx = do
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
-member :: CutDb -> ChainId -> BlockHash -> IO Bool
+member
+    :: HasVersion
+    => CutDb
+    -> ChainId
+    -> BlockHash
+    -> IO Bool
 member db cid h = do
     th <- maxEntry chainDb
     memberOfHeader db cid h th
@@ -886,8 +894,10 @@ newtype CutDbT (v :: ChainwebVersionT) = CutDbT CutDb
 
 data SomeCutDb = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT v)
 
-someCutDbVal :: ChainwebVersion -> CutDb -> SomeCutDb
-someCutDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @v db
+someCutDbVal :: HasVersion => CutDb -> SomeCutDb
+someCutDbVal db = case implicitVersion of
+    FromSingChainwebVersion (SChainwebVersion :: Sing v) ->
+        SomeCutDb $ CutDbT @v db
 
 -- -------------------------------------------------------------------------- --
 -- Queue Stats

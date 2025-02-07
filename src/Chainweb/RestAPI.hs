@@ -200,15 +200,16 @@ chainwebServiceMiddlewares
 -- Chainweb Peer Server
 
 someChainwebServer
-    :: ChainwebConfiguration
+    :: HasVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs
     -> SomeServer
 someChainwebServer config dbs =
-    maybe mempty (someCutServer v cutPeerDb) cuts
+    maybe mempty (someCutServer cutPeerDb) cuts
     <> fold payloads
-    <> someP2pBlockHeaderDbServers v blocks
-    <> Mempool.someMempoolServers v mempools
-    <> someP2pServers v peers
+    <> someP2pBlockHeaderDbServers blocks
+    <> Mempool.someMempoolServers mempools
+    <> someP2pServers peers
     <> someGetConfigServer config
   where
     payloads = _chainwebServerPayloads dbs
@@ -217,24 +218,24 @@ someChainwebServer config dbs =
     peers = _chainwebServerPeerDbs dbs
     mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
-    v = _configChainwebVersion config
 
 -- | Legacy version with Hashes API that is used in tests
 --
 -- When we have comprehensive testing for the service API we can remove this
 --
 someChainwebServerWithHashesAndSpvApi
-    :: ChainwebConfiguration
+    :: HasVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs
     -> SomeServer
 someChainwebServerWithHashesAndSpvApi config dbs =
-    maybe mempty (someCutServer v cutPeerDb) cuts
+    maybe mempty (someCutServer cutPeerDb) cuts
     <> fold payloads
-    <> someBlockHeaderDbServers v blocks
-    <> Mempool.someMempoolServers v mempools
-    <> someP2pServers v peers
+    <> someBlockHeaderDbServers blocks
+    <> Mempool.someMempoolServers mempools
+    <> someP2pServers peers
     <> someGetConfigServer config
-    <> maybe mempty (someSpvServers v) cuts
+    <> maybe mempty someSpvServers cuts
   where
     payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
@@ -242,13 +243,13 @@ someChainwebServerWithHashesAndSpvApi config dbs =
     peers = _chainwebServerPeerDbs dbs
     mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
-    v = _configChainwebVersion config
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb P2P API Application
 
 chainwebApplication
-    :: ChainwebConfiguration
+    :: HasVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs
     -> Application
 chainwebApplication config dbs
@@ -261,7 +262,8 @@ chainwebApplication config dbs
 -- When we have comprehensive testing for the service API we can remove this
 --
 chainwebApplicationWithHashesAndSpvApi
-    :: ChainwebConfiguration
+    :: HasVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs
     -> Application
 chainwebApplicationWithHashesAndSpvApi config dbs
@@ -270,21 +272,24 @@ chainwebApplicationWithHashesAndSpvApi config dbs
     $ someChainwebServerWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
-    :: Port
+    :: HasVersion
+    => Port
     -> ChainwebConfiguration
     -> ChainwebServerDbs
     -> IO ()
 serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
-    :: Settings
+    :: HasVersion
+    => Settings
     -> ChainwebConfiguration
     -> ChainwebServerDbs
     -> IO ()
 serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
-    :: Settings
+    :: HasVersion
+    => Settings
     -> Socket
     -> ChainwebConfiguration
     -> ChainwebServerDbs
@@ -294,7 +299,8 @@ serveChainwebSocket settings sock c dbs m =
     runSettingsSocket settings sock $ m $ chainwebApplication c dbs
 
 serveChainwebSocketTls
-    :: Settings
+    :: HasVersion
+    => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
@@ -310,47 +316,46 @@ serveChainwebSocketTls settings certChain key sock c dbs m =
 -- Run Chainweb P2P Server that serves a single PeerDb
 
 servePeerDbSocketTls
-    :: Settings
+    :: HasVersion
+    => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
-    -> ChainwebVersion
     -> NetworkId
     -> PeerDb
     -> Middleware
     -> IO ()
-servePeerDbSocketTls settings certChain key sock v nid pdb m =
+servePeerDbSocketTls settings certChain key sock nid pdb m =
     serveSocketTls settings certChain key sock $ m
         $ chainwebP2pMiddlewares
         $ someServerApplication
         $ someP2pServer
-        $ somePeerDbVal v nid pdb
+        $ somePeerDbVal nid pdb
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Service API Application
 
 someServiceApiServer
     :: Logger logger
-    => ChainwebVersion
-    -> ChainwebServerDbs
+    => HasVersion
+    => ChainwebServerDbs
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> SomeServer
-someServiceApiServer v dbs mr (HeaderStream hs) backupEnv pbl =
+someServiceApiServer dbs mr (HeaderStream hs) backupEnv pbl =
     someHealthCheckServer
-    <> maybe mempty (someBackupServer v) backupEnv
-    <> maybe mempty (someNodeInfoServer v) cuts
-    <> mempty -- PactAPI.somePactServers v
-    <> maybe mempty (Mining.someMiningServer v) mr
-    <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
+    <> maybe mempty someBackupServer backupEnv
+    <> maybe mempty someNodeInfoServer cuts
+    <> maybe mempty Mining.someMiningServer mr
+    <> maybe mempty someSpvServers cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
-    <> maybe mempty (someCutGetServer v) cuts
+    <> maybe mempty someCutGetServer cuts
     <> fold payloads
-    <> someBlockHeaderDbServers v blocks
-    <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
+    <> someBlockHeaderDbServers blocks
+    <> maybe mempty someBlockStreamServer (bool Nothing cuts hs)
   where
     cuts = _chainwebServerCutDb dbs
     payloads = _chainwebServerPayloads dbs
@@ -358,23 +363,23 @@ someServiceApiServer v dbs mr (HeaderStream hs) backupEnv pbl =
 
 serviceApiApplication
     :: Logger logger
-    => ChainwebVersion
-    -> ChainwebServerDbs
+    => HasVersion
+    => ChainwebServerDbs
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs mr hs benv pbl
+serviceApiApplication dbs mr hs benv pbl
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs mr hs benv pbl
+    $ someServiceApiServer dbs mr hs benv pbl
 
 serveServiceApiSocket
     :: Logger logger
+    => HasVersion
     => Settings
     -> Socket
-    -> ChainwebVersion
     -> ChainwebServerDbs
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
@@ -382,5 +387,5 @@ serveServiceApiSocket
     -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs mr hs benv pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs mr hs benv pbl
+serveServiceApiSocket s sock dbs mr hs benv pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication dbs mr hs benv pbl

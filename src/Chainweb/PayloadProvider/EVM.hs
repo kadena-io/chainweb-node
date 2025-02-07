@@ -127,10 +127,9 @@ initPayloadDb :: EvmDB.Configuration -> IO (EvmDB.HeaderDb_ a RocksDbTable)
 initPayloadDb = EvmDB.initHeaderDb
 
 payloadDbConfiguration
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> RocksDb
     -> Payload
     -> EvmDB.Configuration
@@ -183,8 +182,8 @@ defaultEvmProviderConfig = EvmProviderConfig
     , _evmConfMinerAddress = Nothing
     }
 
-validateEvmProviderConfig :: ChainwebVersion -> ChainId -> ConfigValidation EvmProviderConfig []
-validateEvmProviderConfig _ cid conf = do
+validateEvmProviderConfig :: HasVersion => ChainId -> ConfigValidation EvmProviderConfig []
+validateEvmProviderConfig cid conf = do
     when (euri == _evmConfEngineUri defaultEvmProviderConfig) $ tell
         [ "EVM Engine URI for " <> sshow cid
         <> " is to the default value: " <> sshow euri
@@ -241,8 +240,7 @@ pEvmProviderConfig cid = id
 -- 3. EL time = CL parent time
 --
 data EvmPayloadProvider logger = EvmPayloadProvider
-    { _evmChainwebVersion :: !ChainwebVersion
-    , _evmChainId :: !ChainId
+    { _evmChainId :: !ChainId
     , _evmLogger :: !logger
     , _evmPayloadStore :: !(PayloadStore (PayloadDb RocksDbTable) Payload)
         -- ^ The BlockPayloadHash in the ConsensusState is different from the
@@ -329,9 +327,6 @@ evmPayloadDb = to (_payloadStoreTable . _evmPayloadStore)
 
 evmPayloadQueue :: Getter (EvmPayloadProvider l) (PQueue (Task ClientEnv Payload))
 evmPayloadQueue = to (_payloadStoreQueue . _evmPayloadStore)
-
-instance HasChainwebVersion (EvmPayloadProvider logger) where
-    _chainwebVersion = _evmChainwebVersion
 
 instance HasChainId (EvmPayloadProvider logger) where
     _chainId = _evmChainId
@@ -482,10 +477,9 @@ instance Exception InvalidPayloadException
 --
 withEvmPayloadProvider
     :: Logger logger
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId c
     => logger
-    -> v
     -> c
     -> RocksDb
     -> Maybe HTTP.Manager
@@ -495,27 +489,26 @@ withEvmPayloadProvider
         -- It is /not/ used for communication with the execution engine client.
     -> EvmProviderConfig
     -> ResourceT IO (EvmPayloadProvider logger)
-withEvmPayloadProvider logger v c rdb mgr conf
-    | FromSing @_ @p (SEvmProvider ecid) <- payloadProviderTypeForChain v c = do
+withEvmPayloadProvider logger c rdb mgr conf
+    | FromSing @_ @p (SEvmProvider ecid) <- payloadProviderTypeForChain c = do
         engineCtx <- liftIO $ mkEngineCtx (_evmConfEngineJwtSecret conf) (_engineUri $ _evmConfEngineUri conf)
 
-        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal v
+        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
         SomeChainIdT @c _ <- return $ someChainIdVal c
         let pldCli h = Rest.payloadClient @v @c @p h
 
-        genPld <- liftIO $ checkExecutionClient logger v c engineCtx (EVM.ChainId (fromSNat ecid))
+        genPld <- liftIO $ checkExecutionClient logger c engineCtx (EVM.ChainId (fromSNat ecid))
         liftIO $ logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
         liftIO $ logFunctionText logger Debug $ "genesis payload from execution client: " <> sshow genPld
-        pdb <- liftIO $ initPayloadDb $ payloadDbConfiguration v c rdb genPld
+        pdb <- liftIO $ initPayloadDb $ payloadDbConfiguration c rdb genPld
         store <- liftIO $ newPayloadStore mgr (logFunction pldStoreLogger) pdb pldCli
         pldVar <- liftIO newEmptyTMVarIO
         pldIdVar <- liftIO newEmptyTMVarIO
         candidates <- liftIO $ emptyTable
-        stateVar <- liftIO $ newTVarIO (T2 (genesisState v c) Nothing)
+        stateVar <- liftIO $ newTVarIO (T2 (genesisState c) Nothing)
         lock <- liftIO $ newMVar ()
         let p = EvmPayloadProvider
-                { _evmChainwebVersion = _chainwebVersion v
-                , _evmChainId = _chainId c
+                { _evmChainId = _chainId c
                 , _evmLogger = logger
                 , _evmState = stateVar
                 , _evmPayloadStore = store
@@ -539,7 +532,7 @@ withEvmPayloadProvider logger v c rdb mgr conf
   where
     pldStoreLogger = addLabel ("sub-component", "payloadStore") logger
 
-payloadListener :: Logger logger => EvmPayloadProvider logger -> IO ()
+payloadListener :: (Logger logger, HasVersion) => EvmPayloadProvider logger -> IO ()
 payloadListener p = case (_evmMinerAddress p) of
     Nothing -> do
         lf Info "New payload creation is disabled."
@@ -559,17 +552,16 @@ payloadListener p = case (_evmMinerAddress p) of
 -- Returns the genesis header.
 --
 checkExecutionClient
-    :: (HasChainwebVersion v)
+    :: HasVersion
     => Logger logger
     => HasChainId c
     => logger
-    -> v
     -> c
     -> JsonRpcHttpCtx
     -> EVM.ChainId
         -- ^ expected Ethereum Network ID
     -> IO Payload
-checkExecutionClient logger v c ctx expectedEcid = do
+checkExecutionClient logger c ctx expectedEcid = do
     ecid <- try @_ @SomeException (callMethodHttp @Eth_ChainId ctx Nothing) >>= \case
         Left err -> do
             logFunctionText logger Error
@@ -588,7 +580,7 @@ checkExecutionClient logger v c ctx expectedEcid = do
                     (Actual $ EVM._hdrPayloadHash h)
             return h
   where
-    expectedGenesisHeader = genesisBlockPayloadHash (_chainwebVersion v) (_chainId c)
+    expectedGenesisHeader = genesisBlockPayloadHash (_chainId c)
 
 -- -------------------------------------------------------------------------- --
 -- Engine Calls
@@ -845,7 +837,7 @@ newPayloadTimeout = 30_000_000
 --
 -- This is called only if payload creation is enabled in the configuration.
 --
-awaitNewPayload :: Logger logger => EvmPayloadProvider logger -> IO ()
+awaitNewPayload :: (Logger logger, HasVersion) => EvmPayloadProvider logger -> IO ()
 awaitNewPayload p = do
     lf Debug "await new payload ID"
     awaitPid >>= \case
@@ -877,7 +869,6 @@ awaitNewPayload p = do
   where
     lf = loggS p "awaitNewPayload"
     ctx = _evmEngineCtx p
-    v = _chainwebVersion p
     cid = _chainId p
 
     fees v1 = Stu $ bf * gu
@@ -972,7 +963,6 @@ awaitNewPayload p = do
                     , _newPayloadFees = fees v1
                     , _newPayloadEncodedPayloadOutputs = Nothing
                     , _newPayloadEncodedPayloadData = Just (EncodedPayloadData $ putRlpByteString pld)
-                    , _newPayloadChainwebVersion = v
                     , _newPayloadChainId = cid
                     }
         threadDelay newPayloadRate
@@ -1075,6 +1065,7 @@ forkchoiceUpdatedTimeout = 3_000_000
 --
 evmSyncToBlock
     :: Logger logger
+    => HasVersion
     => EvmPayloadProvider logger
     -> Maybe Hints
     -> ForkInfo
@@ -1195,10 +1186,10 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
 --   ignore that case. We want a solution where we don't have permanent cost
 --   overhead for this exceptional scenario.
 --
-candidatePruningDepth :: EvmPayloadProvider logger -> BlockHeight -> BlockHeight
-candidatePruningDepth p h = int $ diameter (chainGraphAt (_chainwebVersion p) h)
+candidatePruningDepth :: HasVersion => EvmPayloadProvider logger -> BlockHeight -> BlockHeight
+candidatePruningDepth p h = int $ diameter (chainGraphAt h)
 
-pruneCandidates :: EvmPayloadProvider logger -> IO ()
+pruneCandidates :: HasVersion => EvmPayloadProvider logger -> IO ()
 pruneCandidates p = do
     lrh <- latestRankedBlockPayloadHash . sfst <$> stateIO p
     let h = _rankedHeight lrh
@@ -1319,13 +1310,14 @@ getLogEntry p e = do
 
 getSpvProof
     :: Logger logger
+    => HasVersion
     => EvmPayloadProvider logger
     -> XEventId
     -> IO SpvProof
 getSpvProof p e = do
     le <- getLogEntry p e
     lf Info $ "got logEntry: " <> encodeToText le
-    ld <- parseXLogData (_chainwebVersion p) e le
+    ld <- parseXLogData e le
     lf Info $ "got logData: " <> sshow ld
     return $ SpvProof $ object
         [ "origin" .= object

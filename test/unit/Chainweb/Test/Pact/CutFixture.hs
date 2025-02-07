@@ -32,6 +32,7 @@ module Chainweb.Test.Pact.CutFixture
     , fixtureCutDb
     , fixturePayloadDb
     , fixtureWebBlockHeaderDb
+    , fixtureLogger
     , fixtureMempools
     , fixturePacts
     , advanceAllChains
@@ -40,51 +41,39 @@ module Chainweb.Test.Pact.CutFixture
     )
     where
 
-import Chainweb.Storage.Table (Casify)
-import Chainweb.BlockCreationTime (BlockCreationTime(..))
-import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader hiding (blockCreationTime, blockNonce)
-import Chainweb.BlockHeader.Internal (blockCreationTime, blockNonce)
 import Chainweb.ChainId
-import Chainweb.ChainValue (ChainValue(..), ChainValueCasLookup, chainLookupM)
 import Chainweb.Cut
-import Chainweb.Cut.Create (InvalidSolvedHeader(..), SolvedWork, extendCut, getCutExtension, newHeaderForPayloadPure, makeSolvedWork)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend)
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Test.Cut
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements, only)
 import Control.Monad
 import Control.Monad.Catch hiding (finally)
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource (ResourceT, allocate)
+import Control.Monad.Trans.Resource (ResourceT)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Function
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector (Vector)
 import GHC.Stack
-import Network.HTTP.Client qualified as HTTP
-import qualified Data.Pool as Pool
 import qualified Chainweb.Pact.PactService as PactService
 import Chainweb.PayloadProvider.Pact
 import Chainweb.PayloadProvider
@@ -106,21 +95,21 @@ instance HasFixture Fixture where
 instance HasFixture a => HasFixture (IO a) where
     cutFixture = (>>= cutFixture)
 
-mkFixture :: ChainwebVersion -> (ChainId -> PayloadWithOutputs) -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
-mkFixture v genesisPayloadFor pactServiceConfig baseRdb = do
+mkFixture :: HasVersion => (ChainId -> PayloadWithOutputs) -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
+mkFixture genesisPayloadFor pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
     testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
-    (payloadDb, webBHDb) <- withBlockDbs v testRdb
-    perChain <- fmap ChainMap $ iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+    (payloadDb, webBHDb) <- withBlockDbs testRdb
+    perChain <- fmap ChainMap $ iforM (HashSet.toMap chainIds) $ \chain () -> do
         (writeSqlite, readPool) <- withTempChainSqlite chain
-        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing payloadDb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayloadFor chain)
+        serviceEnv <- PactService.withPactService chain Nothing mempty logger Nothing payloadDb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayloadFor chain)
         mempool <- withMempool logger serviceEnv
         let serviceEnv' = serviceEnv { _psMempoolAccess = pactMemPoolAccess mempool logger }
         return (mempool, serviceEnv')
     let pacts = snd <$> perChain
     let mempools = fst <$> perChain
     let providers = ConfiguredPayloadProvider . PactPayloadProvider logger <$> pacts
-    (_, cutDb) <- withTestCutDb testRdb v id 0 providers (logFunction logger)
+    (_, cutDb) <- withTestCutDb testRdb id 0 providers (logFunction logger)
     let fixture = Fixture
             { _fixtureCutDb = cutDb
             , _fixtureLogger = logger
@@ -138,12 +127,11 @@ mkFixture v genesisPayloadFor pactServiceConfig baseRdb = do
 -- their mempools at the time.
 --
 advanceAllChains
-    :: (HasCallStack, HasFixture a)
+    :: (HasCallStack, HasFixture a, HasVersion)
     => a
     -> IO (Cut, ChainMap (Vector TestPact5CommandResult))
 advanceAllChains fx = do
     Fixture{..} <- cutFixture fx
-    let v = _chainwebVersion _fixtureCutDb
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
     let latestBlockHeight = maximum blockHeights
@@ -164,12 +152,12 @@ advanceAllChains fx = do
             return $ (newCut, (cid, commandResults) : acc)
         )
         (latestCut, [])
-        (HashSet.toList (chainIdsAt v (latestBlockHeight + 1)))
+        (HashSet.toList (chainIdsAt (latestBlockHeight + 1)))
 
     return (finalCut, onChains perChainCommandResults)
 
 advanceAllChains_
-    :: (HasCallStack, HasFixture a)
+    :: (HasCallStack, HasFixture a, HasVersion)
     => a
     -> IO ()
 advanceAllChains_ = void . advanceAllChains
@@ -178,6 +166,7 @@ advanceAllChains_ = void . advanceAllChains
 -- cutDb). No POW or poison delay is applied. Block times are real times.
 mine
     :: HasCallStack
+    => HasVersion
     => ChainId
     -> CutDb
     -> Cut
@@ -193,64 +182,12 @@ mine cid cutDb c = do
             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
             return x
 
-testMineWithPayloadHash
-    :: forall cid hdb. (HasChainId cid, ChainValueCasLookup hdb BlockHeader)
-    => hdb
-    -> Nonce
-    -> Time Micros
-    -> BlockPayloadHash
-    -> cid
-    -> Cut
-    -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayloadHash db n t ph cid c = try $ createNewCut (chainLookupM db) n t ph cid c
-
--- | Create a new block. Only produces a new cut but doesn't insert it into the
--- chain database.
---
--- The creation time isn't checked.
---
-createNewCut
-    :: (HasCallStack, MonadCatch m, MonadIO m, HasChainId cid)
-    => (ChainValue BlockHash -> m BlockHeader)
-    -> Nonce
-    -> Time Micros
-    -> BlockPayloadHash
-    -> cid
-    -> Cut
-    -> m (T2 BlockHeader Cut)
-createNewCut hdb n t pay i c = do
-    extension <- fromMaybeM BadAdjacents $ getCutExtension c i
-    work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
-    (h, mc') <- extendCut c (solveWork work n t)
-        `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
-    c' <- fromMaybeM BadAdjacents mc'
-    return $ T2 solvedHeader c'
-
--- | Solve Work. Doesn't check that the nonce and the time are valid.
---
-solveWork :: HasCallStack => BlockHeader -> Nonce -> Time Micros -> SolvedWork
-solveWork bh n t =
-    makeSolvedWork
-        $ fromJuste
-        $ runGetS decodeBlockHeaderWithoutHash
-        $ runPutS
-        $ encodeAsWorkHeader
-            -- After injecting the nonce and the creation time will have to do a
-            -- serialization roundtrip to update the Merkle hash.
-            --
-            -- A "real" miner would inject the nonce and time without first
-            -- decoding the header and would hand over the header in serialized
-            -- form.
-
-        $ set blockCreationTime (BlockCreationTime t)
-        $ set blockNonce n
-        $ bh
-
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
 --
 tryMineForChain
     :: HasCallStack
+    => HasVersion
     => CutDb
     -> Cut
     -> ChainId
@@ -273,13 +210,3 @@ tryMineForChain cutDb c cid = do
         Left e -> return $ Left e
     where
         wdb = view cutDbWebBlockHeaderDb cutDb
-
-data MineFailure
-    = InvalidHeader Text
-        -- ^ The header is invalid, e.g. because of a bad nonce or creation time.
-    | MissingParentHeader
-        -- ^ A parent header is missing in the chain db
-    | BadAdjacents
-        -- ^ This could mean that the chain is blocked.
-    deriving stock (Show)
-    deriving anyclass (Exception)

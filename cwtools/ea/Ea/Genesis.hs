@@ -238,7 +238,7 @@ quirkedPact5InstantCPMN = quirkedPact5InstantCPM0
 
 -- fastTimedCPM0 :: Genesis
 -- fastTimedCPM0 = Genesis
---     { _version = fastForkingCpmTestVersion petersonChainGraph
+--     { _version = fastForkingCpmTestVersion petersenChainGraph
 --     , _tag = "FastTimedCPM"
 --     , _txChainIds = onlyChainId 0
 --     , _coinbase = Just fast0Grants

@@ -199,10 +199,6 @@ makeLenses ''Chainweb
 chainwebSocket :: Getter (Chainweb logger) Socket
 chainwebSocket = chainwebPeer . peerResSocket
 
-instance HasChainwebVersion (Chainweb logger) where
-    _chainwebVersion = _chainwebVersion . _chainwebCutResources
-    {-# INLINE _chainwebVersion #-}
-
 -- Intializes all service API chainweb components but doesn't start any networking.
 --
 withChainweb
@@ -216,32 +212,31 @@ withChainweb
     -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainweb c logger rocksDb pactDbDir backupDir inner =
-    withPeerResources v (_configP2p confWithBootstraps) logger $ \logger' peerRes ->
-        withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
-            let conf' = confWithBootstraps
-                    & set configP2p (_peerResConfig peerRes)
-                    & set (configServiceApi . serviceApiConfigPort) (fst serviceSock)
-            withChainwebInternal
-                conf'
-                logger'
-                peerRes
-                serviceSock
-                rocksDb
-                pactDbDir
-                backupDir
-                inner
+    withVersion (c ^. configChainwebVersion) $
+        withPeerResources (view configP2p confWithBootstraps) logger $ \logger' peerRes ->
+            withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
+                let conf' = confWithBootstraps
+                        & set configP2p (_peerResConfig peerRes)
+                        & set (configServiceApi . serviceApiConfigPort) (fst serviceSock)
+                withChainwebInternal
+                    conf'
+                    logger'
+                    peerRes
+                    serviceSock
+                    rocksDb
+                    pactDbDir
+                    backupDir
+                    inner
   where
     serviceApiPort = _serviceApiConfigPort $ _configServiceApi c
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi c
-
-    v = _chainwebVersion c
 
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers
-            %~ (\x -> L.nub $ x <> _versionBootstraps v) $ c
+            %~ (\x -> L.nub $ x <> _versionBootstraps (c ^. configChainwebVersion)) $ c
 
 data StartedChainweb logger where
   StartedChainweb
@@ -267,7 +262,8 @@ data ChainwebStatus
 --
 withChainwebInternal
     :: forall logger
-    .  Logger logger
+    . Logger logger
+    => HasVersion
     => ChainwebConfiguration
     -> logger
     -> PeerResources logger
@@ -295,7 +291,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                 runResourceT $ do
                     cr <- withChainResources
                         (chainLogger cid)
-                        v
                         cid
                         rocksDb
                         (_peerResManager peerRes)
@@ -316,10 +311,8 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
             )
             (onChains [(cid, cid) | cid <- cidsList])
   where
-    v = _configChainwebVersion conf
-
     cids :: HS.HashSet ChainId
-    cids = chainIds v
+    cids = chainIds
 
     cidsList :: [ChainId]
     cidsList = toList cids
@@ -341,7 +334,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
 
     -- FIXME: make this configurable
     cutDbParams :: CutDbParams
-    cutDbParams = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
+    cutDbParams = (defaultCutDbParams $ _cutFetchTimeout cutConf)
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
@@ -381,7 +374,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
         :: ChainMap (ChainResources logger)
         -> IO ()
     global cs = runResourceT $ do
-        let !webchain = mkWebBlockHeaderDb v (fmap _chainResBlockHeaderDb cs)
+        let !webchain = mkWebBlockHeaderDb (fmap _chainResBlockHeaderDb cs)
             -- !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             !providers = payloadProvidersForAllChains cs
             !cutLogger = setComponent "cut" logger
@@ -631,6 +624,7 @@ makeLenses ''NowServing
 runChainweb
     :: forall logger
     . Logger logger
+    => HasVersion
     => Chainweb logger
     -> ((NowServing -> NowServing) -> IO ())
     -> IO ()
@@ -639,7 +633,7 @@ runChainweb cw nowServing = do
 
     -- Create OpenAPI Validation Middlewars
     mkValidationMiddleware <- interleaveIO $
-        OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
+        OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebManager cw)
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do
@@ -681,12 +675,10 @@ runChainweb cw nowServing = do
 
     clients :: IO ()
     clients = do
-        mpClients <- mempoolSyncClients
         concurrentlies_ $ concat
             [ miner
             , cutNetworks (_chainwebCutResources cw)
             , runP2pNodesOfAllChains (_chainwebChains cw)
-            , mpClients
             ]
 
     logg :: LogFunctionText
@@ -853,7 +845,6 @@ runChainweb cw nowServing = do
         serveServiceApiSocket
             (serviceApiServerSettings clientClosedConnectionsCounter (fst $ _chainwebServiceSocket cw) serviceApiHost)
             (snd $ _chainwebServiceSocket cw)
-            (_chainwebVersion cw)
             ChainwebServerDbs
                 { _chainwebServerCutDb = Just cutDb
                 , _chainwebServerBlockHeaderDbs = chainDbsToServe
@@ -884,35 +875,4 @@ runChainweb cw nowServing = do
     cutPeerDb = _cutResPeerDb $ _chainwebCutResources cw
 
     miner :: [IO ()]
-    miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
-
-    -- Mempool
-
-    mempoolP2pConfig :: EnableConfig MempoolP2pConfig
-    -- mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
-    -- FIXME
-    mempoolP2pConfig = error "Chainweb.Chainweb.runChainweb: FIXME Pact mempoolP2pConfig moved into Pact and is not yet implemented"
-
-    -- | Decide whether to enable the mempool sync clients.
-    --
-    -- FIXME: Pact mempools are now part of the pact payload provider and are
-    -- configured there.
-    --
-    mempoolSyncClients :: IO [IO ()]
-    mempoolSyncClients = return []
-    -- mempoolSyncClients = case enabledConfig mempoolP2pConfig of
-    --     Nothing -> disabled
-    --     Just c
-    --         | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
-    --         | otherwise -> enabled c
-    --   where
-    --     disabled = do
-    --         logg Info "Mempool p2p sync disabled"
-    --         return []
-    --     enabled conf = do
-    --         logg Info "Mempool p2p sync enabled"
-    --         -- FIXME FIXME FIXME
-    --         -- return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
-    --         logg Warn "Overwriting mempool p2p sync client configuration. It is currently not supported"
-    --         logg Warn "Chainweb.Chainweb.runChainweb.mempoolSyncClient: Pact mempool synchronization is currently disabled"
-    --         return []
+    miner = maybe [] (\m -> [ runMiner m ]) $ _chainwebMiner cw

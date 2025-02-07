@@ -54,18 +54,14 @@ data TestBlockDb = TestBlockDb
   , _bdbCut :: MVar Cut
   }
 
-instance HasChainwebVersion TestBlockDb where
-  _chainwebVersion = _chainwebVersion . _bdbWebBlockHeaderDb
-
 -- | Initialize TestBlockDb.
-mkTestBlockDb :: ChainwebVersion -> RocksDb -> ResourceT IO TestBlockDb
-mkTestBlockDb cv rdb = do
+mkTestBlockDb :: HasVersion => RocksDb -> ResourceT IO TestBlockDb
+mkTestBlockDb rdb = do
   testRdb <- withTestRocksDb "mkTestBlockDb" rdb
   liftIO $ do
-    wdb <- initWebBlockHeaderDb testRdb cv
+    wdb <- initWebBlockHeaderDb testRdb
     let pdb = newPayloadDb testRdb
-    -- initializePayloadDb cv pdb
-    initCut <- newMVar $ genesisCut cv
+    initCut <- newMVar genesisCut
     return $! TestBlockDb wdb pdb initCut
 
 -- | Initialize TestBlockDb in 'IO'. This is discouraged in most test environments.
@@ -73,13 +69,12 @@ mkTestBlockDb cv rdb = do
 --
 --   Take care to call 'deleteNamespaceRocksDb' on the 'RocksDb' that this returns
 --   in between test runs.
-mkTestBlockDbIO :: ChainwebVersion -> RocksDb -> IO (T2 TestBlockDb RocksDb)
-mkTestBlockDbIO v rdb = do
+mkTestBlockDbIO :: HasVersion => RocksDb -> IO (T2 TestBlockDb RocksDb)
+mkTestBlockDbIO rdb = do
   testRdb <- testRocksDb "mkTestBlockDbIO" rdb
-  wdb <- initWebBlockHeaderDb testRdb v
+  wdb <- initWebBlockHeaderDb testRdb
   let pdb = newPayloadDb testRdb
-  -- initializePayloadDb v pdb
-  initCut <- newMVar $ genesisCut v
+  initCut <- newMVar genesisCut
   return $! T2 (TestBlockDb wdb pdb initCut) testRdb
 
 -- | Add a block.
@@ -88,7 +83,8 @@ mkTestBlockDbIO v rdb = do
 -- the chain is blocked. Retry with another chain!
 --
 addTestBlockDb
-    :: TestBlockDb
+    :: HasVersion
+    => TestBlockDb
     -> BlockHeight
     -> Nonce
     -> GenBlockTime
@@ -137,6 +133,6 @@ setCutTestBlockDb :: TestBlockDb -> Cut -> IO ()
 setCutTestBlockDb (TestBlockDb _ _ cmv) c = void $ swapMVar cmv c
 
 -- | Convenience accessor
-getBlockHeaderDb :: MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb
+getBlockHeaderDb :: HasVersion => MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb
 getBlockHeaderDb cid (TestBlockDb wdb _ _) =
   getWebBlockHeaderDb wdb cid

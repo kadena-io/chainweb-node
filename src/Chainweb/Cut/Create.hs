@@ -63,7 +63,7 @@ module Chainweb.Cut.Create
 -- * Work
 , MiningWork(..)
 , encodeMiningWork
-, decodeMiningWork
+, decodeWorkHeader
 , newMiningWorkPure
 
 -- * Solved Work
@@ -163,10 +163,6 @@ instance HasChainId CutExtension where
     _chainId = _chainId . _cutExtensionParent
     {-# INLINE _chainId #-}
 
-instance HasChainwebVersion CutExtension where
-    _chainwebVersion = _chainwebVersion . _cutExtensionCut
-    {-# INLINE _chainwebVersion #-}
-
 -- | Witness that a cut can be extended for the given chain by trying to
 -- assemble the adjacent hashes for a new work header.
 --
@@ -192,7 +188,7 @@ instance HasChainwebVersion CutExtension where
 -- that can't be further extended.
 --
 getCutExtension
-    :: HasCallStack
+    :: (HasCallStack, HasVersion)
     => HasChainId cid
     => Cut
         -- ^ the cut which is to be extended
@@ -216,13 +212,12 @@ getCutExtension c cid = do
         }
   where
     p = c ^?! ixg (_chainId cid)
-    v = _chainwebVersion c
     parentHeight = view blockHeight p
     targetHeight = parentHeight + 1
-    parentGraph = chainGraphAt p parentHeight
+    parentGraph = chainGraphAt parentHeight
 
     -- true if the parent height is the first of a new graph.
-    isGraphTransitionPost = isGraphChange c parentHeight
+    isGraphTransitionPost = isGraphChange parentHeight
 
     -- true if a graph transition occurs in the cut.
     isGraphTransitionCut = _cutIsTransition c
@@ -239,7 +234,7 @@ getCutExtension c cid = do
     hashForChain acid
         -- existing chain
         | Just b <- lookupCutM acid c = tryAdj b
-        | targetHeight == genesisHeight v acid = error $ T.unpack
+        | targetHeight == genesisHeight acid = error $ T.unpack
             $ "getAdjacentParents: invalid cut extension, requested parent of a genesis block for chain "
             <> sshow acid
             <> ".\n Parent: " <> encodeToText (ObjectEncoded p)
@@ -307,17 +302,18 @@ encodeMiningWork wh = do
 -- FIXME: We really want this indepenent of the block height. For production
 -- chainweb version this is actually the case.
 --
-decodeMiningWork :: ChainwebVersion -> BlockHeight -> Get MiningWork
-decodeMiningWork ver h = MiningWork
+decodeWorkHeader :: HasVersion => BlockHeight -> Get MiningWork
+decodeWorkHeader h = MiningWork
     <$> decodeChainId
     <*> decodeHashTarget
-    <*> (SB.toShort <$> getByteString (int $ workSizeBytes ver h))
+    <*> (SB.toShort <$> getByteString (int $ workSizeBytes h))
 
 -- | A pure version of 'newWorkHeader' that is useful in testing. It is not used
 -- in production code.
 --
 newMiningWorkPure
     :: Applicative m
+    => HasVersion
     => (ChainValue BlockHash -> m BlockHeader)
     -> BlockCreationTime
     -> CutExtension
@@ -360,6 +356,7 @@ newMiningWorkPure hdb creationTime extension phash = do
 --
 getAdjacentParentHeaders
     :: HasCallStack
+    => HasVersion
     => Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> CutExtension
@@ -424,6 +421,7 @@ workParentsAdjacentHashes = to _workParentsAdjacentHashes
 --
 workParents
     :: HasCallStack
+    => HasVersion
     => Applicative m
     => HasChainId cid
     => (ChainValue BlockHash -> m BlockHeader)
@@ -438,7 +436,8 @@ workParents hdb c cid = case getCutExtension c cid of
         <$> getAdjacentParentHeaders hdb e
 
 newWork
-    :: BlockCreationTime
+    :: HasVersion
+    => BlockCreationTime
     -> WorkParents
     -> BlockPayloadHash
     -> MiningWork
@@ -455,7 +454,8 @@ newWork creationTime parents pldHash = MiningWork
 -- | TODO: do we have to verify that the solved for matches the work parents?
 --
 newHeader
-    :: WorkParents
+    :: HasVersion
+    => WorkParents
     -> SolvedWork
     -> BlockHeader
 newHeader parents solved =
@@ -494,7 +494,7 @@ instance HasChainId SolvedWork where
     {-# INLINE _chainId #-}
 
 -- | This is a special decoding function that decode solved work from the
--- mining work bytes that are minter returns as solution.
+-- mining work bytes that the miner returns as solution.
 --
 decodeSolvedWork :: Get SolvedWork
 decodeSolvedWork = do
@@ -557,7 +557,7 @@ instance Brief SolvedWork where
 -- work.
 --
 extend
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => Cut
     -> Maybe EncodedPayloadData
     -> Maybe EncodedPayloadOutputs
@@ -579,7 +579,7 @@ extend c pld pwo ps s = do
 -- | For internal use and testing
 --
 extendCut
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => Cut
     -> WorkParents
     -> SolvedWork
@@ -597,4 +597,3 @@ extendCut c ps s = do
     (bh,) <$> tryMonotonicCutExtension c bh
   where
     bh = newHeader ps s
-

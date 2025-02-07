@@ -102,10 +102,6 @@ data PeerResources logger = PeerResources
     , _peerLogger :: !logger
     }
 
-instance HasChainwebVersion (PeerResources logger) where
-    _chainwebVersion = _chainwebVersion . _peerResDb
-    {-# INLINE _chainwebVersion #-}
-
 makeLenses ''PeerResources
 
 -- | Allocate Peer resources. All P2P networks of a chainweb node share a single
@@ -122,15 +118,15 @@ makeLenses ''PeerResources
 --
 withPeerResources
     :: Logger logger
-    => ChainwebVersion
-    -> P2pConfiguration
+    => HasVersion
+    => P2pConfiguration
     -> logger
     -> (logger -> PeerResources logger -> IO a)
     -> IO a
-withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
-    withPeerDb_ v conf' $ \peerDb -> do
+withPeerResources conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
+    withPeerDb_ conf' $ \peerDb -> do
         (!mgr, !counter) <- connectionManager peerDb
-        withHost mgr v conf' logger $ \conf'' -> do
+        withHost mgr conf' logger $ \conf'' -> do
 
             peer <- unsafeCreatePeer $ _p2pConfigPeer conf''
 
@@ -152,7 +148,7 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
                     let peers = filter (((/=) `on` _peerAddr) pinf)
                             $ _p2pConfigKnownPeers conf
-                    checkReachability sock mgr v logger' localDb peers
+                    checkReachability sock mgr logger' localDb peers
                         peer
                         (_p2pConfigBootstrapReachability conf'')
 
@@ -170,24 +166,24 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 --
 withHost
     :: Logger logger
+    => HasVersion
     => HTTP.Manager
-    -> ChainwebVersion
     -> P2pConfiguration
     -> logger
     -> (P2pConfiguration -> IO a)
     -> IO a
-withHost mgr v conf logger f
+withHost mgr conf logger f
     | null peers = do
         logFunctionText logger Warn
             $ "Unable to verify configured host " <> toText confHost <> ": No peers are available."
         f (set (p2pConfigPeer . peerConfigHost) confHost conf)
     | anyIpv4 == confHost = do
-        h <- getHost mgr v logger peers >>= \case
+        h <- getHost mgr logger peers >>= \case
             Right x -> return x
             Left e -> error $ "withHost failed: " <> T.unpack e
         f (set (p2pConfigPeer . peerConfigHost) h conf)
     | otherwise = do
-        getHost mgr v logger peers >>= \case
+        getHost mgr logger peers >>= \case
             Left e -> logFunctionText logger Warn
                 $ "Failed to verify configured host " <> toText confHost
                 <> ": " <> e
@@ -204,14 +200,14 @@ withHost mgr v conf logger f
 
 getHost
     :: Logger logger
+    => HasVersion
     => HTTP.Manager
-    -> ChainwebVersion
     -> logger
     -> [PeerInfo]
     -> IO (Either T.Text Hostname)
-getHost mgr ver logger peers = do
+getHost mgr logger peers = do
     nis <- forConcurrently peers $ \p ->
-        tryAllSynchronous (requestRemoteNodeInfo mgr (_versionName ver) (_peerAddr p) Nothing) >>= \case
+        tryAllSynchronous (requestRemoteNodeInfo mgr (_versionName implicitVersion) (_peerAddr p) Nothing) >>= \case
             Right x -> Just x <$ do
                 logFunctionText logger Info
                     $ "got remote info from " <> toText (_peerAddr p)
@@ -241,17 +237,17 @@ withPeerSocket conf act = withSocket port interface $ \(p, s) ->
 -- -------------------------------------------------------------------------- --
 -- Run PeerDb for a Chainweb Version
 
-startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v c =
-    startPeerDb v nids (_p2pConfigPrivate c) (_p2pConfigKnownPeers c)
+startPeerDb_ :: HasVersion => P2pConfiguration -> IO PeerDb
+startPeerDb_ c =
+    startPeerDb nids (_p2pConfigPrivate c) (_p2pConfigKnownPeers c)
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids
         `HS.union` HS.map ChainNetwork cids
-    cids = chainIds v
+    cids = chainIds
 
-withPeerDb_ :: ChainwebVersion -> P2pConfiguration -> (PeerDb -> IO a) -> IO a
-withPeerDb_ v conf = bracket (startPeerDb_ v conf) stopPeerDb
+withPeerDb_ :: HasVersion => P2pConfiguration -> (PeerDb -> IO a) -> IO a
+withPeerDb_ conf = bracket (startPeerDb_ conf) stopPeerDb
 
 -- -------------------------------------------------------------------------- --
 -- Connection Manager

@@ -66,6 +66,7 @@ import qualified Servant.Client as Sv
 --
 runMempoolSyncClient
     :: Logger logger
+    => HasVersion
     => HTTP.Manager
         -- ^ HTTP connection pool
     -> MempoolP2pConfig
@@ -105,7 +106,8 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain =
 -- in the same way the Payload APIs are published.
 --
 mempoolSyncP2pSession
-    :: ChainResources logger
+    :: HasVersion
+    => ChainResources logger
     -> Seconds
     -> P2pSession
 mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do

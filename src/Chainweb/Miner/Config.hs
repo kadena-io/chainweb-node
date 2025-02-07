@@ -64,8 +64,8 @@ newtype MinerCount = MinerCount { _minerCount :: Natural }
 -- -------------------------------------------------------------------------- --
 -- Mining Config
 
-validateMinerConfig :: ChainwebVersion -> ConfigValidation MiningConfig []
-validateMinerConfig v c = do
+validateMinerConfig :: HasVersion => ConfigValidation MiningConfig []
+validateMinerConfig c = do
     when (_nodeMiningEnabled nmc) $ do
         tell
             [ "In-node mining is enabled. This should only be used for testing"
@@ -87,7 +87,7 @@ validateMinerConfig v c = do
     -- future we may also consider uname -m and/or cpuinfo (including flags) here.
     --
     supportedArchs = [ "x86_64" ]
-    isProd = v `elem` [Mainnet01, Testnet04]
+    isProd = implicitVersion `elem` [Mainnet01, Testnet04]
 
 -- | Full configuration for Mining.
 --
