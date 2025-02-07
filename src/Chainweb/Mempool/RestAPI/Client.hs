@@ -46,12 +46,12 @@ import Chainweb.Version
 -- TODO: all of these operations need timeout support.
 toMempool
     :: (Show t, NFData t)
-    => ChainwebVersion
-    -> ChainId
+    => HasVersion
+    => ChainId
     -> TransactionConfig t
     -> ClientEnv
     -> MempoolBackend t
-toMempool version chain txcfg env =
+toMempool chain txcfg env =
     MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolMember = member
@@ -71,12 +71,12 @@ toMempool version chain txcfg env =
   where
     go m = runClientM m env >>= either throwIO return
 
-    member v = V.fromList <$> go (memberClient version chain (V.toList v))
-    lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
-    insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
+    member v = V.fromList <$> go (memberClient chain (V.toList v))
+    lookup v = V.fromList <$> go (lookupClient txcfg chain (V.toList v))
+    insert _ v = void $ go (insertClient txcfg chain (V.toList v))
 
     getPending hw cb = do
-        runClientM (getPendingClient version chain hw) env >>= \case
+        runClientM (getPendingClient chain hw) env >>= \case
             Left e -> throwIO e
             Right ptxs -> do
                 void $ cb (V.fromList $ _pendingTransationsHashes ptxs)
@@ -94,14 +94,14 @@ insertClient_
 insertClient_ = client (mempoolInsertApi @v @c)
 
 insertClient
-    :: TransactionConfig t
-    -> ChainwebVersion
+    :: HasVersion
+    => TransactionConfig t
     -> ChainId
     -> [t]
     -> ClientM NoContent
-insertClient txcfg v c k0 = runIdentity $ do
+insertClient txcfg c k0 = runIdentity $ do
     let k = map (T.decodeUtf8 . codecEncode (txCodec txcfg)) k0
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
 
@@ -115,12 +115,12 @@ memberClient_
 memberClient_ = client (mempoolMemberApi @v @c)
 
 memberClient
-  :: ChainwebVersion
-  -> ChainId
+  :: HasVersion
+  => ChainId
   -> [TransactionHash]
   -> ClientM [Bool]
-memberClient v c txs = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+memberClient c txs = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ memberClient_ @v @c txs
 
@@ -134,13 +134,13 @@ lookupClient_
 lookupClient_ = client (mempoolLookupApi @v @c)
 
 lookupClient
-  :: TransactionConfig t
-  -> ChainwebVersion
+  :: HasVersion
+  => TransactionConfig t
   -> ChainId
   -> [TransactionHash]
   -> ClientM [LookupResult t]
-lookupClient txcfg v c txs = do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+lookupClient txcfg c txs = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     cs <- lookupClient_ @v @c txs
     mapM (traverse go) cs
@@ -161,13 +161,13 @@ getPendingClient_
 getPendingClient_ = client (mempoolGetPendingApi @v @c)
 
 getPendingClient
-  :: ChainwebVersion
-  -> ChainId
+  :: HasVersion
+  => ChainId
   -> Maybe (ServerNonce, MempoolTxId)
   -> ClientM PendingTransactions
-getPendingClient v c hw = runIdentity $ do
+getPendingClient c hw = runIdentity $ do
     let nonce = fst <$> hw
     let tx = snd <$> hw
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ getPendingClient_ @v @c nonce tx

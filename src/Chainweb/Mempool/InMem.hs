@@ -78,7 +78,6 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Validations (defaultMaxTTLSeconds, defaultMaxCoinDecimalPlaces)
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion)
 
 import Pact.Core.Gas
 import Chainweb.PayloadProvider (EvaluationCtx)
@@ -164,9 +163,8 @@ withInMemoryMempool
   => NFData t
   => logger
   -> InMemConfig t
-  -> ChainwebVersion
   -> ResourceT IO (MempoolBackend t)
-withInMemoryMempool l cfg _v = do
+withInMemoryMempool l cfg = do
   inMem <- liftIO $ makeInMemPool cfg
   monitorAsync <- withAsyncR (monitor inMem)
   liftIO $ link monitorAsync

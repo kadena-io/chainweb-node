@@ -122,11 +122,11 @@ xLogDataSignature = b
 
 parseXLogData
     :: MonadThrow m
-    => ChainwebVersion
-    -> XEventId
+    => HasVersion
+    => XEventId
     -> LogEntry
     -> m XLogData
-parseXLogData v eid e = do
+parseXLogData eid e = do
     (LogTopic t0, LogTopic t1, LogTopic t2, LogTopic t3) <- getTopics
 
     -- FIXME FIXME FIXME
@@ -135,7 +135,7 @@ parseXLogData v eid e = do
     unless (t0 == xLogDataSignature) $
         throwM $ UnsupportedEventType eid
 
-    targetChain <- mkChainId v h =<< runGetS decodeWordBe (E.bytes $ dropN @32 @4 t1)
+    targetChain <- mkChainId h =<< runGetS decodeWordBe (E.bytes $ dropN @32 @4 t1)
     operationName <- XChainOperationName <$> runGetS decodeWordBe (E.bytes $ dropN @32 @8 t3)
 
     return XLogData
@@ -151,4 +151,3 @@ parseXLogData v eid e = do
         (t0 : t1 : t2 : t3: _ ) -> return (t0, t1, t2, t3)
         l -> throwM $ InvalidEvent eid $
             "expected at least four topics but got " <> sshow (length l)
-

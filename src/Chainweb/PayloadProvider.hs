@@ -209,24 +209,22 @@ data ConsensusState = ConsensusState
     deriving (Show, Eq, Ord)
 
 genesisSyncState
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> SyncState
-genesisSyncState v c =
-    syncStateOfBlockHeader (genesisBlockHeader (_chainwebVersion v) c)
+genesisSyncState c =
+    syncStateOfBlockHeader (genesisBlockHeader c)
 
 genesisConsensusState
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> ConsensusState
-genesisConsensusState v c = ConsensusState
-    { _consensusStateLatest = genesisSyncState v c
-    , _consensusStateSafe = genesisSyncState v c
-    , _consensusStateFinal = genesisSyncState v c
+genesisConsensusState c = ConsensusState
+    { _consensusStateLatest = genesisSyncState c
+    , _consensusStateSafe = genesisSyncState c
+    , _consensusStateFinal = genesisSyncState c
     }
 
 latestRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
@@ -380,19 +378,19 @@ data NewBlockCtx = NewBlockCtx
 -- | Get the evaluation context for given parent header and block payload hash
 --
 blockHeaderToEvaluationCtx
-    :: Parent BlockHeader
+    :: HasVersion
+    => Parent BlockHeader
     -> EvaluationCtx ()
 blockHeaderToEvaluationCtx (Parent ph) = EvaluationCtx
     { _evaluationCtxParentCreationTime = Parent $ view blockCreationTime ph
     , _evaluationCtxParentHash = Parent $ view blockHash ph
     , _evaluationCtxParentHeight = parentHeight
-    , _evaluationCtxMinerReward = blockMinerReward v height
+    , _evaluationCtxMinerReward = blockMinerReward height
     , _evaluationCtxPayload = ()
     }
   where
     parentHeight = Parent $ view blockHeight ph
     height = unwrapParent parentHeight + 1
-    v = _chainwebVersion ph
 
 newBlockCtxProperties :: forall e kv . KeyValue e kv => NewBlockCtx -> [kv]
 newBlockCtxProperties a =
@@ -613,8 +611,7 @@ instance FromJSON EncodedPayloadOutputs where
 -- TODO: describe encoding
 --
 data NewPayload = NewPayload
-    { _newPayloadChainwebVersion :: !ChainwebVersion
-    , _newPayloadChainId :: !ChainId
+    { _newPayloadChainId :: !ChainId
     , _newPayloadParentHeight :: !(Parent BlockHeight)
     , _newPayloadParentHash :: !(Parent BlockHash)
     , _newPayloadBlockPayloadHash :: !BlockPayloadHash
@@ -653,7 +650,6 @@ instance Eq NewPayload where
         -- move entropy to the beginning of the comparision to fail fast
         -- (assuming that tuple starts at the front)
         ( _newPayloadBlockPayloadHash x
-        , _newPayloadChainwebVersion x
         , _newPayloadChainId x
         , _newPayloadNumber x
         , isJust (_newPayloadEncodedPayloadData x)
@@ -667,8 +663,7 @@ instance Eq NewPayload where
 
 instance Ord NewPayload where
     compare = on compare $ \x ->
-        ( _newPayloadChainwebVersion x
-        , _newPayloadChainId x
+        ( _newPayloadChainId x
         , _newPayloadBlockPayloadHash x
         , _newPayloadNumber x
         , isJust (_newPayloadEncodedPayloadData x)
@@ -687,18 +682,13 @@ instance Hashable NewPayload where
     hashWithSalt s = hashWithSalt s . _newPayloadBlockPayloadHash
     {-# INLINE hashWithSalt #-}
 
-instance HasChainwebVersion NewPayload where
-    _chainwebVersion = _newPayloadChainwebVersion
-    {-# INLINE _chainwebVersion #-}
-
 instance HasChainId NewPayload where
     _chainId = _newPayloadChainId
     {-# INLINE _chainId #-}
 
 newPayloadProperties :: forall e kv . KeyValue e kv => NewPayload -> [kv]
 newPayloadProperties a =
-    [ "chainwebVersion" .= _versionName (_newPayloadChainwebVersion a)
-    , "chainId" .= _newPayloadChainId a
+    [ "chainId" .= _newPayloadChainId a
     , "parentHeight" .= _newPayloadParentHeight a
     , "parentHash" .= _newPayloadParentHash a
     , "payloadHash" .= _newPayloadBlockPayloadHash a
@@ -756,7 +746,7 @@ instance ToJSON NewPayload where
 -- payload itself in a single data structure. This API can accomodate this
 -- behavior.
 --
-class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
+class (HasChainId p) => PayloadProvider p where
 
     -- | Returns the current sync state of the payload provider.
     -- Note that this may be ahead of that returned by `prefetchBlock`.
@@ -771,7 +761,8 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
     -- TODO: is this allowed to fail? Does it return or is it fire and forget?
     --
     prefetchPayloads
-        :: p
+        :: HasVersion
+        => p
         -> Maybe Hints
         -> ForkInfo
             -- ^ TODO: do we really want to pass the full ForkInfo here? What is
@@ -803,7 +794,8 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
     -- and persistent.
     --
     syncToBlock
-        :: p
+        :: HasVersion
+        => p
             -- ^ Payload provider handle
         -> Maybe Hints
             -- ^ hints for fetching missing payloads
@@ -831,32 +823,32 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
     -- are not either integrated into the longest chain or definitely
     -- abandoned. Payload providers may also cache the validation result.
     --
-    latestPayloadSTM :: p -> STM NewPayload
+    latestPayloadSTM :: HasVersion => p -> STM NewPayload
 
     -- If backed by an TVar, this can usually be implemented more efficiently
     -- using 'readTVarIO'
     --
-    latestPayloadIO :: p -> IO NewPayload
+    latestPayloadIO :: HasVersion => p -> IO NewPayload
     latestPayloadIO = atomically . latestPayloadSTM
 
     -- FIXME FIXME FIXME
-    eventProof :: p -> XEventId -> IO SpvProof
+    eventProof :: HasVersion => p -> XEventId -> IO SpvProof
 
-nextPayloadStm :: PayloadProvider p => p -> NewPayload -> STM NewPayload
+nextPayloadStm :: (HasVersion, PayloadProvider p) => p -> NewPayload -> STM NewPayload
 nextPayloadStm p cur = do
     new <- latestPayloadSTM p
     when (new == cur) retry
     return new
 
-nextPayload :: PayloadProvider p => p -> NewPayload -> IO NewPayload
+nextPayload :: (HasVersion, PayloadProvider p) => p -> NewPayload -> IO NewPayload
 nextPayload p = atomically . nextPayloadStm p
 
-waitForChangedPayload :: PayloadProvider p => p -> IO NewPayload
+waitForChangedPayload :: (HasVersion, PayloadProvider p) => p -> IO NewPayload
 waitForChangedPayload p = do
     old <- latestPayloadIO p
     nextPayload p old
 
-payloadStream :: PayloadProvider p => p -> S.Stream (S.Of NewPayload) IO ()
+payloadStream :: (HasVersion, PayloadProvider p) => p -> S.Stream (S.Of NewPayload) IO ()
 payloadStream p = do
     cur <- liftIO $ latestPayloadIO p
     S.yield cur
@@ -995,12 +987,11 @@ _finalHeight :: ConsensusState -> BlockHeight
 _finalHeight = _syncStateHeight . _consensusStateFinal
 
 genesisState
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> ConsensusState
-genesisState v c = ConsensusState
+genesisState c = ConsensusState
     { _consensusStateLatest = s
     , _consensusStateSafe = s
     , _consensusStateFinal = s
@@ -1011,4 +1002,4 @@ genesisState v c = ConsensusState
         , _syncStateBlockHash = view blockHash hdr
         , _syncStateBlockPayloadHash = view blockPayloadHash hdr
         }
-    hdr = genesisBlockHeader (_chainwebVersion v) c
+    hdr = genesisBlockHeader c

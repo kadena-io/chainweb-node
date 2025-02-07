@@ -231,12 +231,6 @@ data P2pNode = P2pNode
     , _p2pNodeSessionTimeout :: !Seconds
     }
 
-_p2pNodeChainwebVersion :: P2pNode -> ChainwebVersion
-_p2pNodeChainwebVersion = _chainwebVersion . _p2pNodePeerDb
-
-instance HasChainwebVersion P2pNode where
-    _chainwebVersion = _p2pNodeChainwebVersion
-
 showSessionId :: PeerInfo -> Async (Maybe Bool) -> T.Text
 showSessionId pinf ses = showInfo pinf <> ":" <> (T.drop 9 . sshow $ asyncThreadId ses)
 
@@ -387,12 +381,12 @@ displayPeerValidationFailure IsLocalPeerAddress
 --  or white listing.
 --
 guardPeerDb
-    :: ChainwebVersion
-    -> NetworkId
+    :: HasVersion
+    => NetworkId
     -> PeerDb
     -> PeerInfo
     -> IO (Either PeerValidationFailure PeerInfo)
-guardPeerDb v nid peerDb pinf = do
+guardPeerDb nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
     if
         | isMe -> return $ Left $ IsLocalPeerAddress
@@ -405,7 +399,7 @@ guardPeerDb v nid peerDb pinf = do
                 else return $ Left $ NodeVersionNotAccepted nodeVersion
   where
     isReserved :: Bool
-    isReserved = not (v ^. versionDefaults . disablePeerValidation) && isReservedHostAddress (_peerAddr pinf)
+    isReserved = not (implicitVersion ^. versionDefaults . disablePeerValidation) && isReservedHostAddress (_peerAddr pinf)
 
     -- Currently we are using 'getNewPeerManager' which doesn't validate
     -- certificates. We could be more strict and check that the certificate
@@ -413,7 +407,10 @@ guardPeerDb v nid peerDb pinf = do
     --
     canConnect = do
         mgr <- getNewPeerManager
-        getNodeVersion mgr (_versionName v) (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
+        getNodeVersion mgr
+            (_versionName implicitVersion)
+            (_peerAddr pinf)
+            (Just $ networkIdToText nid <> "/peer")
 
     -- Only compare the address because even for equal peer infos the peer
     -- ID may be 'Nothing' for one peer and 'Just' some value for the other.
@@ -424,7 +421,8 @@ isKnown :: PeerSet -> PeerInfo -> Bool
 isKnown peers pinf = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
 
 guardPeerDbOfNode
-    :: P2pNode
+    :: HasVersion
+    => P2pNode
     -> PeerInfo
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
@@ -439,7 +437,6 @@ guardPeerDbOfNode node pinf = go >>= \case
     Right x -> return (Just x)
   where
     go = guardPeerDb
-        (_chainwebVersion node)
         (_p2pNodeNetworkId node)
         (_p2pNodePeerDb node)
         pinf
@@ -454,7 +451,7 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 --
 -- TODO: handle paging
 --
-syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
+syncFromPeer :: HasVersion => P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = do
     prunePeerDb (_p2pNodeLogFunction node) peerDb
     runClientM sync env >>= \case
@@ -486,7 +483,6 @@ syncFromPeer node info = do
             return True
   where
     env = peerClientEnv node info
-    v = _p2pNodeChainwebVersion node
     nid = _p2pNodeNetworkId node
     peerDb = _p2pNodePeerDb node
 
@@ -495,9 +491,9 @@ syncFromPeer node info = do
 
     sync :: ClientM (Page (NextItem Int) PeerInfo)
     sync = do
-        !p <- peerGetClient v nid Nothing Nothing
+        !p <- peerGetClient nid Nothing Nothing
         liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
-        void $ peerPutClient v nid (_p2pNodePeerInfo node)
+        void $ peerPutClient nid (_p2pNodePeerInfo node)
         liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
 
         return p
@@ -629,7 +625,7 @@ findNextPeer node = do
 -- | This can loop forever if there are no peers available for the respective
 -- network.
 --
-newSession :: P2pNode -> IO ()
+newSession :: HasVersion => P2pNode -> IO ()
 newSession node = do
     newPeer <- findNextPeer node
     let newPeerInfo = _peerEntryInfo newPeer
@@ -754,15 +750,15 @@ waitAnySession node = do
 -- | Start a 'PeerDb' for the given set of NetworkIds
 --
 startPeerDb
-    :: ChainwebVersion
-    -> HS.HashSet NetworkId
+    :: HasVersion
+    => HS.HashSet NetworkId
     -> Bool
         -- ^ Whether this node is private
     -> [PeerInfo]
         -- ^ Set of statically known peers.
     -> IO PeerDb
-startPeerDb v nids isPrivate knownPeers = do
-    !peerDb <- newEmptyPeerDb v
+startPeerDb nids isPrivate knownPeers = do
+    !peerDb <- newEmptyPeerDb
     forM_ nids $ \nid ->
         peerDbInsertPeerInfoList_ True nid knownPeers peerDb
     return $ if isPrivate
@@ -778,16 +774,16 @@ stopPeerDb _ = return ()
 -- | Run a computation with a PeerDb
 --
 withPeerDb
-    :: ChainwebVersion
-    -> HS.HashSet NetworkId
+    :: HasVersion
+    => HS.HashSet NetworkId
     -> Bool
         -- ^ Whether this node is private
     -> [PeerInfo]
         -- ^ Set of statically known peers
     -> (PeerDb -> IO a)
     -> IO a
-withPeerDb v nids isPrivate knownPeers =
-    bracket (startPeerDb v nids isPrivate knownPeers) stopPeerDb
+withPeerDb nids isPrivate knownPeers =
+    bracket (startPeerDb nids isPrivate knownPeers) stopPeerDb
 
 -- -------------------------------------------------------------------------- --
 -- Create
@@ -809,10 +805,7 @@ data P2pNodeParameters = P2pNodeParameters
     , _p2pNodeParamsSession :: !P2pSession
     }
 
-instance HasChainwebVersion P2pNodeParameters where
-    _chainwebVersion = _chainwebVersion . _p2pNodeParamsPeerDb
-
-p2pCreateNode :: P2pNodeParameters -> IO P2pNode
+p2pCreateNode :: HasVersion => P2pNodeParameters -> IO P2pNode
 p2pCreateNode params = do
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
@@ -843,21 +836,21 @@ p2pCreateNode params = do
 -- -------------------------------------------------------------------------- --
 -- Run P2P Node
 
-p2pStartNodeInactive :: P2pNode -> IO ()
+p2pStartNodeInactive :: HasVersion => P2pNode -> IO ()
 p2pStartNodeInactive node = do
     atomically (setInactive node)
     concurrently_
         (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
         (runForever (logg node) "P2P.Node.newSessions" $ newSession node)
 
-p2pStartNode :: P2pNode -> IO ()
+p2pStartNode :: HasVersion => P2pNode -> IO ()
 p2pStartNode node = do
     atomically (setActive node)
     concurrently_
         (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
         (runForever (logg node) "P2P.Node.newSessions" $ newSession node)
 
-p2pStopNode :: P2P.Node.P2pNode -> IO ()
+p2pStopNode :: P2pNode -> IO ()
 p2pStopNode node = do
     sessions <- atomically $ do
         setInactive node
@@ -869,6 +862,5 @@ p2pStopNode node = do
 --
 -- The node is stopped when an asynchronoous exception is raised in the thread.
 --
-p2pRunNode :: P2pNode -> IO ()
+p2pRunNode :: HasVersion => P2pNode -> IO ()
 p2pRunNode n = finally (p2pStartNode n) (p2pStopNode n)
-

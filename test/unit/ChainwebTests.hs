@@ -36,7 +36,7 @@ import Chainweb.Version.Registry
 -- chainweb-test-tools modules
 
 import Chainweb.Test.Utils
-    (independentSequentialTestGroup, toyChainId, withToyDB)
+    (independentSequentialTestGroup, toyChainId, withToyDB, toyVersion)
 
 -- internal modules
 
@@ -75,6 +75,7 @@ import qualified Data.Test.PQueue (properties)
 import qualified Data.Test.Word.Encoding (properties)
 import qualified P2P.Test.Node (properties)
 import qualified P2P.Test.TaskQueue (properties)
+import Chainweb.Version (withVersion)
 
 setTestLogLevel :: LogLevel -> IO ()
 setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
@@ -95,13 +96,13 @@ main = do
                 : nodeTestSuite rdb
                 : suite rdb -- Coinbase Vuln Fix Tests are broken, waiting for Jose loadScript
 
-  where
+    where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
 
 mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> TestTree
 mempoolTestSuite db genesisBlock = testGroup "Mempool Consensus Tests"
-    [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
+    [withVersion toyVersion $ Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
 pactTestSuite :: RocksDb -> TestTree
 pactTestSuite rdb = testGroup "Chainweb-Pact Tests"

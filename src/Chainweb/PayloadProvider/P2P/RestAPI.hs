@@ -255,13 +255,13 @@ payloadApi = Proxy
 somePayloadApi
     :: IsPayloadProvider 'MinimalProvider
     => IsPayloadProvider 'PactProvider
-    => ChainwebVersion
-    -> ChainId
+    => HasVersion
+    => ChainId
     -> SomeApi
-somePayloadApi v c = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
+somePayloadApi c = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    withSomeSing (payloadProviderTypeForChain v c) $ \case
+    withSomeSing (payloadProviderTypeForChain c) $ \case
         SMinimalProvider ->
             return $! SomeApi (payloadApi @v' @c' @'MinimalProvider)
         SPactProvider ->
@@ -269,8 +269,8 @@ somePayloadApi v c = runIdentity $ do
         SEvmProvider @n _ ->
             return $! SomeApi (payloadApi @v' @c' @('EvmProvider n))
 
-somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
-somePayloadApis v = mconcat . fmap (somePayloadApi v)
+somePayloadApis :: HasVersion => [ChainId] -> SomeApi
+somePayloadApis = mconcat . fmap somePayloadApi
 
 -- -------------------------------------------------------------------------- --
 -- Implementations of IsPayloadProvider
@@ -341,4 +341,3 @@ instance MimeRender OctetStream HeaderList where
 instance MimeUnrender OctetStream HeaderList where
     mimeUnrender _ = EVM.getLazy EVM.getRlp
     {-# INLINE mimeUnrender #-}
-

@@ -74,8 +74,8 @@ import Pact.Types.SPV qualified as Pact
 
 bench :: RocksDb -> C.Benchmark
 bench rdb = C.bgroup "applyCmd"
-    [ C.bench "Pact5" $ benchApplyCmd pact5Version rdb (SomeBlockM $ Pair (error "Pact4") applyCmd5)
-    , C.bench "Pact4" $ benchApplyCmd pact4Version rdb (SomeBlockM $ Pair applyCmd4 (error "Pact5"))
+    [ C.bench "Pact5" $ withVersion pact5Version benchApplyCmd rdb (SomeBlockM $ Pair (error "Pact4") applyCmd5)
+    , C.bench "Pact4" $ withVersion pact4Version benchApplyCmd rdb (SomeBlockM $ Pair applyCmd4 (error "Pact5"))
     ]
 
 data Env = Env
@@ -91,17 +91,24 @@ data Env = Env
 instance NFData Env where
     rnf !_ = ()
 
-benchApplyCmd :: ChainwebVersion -> RocksDb -> SomeBlockM GenericLogger RocksDbTable a -> C.Benchmarkable
-benchApplyCmd ver rdb act =
+benchApplyCmd :: HasVersion => RocksDb -> SomeBlockM GenericLogger RocksDbTable a -> C.Benchmarkable
+benchApplyCmd rdb act =
     let setupEnv _ = do
             sql <- openSQLiteConnection "" chainwebPragmas
-            T2 tdb tdbRdb <- mkTestBlockDbIO ver rdb
+            T2 tdb tdbRdb <- mkTestBlockDbIO rdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) chain0
             lgr <- testLogger
 
             psEnvVar <- newEmptyMVar
-            tid <- forkIO $ void $ withPactService ver chain0 lgr Nothing bhdb (_bdbPayloadDb tdb) sql defaultPactServiceConfig $ do
-                initialPayloadState ver chain0
+-- <<<<<<< Conflict 1 of 1
+-- %%%%%%% Changes from base to side #1
+-- -            tid <- forkIO $ void $ withPactService ver chain0 lgr Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+-- +            tid <- forkIO $ void $ withPactService ver chain0 lgr Nothing bhdb (_bdbPayloadDb tdb) sql defaultPactServiceConfig $ do
+--                  initialPayloadState ver chain0
+-- +++++++ Contents of side #2
+--             tid <- forkIO $ void $ withPactService chain0 lgr Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+--                 initialPayloadState chain0
+-- >>>>>>> Conflict 1 of 1 ends
                 psEnv <- ask
                 liftIO $ putMVar psEnvVar psEnv
             psEnv <- readMVar psEnvVar
@@ -125,23 +132,23 @@ benchApplyCmd ver rdb act =
         T2 a _finalPactState <- runPactServiceM (PactServiceState mempty) env.pactServiceEnv $ do
             throwIfNoHistory =<<
                 readFrom
-                    (Just $ ParentHeader (gh ver chain0))
+                    (Just $ ParentHeader (gh chain0))
                     act
 
         return (NoopNFData a)
 
 applyCmd4 :: Pact4.PactBlockM GenericLogger RocksDbTable (Pact4.CommandResult [Pact4.TxLogJson]) --(CommandResult [TxLog ByteString] (PactError Info))
-applyCmd4 = do
+applyCmd4 = withVersion pact4Version $ do
     lgr <- view (psServiceEnv . psLogger)
     let txCtx = Pact4.TxContext
-            { Pact4._tcParentHeader = ParentHeader (gh pact4Version chain0)
+            { Pact4._tcParentHeader = ParentHeader (gh chain0)
             , Pact4._tcPublicMeta = Pact4.noPublicMeta
             , Pact4._tcMiner = noMiner
             }
     let gasModel = Pact4.getGasModel txCtx
     pactDbEnv <- view (psBlockDbEnv . Pact4.cpPactDbEnv)
 
-    cmd <- liftIO $ Pact4.buildCwCmd "fakeNonce" pact4Version
+    cmd <- liftIO $ Pact4.buildCwCmd "fakeNonce"
         $ set Pact4.cbSigners
             [ Pact4.mkEd25519Signer' Pact4.sender00 []
             ]
@@ -151,7 +158,6 @@ applyCmd4 = do
 
     T3 cmdResult _moduleCache _warnings <- liftIO $
         Pact4.applyCmd
-            pact4Version
             lgr
             Nothing
             Nothing
@@ -170,8 +176,8 @@ applyCmd4 = do
 {-# noinline applyCmd4 #-}
 
 applyCmd5 :: Pact5.PactBlockM GenericLogger RocksDbTable (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info))
-applyCmd5 = do
-    cmd <- liftIO $ Pact5.buildCwCmd pact5Version (Pact5.defaultCmd chain0)
+applyCmd5 = withVersion pact5Version $ do
+    cmd <- liftIO $ Pact5.buildCwCmd (Pact5.defaultCmd chain0)
         { Pact5._cbRPC = Pact5.mkExec' "(fold + 0 [1 2 3 4 5])"
         , Pact5._cbGasPrice = Pact5.GasPrice 2
         , Pact5._cbGasLimit = Pact5.GasLimit (Pact5.Gas 500)
@@ -179,7 +185,7 @@ applyCmd5 = do
         , Pact5._cbSigners = [Pact5.mkEd25519Signer' Pact5.sender00 []]
         }
     lgr <- view (psServiceEnv . psLogger)
-    let txCtx = Pact5.TxContext {Pact5._tcParentHeader = ParentHeader (gh pact5Version chain0), Pact5._tcMiner = noMiner}
+    let txCtx = Pact5.TxContext {Pact5._tcParentHeader = ParentHeader (gh chain0), Pact5._tcMiner = noMiner}
 
     Pact5.pactTransaction Nothing $ \pactDb -> do
         r <- Pact5.applyCmd lgr Nothing pactDb txCtx (TxBlockIdx 0) Pact5.noSPVSupport (Pact5.Gas 1) (view payloadObj <$> cmd)
@@ -191,7 +197,7 @@ applyCmd5 = do
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
-gh :: ChainwebVersion -> ChainId -> BlockHeader
+gh :: HasVersion => ChainId -> BlockHeader
 gh = genesisBlockHeader
 
 pact4Version :: ChainwebVersion

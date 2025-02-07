@@ -45,9 +45,9 @@ type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
 someNodeInfoApi :: SomeApi
 someNodeInfoApi = SomeApi (Proxy @NodeInfoApi)
 
-someNodeInfoServer :: ChainwebVersion -> CutDb -> SomeServer
-someNodeInfoServer v c =
-  SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler v $ someCutDbVal v c)
+someNodeInfoServer :: HasVersion => CutDb -> SomeServer
+someNodeInfoServer c =
+  SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler $ someCutDbVal c)
 
 data NodeInfo = NodeInfo
   { nodeVersion :: ChainwebVersionName
@@ -78,33 +78,34 @@ data NodeInfo = NodeInfo
   deriving (Show, Eq, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
-nodeInfoHandler :: ChainwebVersion -> SomeCutDb -> Server NodeInfoApi
-nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT v)) = do
+nodeInfoHandler :: HasVersion => SomeCutDb -> Server NodeInfoApi
+nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
     let curHeight = maximum $ map _bhwhHeight $ HM.elems $ _cutHashes ch
-    let graphs = unpackGraphs v
+    let graphs = unpackGraphs
     let curGraph = unsafeHead "Chainweb.RestAPI.NodeInfo.nodeInfoHandler.curGraph" $ dropWhile (\(h,_) -> h > curHeight) graphs
     let curChains = map fst $ snd curGraph
     return $ NodeInfo
-      { nodeVersion = _versionName v
+      { nodeVersion = _versionName implicitVersion
       , nodePackageVersion = chainwebNodeVersionHeaderValue
       , nodeApiVersion = prettyApiVersion
       , nodeChains = T.pack . show <$> curChains
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
-      , nodeLatestBehaviorHeight = latestBehaviorAt v
-      , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList (chainIds v)
-      , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
-      , nodeServiceDate = T.pack <$> _versionServiceDate v
-      , nodeBlockDelay = _versionBlockDelay v
+      , nodeLatestBehaviorHeight = latestBehaviorAt
+      , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
+      , nodeHistoricalChains =
+        ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs implicitVersion
+      , nodeServiceDate = T.pack <$> _versionServiceDate implicitVersion
+      , nodeBlockDelay = _versionBlockDelay implicitVersion
       }
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
 -- instances.
-unpackGraphs :: ChainwebVersion -> [(BlockHeight, [(Int, [Int])])]
-unpackGraphs v = gs
+unpackGraphs :: HasVersion => [(BlockHeight, [(Int, [Int])])]
+unpackGraphs = gs
   where
-    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems $ _versionGraphs v
+    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems $ _versionGraphs implicitVersion
     graphAdjacencies = map unChain . HM.toList . fmap HS.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)

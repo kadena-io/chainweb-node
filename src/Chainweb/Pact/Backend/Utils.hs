@@ -402,9 +402,9 @@ doLookupSuccessful db curHeight hashes = throwOnDbError $ do
         return $! T4 txhash' (fromIntegral blockheight) payloadhash' blockhash'
     go _ = fail "impossible"
 
-getEndTxId :: HasCallStack => ChainwebVersion -> ChainId -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
-getEndTxId v cid sql pc
-  | isGenesisBlockHeader' v cid (_rankedBlockHashHash <$> pc) =
+getEndTxId :: (HasVersion, HasCallStack) => ChainId -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
+getEndTxId cid sql pc
+  | isGenesisBlockHeader' cid (_rankedBlockHashHash <$> pc) =
     return (Historical (Pact.TxId 0))
   | otherwise =
     getEndTxId' sql pc
@@ -425,17 +425,17 @@ getEndTxId' sql (Parent rbh) = throwOnDbError $ do
 -- | Delete any state from the database newer than the input parent header.
 -- Returns the ending txid of the input parent header.
 rewindDbTo
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> SQLiteEnv
     -> RankedBlockHash
     -> IO Pact.TxId
-rewindDbTo v cid db pc
-  | isGenesisBlockHeader' v cid (Parent $ _rankedBlockHashHash pc) = do
+rewindDbTo cid db pc
+  | isGenesisBlockHeader' cid (Parent $ _rankedBlockHashHash pc) = do
     rewindDbToGenesis db
     return (Pact.TxId 0)
   | otherwise = do
-    !historicalEndingTxId <- getEndTxId v cid db (Parent pc)
+    !historicalEndingTxId <- getEndTxId cid db (Parent pc)
     endingTxId <- case historicalEndingTxId of
       NoHistory ->
         error

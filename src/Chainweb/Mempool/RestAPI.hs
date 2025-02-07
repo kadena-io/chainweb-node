@@ -57,9 +57,9 @@ data SomeMempool t = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => SomeMempool (Mempool_ v c t)
 
-someMempoolVal :: ChainwebVersion -> ChainId -> MempoolBackend t -> SomeMempool t
-someMempoolVal v cid m =
-   case someChainwebVersionVal v of
+someMempoolVal :: HasVersion => ChainId -> MempoolBackend t -> SomeMempool t
+someMempoolVal cid m =
+   case someChainwebVersionVal of
      (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
          (SomeChainIdT (Proxy :: Proxy cidt)) ->
              SomeMempool (Mempool_ @vt @cidt m)
@@ -148,4 +148,3 @@ mempoolGetPendingApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (MempoolGetPendingApi v c)
 mempoolGetPendingApi = Proxy
-

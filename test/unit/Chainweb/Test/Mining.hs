@@ -46,6 +46,7 @@ import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Test.TestVersions (barebonesTestVersion)
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version (withVersion)
 
 -- -------------------------------------------------------------------------- --
 --
@@ -67,10 +68,10 @@ withTestCoordinator
         -- set to enabled before the coordinator is initialized.
     -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
     -> IO ()
-withTestCoordinator rdb logg maybeConf a = do
+withTestCoordinator rdb logg maybeConf a = withVersion v $ do
     var <- newEmptyMVar
     x <- race (takeMVar var) $
-        withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
+        withTestCutDb rdb id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
             withMiningCoordination logger conf cdb $ \case
                 Nothing -> error "nonEmptyMiningAccount: Bug in the mining Code"
                 Just coord -> do
@@ -94,4 +95,3 @@ nonEmptyMiningAccount rdb logg = withTestCoordinator rdb logg Nothing $ \_logger
     PrimedWork w <- readTVarIO (_coordPrimedWork coord)
     forM_ (HM.keys w) $ \(MinerId k) ->
         assertBool "miner account name must not be the empty string" (not (T.null k))
-

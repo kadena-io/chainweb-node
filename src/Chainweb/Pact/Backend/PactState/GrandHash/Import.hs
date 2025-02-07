@@ -83,15 +83,16 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders,
 import Chainweb.Pact.Backend.Types
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow)
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), HasVersion, withVersion)
 
 -- | Verifies that the hashes and headers match @grands@.
 --
 --   Returns the latest (highest) blockheight along with the snapshot
 --   thereat.
-pactVerify :: (Logger logger)
+pactVerify
+  :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
      -- ^ pact connections
   -> RocksDb
@@ -99,11 +100,11 @@ pactVerify :: (Logger logger)
   -> [(BlockHeight, HashMap ChainId Snapshot)]
      -- ^ grands
   -> IO (BlockHeight, HashMap ChainId Snapshot)
-pactVerify logger v pactConns rocksDb grands = do
+pactVerify logger pactConns rocksDb grands = do
   logFunctionText logger Debug "Starting pact-verify"
 
   -- Get the highest common blockheight across all chains.
-  latestBlockHeight <- fst <$> resolveLatestCutHeaders logger v pactConns rocksDb
+  latestBlockHeight <- fst <$> resolveLatestCutHeaders logger pactConns rocksDb
 
   snapshot@(snapshotBlockHeight, expectedChainHashes) <- do
     -- Find the first element of 'grands' such that
@@ -116,7 +117,7 @@ pactVerify logger v pactConns rocksDb grands = do
         pure s
 
   chainHashes <- do
-    chainTargets <- resolveCutHeadersAtHeight logger v pactConns rocksDb snapshotBlockHeight
+    chainTargets <- resolveCutHeadersAtHeight logger pactConns rocksDb snapshotBlockHeight
     computeGrandHashesAt pactConns chainTargets
 
   let deltas = Map.filter (not . P.isSame)
@@ -151,8 +152,8 @@ pactVerify logger v pactConns rocksDb grands = do
   pure snapshot
 
 pactDropPostVerified :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion
   -> FilePath
      -- ^ source pact dir
   -> FilePath
@@ -162,7 +163,7 @@ pactDropPostVerified :: (Logger logger)
   -> HashMap ChainId Snapshot
      -- ^ Grand Hashes & BlockHeaders at this blockheight
   -> IO ()
-pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHashes = do
+pactDropPostVerified logger srcDir tgtDir snapshotBlockHeight snapshotChainHashes = do
   logFunctionText logger Info $ "Creating " <> Text.pack tgtDir
   createDirectoryIfMissing True tgtDir
 
@@ -186,7 +187,7 @@ pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHas
       let logger' = addChainIdLabel cid logger
       logFunctionText logger' Info
         $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-      PactDb.rewindDbTo v cid sqliteEnv $ view rankedBlockHash $ blockHeader $ snapshotChainHashes ^?! ix cid
+      PactDb.rewindDbTo cid sqliteEnv $ view rankedBlockHash $ blockHeader $ snapshotChainHashes ^?! ix cid
 
 data PactImportConfig = PactImportConfig
   { sourcePactDir :: FilePath
@@ -199,22 +200,23 @@ pactImportMain :: IO ()
 pactImportMain = do
   cfg <- O.execParser opts
 
-  let chains = allChains cfg.chainwebVersion
+  withVersion cfg.chainwebVersion $ do
+    let chains = allChains
 
-  C.withDefaultLogger Info $ \logger -> do
-    withConnections logger cfg.sourcePactDir chains $ \srcConns -> do
-      withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-        (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion srcConns rocksDb MainnetSnapshots.grands
+    C.withDefaultLogger Info $ \logger -> do
+      withConnections logger cfg.sourcePactDir chains $ \srcConns -> do
+        withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
+          (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger srcConns rocksDb MainnetSnapshots.grands
 
-        -- Set this before pactDropPostVerified, in case there's a failure, so
-        -- it's still recoverable.
-        --
-        -- pact-import doesn't use this environment variable; it's for
-        -- debugging and/or consumption by other tools.
-        setEnv "SNAPSHOT_BLOCKHEIGHT" (show snapshotBlockHeight)
+          -- Set this before pactDropPostVerified, in case there's a failure, so
+          -- it's still recoverable.
+          --
+          -- pact-import doesn't use this environment variable; it's for
+          -- debugging and/or consumption by other tools.
+          setEnv "SNAPSHOT_BLOCKHEIGHT" (show snapshotBlockHeight)
 
-        forM_ cfg.targetPactDir $ \targetDir -> do
-          pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes
+          forM_ cfg.targetPactDir $ \targetDir -> do
+            pactDropPostVerified logger cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes
   where
     opts :: ParserInfo PactImportConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)

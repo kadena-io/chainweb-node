@@ -176,14 +176,14 @@ minerRewardKda (MinerReward d) = stuToKda d
 -- in any network, we can still change the algorithm.
 --
 blockMinerReward
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> MinerReward
-blockMinerReward v h = case M.lookupGE h minerRewards of
+blockMinerReward h = case M.lookupGE h minerRewards of
     Nothing -> MinerReward $ Stu 0
     Just (_, s) -> MinerReward $ divideStu s n
   where
-    !n = int . order $ chainGraphAt v h
+    !n = int . order $ chainGraphAt h
 
 -- | Binary encoding of mining rewards as unsigned integral number in little
 -- endian encoding.
@@ -277,4 +277,3 @@ expectedMinerRewardsHash = read "8e4fb006c5045b3baab638d16d62c952e4981a4ba473ec6
 
 expectedRawMinerRewardsHash :: Digest SHA512
 expectedRawMinerRewardsHash = read "903d10b06666c0d619c8a28c74c3bb0af47209002f005b12bbda7b7df1131b2072ce758c1a8148facb1506022215ea201629f38863feb285c7e66f5965498fe0"
-

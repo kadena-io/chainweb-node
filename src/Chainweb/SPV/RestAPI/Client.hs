@@ -57,8 +57,8 @@ spvGetTransactionOutputProofClient_
 spvGetTransactionOutputProofClient_ = client (spvGetTransactionOutputProofApi @v @c)
 
 spvGetTransactionOutputProofClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
     -> ChainId
@@ -72,7 +72,7 @@ spvGetTransactionOutputProofClient
         -- ^ the index of the proof subject, the transaction output for which
         -- inclusion is proven.
     -> ClientM (TransactionOutputProof ChainwebMerkleHashAlgorithm)
-spvGetTransactionOutputProofClient v tcid scid h i = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+spvGetTransactionOutputProofClient tcid scid h i = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
     return $ spvGetTransactionOutputProofClient_ @v @c scid h i

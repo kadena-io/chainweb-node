@@ -51,15 +51,16 @@ data TestServer = TestServer
     }
 
 newTestServer :: IO TestServer
-newTestServer = mask_ $ do
+newTestServer = withVersion version $ mask_ $ do
+    let chain = someChainId
     checkMv <- newMVar (pure . V.map Right)
     let inMemCfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMvFunc checkMv) (1024 * 10)
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
-    tid <- forkIOWithUnmask $ \u -> server inMemCfg inmemMv envMv u
+    tid <- forkIOWithUnmask $ \u -> server chain inMemCfg inmemMv envMv u
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    let remoteMp0 = MClient.toMempool version chain txcfg env
+    let remoteMp0 = MClient.toMempool chain txcfg env
     -- allow remoteMp to call the local mempool's getBlock (for testing)
     let remoteMp = remoteMp0 { mempoolGetBlock = mempoolGetBlock inmem }
     return $! TestServer remoteMp inmem checkMv tid
@@ -68,10 +69,10 @@ newTestServer = mask_ $ do
         f <- readMVar mv
         f xs
 
-    server inMemCfg inmemMv envMv restore = do
+    server chain inMemCfg inmemMv envMv restore = withVersion version $ do
         inmem <- InMem.startInMemoryMempoolTest inMemCfg
         putMVar inmemMv inmem
-        restore $ withTestAppServer True (return $! mkApp inmem) mkEnv $ \env -> do
+        restore $ withTestAppServer True (return $! mkApp chain inmem) mkEnv $ \env -> do
             putMVar envMv env
             atomically retry
 
@@ -81,11 +82,8 @@ newTestServer = mask_ $ do
     host :: String
     host = "127.0.0.1"
 
-    chain :: ChainId
-    chain = someChainId version
-
-    mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+    mkApp :: ChainId -> MempoolBackend MockTx -> Application
+    mkApp chain mp = withVersion version $ chainwebApplication conf (serverMempools [(chain, mp)])
 
     conf = defaultChainwebConfiguration version
 

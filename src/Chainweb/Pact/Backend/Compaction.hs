@@ -78,9 +78,9 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload.PayloadStore (addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Utils (sshow, fromText, toText, int)
-import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText)
+import Chainweb.Version (ChainId, HasVersion(..), withVersion, ChainwebVersion(..), chainIdToText)
+import Chainweb.Version.Registry (findKnownVersion)
 import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Data.LogMessage (SomeLogMessage, logText)
@@ -191,13 +191,14 @@ getConfig = do
 
     parseVersion :: Text -> ChainwebVersion
     parseVersion =
-      lookupVersionByName
-      . fromMaybe (error "ChainwebVersion parse failed")
+      fromMaybe (error "ChainwebVersion parse failed")
+      . (>>= findKnownVersion)
       . fromText
 
 main :: IO ()
 main = do
   compact =<< getConfig
+
 
 compactPactState :: (Logger logger) => logger -> Retainment -> BlockHeight -> SQLiteEnv -> SQLiteEnv -> IO ()
 compactPactState logger rt targetBlockHeight srcDb targetDb = do
@@ -333,8 +334,8 @@ blockHeightKeepDepth :: BlockHeight
 blockHeightKeepDepth = 2_000
 
 compact :: Config -> IO ()
-compact cfg = do
-  let cids = allChains cfg.chainwebVersion
+compact cfg = withVersion cfg.chainwebVersion $ do
+  let cids = allChains
 
   let _compactThese = case (cfg.noRocksDb, cfg.noPactState) of
         (True, True) -> CompactNeither
@@ -380,7 +381,7 @@ compact cfg = do
     withRocksDbFileLogger cfg.logDir LL.Debug $ \logger -> do
       withReadOnlyRocksDb (rocksDir cfg.fromDir) modernDefaultOptions $ \srcRocksDb -> do
         withRocksDb (rocksDir cfg.toDir) (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
-          compactRocksDb (set setLoggerLevel (l2l LL.Info) logger) cfg.chainwebVersion cids (targetBlockHeight - blockHeightKeepDepth) srcRocksDb targetRocksDb
+          compactRocksDb (set setLoggerLevel (l2l LL.Info) logger) cids (targetBlockHeight - blockHeightKeepDepth) srcRocksDb targetRocksDb
 
   -- Compact the pact state.
   let retainment = Retainment
@@ -700,14 +701,14 @@ rocksDir db = db </> "0/rocksDb"
 
 -- | Copy over all CutHashes, all BlockHeaders, and only some Payloads.
 compactRocksDb :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion -- ^ cw version
   -> [ChainId] -- ^ ChainIds
   -> BlockHeight -- ^ minBlockHeight for payload copying
   -> RocksDb -- ^ source db, should be opened read-only
   -> RocksDb -- ^ target db
   -> IO ()
-compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
+compactRocksDb logger cids minBlockHeight srcDb targetDb = do
   let log = logFunctionText logger
 
   -- Copy over entirety of CutHashes table
@@ -732,8 +733,8 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
 
   -- The target payload db has to be initialised. TODO PP: does it?
   log LL.Info "Initializing payload db"
-  srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
-  targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion
+  srcWbhdb <- initWebBlockHeaderDb srcDb
+  targetWbhdb <- initWebBlockHeaderDb targetDb
   forM_ cids $ \cid -> do
     let log' = logFunctionText (addChainIdLabel cid logger)
     log' LL.Info $ "Starting chain " <> chainIdToText cid

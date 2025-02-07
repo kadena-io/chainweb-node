@@ -46,6 +46,7 @@ import Chainweb.Pact.Types
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 import qualified Pact.Core.Command.Server as Pact
+import Data.Proxy (Proxy)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Spv Transaction Output Proof Client
@@ -63,8 +64,8 @@ pactSpvApiClient_
 pactSpvApiClient_ = client (pactSpvApi @v @c)
 
 pactSpvApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
     -> SpvRequest
@@ -73,10 +74,9 @@ pactSpvApiClient
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> ClientM TransactionOutputProofB64
-pactSpvApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactSpvApiClient_ @v @c
+pactSpvApiClient (FromSingChainId (SChainId :: Sing c)) r = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactSpvApiClient_ @v @c r
 
 -- -------------------------------------------------------------------------- --
 -- Pact ETH Spv Transaction Output Proof Client
@@ -90,16 +90,15 @@ ethSpvApiClient_
 ethSpvApiClient_ = client (ethSpvApi @v @c)
 
 ethSpvApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ chain to which the request is submitted. The resuting proof does
         -- not depend on the chain and can be validated on any chain.
     -> EthSpvRequest
     -> ClientM EthSpvResponse
-ethSpvApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = ethSpvApiClient_ @v @c
+ethSpvApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    ethSpvApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact ETH Spv Transaction Output Proof Client
@@ -117,15 +116,14 @@ pactSpv2ApiClient_
 pactSpv2ApiClient_ = client (pactSpv2Api @v @c)
 
 pactSpv2ApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ the chain id of the target chain of the proof.
     -> Spv2Request
     -> ClientM SomePayloadProof
-pactSpv2ApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactSpv2ApiClient_ @v @c
+pactSpv2ApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactSpv2ApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact local
@@ -142,17 +140,16 @@ pactLocalApiClient_
 pactLocalApiClient_ = client (pactLocalApi @v @c)
 
 pactLocalApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
     -> Command T.Text
     -> ClientM LocalResult
-pactLocalApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactLocalApiClient_ @v @c
+pactLocalApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactLocalApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Listen
@@ -166,14 +163,13 @@ pactListenApiClient_
 pactListenApiClient_ = client (pactListenApi @v @c)
 
 pactListenApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Pact.ListenRequest
     -> ClientM Pact.ListenResponse
-pactListenApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactListenApiClient_ @v @c
+pactListenApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactListenApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Send
@@ -187,14 +183,13 @@ pactSendApiClient_
 pactSendApiClient_ = client (pactSendApi @v @c)
 
 pactSendApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Pact.SendRequest
     -> ClientM Pact.SendResponse
-pactSendApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactSendApiClient_ @v @c
+pactSendApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactSendApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Poll
@@ -209,10 +204,11 @@ pactPollApiClient_
 pactPollApiClient_ = client (pactPollApi @v @c)
 
 pactPollApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Maybe ConfirmationDepth
     -> Pact.PollRequest
     -> ClientM Pact.PollResponse
-pactPollApiClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) (FromSingChainId (SChainId :: Sing c)) confirmationDepth poll = do
-    pactPollApiClient_ @v @c confirmationDepth poll
+pactPollApiClient  (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactPollApiClient_ @v @c

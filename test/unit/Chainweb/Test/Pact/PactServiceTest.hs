@@ -97,16 +97,16 @@ v :: ChainwebVersion
 v = instantCpmTestVersion singletonChainGraph
 
 mkFixtureWith :: PactServiceConfig -> RocksDb -> ResourceT IO Fixture
-mkFixtureWith pactServiceConfig baseRdb = do
-    tdb <- mkTestBlockDb v baseRdb
+mkFixtureWith pactServiceConfig baseRdb = withVersion v $ do
+    tdb <- mkTestBlockDb baseRdb
     logLevel <- liftIO getTestLogLevel
     let logger = genericLogger logLevel Text.putStrLn
-    perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+    perChain <- iforM (HashSet.toMap chainIds) $ \chain () -> do
         (writeSqlite, readPool) <- withTempChainSqlite chain
         let pdb = _bdbPayloadDb tdb
-        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing pdb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayload chain)
+        serviceEnv <- PactService.withPactService chain Nothing mempty logger Nothing pdb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayload chain)
         let mempoolCfg =
-                validatingMempoolConfig chain v
+                validatingMempoolConfig chain
                     (GasLimit (Gas 150_000))
                     (GasPrice 1e-8)
                     (PactService.execPreInsertCheckReq logger serviceEnv)
@@ -155,11 +155,11 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
 -- 3. pure rewinds
 
 simpleEndToEnd :: RocksDb -> IO ()
-simpleEndToEnd baseRdb = runResourceT $ do
+simpleEndToEnd baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
-        cmd1 <- buildCwCmd v (transferCmd 1.0)
-        cmd2 <- buildCwCmd v (transferCmd 2.0)
+        cmd1 <- buildCwCmd (transferCmd 1.0)
+        cmd2 <- buildCwCmd (transferCmd 2.0)
 
         results <- advanceAllChainsWithTxs fixture $ onChain chain0 [cmd1, cmd2]
 
@@ -169,10 +169,10 @@ simpleEndToEnd baseRdb = runResourceT $ do
                 P.alignExact ? Vector.replicate 2 successfulTx
 
 newBlockEmpty :: RocksDb -> IO ()
-newBlockEmpty baseRdb = runResourceT $ do
+newBlockEmpty baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
-        cmd <- buildCwCmd v (transferCmd 1.0)
+        cmd <- buildCwCmd (transferCmd 1.0)
         mempoolInsert fixture chain0 Mempool.CheckedInsert [cmd]
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph -> do
             finalizeBlock fixture <$> makeEmptyBlock fixture ph
@@ -186,15 +186,15 @@ newBlockEmpty baseRdb = runResourceT $ do
                 P.alignExact ? Vector.replicate 1 successfulTx
 
 continueBlockSpec :: RocksDb -> IO ()
-continueBlockSpec baseRdb = runResourceT $ do
+continueBlockSpec baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
         startCut <- getCut fixture
 
         -- construct some transactions that we plan to put into the block
-        cmd1 <- buildCwCmd v (transferCmd 1.0)
-        cmd2 <- buildCwCmd v (transferCmd 2.0)
-        cmd3 <- buildCwCmd v (transferCmd 3.0)
+        cmd1 <- buildCwCmd (transferCmd 1.0)
+        cmd2 <- buildCwCmd (transferCmd 2.0)
+        cmd3 <- buildCwCmd (transferCmd 3.0)
 
         -- insert all transactions
         mempoolInsert fixture chain0 Mempool.CheckedInsert [cmd1, cmd2, cmd3]
@@ -244,7 +244,7 @@ continueBlockSpec baseRdb = runResourceT $ do
 
 -- -- * test that the NewBlock timeout works properly and doesn't leave any extra state from a timed-out transaction
 newBlockTimeoutSpec :: RocksDb -> IO ()
-newBlockTimeoutSpec baseRdb = runResourceT $ do
+newBlockTimeoutSpec baseRdb = withVersion v $ runResourceT $ do
     let pactServiceConfig = defaultPactServiceConfig
             { _pactTxTimeLimit = Just (Micros 35_000)
             -- this may need to be tweaked for CI.
@@ -255,17 +255,17 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
     fixture <- mkFixtureWith pactServiceConfig baseRdb
 
     liftIO $ do
-        tx1 <- buildCwCmd v (defaultCmd chain0)
+        tx1 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "1"
             , _cbGasPrice = GasPrice 1.0
             , _cbGasLimit = GasLimit (Gas 400)
             }
-        tx2 <- buildCwCmd v (defaultCmd chain0)
+        tx2 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "2"
             , _cbGasPrice = GasPrice 2.0
             , _cbGasLimit = GasLimit (Gas 400)
             }
-        timeoutTx <- buildCwCmd v (defaultCmd chain0)
+        timeoutTx <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' $ "(fold + 0 (enumerate 1 10000000))"
             , _cbGasPrice = GasPrice 1.5
             , _cbGasLimit = GasLimit (Gas 130000)
@@ -276,7 +276,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             bip <- continueBlock fixture =<< makeEmptyBlock fixture ph
             return $ finalizeBlock fixture bip
         results
-            & P.alignExact ? tabulateChains v (\cid ->
+            & P.alignExact ? tabulateChains (\cid ->
                 if cid == chain0
                 then P.alignExact ? Vector.singleton ?
                     -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
@@ -290,36 +290,36 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
         pure ()
 
 testNewBlockExcludesInvalid :: RocksDb -> IO ()
-testNewBlockExcludesInvalid baseRdb = runResourceT $ do
+testNewBlockExcludesInvalid baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
         -- The mempool should reject a tx that doesn't parse as valid pact.
         -- TODO PP: let's test this in the mempool + pact REST API tests
-        -- badParse <- buildCwCmd v (defaultCmd chain0)
+        -- badParse <- buildCwCmd (defaultCmd chain0)
         --     { _cbRPC = mkExec' "(not a valid pact tx"
         --     }
 
-        regularTx1 <- buildCwCmd v $ transferCmd 1.0
+        regularTx1 <- buildCwCmd $ transferCmd 1.0
         -- The mempool checks that a tx does not already exist in the chain before adding it.
         let badUnique = regularTx1
 
         -- The mempool checks that a tx does not have a creation time too far into the future.
-        badFuture <- buildCwCmd v $ (transferCmd 1.0)
+        badFuture <- buildCwCmd $ (transferCmd 1.0)
             { _cbCreationTime = Just $ TxCreationTime (2 ^ (32 :: Word))
             }
 
         -- The mempool checks that a tx does not have a creation time too far into the past.
-        badPast <- buildCwCmd v $ (transferCmd 1.0)
+        badPast <- buildCwCmd $ (transferCmd 1.0)
             { _cbCreationTime = Just $ TxCreationTime 0
             }
 
-        regularTx2 <- buildCwCmd v $ transferCmd 1.0
+        regularTx2 <- buildCwCmd $ transferCmd 1.0
         -- The mempool checks that a tx has a valid hash.
         let badTxHash = regularTx2
                 { _cmdHash = Pact.hash "wrong string"
                 }
 
-        badSigs <- buildCwCmdNoSigCheck v (defaultCmd chain0)
+        badSigs <- buildCwCmdNoSigCheck (defaultCmd chain0)
             { _cbSigners =
                 [ CmdSigner
                     { _csSigner = Signer
@@ -333,7 +333,7 @@ testNewBlockExcludesInvalid baseRdb = runResourceT $ do
                 ]
             }
 
-        badChain <- buildCwCmd v $ transferCmd 1.0 & set cbChainId (chainIdToText $ unsafeChainId 1)
+        badChain <- buildCwCmd $ transferCmd 1.0 & set cbChainId (chainIdToText $ unsafeChainId 1)
 
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph -> do
             mempoolInsert fixture chain0 Mempool.CheckedInsert [regularTx1]
@@ -374,11 +374,11 @@ testNewBlockExcludesInvalid baseRdb = runResourceT $ do
         return ()
 
 lookupPactTxsSpec :: RocksDb -> IO ()
-lookupPactTxsSpec baseRdb = runResourceT $ do
+lookupPactTxsSpec baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
-        cmd1 <- buildCwCmd v (transferCmd 1.0)
-        cmd2 <- buildCwCmd v (transferCmd 2.0)
+        cmd1 <- buildCwCmd (transferCmd 1.0)
+        cmd2 <- buildCwCmd (transferCmd 2.0)
 
         -- Depth 0
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph -> do
@@ -421,12 +421,12 @@ lookupPactTxsSpec baseRdb = runResourceT $ do
         lookupDontExpect (Just 3)
 
 failedTxsShouldGoIntoBlocks :: RocksDb -> IO ()
-failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
+failedTxsShouldGoIntoBlocks baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
 
     liftIO $ do
-        cmd1 <- buildCwCmd v (transferCmd 1.0)
-        cmd2 <- buildCwCmd v (defaultCmd chain0)
+        cmd1 <- buildCwCmd (transferCmd 1.0)
+        cmd2 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module mod G (defcap G () true) (defun f () true)) (describe-module \"free.mod\")"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.1
@@ -444,34 +444,34 @@ failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
         return ()
 
 modulesWithHigherLevelTransitiveDependenciesSimple :: RocksDb -> IO ()
-modulesWithHigherLevelTransitiveDependenciesSimple baseRdb = runResourceT $ do
+modulesWithHigherLevelTransitiveDependenciesSimple baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
-        cmd1 <- buildCwCmd v (defaultCmd chain0)
+        cmd1 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (interface barbar (defconst FOO_CONST:integer 1))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.9
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd2 <- buildCwCmd v (defaultCmd chain0)
+        cmd2 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module foo g (defcap g () true) (defun calls-foo () barbar.FOO_CONST))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.8
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd3 <- buildCwCmd v (defaultCmd chain0)
+        cmd3 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module bar g (defcap g () true) (defun calls-bar () (foo.calls-foo)))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.7
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd4 <- buildCwCmd v (defaultCmd chain0)
+        cmd4 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module baz g (defcap g () true) (defun calls-baz () (bar.calls-bar)))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.6
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd5 <- buildCwCmd v (defaultCmd chain0)
+        cmd5 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (baz.calls-baz)"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.5
@@ -501,16 +501,16 @@ modulesWithHigherLevelTransitiveDependenciesSimple baseRdb = runResourceT $ do
         return ()
 
 modulesWithHigherLevelTransitiveDependenciesComplex :: RocksDb -> IO ()
-modulesWithHigherLevelTransitiveDependenciesComplex baseRdb = runResourceT $ do
+modulesWithHigherLevelTransitiveDependenciesComplex baseRdb = withVersion v $ runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
-        cmd1 <- buildCwCmd v (defaultCmd chain0)
+        cmd1 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (interface barbar (defconst FOO_CONST:integer 1))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.9
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd2 <- buildCwCmd v (defaultCmd chain0)
+        cmd2 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' $ T.unlines
                 [ "(namespace 'free)"
                 , "(module foo g"
@@ -536,19 +536,19 @@ modulesWithHigherLevelTransitiveDependenciesComplex baseRdb = runResourceT $ do
             , _cbGasPrice = GasPrice 0.8
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd3 <- buildCwCmd v (defaultCmd chain0)
+        cmd3 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module bar g (defcap g () true) (defun calls-bar () (install-capability (foo.FOO_MANAGED \"bob\" 100)) (foo.calls-foo \"bob\" 100)))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.7
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd4 <- buildCwCmd v (defaultCmd chain0)
+        cmd4 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module baz g (defcap g () true) (defun calls-baz () (bar.calls-bar)))"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.6
             , _cbGasLimit = GasLimit (Gas 1000)
             }
-        cmd5 <- buildCwCmd v (defaultCmd chain0)
+        cmd5 <- buildCwCmd (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (baz.calls-baz)"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.5
@@ -599,27 +599,27 @@ modulesWithHigherLevelTransitiveDependenciesComplex baseRdb = runResourceT $ do
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
-finalizeBlock :: Fixture -> BlockInProgress -> PayloadWithOutputs
+finalizeBlock :: HasVersion => Fixture -> BlockInProgress -> PayloadWithOutputs
 finalizeBlock Fixture{..} bip =
     toPayloadWithOutputs
         (fromJuste $ _psMiner $ _fixturePacts ^?! atChain (_chainId bip))
         (_blockInProgressTransactions bip)
 
-makeEmptyBlock :: Fixture -> Parent BlockHeader -> IO BlockInProgress
+makeEmptyBlock :: HasVersion => Fixture -> Parent BlockHeader -> IO BlockInProgress
 makeEmptyBlock Fixture{..} ph = do
     Pool.withResource (_psReadSqlPool serviceEnv) $ \roSql -> do
         (throwIfNoHistory =<<) $
-            Checkpointer.readFrom _fixtureLogger v cid roSql (view blockCreationTime <$> ph) (view rankedBlockHash <$> ph) $
+            Checkpointer.readFrom _fixtureLogger cid roSql (view blockCreationTime <$> ph) (view rankedBlockHash <$> ph) $
                 \blockEnv initialBlockHandle -> PactService.makeEmptyBlock _fixtureLogger serviceEnv blockEnv initialBlockHandle
     where
     cid = _chainId ph
     serviceEnv = _fixturePacts ^?! atChain cid
 
-continueBlock :: Fixture -> BlockInProgress -> IO BlockInProgress
+continueBlock :: HasVersion => Fixture -> BlockInProgress -> IO BlockInProgress
 continueBlock Fixture{..} bip = do
     Pool.withResource (_psReadSqlPool serviceEnv) $ \roSql -> do
         (throwIfNoHistory =<<) $
-            Checkpointer.readFrom _fixtureLogger v cid roSql parentCreationTime parentRankedHash $
+            Checkpointer.readFrom _fixtureLogger cid roSql parentCreationTime parentRankedHash $
                 \blockEnv _initialBlockHandle -> PactService.continueBlock _fixtureLogger serviceEnv (_psBlockDbEnv blockEnv) bip
     where
     parentCreationTime = (_bctxParentCreationTime $ _blockInProgressBlockCtx bip)
@@ -627,10 +627,10 @@ continueBlock Fixture{..} bip = do
     cid = _chainId bip
     serviceEnv = _fixturePacts ^?! atChain cid
 
-makeFilledBlock :: Fixture -> Parent BlockHeader -> IO BlockInProgress
+makeFilledBlock :: HasVersion => Fixture -> Parent BlockHeader -> IO BlockInProgress
 makeFilledBlock fixture ph = continueBlock fixture =<< makeEmptyBlock fixture ph
 
-lookupPactTxs :: Fixture -> ChainId -> Maybe ConfirmationDepth -> Vector Pact.Hash -> IO (Historical (HashMap SB.ShortByteString (T3 BlockHeight BlockPayloadHash BlockHash)))
+lookupPactTxs :: HasVersion => Fixture -> ChainId -> Maybe ConfirmationDepth -> Vector Pact.Hash -> IO (Historical (HashMap SB.ShortByteString (T3 BlockHeight BlockPayloadHash BlockHash)))
 lookupPactTxs Fixture{..} chain depth hashes =
     PactService.execLookupPactTxs _fixtureLogger (_fixturePacts ^?! atChain chain) depth (Pact.unHash <$> hashes)
 
@@ -642,9 +642,11 @@ mempoolClear :: Fixture -> ChainId -> IO ()
 mempoolClear Fixture{..} cid =
     Mempool.mempoolClear (_fixtureMempools ^?! atChain cid)
 
-advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact.Transaction] -> IO (ChainMap (Vector TestPact5CommandResult))
+advanceAllChainsWithTxs
+    :: HasVersion
+    => Fixture -> ChainMap [Pact.Transaction] -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChainsWithTxs fixture txsPerChain = do
-    advanceAllChains fixture $ tabulateChains v $ \cid ph -> do
+    advanceAllChains fixture $ tabulateChains $ \cid ph -> do
         let txs = txsPerChain ^?! atChain cid
         mempoolClear fixture cid
         mempoolInsert fixture cid Mempool.CheckedInsert txs
@@ -653,13 +655,14 @@ advanceAllChainsWithTxs fixture txsPerChain = do
 
 -- this mines a block on *all chains*. if you don't specify a payload on a chain,
 -- it adds empty blocks!
-advanceAllChains :: ()
+advanceAllChains
+    :: HasVersion
     => Fixture
     -> ChainMap (Parent BlockHeader -> IO PayloadWithOutputs)
     -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChains fixture@Fixture{..} blocks = do
     commandResults <-
-        forConcurrently (HashSet.toList (chainIds v)) $ \c -> do
+        forConcurrently (HashSet.toList chainIds) $ \c -> do
             ph <- getParentTestBlockDb _fixtureBlockDb c
             creationTime <- getCurrentTimeIntegral
             let serviceEnv = _fixturePacts ^?! atChain c
@@ -667,7 +670,7 @@ advanceAllChains fixture@Fixture{..} blocks = do
                 Nothing -> finalizeBlock fixture <$> makeEmptyBlock fixture ph
                 Just mkBlockOn -> mkBlockOn ph
             added <- addTestBlockDb _fixtureBlockDb
-                (childBlockHeight v c $ view rankedBlockHash <$> ph)
+                (childBlockHeight c $ view rankedBlockHash <$> ph)
                 (Nonce 0)
                 (\_ _ -> creationTime)
                 c
@@ -692,7 +695,7 @@ advanceAllChains fixture@Fixture{..} blocks = do
 
     return (onChains commandResults)
 
-blockToForkInfo :: BlockHeader -> Parent BlockHeader -> Maybe NewBlockCtx -> ForkInfo
+blockToForkInfo :: HasVersion => BlockHeader -> Parent BlockHeader -> Maybe NewBlockCtx -> ForkInfo
 blockToForkInfo bh ph newBlockCtx = ForkInfo
     { _forkInfoTrace =
         [ConsensusPayload (view blockPayloadHash bh) Nothing <$
@@ -704,13 +707,13 @@ blockToForkInfo bh ph newBlockCtx = ForkInfo
     where
     syncState = syncStateOfBlockHeader bh
 
-getCut :: Fixture -> IO Cut
+getCut :: HasVersion => Fixture -> IO Cut
 getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
 
-revert :: Fixture -> Cut -> IO ()
+revert :: HasVersion => Fixture -> Cut -> IO ()
 revert Fixture{..} c = do
     setCutTestBlockDb _fixtureBlockDb c
-    forM_ (HashSet.toList (chainIds v)) $ \chain -> do
+    forM_ (HashSet.toList chainIds) $ \chain -> do
         ph <- getParentTestBlockDb _fixtureBlockDb chain
         let syncState = syncStateOfBlockHeader (unwrapParent ph)
         let serviceEnv = _fixturePacts ^?! atChain chain

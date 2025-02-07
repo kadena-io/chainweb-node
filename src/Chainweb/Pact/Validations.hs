@@ -66,16 +66,16 @@ import Numeric.Natural
 -- | Check whether a local Api request has valid metadata
 --
 assertPreflightMetadata
-    :: ServiceEnv tbl
+    :: HasVersion
+    => ServiceEnv tbl
     -> Pact.Command (Pact.Payload Pact.PublicMeta c)
     -> BlockCtx
     -> Maybe LocalSignatureVerification
     -> Either (NonEmpty Text) ()
 assertPreflightMetadata env cmd@(Pact.Command pay sigs hsh) blockCtx sigVerify = do
-    let v = view chainwebVersion env
     let cid = view chainId env
     -- TODO PP: fix this in master too; master uses the wrong block gas limit.
-    let mbgl = maxBlockGasLimit v (_bctxCurrentBlockHeight blockCtx)
+    let mbgl = maxBlockGasLimit (_bctxCurrentBlockHeight blockCtx)
 
     let Pact.PublicMeta pcid _ gl gp _ _ = Pact._pMeta pay
         nid = Pact._pNetworkId pay
@@ -88,7 +88,7 @@ assertPreflightMetadata env cmd@(Pact.Command pay sigs hsh) blockCtx sigVerify =
             eUnless "Transaction Gas limit exceeds block gas limit"
               $ assertBlockGasLimit (Pact.GasLimit $ Pact.Gas $ int @Natural @Pact.SatWord bgl) gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
-          , eUnless "Network id mismatch" $ assertNetworkId v nid
+          , eUnless "Network id mismatch" $ assertNetworkId nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
           , eUnless "Invalid transaction signatures" $ sigValidate signers
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
@@ -131,9 +131,9 @@ assertBlockGasLimit bgl tgl = bgl >= tgl
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
 --
-assertNetworkId :: ChainwebVersion -> Maybe Pact.NetworkId -> Bool
-assertNetworkId _ Nothing = False
-assertNetworkId v (Just (Pact.NetworkId nid)) = ChainwebVersionName nid == _versionName v
+assertNetworkId :: HasVersion => Maybe Pact.NetworkId -> Bool
+assertNetworkId Nothing = False
+assertNetworkId (Just (Pact.NetworkId nid)) = ChainwebVersionName nid == _versionName implicitVersion
 
 -- | Check and assert that the number of signatures in a 'Command' is
 -- at most 100.

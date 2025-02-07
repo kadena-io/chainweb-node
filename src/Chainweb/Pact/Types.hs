@@ -22,7 +22,6 @@
 
 module Chainweb.Pact.Types
     ( ServiceEnv(..)
-    , psVersion
     , psChainId
     , psGasLogger
     , psReadWriteSql
@@ -355,7 +354,6 @@ data BlockCtx = BlockCtx
   , _bctxParentHash :: !(Parent BlockHash)
   , _bctxParentHeight :: !(Parent BlockHeight)
   , _bctxChainId :: !ChainId
-  , _bctxChainwebVersion :: !ChainwebVersion
   , _bctxMinerReward :: !MinerReward
   } deriving stock (Eq, Generic, Show)
 
@@ -365,17 +363,15 @@ instance ToJSON BlockCtx where
     , "parentHash" A..= _bctxParentHash
     , "parentHeight" A..= _bctxParentHeight
     , "chainId" A..= _bctxChainId
-    , "chainwebVersion" A..= _versionName _bctxChainwebVersion
     , "minerReward" A..= _bctxMinerReward
     ]
 
-blockCtxOfEvaluationCtx :: ChainwebVersion -> ChainId -> EvaluationCtx p -> BlockCtx
-blockCtxOfEvaluationCtx v cid ec = BlockCtx
+blockCtxOfEvaluationCtx :: ChainId -> EvaluationCtx p -> BlockCtx
+blockCtxOfEvaluationCtx cid ec = BlockCtx
   { _bctxParentCreationTime = _evaluationCtxParentCreationTime ec
   , _bctxParentHash = _evaluationCtxParentHash ec
   , _bctxParentHeight = _evaluationCtxParentHeight ec
   , _bctxChainId = cid
-  , _bctxChainwebVersion = v
   , _bctxMinerReward = _evaluationCtxMinerReward ec
   }
 
@@ -388,16 +384,14 @@ evaluationCtxOfBlockCtx bctx = EvaluationCtx
   , _evaluationCtxPayload = ()
   }
 
-guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> BlockCtx -> a
-guardCtx g txCtx = g (_chainwebVersion txCtx) (_chainId txCtx) (_bctxCurrentBlockHeight txCtx)
+guardCtx :: HasVersion => (ChainId -> BlockHeight -> a) -> BlockCtx -> a
+guardCtx g txCtx = g (_chainId txCtx) (_bctxCurrentBlockHeight txCtx)
 
 instance HasChainId BlockCtx where
   _chainId = _bctxChainId
-instance HasChainwebVersion BlockCtx where
-  _chainwebVersion = _bctxChainwebVersion
 
-_bctxIsGenesis :: BlockCtx -> Bool
-_bctxIsGenesis bc = isGenesisBlockHeader' (_chainwebVersion bc) (_chainId bc) (_bctxParentHash bc)
+_bctxIsGenesis :: HasVersion => BlockCtx -> Bool
+_bctxIsGenesis bc = isGenesisBlockHeader' (_chainId bc) (_bctxParentHash bc)
 
 _bctxParentRankedBlockHash :: BlockCtx -> Parent RankedBlockHash
 _bctxParentRankedBlockHash bc = Parent RankedBlockHash
@@ -405,9 +399,9 @@ _bctxParentRankedBlockHash bc = Parent RankedBlockHash
   , _rankedBlockHashHeight = unwrapParent $ _bctxParentHeight bc
   }
 
-_bctxCurrentBlockHeight :: BlockCtx -> BlockHeight
+_bctxCurrentBlockHeight :: HasVersion => BlockCtx -> BlockHeight
 _bctxCurrentBlockHeight bc =
-  childBlockHeight (_chainwebVersion bc) (_chainId bc) (_bctxParentRankedBlockHash bc)
+  childBlockHeight (_chainId bc) (_bctxParentRankedBlockHash bc)
 
 
 -- |  Externally-injected PactService properties.
@@ -501,8 +495,7 @@ instance Monoid MemPoolAccess where
 type GasLogger = Pact.RequestKey -> [Pact.GasLogEntry Pact.CoreBuiltin Pact.Info] -> IO ()
 
 data ServiceEnv tbl = ServiceEnv
-    { _psVersion :: ChainwebVersion
-    , _psChainId :: ChainId
+    { _psChainId :: ChainId
 
     , _psGasLogger :: Maybe GasLogger
     -- ^ Used to emit gas logs of Pact code; gas logs are disabled if this is set to `Nothing`.
@@ -543,10 +536,6 @@ data ServiceEnv tbl = ServiceEnv
     , _psBlockRefreshInterval :: Micros
     }
 
-instance HasChainwebVersion (ServiceEnv tbl) where
-    _chainwebVersion = _psVersion
-    {-# INLINE _chainwebVersion #-}
-
 instance HasChainId (ServiceEnv tbl) where
     _chainId = _psChainId
     {-# INLINE _chainId #-}
@@ -556,28 +545,25 @@ data BlockEnv = BlockEnv
   , _psBlockDbEnv :: !ChainwebPactDb
   }
 
-instance HasChainwebVersion BlockEnv where
-  _chainwebVersion = _chainwebVersion . _psBlockCtx
 instance HasChainId BlockEnv where
   _chainId = _chainId . _psBlockCtx
 
 -- the evaluation context for the genesis block; note that the payload is filled in
-genesisEvaluationCtx :: ServiceEnv tbl -> EvaluationCtx ConsensusPayload
+genesisEvaluationCtx :: HasVersion => ServiceEnv tbl -> EvaluationCtx ConsensusPayload
 genesisEvaluationCtx serviceEnv = EvaluationCtx
-    { _evaluationCtxParentCreationTime = Parent $ v ^?! versionGenesis . genesisTime . atChain cid
-    , _evaluationCtxParentHash = genesisParentBlockHash v cid
-    , _evaluationCtxParentHeight = Parent $ genesisHeight v cid
+    { _evaluationCtxParentCreationTime = Parent $ implicitVersion ^?! versionGenesis . genesisTime . atChain cid
+    , _evaluationCtxParentHash = genesisParentBlockHash cid
+    , _evaluationCtxParentHeight = Parent $ genesisHeight cid
     -- should not be used
     , _evaluationCtxMinerReward = MinerReward 0
     , _evaluationCtxPayload = ConsensusPayload
-        { _consensusPayloadHash = genesisBlockPayloadHash v cid
+        { _consensusPayloadHash = genesisBlockPayloadHash cid
         , _consensusPayloadData =
             EncodedPayloadData . Chainweb.encodePayloadData . Chainweb.payloadWithOutputsToPayloadData
               <$> _psGenesisPayload serviceEnv
         }
     }
     where
-    v = _chainwebVersion serviceEnv
     cid = _chainId serviceEnv
 
 -- State from a block in progress, which is used to extend blocks after
@@ -601,10 +587,6 @@ instance Eq BlockInProgress where
     _blockInProgressBlockCtx bip == _blockInProgressBlockCtx bip' &&
     _blockInProgressRemainingGasLimit bip == _blockInProgressRemainingGasLimit  bip' &&
     _blockInProgressTransactions bip == _blockInProgressTransactions  bip'
-
-instance HasChainwebVersion BlockInProgress where
-    _chainwebVersion = _chainwebVersion . _blockInProgressBlockCtx
-    {-# INLINE _chainwebVersion #-}
 
 instance HasChainId BlockInProgress where
     _chainId = _chainId . _blockInProgressBlockCtx

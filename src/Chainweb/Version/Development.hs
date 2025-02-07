@@ -25,20 +25,20 @@ pattern Development <- ((== devnet) -> True) where
     Development = devnet
 
 devnet :: ChainwebVersion
-devnet = ChainwebVersion
+devnet = withVersion devnet $ ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000002
     , _versionName = ChainwebVersionName "development"
     , _versionForks = tabulateHashMap $
-        \_ -> onAllChains devnet ForkAtGenesis
-    , _versionUpgrades = onAllChains devnet mempty
+        \_ -> onAllChains ForkAtGenesis
+    , _versionUpgrades = onAllChains mempty
     , _versionGraphs = Bottom (minBound, twentyChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = onAllChains devnet $ HashTarget (maxBound `div` 100_000)
-        , _genesisTime = onAllChains devnet $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+        { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 100_000)
+        , _genesisTime = onAllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
         , _genesisBlockPayload = onChains
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
             , (unsafeChainId 1, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
@@ -75,9 +75,9 @@ devnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = onAllChains devnet $ Bottom
+    , _versionVerifierPluginNames = onAllChains $ Bottom
         (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
-    , _versionQuirks = noQuirks devnet
+    , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
-    , _versionPayloadProviderTypes = onAllChains devnet PactProvider
+    , _versionPayloadProviderTypes = onAllChains PactProvider
     }

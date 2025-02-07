@@ -103,13 +103,15 @@ bench rdb = C.bgroup "ForkingBench" $
     , doubleForkingBench
     ]
   where
-    forkingBench = withResources rdb 10 Quiet PersistIntraBlockWrites
+    forkingBench = withVersion testVer
+      $ withResources rdb 10 Quiet PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "forkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
               void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
-    doubleForkingBench = withResources rdb 10 Quiet PersistIntraBlockWrites
+    doubleForkingBench = withVersion testVer
+      $ withResources rdb 10 Quiet PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "doubleForkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
@@ -122,7 +124,8 @@ bench rdb = C.bgroup "ForkingBench" $
 -- Benchmark Function
 
 playLine
-    :: PayloadDb HashMapTable
+    :: HasVersion
+    => PayloadDb HashMapTable
     -> BlockHeaderDb
     -> Word64
     -> BlockHeader
@@ -149,7 +152,8 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
             return ret
 
 mineBlock
-    :: ParentHeader
+    :: HasVersion
+    => ParentHeader
     -> Nonce
     -> PayloadDb HashMapTable
     -> BlockHeaderDb
@@ -163,7 +167,8 @@ mineBlock parent nonce pdb bhdb pact = do
     return r
 
 createBlock
-    :: ParentHeader
+    :: HasVersion
+    => ParentHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
@@ -209,7 +214,8 @@ type RunPactService =
   -> IORef Int
   -> C.Benchmark
 
-withResources :: ()
+withResources
+  :: HasVersion
   => RocksDb
   -> Word64
   -> LogLevel
@@ -221,6 +227,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
     unwrap ~(NoopNFData (Resources {..})) =
       f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd pactService) txPerBlock
 
+    create :: HasVersion => _
     create = do
         payloadDb <- createPayloadDb
         blockHeaderDb <- testBlockHeaderDb
@@ -231,7 +238,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
         (sqlEnv, pactService, mainTrunkBlocks) <- do
           sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
           pactService <-
-            startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
+            startPact logger blockHeaderDb payloadDb mp sqlEnv
           mainTrunkBlocks <-
             playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
           pure (sqlEnv, pactService, mainTrunkBlocks)
@@ -246,9 +253,15 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
     logger = genericLogger logLevel T.putStrLn
 
-    startPact version l bhdb pdb mempool sqlEnv = do
+    startPact l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+-- <<<<<<< Conflict 1 of 1
+-- +++++++ Contents of side #1
+--         a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+-- %%%%%%% Changes from base to side #2
+-- -        a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
+-- +        a <- async $ runPactService someChainId l Nothing reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
+-- >>>>>>> Conflict 1 of 1 ends
             { _pactNewBlockGasLimit = 180_000
             , _pactPersistIntraBlockWrites = p
             }
@@ -268,7 +281,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
         ]
 
     genesisBlock :: BlockHeader
-    genesisBlock = genesisBlockHeader testVer cid
+    genesisBlock = genesisBlockHeader someChainId
 
     -- | Creates an in-memory Payload database that is managed by the garbage
     -- collector.
@@ -288,7 +301,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
 -- | Mempool Access
 --
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))) -> IO MemPoolAccess
+testMemPoolAccess :: HasVersion => IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
     { mpaGetBlock = \bf validate bh hash bct -> do
@@ -300,10 +313,10 @@ testMemPoolAccess txsPerBlock accounts = do
 
     setTime time pb = pb { _pmCreationTime = toTxCreationTime time }
 
-    getTestBlock :: _ -> _ -> MempoolPreBlockCheck Pact4.UnparsedTransaction to -> _ -> _ -> IO (V.Vector to)
+    getTestBlock :: HasVersion => _ -> _ -> MempoolPreBlockCheck Pact4.UnparsedTransaction to -> _ -> _ -> IO (V.Vector to)
     getTestBlock mVarAccounts txOrigTime validate bHeight hash
         | bHeight == 1 = do
-            meta <- setTime txOrigTime <$> makeMeta cid
+            meta <- setTime txOrigTime <$> makeMeta someChainId
             (as, kss, cmds) <- unzip3 . toList <$> createCoinAccounts testVer meta
             case traverse validateCommand cmds of
               Left err -> throwM $ userError err
@@ -323,7 +336,7 @@ testMemPoolAccess txsPerBlock accounts = do
             txs <- forM coinReqs $ \req@(TransferRequest (SenderName sn) rcvr amt) -> do
                 let (Account sender, ks) =
                       mkTransferCaps rcvr amt (sn, fromJuste $ M.lookup sn accs)
-                meta <- setTime txOrigTime <$> makeMetaWithSender sender cid
+                meta <- setTime txOrigTime <$> makeMetaWithSender sender someChainId
                 eCmd <- validateCommand <$> createTransfer testVer meta ks req
                 case eCmd of
                   Left e -> throwM $ userError e
@@ -344,9 +357,6 @@ testMemPoolAccess txsPerBlock accounts = do
 
 -- -------------------------------------------------------------------------- --
 -- Utils
-
-cid :: ChainId
-cid = someChainId testVer
 
 testVer :: ChainwebVersion
 testVer = slowForkingCpmTestVersion petersenChainGraph

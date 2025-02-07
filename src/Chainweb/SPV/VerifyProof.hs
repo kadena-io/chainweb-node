@@ -23,9 +23,13 @@ import Data.MerkleLog.V1 qualified as V1
 -- internal modules
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeaderDB
+import Chainweb.CutDB
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Payload
 import Chainweb.SPV
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 

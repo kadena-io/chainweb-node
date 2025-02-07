@@ -164,12 +164,12 @@ data SomePactServerData = forall v c logger tbl
 somePactServerData
     :: CanReadablePayloadCas tbl
     => Logger logger
-    => ChainwebVersion
-    -> ChainId
+    => HasVersion
+    => ChainId
     -> PactServerData logger tbl
     -> SomePactServerData
-somePactServerData v cid db =
-    case someChainwebVersionVal v of
+somePactServerData cid db =
+    case someChainwebVersionVal of
       (SomeChainwebVersionT (Proxy :: Proxy vt)) ->
           case someChainIdVal cid of
               (SomeChainIdT (Proxy :: Proxy cidt)) ->
@@ -181,6 +181,7 @@ pactServer
     => KnownChainIdSymbol c
     => CanReadablePayloadCas tbl
     => Logger logger
+    => HasVersion
     => PactServerData logger tbl
     -> Server (PactServiceApi v c)
 pactServer d =
@@ -202,18 +203,18 @@ pactServer d =
     -- pactSpvHandler = spvHandler logger cdb pdb pact cid
     -- pactSpv2Handler = spv2Handler logger cdb pdb pact cid
 
-somePactServer :: SomePactServerData -> SomeServer
+somePactServer :: HasVersion => SomePactServerData -> SomeServer
 somePactServer (SomePactServerData (db :: PactServerData_ v c logger tbl))
     = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
 
 somePactServers
     :: CanReadablePayloadCas tbl
     => Logger logger
-    => ChainwebVersion
-    -> [(ChainId, PactServerData logger tbl)]
+    => HasVersion
+    => [(ChainId, PactServerData logger tbl)]
     -> SomeServer
-somePactServers v =
-    mconcat . fmap (somePactServer . uncurry (somePactServerData v))
+somePactServers =
+    mconcat . fmap (somePactServer . uncurry somePactServerData)
 
 data PactCmdLog
     = PactCmdLogSend (NonEmpty (Pact.Command Text))
@@ -311,6 +312,7 @@ sendHandler logger mempool (Pact.SendRequest (Pact.SubmitBatch cmds)) = Handler 
 -- TODO: convert to Pact 5?
 pollHandler
     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => HasVersion
     => logger
     -> ServiceEnv tbl
     -> MempoolBackend Pact.Transaction
@@ -329,6 +331,7 @@ pollHandler logger pact mem confDepth (Pact.PollRequest request) = do
 -- TODO: convert to Pact 5?
 listenHandler
     :: (CanReadablePayloadCas tbl, Logger logger)
+    => HasVersion
     => logger
     -> ServiceEnv tbl
     -> MempoolBackend Pact.Transaction
@@ -365,6 +368,7 @@ listenHandler logger pact mem (Pact.ListenRequest key) = do
 -- TODO: convert to Pact 5?
 localHandler
     :: Logger logger
+    => HasVersion
     => CanReadablePayloadCas tbl
     => logger
     -> ServiceEnv tbl
@@ -592,6 +596,7 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
 
 internalPoll
     :: (CanReadablePayloadCas tbl, Logger logger)
+    => HasVersion
     => logger
     -> MempoolBackend Pact.Transaction
     -> ServiceEnv tbl
@@ -695,8 +700,8 @@ barf e = maybe (throwError e) return
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
-validateCommand :: ChainwebVersion -> Pact.Command Text -> Either String Pact.Transaction
-validateCommand _v cmdText = case parsedCmd of
+validateCommand :: HasVersion => Pact.Command Text -> Either String Pact.Transaction
+validateCommand cmdText = case parsedCmd of
   Right (commandParsed :: Pact.Transaction) ->
     if isRight (Pact.assertCommand commandParsed)
     then Right commandParsed

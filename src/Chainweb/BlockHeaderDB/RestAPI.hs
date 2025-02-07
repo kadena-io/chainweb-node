@@ -119,19 +119,19 @@ type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 
 -- because this endpoint is only used on the service API, we assume clients
 -- want object-encoded block headers.
-blockProperties :: KeyValue e kv => Block -> [kv]
+blockProperties :: (HasVersion, KeyValue e kv) => Block -> [kv]
 blockProperties o =
     [ "header"  .= ObjectEncoded (_blockHeader o)
     , "payloadWithOutputs" .= _blockPayloadWithOutputs o
     ]
 
-instance ToJSON Block where
+instance HasVersion => ToJSON Block where
     toJSON = object . blockProperties
     toEncoding = pairs . mconcat . blockProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON Block where
+instance HasVersion => FromJSON Block where
     parseJSON = withObject "Block" $ \o -> Block
         <$> (_objectEncoded <$> o .: "header")
         <*> o .: "payloadWithOutputs"
@@ -155,7 +155,7 @@ instance MimeRender OctetStream BlockHeader where
     {-# INLINE mimeRender #-}
 
 -- | Orphan instance to encode pages of blocks as JSON
-instance MimeRender JSON BlockPage where
+instance HasVersion => MimeRender JSON BlockPage where
     mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
@@ -172,19 +172,19 @@ data JsonBlockHeaderObject
 instance Accept JsonBlockHeaderObject where
     contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeader where
+instance HasVersion => MimeUnrender JsonBlockHeaderObject BlockHeader where
     mimeUnrender _ = second _objectEncoded . eitherDecode
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender JsonBlockHeaderObject BlockHeader where
+instance HasVersion => MimeRender JsonBlockHeaderObject BlockHeader where
     mimeRender _ = encode . ObjectEncoded
     {-# INLINE mimeRender #-}
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
+instance HasVersion => MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
     mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
+instance HasVersion => MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
     {-# INLINE mimeRender #-}
 
@@ -272,10 +272,10 @@ data SomeBlockHeaderDb = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => SomeBlockHeaderDb (BlockHeaderDb_ v c)
 
-someBlockHeaderDbVal :: ChainwebVersion -> ChainId -> BlockHeaderDb -> SomeBlockHeaderDb
-someBlockHeaderDbVal v cid db = case someChainwebVersionVal v of
-     (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
-         (SomeChainIdT (Proxy :: Proxy cidt)) -> SomeBlockHeaderDb (BlockHeaderDb_ @vt @cidt db)
+someBlockHeaderDbVal :: HasVersion => ChainId -> BlockHeaderDb -> SomeBlockHeaderDb
+someBlockHeaderDbVal cid db = case someChainwebVersionVal of
+    SomeChainwebVersionT (Proxy :: Proxy vt) -> case someChainIdVal cid of
+        SomeChainIdT (Proxy :: Proxy cidt) -> SomeBlockHeaderDb (BlockHeaderDb_ @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Query Parameters
@@ -492,7 +492,7 @@ data HeaderUpdate = HeaderUpdate
     }
     deriving (Show, Eq)
 
-headerUpdateProperties :: KeyValue e kv => HeaderUpdate -> [kv]
+headerUpdateProperties :: HasVersion => KeyValue e kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
     [ "header"  .= _huHeader o
     , "powHash" .= _huPowHash o
@@ -500,13 +500,13 @@ headerUpdateProperties o =
     ]
 {-# INLINE headerUpdateProperties #-}
 
-instance ToJSON HeaderUpdate where
+instance HasVersion => ToJSON HeaderUpdate where
     toJSON = object . headerUpdateProperties
     toEncoding = pairs . mconcat . headerUpdateProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON HeaderUpdate where
+instance HasVersion => FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
         <*> o .: "powHash"

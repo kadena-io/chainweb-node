@@ -532,6 +532,7 @@ library chainweb-test-utils
         , directory >= 1.2
         , exceptions
         , filepath >= 1.4
+        , hashable
         , hashes >=0.2.2.0
         , http-client >= 0.5
         , http-types >= 0.12

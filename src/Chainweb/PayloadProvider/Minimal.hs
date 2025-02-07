@@ -175,11 +175,10 @@ pMinimalProviderConfig = id
         <> help "a valid account on the redeem chain for the default payload provider"
 
 validateMinimalProviderConfig
-    :: HasChainwebVersion v
-    => v
-    -> ConfigValidation MinimalProviderConfig []
-validateMinimalProviderConfig v o
-    | HS.member rcid (chainIds v) = return ()
+    :: HasVersion
+    => ConfigValidation MinimalProviderConfig []
+validateMinimalProviderConfig o
+    | HS.member rcid chainIds = return ()
     | otherwise = do
         throwError $ mconcat
             [ "The provided redeem chain for the default payload provider is not a valid chain in the current chainweb"
@@ -191,8 +190,7 @@ validateMinimalProviderConfig v o
 -- -------------------------------------------------------------------------- --
 
 data MinimalPayloadProvider = MinimalPayloadProvider
-    { _minimalChainwebVersion :: !ChainwebVersion
-    , _minimalChainId :: !ChainId
+    { _minimalChainId :: !ChainId
     , _minimalPayloadVar :: !(TMVar NewPayload)
     , _minimalRedeemChain :: !ChainId
     , _minimalMinerInfo :: !Account
@@ -212,31 +210,29 @@ minimalPayloadQueue = to (_payloadStoreQueue . _minimalPayloadStore)
 
 newMinimalPayloadProvider
     :: Logger logger
-    => HasChainwebVersion v
+    => HasVersion
     => HasChainId c
     => logger
-    -> v
     -> c
     -> RocksDb
     -> Maybe HTTP.Manager
     -> MinimalProviderConfig
     -> IO MinimalPayloadProvider
-newMinimalPayloadProvider logger v c rdb mgr conf
-    | payloadProviderTypeForChain v c /= MinimalProvider =
+newMinimalPayloadProvider logger c rdb mgr conf
+    | payloadProviderTypeForChain c /= MinimalProvider =
         error "Chainweb.PayloadProvider.Minimal.configuration: chain does not use minimal provider"
     | otherwise = do
-        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal v
+        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
         SomeChainIdT @c _ <- return $ someChainIdVal c
         let payloadClient h = Rest.payloadClient @v @c @'MinimalProvider h
 
-        pdb <- PDB.initPayloadDb $ PDB.configuration v c rdb
+        pdb <- PDB.initPayloadDb $ PDB.configuration c rdb
         store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb payloadClient
         var <- newEmptyTMVarIO
         candidates <- emptyTable
         logFunctionText logger Info "minimal payload provider started"
         return MinimalPayloadProvider
-            { _minimalChainwebVersion = _chainwebVersion v
-            , _minimalChainId = _chainId c
+            { _minimalChainId = _chainId c
             , _minimalPayloadVar = var
             , _minimalRedeemChain = _mpcRedeemChain conf
             , _minimalMinerInfo = _mpcRedeemAccount conf
@@ -246,9 +242,6 @@ newMinimalPayloadProvider logger v c rdb mgr conf
             }
   where
     pldStoreLogger = addLabel ("sub-component", "payloadStore") logger
-
-instance HasChainwebVersion MinimalPayloadProvider where
-    _chainwebVersion = _minimalChainwebVersion
 
 instance HasChainId MinimalPayloadProvider where
     _chainId = _minimalChainId
@@ -301,14 +294,12 @@ instance Exception PayloadValidationFailure
 validatePayload
     :: forall m
     . MonadThrow m
+    => HasVersion
     => MinimalPayloadProvider
     -> Payload
     -> EvaluationCtx ConsensusPayload
     -> m ()
 validatePayload p pld ctx = do
-    checkEq PayloadInvalidChainwebVersion
-        (_chainwebVersion p)
-        (_chainwebVersion pld)
     checkEq PayloadInvalidChainId
         (_chainId p)
         (_chainId pld)
@@ -389,7 +380,8 @@ getPayloadForContext p h ctx = do
 -- Should we also expose a version that is fire-and-forget?
 --
 minimalPrefetchPayloads
-    :: MinimalPayloadProvider
+    :: HasVersion
+    => MinimalPayloadProvider
     -> Maybe Hints
     -> ForkInfo
     -> IO ()
@@ -419,7 +411,8 @@ minimalPrefetchPayloads p h i = do
 -- history.
 --
 minimalSyncToBlock
-    :: MinimalPayloadProvider
+    :: HasVersion
+    => MinimalPayloadProvider
     -> Maybe Hints
     -> ForkInfo
     -> IO ConsensusState
@@ -446,13 +439,13 @@ logg :: MinimalPayloadProvider -> LogLevel -> T.Text -> IO ()
 logg p l t = _minimalLogger p l t
 
 makeNewPayload
-    :: MinimalPayloadProvider
+    :: HasVersion
+    => MinimalPayloadProvider
     -> SyncState
     -> NewBlockCtx
     -> NewPayload
 makeNewPayload p latest ctx = NewPayload
-    { _newPayloadChainwebVersion = _chainwebVersion p
-    , _newPayloadChainId = _chainId p
+    { _newPayloadChainId = _chainId p
     , _newPayloadParentHeight = Parent $ _syncStateHeight latest
     , _newPayloadParentHash = Parent $ _syncStateBlockHash latest
     , _newPayloadBlockPayloadHash = view payloadHash pld
@@ -465,7 +458,7 @@ makeNewPayload p latest ctx = NewPayload
     , _newPayloadFees = 0
     }
   where
-    pld = newPayload p p
+    pld = newPayload p
         (_syncStateHeight latest + 1)
         (_newBlockCtxMinerReward ctx)
         (_minimalRedeemChain p)
@@ -482,7 +475,8 @@ makeNewPayload p latest ctx = NewPayload
 -- pipeline, but this might not always be the case in the future.
 --
 validatePayloads
-    :: MinimalPayloadProvider
+    :: HasVersion
+    => MinimalPayloadProvider
     -> Maybe Hints
     -> ForkInfo
     -> IO ()
@@ -516,10 +510,10 @@ minimalLatestPayloadStm = readTMVar . _minimalPayloadVar
 --   ignore that case. We want a solution where we don't have permanent cost
 --   overhead for this exceptional scenario.
 --
-candidatePruningDepth :: MinimalPayloadProvider -> BlockHeight -> BlockHeight
-candidatePruningDepth p h = int $ diameter (chainGraphAt (_chainwebVersion p) h)
+candidatePruningDepth :: HasVersion => MinimalPayloadProvider -> BlockHeight -> BlockHeight
+candidatePruningDepth p h = int $ diameter (chainGraphAt h)
 
-pruneCandidates :: MinimalPayloadProvider -> ConsensusState -> IO ()
+pruneCandidates :: HasVersion => MinimalPayloadProvider -> ConsensusState -> IO ()
 pruneCandidates p s = deleteLt (_minimalCandidatePayloads p) lrh
     { _rankedHeight = h - candidatePruningDepth p h
     }

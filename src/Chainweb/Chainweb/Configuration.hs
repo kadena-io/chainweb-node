@@ -94,7 +94,7 @@ import Chainweb.Version.Development
 import Chainweb.Version.EvmDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.RecapDevelopment
-import Chainweb.Version.Registry
+import Chainweb.Version.Registry (findKnownVersion, knownVersions)
 import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -148,12 +148,12 @@ defaultPayloadProviderConfig = PayloadProviderConfig
     , _payloadProviderConfigEvm = mempty
     }
 
-validatePayloadProviderConfig :: ChainwebVersion -> ConfigValidation PayloadProviderConfig []
-validatePayloadProviderConfig v conf = do
+validatePayloadProviderConfig :: HasVersion => ConfigValidation PayloadProviderConfig []
+validatePayloadProviderConfig conf = do
     void $ HM.traverseWithKey checkPactProvider $ _payloadProviderConfigPact conf
     void $ HM.traverseWithKey checkEvmProvider $ _payloadProviderConfigEvm conf
   where
-    checkPactProvider cid _conf = case payloadProviderTypeForChain v cid of
+    checkPactProvider cid _conf = case payloadProviderTypeForChain cid of
         PactProvider -> return () -- FIXME implement validation
         e -> do
             tell [ "Pact provider configured for chain " <> sshow cid <> ": " <> sshow conf ]
@@ -162,8 +162,8 @@ validatePayloadProviderConfig v conf = do
                 , ". Expected " <> sshow e <> " but found Pact"
                 ]
 
-    checkEvmProvider cid _conf = case payloadProviderTypeForChain v cid of
-        EvmProvider _ -> validateEvmProviderConfig v cid _conf
+    checkEvmProvider cid _conf = case payloadProviderTypeForChain cid of
+        EvmProvider _ -> validateEvmProviderConfig cid _conf
         e -> do
             tell [ "EVM provider configured for chain " <> sshow cid <> ": " <> sshow conf ]
             throwError $ mconcat $
@@ -528,18 +528,15 @@ data ChainwebConfiguration = ChainwebConfiguration
 
 makeLenses ''ChainwebConfiguration
 
-instance HasChainwebVersion ChainwebConfiguration where
-    _chainwebVersion = _configChainwebVersion
-    {-# INLINE _chainwebVersion #-}
-
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
-    validateMinerConfig (_configChainwebVersion c) (_configMining c)
-    validateBackupConfig (_configBackup c)
-    unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
-        validateP2pConfiguration (_configP2p c)
     validateChainwebVersion (_configChainwebVersion c)
-    validatePayloadProviderConfig (_configChainwebVersion c) (_configPayloadProviders c)
+    withVersion (_configChainwebVersion c) $ do
+        validateMinerConfig (_configMining c)
+        validateBackupConfig (_configBackup c)
+        unless (c ^. configChainwebVersion . versionDefaults . disablePeerValidation) $
+            validateP2pConfiguration (_configP2p c)
+        validatePayloadProviderConfig (_configPayloadProviders c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = do
@@ -668,7 +665,7 @@ parseVersion = constructVersion
                             ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . atChain cid)
                             ForkAtGenesis -> winningVersion ^?! versionUpgrades . atChain cid
                     )
-                    (HS.toMap (chainIds winningVersion))
+                    (HS.toMap (withVersion winningVersion chainIds))
             ) fub
         & versionCheats . disablePow .~ disablePow'
         where

@@ -56,10 +56,10 @@ setup txs = do
     return (NoopNFData mp)
 
 cmds :: V.Vector UnparsedTransaction
-cmds = unsafePerformIO $ V.generateM 4096 $ \i -> do
+cmds = withVersion v $ unsafePerformIO $ V.generateM 4096 $ \i -> do
     now <- getCurrentCreationTime
     fmap unparseTransaction
-        $ buildCwCmd (sshow i) v
+        $ buildCwCmd (sshow i)
         $ set cbCreationTime now
         $ set cbGasLimit (Mempool.GasLimit 1)
         $ defaultCmd
@@ -68,9 +68,9 @@ txHash :: UnparsedTransaction -> Mempool.TransactionHash
 txHash = Mempool.txHasher txCfg
 
 expiredCmds :: V.Vector UnparsedTransaction
-expiredCmds = unsafePerformIO $ V.generateM 4096 $ \i -> do
+expiredCmds = withVersion v $ unsafePerformIO $ V.generateM 4096 $ \i -> do
     fmap unparseTransaction
-        $ buildCwCmd (sshow i) v
+        $ buildCwCmd (sshow i)
         $ set cbGasLimit (Mempool.GasLimit 1)
         $ defaultCmd
 

@@ -97,16 +97,16 @@ repeatUntil test action = retrying testRetryPolicy
 -- | Calls to /local via the pact local api client with retry
 --
 localWithQueryParams
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
     -> Pact.Command Text
     -> IO LocalResult
-localWithQueryParams v sid cenv pf sv rd cmd =
-    runClientM (pactLocalApiClient v sid pf sv rd cmd) cenv >>= \case
+localWithQueryParams sid cenv pf sv rd cmd =
+    runClientM (pactLocalApiClient sid pf sv rd cmd) cenv >>= \case
       Left e -> throwM $ LocalFailure (show e)
       Right t -> return t
 
@@ -114,26 +114,26 @@ localWithQueryParams v sid cenv pf sv rd cmd =
 -- turned off. Retries.
 --
 local
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> Pact.Command Text
     -- TODO: PP. This needs to become a full PactError eventually
     -> IO (Pact.CommandResult Pact.Hash Pact.PactOnChainError)
-local v sid cenv cmd = do
+local sid cenv cmd = do
     Just cr <- preview _LocalResultLegacy <$>
-      localWithQueryParams v sid cenv Nothing Nothing Nothing cmd
+      localWithQueryParams sid cenv Nothing Nothing Nothing cmd
     return cr
 
 -- | Request an SPV proof using exponential retry logic
 --
 spv
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> SpvRequest
     -> IO TransactionOutputProofB64
-spv v sid cenv r =
+spv sid cenv r =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
@@ -141,7 +141,7 @@ spv v sid cenv r =
 
       -- send a single spv request and return the result
       --
-      runClientM (pactSpvApiClient v sid r) cenv >>= \case
+      runClientM (pactSpvApiClient sid r) cenv >>= \case
         Left e -> throwM $ SpvFailure (show e)
         Right t -> return t
   where
@@ -152,12 +152,12 @@ spv v sid cenv r =
 -- | Request an Eth SPV proof using exponential retry logic
 --
 ethSpv
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> EthSpvRequest
     -> IO EthSpvResponse
-ethSpv v sid cenv r =
+ethSpv sid cenv r =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting eth-spv proof for " <> show (_ethSpvReqTransactionHash r)
@@ -165,7 +165,7 @@ ethSpv v sid cenv r =
 
       -- send a single spv request and return the result
       --
-      runClientM (ethSpvApiClient v sid r) cenv >>= \case
+      runClientM (ethSpvApiClient sid r) cenv >>= \case
         Left e -> throwM $ SpvFailure (show e)
         Right t -> return t
   where
@@ -173,14 +173,14 @@ ethSpv v sid cenv r =
       SpvFailure _ -> return True
       _ -> return False
 
--- | Send a batch with retry logic waiting for success.
+-- | Send a batch.
 sending
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> Pact.SubmitBatch
     -> IO Pact.RequestKeys
-sending v sid cenv batch =
+sending sid cenv batch =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (Pact._cmdHash <$> toList ss)
@@ -188,7 +188,7 @@ sending v sid cenv batch =
 
       -- Send and return naively
       --
-      runClientM (pactSendApiClient v sid (Pact.SendRequest batch)) cenv >>= \case
+      runClientM (pactSendApiClient sid (Pact.SendRequest batch)) cenv >>= \case
         Left e -> throwM $ SendFailure (show e)
         Right (Pact.SendResponse rs) -> return rs
 
@@ -205,24 +205,24 @@ data PollingExpectation = ExpectPactError | ExpectPactResult
   deriving Eq
 
 polling
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> Pact.RequestKeys
     -> PollingExpectation
     -> IO Pact.PollResponse
-polling v sid cenv rks pollingExpectation =
-  pollingWithDepth v sid cenv rks Nothing pollingExpectation
+polling sid cenv rks pollingExpectation =
+  pollingWithDepth sid cenv rks Nothing pollingExpectation
 
 pollingWithDepth
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> Pact.RequestKeys
     -> Maybe ConfirmationDepth
     -> PollingExpectation
     -> IO Pact.PollResponse
-pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
+pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -232,7 +232,7 @@ pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollApiClient v sid confirmationDepth $ Pact.PollRequest rs) cenv >>= \case
+      runClientM (pactPollApiClient sid confirmationDepth $ Pact.PollRequest rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
         Right r@(Pact.PollResponse mp) ->
           if all (go mp) (toList rs)
@@ -253,9 +253,9 @@ pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
       Just cr -> Pact._crReqKey cr == rk && validate (Pact._crResult cr)
       Nothing -> False
 
-getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
-getCurrentBlockHeight сv cenv cid =
-  runClientM (cutGetClient сv) cenv >>= \case
+getCurrentBlockHeight :: HasVersion => ClientEnv -> ChainId -> IO BlockHeight
+getCurrentBlockHeight cenv cid =
+  runClientM cutGetClient cenv >>= \case
     Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
     Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 

@@ -64,24 +64,24 @@ import Chainweb.BlockHeight (BlockHeight)
 -- Payload API
 
 payloadGetClient'
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BlockPayloadHash
     -> Maybe BlockHeight
     -> ClientM_ PayloadData
-payloadGetClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+payloadGetClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(PayloadGetApi v c)
 
 outputsGetClient'
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BlockPayloadHash
     -> Maybe BlockHeight
     -> ClientM_ PayloadWithOutputs
-outputsGetClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+outputsGetClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(OutputsGetApi v c)
 
@@ -89,81 +89,80 @@ outputsGetClient' v c = runIdentity $ do
 -- Cut API
 
 cutGetClient'
-    :: ChainwebVersion
-    -> Maybe MaxRank
+    :: HasVersion
+    => Maybe MaxRank
     -> ClientM_ CutHashes
-cutGetClient' v = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+cutGetClient' = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     return $ client_ @(CutGetApi v)
 
 cutPutClient'
-    :: ChainwebVersion
-    -> CutHashes
+    :: HasVersion
+    => CutHashes
     -> ClientM_ NoContent
-cutPutClient' v = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+cutPutClient' = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     return $ client_ @(CutPutApi v)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API
 
 hashesClient'
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Maybe Limit
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
     -> ClientM_ (Page (NextItem BlockHash) BlockHash)
-hashesClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+hashesClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HashesApi v c)
 
-headerClient' :: ChainwebVersion -> ChainId -> BlockHash -> ClientM_ BlockHeader
-headerClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+headerClient' :: HasVersion => ChainId -> BlockHash -> ClientM_ BlockHeader
+headerClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HeaderApi v c)
 
 headersClient'
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Maybe Limit
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
     -> ClientM_ (Page (NextItem BlockHash) BlockHeader)
-headersClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+headersClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HeadersApi v c)
 
 branchHashesClient'
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Maybe Limit
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM_ (Page (NextItem BlockHash) BlockHash)
-branchHashesClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+branchHashesClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchHashesApi v c)
 
 branchHeadersClient'
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> Maybe Limit
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM_ (Page (NextItem BlockHash) BlockHeader)
-branchHeadersClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+branchHeadersClient' c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchHeadersApi v c)
-

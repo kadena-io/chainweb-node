@@ -46,6 +46,7 @@ import Chainweb.Difficulty
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Version (HasVersion)
 
 ---
 
@@ -93,7 +94,7 @@ timestampPosition = 8
 --
 mine
   :: forall a
-  . HashAlgorithm a
+  . (HashAlgorithm a, HasVersion)
   => Nonce
   -> MiningWork
   -> IO SolvedWork

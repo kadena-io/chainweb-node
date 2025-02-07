@@ -97,15 +97,11 @@ newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHe
     deriving anyclass (NFData)
     deriving newtype (Hashable, Eq, ToJSON, FromJSON)
 
-instance HasChainwebVersion RankedBlockHeader where
-    _chainwebVersion = _chainwebVersion . _getRankedBlockHeader
-    {-# INLINE _chainwebVersion #-}
-
 instance HasChainId RankedBlockHeader where
     _chainId = _chainId . _getRankedBlockHeader
     {-# INLINE _chainId #-}
 
-instance HasChainGraph RankedBlockHeader where
+instance HasVersion => HasChainGraph RankedBlockHeader where
     _chainGraph = _chainGraph . _getRankedBlockHeader
     {-# INLINE _chainGraph #-}
 
@@ -162,11 +158,7 @@ instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
     {-# INLINE _chainId #-}
 
-instance HasChainwebVersion BlockHeaderDb where
-    _chainwebVersion = _chainDbChainwebVersion
-    {-# INLINE _chainwebVersion #-}
-
-instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHeader where
+instance (k ~ CasKeyType BlockHeader, HasVersion) => ReadableTable BlockHeaderDb k BlockHeader where
     tableLookup = lookup
     {-# INLINE tableLookup #-}
 
@@ -179,7 +171,7 @@ instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHead
 --
 -- Updates all indices.
 --
-dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
+dbAddChecked :: HasVersion => BlockHeaderDb -> BlockHeader -> IO ()
 dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
   where
     r = int $ rank e
@@ -215,7 +207,7 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
 
 -- | Initialize a database handle
 --
-initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
+initBlockHeaderDb :: HasVersion => Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
     dbAddChecked db rootEntry
     return db
@@ -237,7 +229,7 @@ initBlockHeaderDb config = do
         ["BlockHeader", cidNs, "rank"]
 
     !db = BlockHeaderDb cid
-        (_chainwebVersion rootEntry)
+        implicitVersion
         headerTable
         rankTable
 
@@ -247,14 +239,14 @@ closeBlockHeaderDb :: BlockHeaderDb -> IO ()
 closeBlockHeaderDb _ = return ()
 
 withBlockHeaderDb
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> ChainId
     -> ResourceT IO BlockHeaderDb
-withBlockHeaderDb db v cid = snd <$> allocate start closeBlockHeaderDb
+withBlockHeaderDb db cid = snd <$> allocate start closeBlockHeaderDb
   where
     start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader v cid
+        { _configRoot = genesisBlockHeader cid
         , _configRocksDb = db
         }
 
@@ -264,7 +256,7 @@ withBlockHeaderDb db v cid = snd <$> allocate start closeBlockHeaderDb
 -- | TODO provide more efficient branchEntries implementation that uses
 -- iterators.
 --
-instance TreeDb BlockHeaderDb where
+instance HasVersion => TreeDb BlockHeaderDb where
     type DbEntry BlockHeaderDb = BlockHeader
 
     lookup db h = runMaybeT $ do
@@ -374,10 +366,10 @@ seekTreeDb db k mir it = do
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertBlockHeaderDb :: BlockHeaderDb -> ValidatedHeader -> IO ()
+insertBlockHeaderDb :: HasVersion => BlockHeaderDb -> ValidatedHeader -> IO ()
 insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 {-# INLINE insertBlockHeaderDb #-}
 
-unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
+unsafeInsertBlockHeaderDb :: HasVersion => BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}

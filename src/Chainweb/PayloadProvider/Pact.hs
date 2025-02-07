@@ -56,26 +56,19 @@ makePrisms ''PactPayloadProvider
 instance HasChainId (PactPayloadProvider logger tbl) where
     chainId = _PactPayloadProvider . _2 . chainId
 
-instance HasChainwebVersion (PactPayloadProvider logger tbl) where
-    chainwebVersion = _PactPayloadProvider . _2 . chainwebVersion
-
 instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvider logger tbl) where
-    prefetchPayloads :: Logger logger => PactPayloadProvider logger tbl -> Maybe Hints -> ForkInfo -> IO ()
     prefetchPayloads _pp _hints _forkInfo = return ()
 
-    syncToBlock :: Logger logger => PactPayloadProvider logger tbl -> Maybe Hints -> ForkInfo -> IO ConsensusState
     syncToBlock (PactPayloadProvider logger e) hints forkInfo =
         PactService.syncToFork logger e hints forkInfo
 
-    latestPayloadSTM :: Logger logger => PactPayloadProvider logger tbl -> STM NewPayload
     latestPayloadSTM (PactPayloadProvider _logger e) = do
         (_, bip) <- readTMVar (_psMiningPayloadVar e)
         let pwo = toPayloadWithOutputs
                 (fromJuste $ _psMiner e)
                 (_blockInProgressTransactions bip)
         return NewPayload
-            { _newPayloadChainwebVersion = _chainwebVersion e
-            , _newPayloadChainId = _chainId e
+            { _newPayloadChainId = _chainId e
             , _newPayloadParentHeight = _bctxParentHeight $ _blockInProgressBlockCtx bip
             , _newPayloadParentHash = _bctxParentHash $ _blockInProgressBlockCtx bip
             , _newPayloadBlockPayloadHash = _payloadWithOutputsPayloadHash pwo
@@ -111,8 +104,8 @@ decodeNewPayload NewPayload{..} = do
 withPactPayloadProvider
     :: CanPayloadCas tbl
     => Logger logger
-    => ChainwebVersion
-    -> ChainId
+    => HasVersion
+    => ChainId
     -> Maybe HTTP.Manager
     -> logger
     -> Maybe (Counter "txFailures")
@@ -122,7 +115,7 @@ withPactPayloadProvider
     -> PactServiceConfig
     -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
+withPactPayloadProvider cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
     (_, readOnlySqlPool) <- allocate
         (Pool.newPool $ Pool.defaultPoolConfig
@@ -134,7 +127,7 @@ withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir c
         )
         Pool.destroyAllResources
     PactPayloadProvider logger <$>
-        PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
+        PactService.withPactService cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
         (maybe GenesisNotNeeded GenesisPayload maybeGenesisPayload)
     where
     mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger

@@ -40,9 +40,9 @@ import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDN
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
 import Chainweb.Utils
 
-genesisPayload :: ChainwebVersion -> ChainMap PayloadWithOutputs
-genesisPayload v
-    | _versionCode v == _versionCode Mainnet01 = ChainMap $ HM.fromList $ concat
+genesisPayload :: HasVersion => ChainMap PayloadWithOutputs
+genesisPayload
+    | _versionCode implicitVersion == _versionCode Mainnet01 = ChainMap $ HM.fromList $ concat
         [
             [ (unsafeChainId 0, MN0.payloadBlock)
             , (unsafeChainId 1, MN1.payloadBlock)
@@ -57,22 +57,22 @@ genesisPayload v
             ]
         , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
         ]
-    | _versionCode v == _versionCode Testnet04 = ChainMap $ HM.fromList $ concat
+    | _versionCode implicitVersion == _versionCode Testnet04 = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, T04N0.payloadBlock)]
         , [(unsafeChainId i, T04NN.payloadBlock) | i <- [1..19]]
         ]
-    | _versionCode v == _versionCode Development = ChainMap $ HM.fromList $ concat
+    | _versionCode implicitVersion == _versionCode Development = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, DN0.payloadBlock)]
         , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
         ]
-    | _versionCode v == _versionCode RecapDevelopment = ChainMap $ HM.fromList $ concat
+    | _versionCode implicitVersion == _versionCode RecapDevelopment = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, RDN0.payloadBlock)]
         , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
         , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
         ]
-    | _versionCode v == _versionCode EvmDevelopment = ChainMap $ HM.fromList $ concat
+    | _versionCode implicitVersion == _versionCode EvmDevelopment = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, DN0.payloadBlock)]
         , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
         ]
-genesisPayload v = error $
-    "Chainweb.PayloadProvider.Pact.Genesis.genesisPayload: unsupported chainweb version: " <> sshow v
+    | otherwise = error $
+        "Chainweb.PayloadProvider.Pact.Genesis.genesisPayload: unsupported chainweb version: " <> sshow implicitVersion

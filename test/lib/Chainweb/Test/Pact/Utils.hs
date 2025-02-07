@@ -77,11 +77,10 @@ import Pact.Core.PactValue
 import Pact.Core.Capabilities
 import Pact.Core.Names
 
-withBlockDbs :: ChainwebVersion -> RocksDb -> ResourceT IO (PayloadDb RocksDbTable, WebBlockHeaderDb)
-withBlockDbs v rdb = do
-    webBHDb <- liftIO $ initWebBlockHeaderDb rdb v
+withBlockDbs :: HasVersion => RocksDb -> ResourceT IO (PayloadDb RocksDbTable, WebBlockHeaderDb)
+withBlockDbs rdb = do
+    webBHDb <- liftIO $ initWebBlockHeaderDb rdb
     let payloadDb = newPayloadDb rdb
-    -- liftIO $ initializePayloadDb v payloadDb
     return (payloadDb, webBHDb)
 
 -- | Internal. See https://www.sqlite.org/c3ref/open.html
@@ -94,12 +93,13 @@ withSQLiteResource file = snd <$> allocate
 
 withMempool
     :: (Logger logger)
+    => HasVersion
     => logger
     -> ServiceEnv tbl
     -> ResourceT IO (MempoolBackend Pact.Transaction)
 withMempool logger pact = do
     let mempoolCfg = validatingMempoolConfig
-            (_chainId pact) (_chainwebVersion pact)
+            (_chainId pact)
             (Pact.GasLimit $ Pact.Gas 150_000) (Pact.GasPrice 1e-8)
             (execPreInsertCheckReq logger pact)
     liftIO $ startInMemoryMempoolTest mempoolCfg

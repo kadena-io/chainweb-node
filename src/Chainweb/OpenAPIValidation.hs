@@ -25,8 +25,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
-mkValidationMiddleware :: Logger logger => logger -> ChainwebVersion -> HTTP.Manager -> IO Middleware
-mkValidationMiddleware logger v mgr = do
+mkValidationMiddleware :: (Logger logger, HasVersion) => logger -> HTTP.Manager -> IO Middleware
+mkValidationMiddleware logger mgr = do
     (chainwebSpec, pactSpec) <- fetchOpenApiSpecs
     apiCoverageRef <- newIORef $ WV.initialCoverageMap [chainwebSpec, pactSpec]
     apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
@@ -38,15 +38,15 @@ mkValidationMiddleware logger v mgr = do
                 ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : rest) -> do
                     findPact pactSpec rawVersion rawChainId rest
                 _ -> Nothing
-            , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> toText (_versionName v)) path
+            , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> toText (_versionName implicitVersion)) path
             , Just (path,chainwebSpec)
             ]
     where
     findPact pactSpec rawVersion rawChainId rest = do
         let reqVersion = ChainwebVersionName (T.decodeUtf8 rawVersion)
-        guard (reqVersion == _versionName v)
+        guard (reqVersion == _versionName implicitVersion)
         reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-        guard (HS.member reqChainId (chainIds v))
+        guard (HS.member reqChainId chainIds)
         return (BS8.intercalate "/" ("":rest), pactSpec)
 
     fetchOpenApiSpecs = do

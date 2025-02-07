@@ -149,6 +149,7 @@ import Pact.Core.Hash
 import Pact.Core.ModRefs
 import Pact.Core.Errors
 import Pact.Core.Pretty (renderCompactText)
+import Chainweb.Version (HasVersion)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Encoding Exceptions
@@ -571,6 +572,7 @@ createEventsProofKeccak256 = createEventsProof_
 createEventsProofDb_
     :: forall a tbl
     . MerkleHashAlgorithm a
+    => HasVersion
     => CanReadablePayloadCas tbl
     => BlockHeaderDb
     -> PayloadDb tbl
@@ -601,6 +603,7 @@ createEventsProofDb_ headerDb payloadDb d h reqKey = do
 
 createEventsProofDb
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -615,6 +618,7 @@ createEventsProofDb = createEventsProofDb_
 
 createEventsProofDbKeccak256
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural

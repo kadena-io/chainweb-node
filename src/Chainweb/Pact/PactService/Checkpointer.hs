@@ -101,37 +101,35 @@ mkFakeParentCreationTime = do
 -- we just keep grabbing the new "latest header" until we succeed.
 -- note: this function will never rewind before genesis.
 readFromLatest
-    :: (HasCallStack, Logger logger)
+    :: (HasCallStack, HasVersion, Logger logger)
     => logger
-    -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
     -> Parent BlockCreationTime
     -> (BlockEnv -> BlockHandle -> IO a)
     -> IO a
-readFromLatest logger v cid sql parentCreationTime doRead =
-    readFromNthParent logger v cid sql parentCreationTime 0 doRead >>= \case
+readFromLatest logger cid sql parentCreationTime doRead =
+    readFromNthParent logger cid sql parentCreationTime 0 doRead >>= \case
         NoHistory -> error "readFromLatest: failed to grab the latest header, this is a bug in chainweb"
         Historical a -> return a
 
 -- read-only rewind to the nth parent before the latest block.
 -- note: this function will never rewind before genesis.
 readFromNthParent
-    :: (HasCallStack, Logger logger)
+    :: (HasCallStack, HasVersion, Logger logger)
     => logger
-    -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
     -> Parent BlockCreationTime
     -> Word
     -> (BlockEnv -> BlockHandle -> IO a)
     -> IO (Historical a)
-readFromNthParent logger v cid sql parentCreationTime n doRead = do
+readFromNthParent logger cid sql parentCreationTime n doRead = do
     withSavepoint sql ReadFromNSavepoint $ do
         latest <-
             _consensusStateLatest . fromMaybe (error "readFromNthParent is illegal to call before genesis")
             <$> getConsensusState sql
-        if genesisHeight v cid + fromIntegral @Word @BlockHeight n > _syncStateHeight latest
+        if genesisHeight cid + fromIntegral @Word @BlockHeight n > _syncStateHeight latest
         then do
             logFunctionText logger Warn $ "readFromNthParent asked to rewind beyond genesis, to "
                 <> sshow (int (_syncStateHeight latest) - int n :: Integer)
@@ -144,14 +142,13 @@ readFromNthParent logger v cid sql parentCreationTime n doRead = do
                         logFunctionText logger Warn "readFromNthParent asked to rewind beyond known blocks"
                         return NoHistory
                     Just nthBlock ->
-                        readFrom logger v cid sql parentCreationTime (Parent nthBlock) doRead
+                        readFrom logger cid sql parentCreationTime (Parent nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
 readFrom
-    :: (HasCallStack, Logger logger)
+    :: (HasCallStack, HasVersion, Logger logger)
     => logger
-    -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
     -> Parent BlockCreationTime
@@ -159,28 +156,26 @@ readFrom
     -> Parent RankedBlockHash
     -> (BlockEnv -> BlockHandle -> IO a)
     -> IO (Historical a)
-readFrom logger v cid sql parentCreationTime parent doRead = do
+readFrom logger cid sql parentCreationTime parent doRead = do
     let blockCtx = BlockCtx
             { _bctxParentCreationTime = parentCreationTime
             , _bctxParentHash = _rankedBlockHashHash <$> parent
             , _bctxParentHeight = _rankedBlockHashHeight <$> parent
-            , _bctxMinerReward = blockMinerReward v (childBlockHeight v cid parent)
-            , _bctxChainwebVersion = v
+            , _bctxMinerReward = blockMinerReward (childBlockHeight cid parent)
             , _bctxChainId = cid
             }
     liftIO $ withSavepoint sql ReadFromSavepoint $ do
-        !latestHeader <- maybe (genesisRankedParentBlockHash v cid) (Parent . _syncStateRankedBlockHash . _consensusStateLatest) <$>
+        !latestHeader <- maybe (genesisRankedParentBlockHash cid) (Parent . _syncStateRankedBlockHash . _consensusStateLatest) <$>
             ChainwebPactDb.throwOnDbError (ChainwebPactDb.getConsensusState sql)
         -- is the parent the latest header, i.e., can we get away without rewinding?
         let parentIsLatestHeader = latestHeader == parent
         let currentHeight = _bctxCurrentBlockHeight blockCtx
-        if pact5 v cid currentHeight
-        then PactDb.getEndTxId v cid sql parent >>= traverse \startTxId -> do
+        if pact5 cid currentHeight
+        then PactDb.getEndTxId cid sql parent >>= traverse \startTxId -> do
             let
                 blockHandlerEnv = ChainwebPactDb.BlockHandlerEnv
                     { ChainwebPactDb._blockHandlerDb = sql
                     , ChainwebPactDb._blockHandlerLogger = logger
-                    , ChainwebPactDb._blockHandlerVersion = v
                     , ChainwebPactDb._blockHandlerChainId = cid
                     , ChainwebPactDb._blockHandlerBlockHeight = currentHeight
                     , ChainwebPactDb._blockHandlerMode = Pact.Transactional
@@ -194,11 +189,14 @@ readFrom logger v cid sql parentCreationTime parent doRead = do
 
 -- the special case where one doesn't want to extend the chain, just rewind it.
 rewindTo
-    :: ChainwebVersion -> ChainId -> SQLiteEnv
-    -> RankedBlockHash -> IO ()
-rewindTo v cid sql ancestor = do
+    :: HasVersion
+    => ChainId
+    -> SQLiteEnv
+    -> RankedBlockHash
+    -> IO ()
+rewindTo cid sql ancestor = do
     withSavepoint sql RewindSavePoint $
-        void $ PactDb.rewindDbTo v cid sql ancestor
+        void $ PactDb.rewindDbTo cid sql ancestor
 
 -- TODO: log more?
 -- | Given a list of blocks in ascending order, rewind to the first
@@ -213,18 +211,16 @@ rewindTo v cid sql ancestor = do
 --   - each subsequent block must be the direct child of the previous block.
 restoreAndSave
     :: forall logger m q.
-    (Logger logger, MonadIO m, MonadMask m, Semigroup q, HasCallStack)
+    (Logger logger, MonadIO m, MonadMask m, Semigroup q, HasCallStack, HasVersion)
     => logger
-    -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
     -> NonEmpty (BlockCtx, BlockEnv -> StateT BlockHandle m (q, (BlockHash, BlockPayloadHash)))
     -> m q
-restoreAndSave logger v cid sql blocks = do
+restoreAndSave logger cid sql blocks = do
     withSavepoint sql RestoreAndSaveSavePoint $ do
         -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
         startTxId <- liftIO $ PactDb.rewindDbTo
-            v
             cid
             sql
             (unwrapParent $ _bctxParentRankedBlockHash $ fst $ NE.head blocks)
@@ -247,7 +243,6 @@ restoreAndSave logger v cid sql blocks = do
             blockEnv = ChainwebPactDb.BlockHandlerEnv
                 { ChainwebPactDb._blockHandlerDb = sql
                 , ChainwebPactDb._blockHandlerLogger = logger
-                , ChainwebPactDb._blockHandlerVersion = v
                 , ChainwebPactDb._blockHandlerBlockHeight = bh
                 , ChainwebPactDb._blockHandlerChainId = cid
                 , ChainwebPactDb._blockHandlerMode = Pact.Transactional
@@ -255,7 +250,7 @@ restoreAndSave logger v cid sql blocks = do
                 , ChainwebPactDb._blockHandlerAtTip = True
                 }
             pactDb = ChainwebPactDb.chainwebPactBlockDb blockEnv
-            in if pact5 v cid bh then do
+            in if pact5 cid bh then do
 
                 -- run the block
                 ((m, blockInfo), blockHandle) <-

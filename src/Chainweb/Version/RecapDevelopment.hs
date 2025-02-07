@@ -29,47 +29,47 @@ pattern RecapDevelopment <- ((== recapDevnet) -> True) where
     RecapDevelopment = recapDevnet
 
 recapDevnet :: ChainwebVersion
-recapDevnet = ChainwebVersion
+recapDevnet = withVersion recapDevnet ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x0000_0001
     , _versionName = ChainwebVersionName "recap-development"
 
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> onAllChains recapDevnet ForkAtGenesis
-        Vuln797Fix -> onAllChains recapDevnet ForkAtGenesis
-        CoinV2 -> onAllChains recapDevnet ForkAtGenesis
-        PactBackCompat_v16 -> onAllChains recapDevnet ForkAtGenesis
-        SkipTxTimingValidation -> onAllChains recapDevnet ForkAtGenesis
-        OldTargetGuard -> onAllChains recapDevnet ForkAtGenesis
-        SkipFeatureFlagValidation -> onAllChains recapDevnet ForkAtGenesis
-        ModuleNameFix -> onAllChains recapDevnet ForkAtGenesis
-        ModuleNameFix2 -> onAllChains recapDevnet ForkAtGenesis
-        OldDAGuard -> onAllChains recapDevnet ForkAtGenesis
-        PactEvents -> onAllChains recapDevnet ForkAtGenesis
-        SPVBridge -> onAllChains recapDevnet ForkAtGenesis
-        Pact4Coin3 -> onAllChains recapDevnet ForkAtGenesis
-        EnforceKeysetFormats -> onAllChains recapDevnet ForkAtGenesis
-        Pact42 -> onAllChains recapDevnet ForkAtGenesis
-        CheckTxHash -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb213Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb214Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb215Pact -> onAllChains recapDevnet ForkAtGenesis
-        Pact44NewTrans -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb216Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb217Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb218Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb219Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb220Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb221Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb222Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb223Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb224Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb225Pact -> onAllChains recapDevnet ForkAtGenesis
-        Chainweb226Pact -> onAllChains recapDevnet ForkAtGenesis
-        Pact5Fork -> onAllChains recapDevnet $ ForkAtGenesis
-        Chainweb228Pact -> onAllChains recapDevnet $ ForkAtBlockHeight $ BlockHeight 10
-        Chainweb229Pact -> onAllChains recapDevnet $ ForkAtBlockHeight $ BlockHeight 20
-        Chainweb230Pact -> onAllChains recapDevnet $ ForkAtBlockHeight $ BlockHeight 30
-        HashedAdjacentRecord -> onAllChains recapDevnet $ ForkAtBlockHeight $ BlockHeight 40
+        SlowEpoch -> onAllChains ForkAtGenesis
+        Vuln797Fix -> onAllChains ForkAtGenesis
+        CoinV2 -> onAllChains ForkAtGenesis
+        PactBackCompat_v16 -> onAllChains ForkAtGenesis
+        SkipTxTimingValidation -> onAllChains ForkAtGenesis
+        OldTargetGuard -> onAllChains ForkAtGenesis
+        SkipFeatureFlagValidation -> onAllChains ForkAtGenesis
+        ModuleNameFix -> onAllChains ForkAtGenesis
+        ModuleNameFix2 -> onAllChains ForkAtGenesis
+        OldDAGuard -> onAllChains ForkAtGenesis
+        PactEvents -> onAllChains ForkAtGenesis
+        SPVBridge -> onAllChains ForkAtGenesis
+        Pact4Coin3 -> onAllChains ForkAtGenesis
+        EnforceKeysetFormats -> onAllChains ForkAtGenesis
+        Pact42 -> onAllChains ForkAtGenesis
+        CheckTxHash -> onAllChains ForkAtGenesis
+        Chainweb213Pact -> onAllChains ForkAtGenesis
+        Chainweb214Pact -> onAllChains ForkAtGenesis
+        Chainweb215Pact -> onAllChains ForkAtGenesis
+        Pact44NewTrans -> onAllChains ForkAtGenesis
+        Chainweb216Pact -> onAllChains ForkAtGenesis
+        Chainweb217Pact -> onAllChains ForkAtGenesis
+        Chainweb218Pact -> onAllChains ForkAtGenesis
+        Chainweb219Pact -> onAllChains ForkAtGenesis
+        Chainweb220Pact -> onAllChains ForkAtGenesis
+        Chainweb221Pact -> onAllChains ForkAtGenesis
+        Chainweb222Pact -> onAllChains ForkAtGenesis
+        Chainweb223Pact -> onAllChains ForkAtGenesis
+        Chainweb224Pact -> onAllChains ForkAtGenesis
+        Chainweb225Pact -> onAllChains ForkAtGenesis
+        Chainweb226Pact -> onAllChains ForkAtGenesis
+        Pact5Fork -> onAllChains $ ForkAtGenesis
+        Chainweb228Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 10
+        Chainweb229Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 20
+        Chainweb230Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 30
+        HashedAdjacentRecord -> onAllChains $ ForkAtBlockHeight $ BlockHeight 40
     , _versionUpgrades = onChains []
 
     , _versionGraphs =
@@ -85,7 +85,7 @@ recapDevnet = ChainwebVersion
             [ [(unsafeChainId i, HashTarget $ maxBound `div` 100_000) | i <- [0..9]]
             , [(unsafeChainId i, HashTarget 0x0000088f99632cadf39b0db7655be62cb7dbc84ebbd9a90e5b5756d3e7d9196c) | i <- [10..19]]
             ]
-        , _genesisTime = onAllChains recapDevnet $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+        , _genesisTime = onAllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
         , _genesisBlockPayload = onChains
             [ (unsafeChainId 0, unsafeFromText "5TWTF5R6Vc85vWHqcklTY91ljkV6mJ1wYfDJShooTCw")
             , (unsafeChainId 1, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
@@ -120,10 +120,10 @@ recapDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = onAllChains recapDevnet $
+    , _versionVerifierPluginNames = onAllChains $
         (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
         Bottom (minBound, mempty)
-    , _versionQuirks = noQuirks recapDevnet
+    , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
-    , _versionPayloadProviderTypes = onAllChains recapDevnet PactProvider
+    , _versionPayloadProviderTypes = onAllChains PactProvider
     }

@@ -51,7 +51,8 @@ import Chainweb.MerkleUniverse
 -- SPV Transaction Output Proof Handler
 
 spvGetTransactionOutputProofHandler
-    :: CutDb
+    :: HasVersion
+    => CutDb
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
@@ -81,7 +82,8 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
 -- overkill.
 --
 spvGetEventProofHandler
-    :: CutDb
+    :: HasVersion
+    => CutDb
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
@@ -136,6 +138,7 @@ spvGetEventProofHandler db tcid scid bh i e = do
 spvServer
     :: forall v (c :: ChainIdT)
     . KnownChainIdSymbol c
+    => HasVersion
     => CutDbT v
     -> Server (SpvApi v c)
 spvServer (CutDbT db)
@@ -151,6 +154,7 @@ spvServer (CutDbT db)
 spvApp
     :: forall v c
     . KnownChainwebVersionSymbol v
+    => HasVersion
     => KnownChainIdSymbol c
     => CutDbT v
     -> Application
@@ -167,6 +171,7 @@ spvApiLayout _ = T.putStrLn $ layout (Proxy @(SpvApi v c))
 someSpvServer
     :: forall c
     . KnownChainIdSymbol c
+    => HasVersion
     => SomeCutDb
     -> SomeServer
 someSpvServer (SomeCutDb (db :: CutDbT v))
@@ -176,10 +181,10 @@ someSpvServer (SomeCutDb (db :: CutDbT v))
 -- Multichain Server
 
 someSpvServers
-    :: ChainwebVersion
-    -> CutDb
+    :: HasVersion
+    => CutDb
     -> SomeServer
-someSpvServers v db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
-    someSpvServer @c (someCutDbVal v db)
+someSpvServers db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
+    someSpvServer @c (someCutDbVal db)
   where
-    cids = toList $ chainIds db
+    cids = toList chainIds

@@ -279,7 +279,8 @@ withResourceT rt act =
 
 -- Initialize Test BlockHeader DB
 testBlockHeaderDb
-    :: RocksDb
+    :: HasVersion
+    => RocksDb
     -> BlockHeader
     -> IO BlockHeaderDb
 testBlockHeaderDb rdb h = do
@@ -287,7 +288,8 @@ testBlockHeaderDb rdb h = do
     initBlockHeaderDb (Configuration h rdb')
 
 withTestBlockHeaderDb
-    :: RocksDb
+    :: HasVersion
+    => RocksDb
     -> BlockHeader
     -> ResourceT IO BlockHeaderDb
 withTestBlockHeaderDb rdb h =
@@ -342,17 +344,17 @@ toyVersion :: ChainwebVersion
 toyVersion = barebonesTestVersion singletonChainGraph
 
 toyChainId :: ChainId
-toyChainId = someChainId toyVersion
+toyChainId = withVersion toyVersion someChainId
 
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader toyVersion cid
+toyGenesis cid = withVersion toyVersion genesisBlockHeader cid
 
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
 -- Borrowed from TrivialSync.hs
 --
 toyBlockHeaderDb :: RocksDb -> ChainId -> IO (BlockHeader, BlockHeaderDb)
-toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
+toyBlockHeaderDb db cid = withVersion toyVersion $ (g,) <$> testBlockHeaderDb db g
   where
     g = toyGenesis cid
 
@@ -372,12 +374,11 @@ mockBlockFill = BlockFill mockBlockGasLimit mempty 0
 
 genesisBlockHeaderForChain
     :: MonadThrow m
-    => HasChainwebVersion v
-    => v
-    -> Word32
+    => HasVersion
+    => Word32
     -> m BlockHeader
-genesisBlockHeaderForChain v i
-    = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v maxBound i
+genesisBlockHeaderForChain i
+    = genesisBlockHeader <$> mkChainId maxBound i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
@@ -385,7 +386,7 @@ genesisBlockHeaderForChain v i
 -- includes the nonce. They payloads can be recovered using
 -- 'testBlockPayload_'.
 --
-insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
+insertN :: HasVersion => Int -> BlockHeader -> BlockHeaderDb -> IO ()
 insertN n g db = traverse_ (unsafeInsertBlockHeaderDb db) bhs
   where
     bhs = take n $ testBlockHeaders $ Parent g
@@ -394,7 +395,7 @@ insertN n g db = traverse_ (unsafeInsertBlockHeaderDb db) bhs
 -- includes the nonce. They payloads can be recovered using
 -- 'testBlockPayload_'.
 --
-insertN_ :: Nonce -> Natural -> BlockHeader -> BlockHeaderDb -> IO [BlockHeader]
+insertN_ :: HasVersion => Nonce -> Natural -> BlockHeader -> BlockHeaderDb -> IO [BlockHeader]
 insertN_ s n g db = do
     traverse_ (unsafeInsertBlockHeaderDb db) bhs
     return bhs
@@ -430,7 +431,7 @@ treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader } deriving (Show)
 
 instance Arbitrary SparseTree where
-    arbitrary = SparseTree <$> tree toyVersion Randomly
+    arbitrary = SparseTree <$> withVersion toyVersion tree Randomly
 
 -- | A specification for how the trunk of the `SparseTree` should grow.
 --
@@ -440,43 +441,43 @@ data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
 -- The values of the tree constitute a legal chain, i.e. block heights start
 -- from 0 and increment, parent hashes propagate properly, etc.
 --
-tree :: ChainwebVersion -> Growth -> Gen (Tree BlockHeader)
-tree v g = do
-    h <- genesis v
+tree :: HasVersion => Growth -> Gen (Tree BlockHeader)
+tree g = do
+    h <- genesis
     Node h <$> forest g h
 
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
-genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = either (error . sshow) return $ genesisBlockHeaderForChain v 0
+genesis :: HasVersion => Gen BlockHeader
+genesis = either (error . sshow) return $ genesisBlockHeaderForChain 0
 
-forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
+forest :: HasVersion => Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
 forest g@(AtMost n) h | n < view blockHeight h = pure []
                       | otherwise = fixedTrunk g h
 
-fixedTrunk :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
+fixedTrunk :: HasVersion => Growth -> BlockHeader -> Gen (Forest BlockHeader)
 fixedTrunk g h = frequency [ (1, sequenceA [fork h, trunk g h])
                            , (5, sequenceA [trunk g h]) ]
 
-randomTrunk :: BlockHeader -> Gen (Forest BlockHeader)
+randomTrunk :: HasVersion => BlockHeader -> Gen (Forest BlockHeader)
 randomTrunk h = frequency [ (2, pure [])
                           , (4, sequenceA [fork h, trunk Randomly h])
                           , (18, sequenceA [trunk Randomly h]) ]
 
-fork :: BlockHeader -> Gen (Tree BlockHeader)
+fork :: HasVersion => BlockHeader -> Gen (Tree BlockHeader)
 fork h = do
     next <- header h
     Node next <$> frequency [ (1, pure []), (1, sequenceA [fork next]) ]
 
-trunk :: Growth -> BlockHeader -> Gen (Tree BlockHeader)
+trunk :: HasVersion => Growth -> BlockHeader -> Gen (Tree BlockHeader)
 trunk g h = do
     next <- header h
     Node next <$> forest g next
 
 -- | Generate some new `BlockHeader` based on a parent.
 --
-header :: BlockHeader -> Gen BlockHeader
+header :: HasVersion => BlockHeader -> Gen BlockHeader
 header p = do
     nonce <- Nonce <$> chooseAny
     return
@@ -490,14 +491,13 @@ header p = do
             :+: _chainId p
             :+: BlockWeight (targetToDifficulty target) + view blockWeight p
             :+: succ (view blockHeight p)
-            :+: _versionCode v
+            :+: _versionCode implicitVersion
             :+: epochStart (Parent p) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = view blockCreationTime p
     target = powTarget (Parent p) mempty t'
-    v = _chainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 -- | get arbitrary value for seed.
@@ -514,15 +514,15 @@ petersen = petersenChainGraph
 singleton :: ChainGraph
 singleton = singletonChainGraph
 
-testBlockHeaderDbs :: RocksDb -> ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
-testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v
+testBlockHeaderDbs :: HasVersion => RocksDb -> IO (ChainMap BlockHeaderDb)
+testBlockHeaderDbs rdb = tabulateChainsM toEntry
   where
     toEntry c = do
-        d <- testBlockHeaderDb rdb (genesisBlockHeader v c)
-        return (c, d)
+        testBlockHeaderDb rdb (genesisBlockHeader c)
 
 linearBlockHeaderDbs
-    :: Natural
+    :: HasVersion
+    => Natural
     -> [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, BlockHeaderDb)]
 linearBlockHeaderDbs n dbs = do
@@ -534,14 +534,15 @@ linearBlockHeaderDbs n dbs = do
         traverse_ (unsafeInsertBlockHeaderDb db) . take (int n) . testBlockHeaders $ Parent gbh0
 
 starBlockHeaderDbs
-    :: Natural
-    -> [(ChainId, BlockHeaderDb)]
-    -> IO [(ChainId, BlockHeaderDb)]
+    :: HasVersion
+    => Natural
+    -> ChainMap BlockHeaderDb
+    -> IO (ChainMap BlockHeaderDb)
 starBlockHeaderDbs n dbs = do
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (_, db) = do
+    populateDb db = do
         gbh0 <- root db
         traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ Parent gbh0) [0 .. (int n-1)]
 
@@ -558,32 +559,29 @@ data TestClientEnv t = TestClientEnv
     , _envCutDb :: !(Maybe CutDb)
     , _envBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
-    , _envVersion :: !ChainwebVersion
     }
 
 pattern BlockHeaderDbsTestClientEnv
-    :: ClientEnv
+    :: HasVersion
+    => ClientEnv
     -> ChainMap BlockHeaderDb
-    -> ChainwebVersion
     -> TestClientEnv t
-pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs, _cdbEnvVersion }
-    <- TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] _cdbEnvVersion
+pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
+    <- TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
-    -> ChainwebVersion
     -> TestClientEnv t
-pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs, _pdbEnvVersion }
-    <- TestClientEnv _pdbEnvClientEnv Nothing _ _pdbEnvPeerDbs _pdbEnvVersion
+pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
+    <- TestClientEnv _pdbEnvClientEnv Nothing _ _pdbEnvPeerDbs
 
 pattern PayloadTestClientEnv
     :: ClientEnv
     -> CutDb
-    -> ChainwebVersion
     -> TestClientEnv t
-pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb, _eEnvVersion }
-    <- TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) _ [] _eEnvVersion
+pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb }
+    <- TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) _ []
 
 withTestAppServer
     :: Bool
@@ -624,19 +622,19 @@ data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withChainwebTestServer
-    :: ShouldValidateSpec
+    :: HasVersion
+    => ShouldValidateSpec
     -> Bool
-    -> ChainwebVersion
     -> W.Application
     -> ResourceT IO Int
-withChainwebTestServer shouldValidateSpec tls v app =
+withChainwebTestServer shouldValidateSpec tls app =
     view _3 . snd <$> allocate start stop
   where
     verboseOnExceptionResponse exn =
         W.responseLBS HTTP.internalServerError500 [] ("exception: " <> sshow exn)
     start = do
         mw <- case shouldValidateSpec of
-            ValidateSpec -> mkApiValidationMiddleware v
+            ValidateSpec -> mkApiValidationMiddleware
             DoNotValidateSpec -> return id
         let app' = mw app
         (port, sock) <- W.openFreePort
@@ -669,18 +667,18 @@ clientEnvWithChainwebTestServer
     .  Show t
     => ToJSON t
     => FromJSON t
+    => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> ChainwebVersion
     -> ChainwebServerDbs
     -> ResourceT IO (TestClientEnv t)
-clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
+clientEnvWithChainwebTestServer shouldValidateSpec tls dbs = do
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
     -- includes this API for testing. We should create comprehensive tests for the
     -- service API and move the tests over there.
     --
-    let app = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) dbs
-    port <- withChainwebTestServer shouldValidateSpec tls v app
+    let app = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration implicitVersion) dbs
+    port <- withChainwebTestServer shouldValidateSpec tls app
     mgrSettings <- if
         | tls -> liftIO $ certificateCacheManagerSettings TlsInsecure
         | otherwise -> return HTTP.defaultManagerSettings
@@ -690,19 +688,18 @@ clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
         (_chainwebServerCutDb dbs)
         (_chainwebServerBlockHeaderDbs dbs)
         (_chainwebServerPeerDbs dbs)
-        v
 
 withPeerDbsServer
     :: Show t
     => ToJSON t
     => FromJSON t
+    => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> ChainwebVersion
     -> [(NetworkId, P2P.PeerDb)]
     -> ResourceT IO (TestClientEnv t)
-withPeerDbsServer shouldValidateSpec tls v peerDbs =
-    clientEnvWithChainwebTestServer shouldValidateSpec tls v
+withPeerDbsServer shouldValidateSpec tls peerDbs =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls
         emptyChainwebServerDbs
             { _chainwebServerPeerDbs = peerDbs
             }
@@ -711,13 +708,13 @@ withPayloadServer
     :: Show t
     => ToJSON t
     => FromJSON t
+    => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> ChainwebVersion
     -> CutDb
     -> ResourceT IO (TestClientEnv t)
-withPayloadServer shouldValidateSpec tls v cutDb =
-    clientEnvWithChainwebTestServer shouldValidateSpec tls v
+withPayloadServer shouldValidateSpec tls cutDb =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls
         emptyChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             }
@@ -726,13 +723,13 @@ withBlockHeaderDbsServer
     :: Show t
     => ToJSON t
     => FromJSON t
+    => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> ChainwebVersion
     -> ChainMap BlockHeaderDb
     -> ResourceT IO (TestClientEnv t)
-withBlockHeaderDbsServer shouldValidateSpec tls v chainDbs =
-    clientEnvWithChainwebTestServer shouldValidateSpec tls v
+withBlockHeaderDbsServer shouldValidateSpec tls chainDbs =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls
         emptyChainwebServerDbs
             { _chainwebServerBlockHeaderDbs = chainDbs
             }
@@ -907,19 +904,19 @@ data ChainwebNetwork = ChainwebNetwork
 
 withNodes_
     :: Logger logger
+    => HasVersion
     => logger
-    -> ChainwebVersion
     -> (ChainwebConfiguration -> ChainwebConfiguration)
     -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodes_ logger v confChange nodeDbDirs = do
+withNodes_ logger confChange nodeDbDirs = do
     (p2p, service) <- start
     pure (ChainwebNetwork p2p service nodeDbDirs)
   where
     start :: ResourceT IO (ClientEnv, ClientEnv)
     start = do
         peerInfoVar <- liftIO newEmptyMVar
-        runTestNodes logger v confChange peerInfoVar nodeDbDirs
+        runTestNodes logger confChange peerInfoVar nodeDbDirs
         (i, servicePort) <- liftIO $ readMVar peerInfoVar
         cwEnv <- liftIO $ getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- liftIO $ getClientEnv $ getCwBaseUrl Http servicePort
@@ -934,22 +931,22 @@ withNodes_ logger v confChange nodeDbDirs = do
         }
 
 withNodes
-    :: ChainwebVersion
-    -> (ChainwebConfiguration -> ChainwebConfiguration)
+    :: HasVersion
+    => (ChainwebConfiguration -> ChainwebConfiguration)
     -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodes v confF nodeDbDirs = do
+withNodes confF nodeDbDirs = do
     logLevel <- liftIO getTestLogLevel
-    withNodes_ (genericLogger logLevel T.putStrLn) v confF nodeDbDirs
+    withNodes_ (genericLogger logLevel T.putStrLn) confF nodeDbDirs
 
 withNodesAtLatestBehavior
-    :: ChainwebVersion
-    -> (ChainwebConfiguration -> ChainwebConfiguration)
+    :: HasVersion
+    => (ChainwebConfiguration -> ChainwebConfiguration)
     -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodesAtLatestBehavior v conf dbDirs = do
-    net <- withNodes v conf dbDirs
-    liftIO $ awaitBlockHeight v (_getServiceClientEnv net) (latestBehaviorAt v)
+withNodesAtLatestBehavior conf dbDirs = do
+    net <- withNodes conf dbDirs
+    liftIO $ awaitBlockHeight (_getServiceClientEnv net) latestBehaviorAt
     return net
 
 -- | Network initialization takes some time. Within my ghci session it took
@@ -957,13 +954,13 @@ withNodesAtLatestBehavior v conf dbDirs = do
 -- blocks were mined almost instantaneously.
 --
 awaitBlockHeight
-    :: ChainwebVersion
-    -> ClientEnv
+    :: HasVersion
+    => ClientEnv
     -> BlockHeight
     -> IO ()
-awaitBlockHeight v cenv i = do
+awaitBlockHeight cenv i = do
     result <- retrying testRetryPolicy checkRetry
-        $ const $ runClientM (cutGetClient v) cenv
+        $ const $ runClientM cutGetClient cenv
     case result of
         Left e -> throwM e
         Right x
@@ -977,18 +974,19 @@ awaitBlockHeight v cenv i = do
     checkRetry _ (Right c)
         = return $ any (\bh -> _bhwhHeight bh < i) (_cutHashes c)
 
-runTestNodes :: Logger logger
+runTestNodes
+    :: Logger logger
+    => HasVersion
     => logger
-    -> ChainwebVersion
     -> (ChainwebConfiguration -> ChainwebConfiguration)
     -> MVar (PeerInfo, Port)
     -> [NodeDbDirs]
        -- ^ A Map from Node Id to (Pact DB Dir, Backups Dir).
        --   The index is just the position in the list.
     -> ResourceT IO ()
-runTestNodes logger ver confChange portMVar nodesDbDirs = do
+runTestNodes logger confChange portMVar nodesDbDirs = do
     forConcurrently_ (zip [0 ..] nodesDbDirs) $ \(nid, NodeDbDirs {..}) -> do
-        let baseConf = confChange $ config ver (int (length nodesDbDirs))
+        let baseConf = confChange $ config implicitVersion (int (length nodesDbDirs))
         conf <- liftIO $ if nid == 0
           then return $ bootstrapConfig baseConf
           else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
@@ -1005,6 +1003,7 @@ runTestNodes logger ver confChange portMVar nodesDbDirs = do
 
 node
     :: Logger logger
+    => HasVersion
     => RocksDb
     -> logger
     -> TVar NowServing
@@ -1137,7 +1136,7 @@ getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
 -- | Backoff up to a constant 250ms, limiting to ~40s
 -- (actually saw a test have to wait > 22s)
 testRetryPolicy :: RetryPolicy
-testRetryPolicy = stepped <> limitRetries 150
+testRetryPolicy = stepped <> limitRetries 10
   where
     stepped = retryPolicy $ \rs -> case rsIterNumber rs of
       0 -> Just 20_000

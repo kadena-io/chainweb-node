@@ -131,11 +131,7 @@ instance HasChainId ValidatedHeader where
     _chainId = _chainId . _validatedHeader
     {-# INLINE _chainId #-}
 
-instance HasChainwebVersion ValidatedHeader where
-    _chainwebVersion = _chainwebVersion . _validatedHeader
-    {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph ValidatedHeader where
+instance HasVersion => HasChainGraph ValidatedHeader where
     _chainGraph = _chainGraph . _validatedHeader
     {-# INLINE _chainGraph #-}
 
@@ -286,7 +282,7 @@ webStepFailure hp = ValidationFailure
     (Just $ _webStepAdjs hp)
     (_webStepHeader hp)
 
-instance Show ValidationFailure where
+instance HasVersion => Show ValidationFailure where
     show (ValidationFailure p as e ts)
         = T.unpack $ "Validation failure"
             <> ". Description: " <> T.unlines (map description ts)
@@ -377,7 +373,7 @@ data ValidationFailureType
         -- version of the validated header.
   deriving (Show, Eq, Ord)
 
-instance Exception ValidationFailure
+instance HasVersion => Exception ValidationFailure
 
 -- | The list of validation failures that are definite and independent of any
 -- external context. A block for which validation fails with one of these
@@ -442,7 +438,7 @@ isEphemeral failures
 -- * IncorrectPayloadHash
 --
 validateBlockHeaderM
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => Time Micros
         -- ^ The current clock time
     -> (ChainValue BlockHash -> m (Maybe BlockHeader))
@@ -470,7 +466,7 @@ validateBlockHeaderM t lookupHeader h =
 -- * IncorrectPayloadHash
 --
 validateBlockHeadersM
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => Time Micros
         -- ^ The current clock time
     -> (ChainValue BlockHash -> m (Maybe BlockHeader))
@@ -498,7 +494,7 @@ validateBlockHeadersM t lookupHeader as = do
 -- performed
 --
 validateIntrinsicM
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => Time Micros
         -- ^ The current clock time
     -> BlockHeader
@@ -516,7 +512,7 @@ validateIntrinsicM t e = unless (null failures)
 -- performed
 --
 validateInductiveChainM
-    :: MonadThrow m
+    :: (MonadThrow m, HasVersion)
     => (BlockHash -> m (Maybe BlockHeader))
         -- ^ Context of Validated BlockHeaders
     -> BlockHeader
@@ -541,7 +537,7 @@ validateInductiveChainM lookupHeader h =
 -- Returns the parent if it exists or an validation failure otherwise.
 --
 validateBlockParentExists
-    :: Monad m
+    :: (Monad m, HasVersion)
     => (BlockHash -> m (Maybe BlockHeader))
     -> BlockHeader
     -> m (Either ValidationFailureType ChainStep)
@@ -557,7 +553,7 @@ validateBlockParentExists lookupParent h
 -- Returns the parents if they exist or an validation failure otherwise.
 --
 validateAllParentsExist
-    :: Monad m
+    :: (Monad m, HasVersion)
     => (ChainValue BlockHash -> m (Maybe BlockHeader))
     -> BlockHeader
     -> m (Either ValidationFailureType WebStep)
@@ -566,10 +562,9 @@ validateAllParentsExist lookupParent h = runExceptT $ WebStep
     <*> ExceptT (validateBlockParentExists lookupOnChain h)
   where
     lookupOnChain = lookupParent . ChainValue (_chainId h)
-    v = _chainwebVersion h
     f c ph
-        | genesisParentBlockHash v c == ph = return
-            $ Parent $ genesisBlockHeader v c
+        | genesisParentBlockHash c == ph = return
+            $ Parent $ genesisBlockHeader c
         | otherwise = lift (lookupParent $ fmap unwrapParent $ ChainValue c ph) >>= \case
             (Just !p) -> return $ Parent p
             Nothing -> throwError MissingAdjacentParent
@@ -586,7 +581,8 @@ validateAllParentsExist lookupParent h = runExceptT $ WebStep
 -- * IncorrectPayloadHash
 --
 isValidBlockHeader
-    :: Time Micros
+    :: HasVersion
+    => Time Micros
         -- ^ The current clock time
     -> WebStep
     -> Bool
@@ -602,7 +598,8 @@ isValidBlockHeader t p = null $ validateBlockHeader t p
 -- * IncorrectPayloadHash
 --
 validateBlockHeader
-    :: Time Micros
+    :: HasVersion
+    => Time Micros
         -- ^ The current clock time
     -> WebStep
     -> [ValidationFailureType]
@@ -618,7 +615,8 @@ validateBlockHeader t p
 -- without observing the remainder of the database.
 --
 validateIntrinsic
-    :: Time Micros
+    :: HasVersion
+    => Time Micros
         -- ^ The current clock time
     -> BlockHeader
         -- ^ block header to be validated
@@ -637,7 +635,8 @@ validateIntrinsic t b = concat
 -- | Validate properties of a block with respect to a given parent.
 --
 validateInductive
-    :: WebStep
+    :: HasVersion
+    => WebStep
     -> [ValidationFailureType]
         -- ^ A list of ways in which the block header isn't valid
 validateInductive ps
@@ -645,7 +644,8 @@ validateInductive ps
     <> validateInductiveWebStep ps
 
 validateInductiveChainStep
-    :: ChainStep
+    :: HasVersion
+    => ChainStep
         -- ^ parent block header. The genesis header is considered its own parent.
     -> [ValidationFailureType]
         -- ^ A list of ways in which the block header isn't valid
@@ -657,7 +657,8 @@ validateInductiveChainStep s = concat
     ]
 
 validateInductiveWebStep
-    :: WebStep
+    :: HasVersion
+    => WebStep
         -- ^ parent block header. The genesis header is considered its own parent.
     -> [ValidationFailureType]
         -- ^ A list of ways in which the block header isn't valid
@@ -674,50 +675,49 @@ validateInductiveWebStep s = concat
 -- Intrinsic BlockHeader properties
 -- -------------------------------------------------------------------------- --
 
-prop_block_pow :: BlockHeader -> Bool
+prop_block_pow :: HasVersion => BlockHeader -> Bool
 prop_block_pow b
     | isGenesisBlockHeader b = True
     -- Genesis block headers are not mined. So there's not need for POW
-    | b ^. chainwebVersion . versionCheats . disablePow = True
+    | implicitVersion ^. versionCheats . disablePow = True
     | otherwise = checkTarget (view blockTarget b) (view blockPow b)
 
-prop_block_hash :: BlockHeader -> Bool
+prop_block_hash :: HasVersion => BlockHeader -> Bool
 prop_block_hash b = view blockHash b == computeBlockHash b
 
-prop_block_genesis_parent :: BlockHeader -> Bool
+prop_block_genesis_parent :: HasVersion => BlockHeader -> Bool
 prop_block_genesis_parent b
     = isGenesisBlockHeader b ==> hasGenesisParentHash b
     && hasGenesisParentHash b ==> isGenesisBlockHeader b
   where
     hasGenesisParentHash b' =
-        view blockParent b' == genesisParentBlockHash (_chainwebVersion b') (_chainId b')
+        view blockParent b' == genesisParentBlockHash (_chainId b')
 
-prop_block_genesis_target :: BlockHeader -> Bool
+prop_block_genesis_target :: HasVersion => BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> view blockTarget b == _chainwebVersion b ^?! versionGenesis . genesisBlockTarget . atChain (_chainId b)
+    ==> view blockTarget b == implicitVersion ^?! versionGenesis . genesisBlockTarget . atChain (_chainId b)
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= view blockCreationTime b
 
-prop_block_featureFlags :: BlockHeader -> Bool
+prop_block_featureFlags :: HasVersion => BlockHeader -> Bool
 prop_block_featureFlags b
-    | skipFeatureFlagValidationGuard v cid h = True
+    | skipFeatureFlagValidationGuard cid h = True
     | otherwise = view blockFlags b == mkFeatureFlags
   where
-    v = _chainwebVersion b
     h = view blockHeight b
     cid = _chainId b
 
 -- | Verify that the adjacent hashes of the block are for the correct set of
 -- chain ids.
 --
-prop_block_adjacent_chainIds :: BlockHeader -> Bool
+prop_block_adjacent_chainIds :: HasVersion => BlockHeader -> Bool
 prop_block_adjacent_chainIds b
     = isJust $ checkAdjacentChainIds adjGraph b (Expected $ view blockAdjacentChainIds b)
   where
     adjGraph
         | isGenesisBlockHeader b = _chainGraph b
-        | otherwise = chainGraphAt (_chainwebVersion b) (view blockHeight b - 1)
+        | otherwise = chainGraphAt (view blockHeight b - 1)
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
@@ -726,7 +726,7 @@ prop_block_adjacent_chainIds b
 -- -------------------------------------------------------------------------- --
 -- Single chain inductive properties
 
-prop_block_height :: ChainStep -> Bool
+prop_block_height :: HasVersion => ChainStep -> Bool
 prop_block_height (ChainStep (Parent p) b)
     | isGenesisBlockHeader b = view blockHeight b == view blockHeight p
     | otherwise = view blockHeight b == view blockHeight p + 1
@@ -735,7 +735,7 @@ prop_block_chainwebVersion :: ChainStep -> Bool
 prop_block_chainwebVersion (ChainStep (Parent p) b) =
     view blockChainwebVersion p == view blockChainwebVersion b
 
-prop_block_weight :: ChainStep -> Bool
+prop_block_weight :: HasVersion => ChainStep -> Bool
 prop_block_weight (ChainStep (Parent p) b)
     | isGenesisBlockHeader b = view blockWeight b == view blockWeight p
     | otherwise = view blockWeight b == expectedWeight
@@ -749,13 +749,13 @@ prop_block_chainId (ChainStep (Parent p) b)
 -- -------------------------------------------------------------------------- --
 -- Multi chain inductive properties
 
-prop_block_target :: WebStep -> Bool
+prop_block_target :: HasVersion => WebStep -> Bool
 prop_block_target (WebStep as (ChainStep p b))
     = view blockTarget b == powTarget p as (view blockCreationTime b)
 
-prop_block_epoch :: WebStep -> Bool
+prop_block_epoch :: HasVersion => WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))
-    | oldDaGuard (_chainwebVersion b) (_chainId b) (view blockHeight b)
+    | oldDaGuard (_chainId b) (view blockHeight b)
         = view blockEpochStart b <= EpochStartTime (_bct $ view blockCreationTime b)
         && view blockEpochStart (unwrapParent p) <= view blockEpochStart b
         && view blockEpochStart b == epochStart p as (view blockCreationTime b)
@@ -763,11 +763,11 @@ prop_block_epoch (WebStep as (ChainStep p b))
         = view blockEpochStart b <= EpochStartTime (_bct $ view blockCreationTime b)
         && view blockEpochStart b == epochStart p as (view blockCreationTime b)
 
-prop_block_creationTime :: WebStep -> Bool
+prop_block_creationTime :: HasVersion => WebStep -> Bool
 prop_block_creationTime (WebStep as (ChainStep (Parent p) b))
     | isGenesisBlockHeader b
         = view blockCreationTime b == view blockCreationTime p
-    | oldDaGuard (_chainwebVersion b) (_chainId b) (view blockHeight b)
+    | oldDaGuard (_chainId b) (view blockHeight b)
         = view blockCreationTime b > view blockCreationTime p
     | otherwise
         = view blockCreationTime b > view blockCreationTime p
@@ -781,10 +781,10 @@ prop_block_creationTime (WebStep as (ChainStep (Parent p) b))
 -- we include it here again as assertion (to double check during testing) and
 -- for documentation purposes.
 --
-prop_block_adjacent_parents :: WebStep -> Bool
+prop_block_adjacent_parents :: HasVersion => WebStep -> Bool
 prop_block_adjacent_parents (WebStep as (ChainStep _ b))
     | isGenesisBlockHeader b
-        = adjsHashes == imap (\cid _ -> genesisParentBlockHash v cid) as
+        = adjsHashes == imap (\cid _ -> genesisParentBlockHash cid) as
             -- chainId indexes in web adjadent parent record references the
             -- genesis block parent hashes
     | otherwise
@@ -796,7 +796,6 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
             -- it is indexed
   where
     adjsHashes = _getBlockHashRecord (view blockAdjacentHashes b)
-    v = _chainwebVersion b
 
 prop_block_adjacent_parents_version :: WebStep -> Bool
 prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
