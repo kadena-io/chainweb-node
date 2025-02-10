@@ -6,11 +6,13 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -36,14 +38,14 @@ module Chainweb.PayloadProvider.EVM.Utils
 , nullHash
 , nullBlockHash
 , decodeRlpM
+, dropN
 ) where
 
 import Chainweb.BlockHash qualified as Chainweb
+import Chainweb.MinerReward
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runPutS, runGetS)
-
 import Control.Monad.Catch
-
 import Data.Aeson
 import Data.ByteString qualified as B
 import Data.ByteString.Base16 qualified as B16
@@ -52,20 +54,15 @@ import Data.Hashable (Hashable)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.Read qualified as T
-
 import Ethereum.Misc
 import Ethereum.RLP (RLP, get, getRlp)
+import Ethereum.Receipt
 import Ethereum.Transaction (Wei (..))
-import Ethereum.Utils hiding (int)
-
+import Ethereum.Utils hiding (int, natVal_)
 import Foreign.Storable (Storable)
-
 import GHC.Generics (Generic)
-
 import GHC.TypeLits
-
 import Text.Printf
-import Chainweb.MinerReward
 
 -- -------------------------------------------------------------------------- --
 -- Utils (should be moved to the ethereum package)
@@ -148,6 +145,23 @@ instance HasTextRepresentation Address where
     fromText = fmap (Address . fromHexBytes) . fromText
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Bytes
+
+dropN
+    :: forall (m :: Natural) (n :: Natural)
+    . KnownNat m
+    => KnownNat n
+    => n <= m
+    => BytesN m
+    -> BytesN n
+dropN b = unsafeBytesN @n (BS.drop (int d) (_getBytesN b))
+  where
+    d = natVal_ @m - natVal_ @n
+
+-- TODO: move to ethereum package
+deriving newtype instance Bytes LogData
 
 -- -------------------------------------------------------------------------- --
 -- RLP Encoding Tools
