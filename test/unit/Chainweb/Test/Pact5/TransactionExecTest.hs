@@ -691,7 +691,8 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
         e <- applyCmd logger (Just logger) pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
         e & P.match _Right
             ? P.checkAll
-                [ P.fun _crEvents ? P.list
+                [ P.fun _crResult ? P.equals ? PactResultOk (PString "Write succeeded")
+                , P.fun _crEvents ? P.list
                     -- transfer event and gas redeem event
                     [ event
                         (P.equals "TRANSFER")
@@ -702,7 +703,6 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
                         (P.equals [PString "sender00", PString "NoMiner", PDecimal 22.7])
                         (P.equals coinModuleName)
                     ]
-                , P.fun _crResult ? P.equals ? PactResultOk (PString "Write succeeded")
                 -- reflects buyGas gas usage, as well as that of the payload
                 , P.fun _crGas ? P.equals ? Gas expectedGasConsumed
                 , P.fun _crContinuation ? P.equals ? Nothing
