@@ -1162,16 +1162,18 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 ph <- view psParentHeader
                 v <- view chainwebVersion
                 cid <- view chainId
-                blockHandle <- use Pact5.pbBlockHandle
+                initialBlockHandle <- use Pact5.pbBlockHandle
                 let
                     parentTime = ParentCreationTime (view blockCreationTime $ _parentHeader ph)
                     currHeight = succ $ view blockHeight $ _parentHeader ph
                     isGenesis = False
-                liftIO $ forM txs $ \tx ->
+                forM txs $ \tx ->
                     fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
-                        pact5Tx <- Pact5.validateRawChainwebTx
-                            logger v cid db blockHandle parentTime currHeight isGenesis tx
-                        attemptBuyGasPact5 logger ph db blockHandle noMiner pact5Tx
+                        -- it's safe to use initialBlockHandle here because it's
+                        -- only used to check for duplicate pending txs in a block
+                        pact5Tx <- mapExceptT liftIO $ Pact5.validateRawChainwebTx
+                            logger v cid db initialBlockHandle parentTime currHeight isGenesis tx
+                        attemptBuyGasPact5 logger ph noMiner pact5Tx
             )
     withPactState $ \run ->
         timeoutYield timeoutLimit (run act) >>= \case
@@ -1228,24 +1230,22 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         :: (Logger logger)
         => logger
         -> ParentHeader
-        -> Pact5.Pact5Db
-        -> BlockHandle Pact5
         -> Miner
         -> Pact5.Transaction
-        -> ExceptT InsertError IO ()
-    attemptBuyGasPact5 logger ph db blockHandle miner tx = do
+        -> ExceptT InsertError (Pact5.PactBlockM logger tbl) ()
+    attemptBuyGasPact5 logger ph miner tx = do
         let logger' = addLabel ("transaction", "attemptBuyGas") logger
-        (result, _handle') <- liftIO $ Pact5.doPact5DbTransaction db blockHandle Nothing $ \pactDb -> do
+        result <- lift $ Pact5.pactTransaction Nothing $ \pactDb -> do
             let txCtx = Pact5.TxContext ph miner
             -- Note: `mempty` is fine here for the milligas limit. `buyGas` sets its own limit
             -- by necessity
             gasEnv <- Pact5.mkTableGasEnv (Pact5.MilliGasLimit mempty) Pact5.GasLogsDisabled
-            (tx <$) <$> Pact5.buyGas logger' gasEnv pactDb txCtx (view Pact5.payloadObj <$> tx)
+            Pact5.buyGas logger' gasEnv pactDb txCtx (view Pact5.payloadObj <$> tx)
         case result of
             Left err -> do
                 throwError $ InsertErrorBuyGas $ prettyPact5GasPurchaseFailure $ BuyGasError (Pact5.cmdToRequestKey tx) err
-            Right _ -> do
-                pure ()
+            Right (_ :: Pact5.EvalResult) -> return ()
+
 
 execLookupPactTxs
     :: (CanReadablePayloadCas tbl, Logger logger)
