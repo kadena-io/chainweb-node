@@ -49,8 +49,8 @@ evmDevnet = ChainwebVersion
             : (unsafeChainId 1, BlockCreationTime (Time (secondsToTimeSpan 1687223762)))
             : [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]) | i <- [2..19] ]
         , _genesisBlockPayload = onChains $
-            [ (unsafeChainId 0, unsafeFromText "-EffZgInrtrokWVn5iqO2fuTbtG2-noDdhXr0pHQA4E")
-            , (unsafeChainId 1, unsafeFromText "-EffZgInrtrokWVn5iqO2fuTbtG2-noDdhXr0pHQA4E")
+            [ (unsafeChainId 0, unsafeFromText "cRFtAlQ2aQn3xzMlieY3UGixp2a7z2eXdl4N4w6HRLg")
+            , (unsafeChainId 1, unsafeFromText "1lkrseazRVRa4-TYmVV2XcOjyY3Ba0KA-IX4r1bwwtI")
             , (unsafeChainId 2, unsafeFromText "Gnh6QWze67ODyy4BoV4ZOeih72e_Cqos2BJM41sMgVc")
             , (unsafeChainId 3, unsafeFromText "Ta08GYak3xnTr0HvJq9e37RTigd56N7m2aj_cxI1oC0")
             , (unsafeChainId 4, unsafeFromText "eliqzAQ0JGxPD_73dwO7mXsX_tEOz6HJuLsDNJxqSd4")
