@@ -35,34 +35,14 @@ import Chainweb.Version
 import Control.Exception
 import Control.Monad.Catch
 import Data.ByteString qualified as B
-import Data.ByteString.Short qualified as BS
 import Data.Text qualified as T
 import Data.Word
 import Ethereum.Misc
 import Ethereum.Receipt
 import GHC.Generics (Generic)
-import GHC.TypeNats
+import Chainweb.PayloadProvider.EVM.Utils hiding (ChainId)
 import Data.Aeson
 import Ethereum.Utils (HexBytes(..))
-import Chainweb.PayloadProvider.EVM.Utils hiding (ChainId)
-
--- -------------------------------------------------------------------------- --
--- Utils
-
--- TODO: move to ethereum package
-dropN
-    :: forall (m :: Natural) (n :: Natural)
-    . KnownNat m
-    => KnownNat n
-    => n <= m
-    => BytesN m
-    -> BytesN n
-dropN b = unsafeBytesN @n (BS.drop (int d) (_getBytesN b))
-  where
-    d = natVal_ @m - natVal_ @n
-
--- TODO: move to ethereum package
-deriving newtype instance Bytes LogData
 
 -- --------------------------------------------------------------------------
 -- Exceptions
