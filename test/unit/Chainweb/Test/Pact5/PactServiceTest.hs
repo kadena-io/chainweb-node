@@ -327,7 +327,7 @@ testNewBlockExcludesInvalid baseRdb = runResourceT $ do
             return $ finalizeBlock bip
 
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
-            mempoolInsert mempool UncheckedInsert $ Vector.fromList [badParse, badSigs]
+            mempoolInsert mempool UncheckedInsert mempty $ Vector.fromList [badParse, badSigs]
             mempoolInsertPact5 mempool UncheckedInsert [badChain, badUnique, badFuture, badPast, badTxHash]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             let expectedTxs = []
