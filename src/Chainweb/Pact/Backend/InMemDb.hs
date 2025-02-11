@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -22,6 +23,7 @@ module Chainweb.Pact.Backend.InMemDb
     ) where
 
 import Prelude hiding (lookup)
+import Control.DeepSeq (NFData, rnf)
 import Control.Lens
 import Data.ByteString (ByteString)
 import Data.Hashable
@@ -41,6 +43,7 @@ import Pact.Core.DefPacts.Types
 import Pact.Core.IR.Term (ModuleCode)
 
 data Entry a
+        -- | The 'Int' is the size of the value, in bytes.
     = ReadEntry !Int !a
     -- WriteEntry bytestring could be intentionally lazy, as most of the time
     -- we don't need this until we commit to the db. However, encoding these is
@@ -50,16 +53,29 @@ data Entry a
 
 makePrisms ''Entry
 
+instance NFData (Entry a) where
+    rnf !_ = ()
+
 data Store = Store
-    { userTables :: HashMap TableName (HashMap RowKey (Entry RowData))
-    , keySets :: HashMap KeySetName (Entry KeySet)
-    , modules :: HashMap ModuleName (Entry (ModuleData CoreBuiltin Info))
-    , namespaces :: HashMap NamespaceName (Entry Namespace)
-    , defPacts :: HashMap DefPactId (Entry (Maybe DefPactExec))
-    , moduleSources :: HashMap HashedModuleName (Entry ModuleCode)
-    , seenTables :: HashSet TableName
+    { userTables :: !(HashMap TableName (HashMap RowKey (Entry RowData)))
+    , keySets :: !(HashMap KeySetName (Entry KeySet))
+    , modules :: !(HashMap ModuleName (Entry (ModuleData CoreBuiltin Info)))
+    , namespaces :: !(HashMap NamespaceName (Entry Namespace))
+    , defPacts :: !(HashMap DefPactId (Entry (Maybe DefPactExec)))
+    , moduleSources :: !(HashMap HashedModuleName (Entry ModuleCode))
+    , seenTables :: !(HashSet TableName)
     }
     deriving (Show, Eq)
+
+instance NFData Store where
+    rnf Store{..} =
+        rnf userTables
+        `seq` rnf keySets
+        `seq` rnf modules
+        `seq` rnf namespaces
+        `seq` rnf defPacts
+        -- `seq` rnf moduleSources
+        `seq` rnf seenTables
 
 empty :: Store
 empty = Store mempty mempty mempty mempty mempty mempty mempty

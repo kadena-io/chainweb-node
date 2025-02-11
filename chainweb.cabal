@@ -876,6 +876,7 @@ benchmark bench
         , chainweb:chainweb-test-utils
 
         -- external
+        , transformers
         , Decimal >= 0.4.2
         , QuickCheck >= 2.14
         , aeson >= 2.2
@@ -897,6 +898,7 @@ benchmark bench
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
+        , megaparsec
         , direct-sqlite
         , exceptions >= 0.8
         , file-embed >= 0.0

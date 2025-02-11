@@ -484,16 +484,18 @@ validateParsedChainwebTx
 validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGenesis tx
   | isGenesis = pure ()
   | otherwise = do
+      let disableIntegrity = v ^. versionCheats . disablePactTxIntegrityChecks
       checkUnique tx
-      checkTxHash tx
+      when (not disableIntegrity) $ checkTxHash tx
       checkChain
-      checkTxSigs tx
+      when (not disableIntegrity) $ checkTxSigs tx
       checkTimes tx
       return ()
   where
 
     checkChain :: ExceptT InsertError IO ()
-    checkChain = unless (Pact5.assertChainId cid txCid) $
+    checkChain = unless (Pact5.assertChainId cid txCid) $ do
+        liftIO $ logFunctionText _logger Error "validateParsedChainwebTx: checkChain failed"
         throwError $ InsertErrorWrongChain (chainIdToText cid) (Pact5._chainId txCid)
       where
       txCid = view (Pact5.cmdPayload . Pact5.payloadObj . Pact5.pMeta . Pact5.pmChainId) tx
@@ -506,14 +508,18 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
             (V.singleton $ coerce $ Pact5._cmdHash t)
       case found of
         Nothing -> pure ()
-        Just _ -> throwError InsertErrorDuplicate
+        Just _ -> do
+          liftIO $ logFunctionText _logger Error "validateParsedChainwebTx: checkUnique failed"
+          throwError InsertErrorDuplicate
 
     checkTimes :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTimes t = do
         if | skipTxTimingValidation v cid bh -> pure ()
            | not (Pact5.assertTxNotInFuture txValidationTime (view Pact5.payloadObj <$> t)) -> do
+               liftIO $ logFunctionText _logger Error "validateParsedChainwebTx: InsertErrorTimeInFuture"
                throwError InsertErrorTimeInFuture
            | not (Pact5.assertTxTimeRelativeToParent txValidationTime (view Pact5.payloadObj <$> t)) -> do
+               liftIO $ logFunctionText _logger Error "validateParsedChainwebTx: InsertErrorTTLExpired"
                throwError InsertErrorTTLExpired
            | otherwise -> do
                pure ()
@@ -564,8 +570,6 @@ validateRawChainwebTx
     -> ExceptT InsertError IO Pact5.Transaction
 validateRawChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx = do
   tx' <- either (throwError . InsertErrorPactParseError . Pact5.renderText) return $ Pact5.parsePact4Command tx
-  liftIO $ do
-    logDebug_ logger $ "validateRawChainwebTx: parse succeeded"
   validateParsedChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx'
   return $! tx'
 

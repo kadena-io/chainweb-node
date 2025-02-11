@@ -1,29 +1,28 @@
 {-# language
     BangPatterns
     , DataKinds
+    , DerivingStrategies
     , FlexibleContexts
-    , ImpredicativeTypes
     , ImportQualifiedPost
+    , ImpredicativeTypes
     , LambdaCase
     , NumericUnderscores
     , OverloadedRecordDot
     , OverloadedStrings
     , PackageImports
-    , ScopedTypeVariables
-    , TypeApplications
-    , TemplateHaskell
     , RecordWildCards
+    , ScopedTypeVariables
+    , TemplateHaskell
     , TupleSections
+    , TypeApplications
 #-}
 
-{-# options_ghc -fno-warn-orphans #-}
-{-# options_ghc -fno-warn-unused-imports #-}
+{-# options_ghc -Wwarn #-}
 
 module Chainweb.Pact.Backend.PactService
     ( bench
     ) where
 
-import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
@@ -34,7 +33,7 @@ import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool (InsertType (..), MempoolBackend (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemDb qualified as PactStore
-import Chainweb.Pact.Backend.Types (SQLiteEnv, BlockHandle(..), blockHandlePending, pendingWrites)
+import Chainweb.Pact.Backend.Types (SQLiteEnv, blockHandlePending, pendingWrites, pendingTableCreation, blockHandleTxId)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
@@ -50,15 +49,15 @@ import Chainweb.Test.Cut.TestBlockDb (TestBlockDb(..), addTestBlockDb, getCutTes
 import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource)
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Chainweb.WebPactExecutionService
+import Control.Applicative ((<|>))
 import Control.Concurrent hiding (throwTo)
-import Control.Concurrent.Async (forConcurrently)
+import Control.Concurrent.Async (forConcurrently, forConcurrently_)
 import Control.DeepSeq
 import Control.Exception (AsyncException (..))
 import Control.Exception.Safe
@@ -69,9 +68,12 @@ import Criterion.Main qualified as C
 import Data.Aeson qualified as A
 import Data.Aeson.Lens qualified as AL
 import Data.Aeson.Text qualified as A
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Char qualified as Char
 import Data.Decimal
-import Data.HashMap.Strict qualified as HM
+import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.Maybe (fromMaybe)
@@ -79,17 +81,25 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.Lazy qualified as TL
-import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Pact.Core.Capabilities
+import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Gas.Types
 import Pact.Core.Names
+import Pact.Core.Names qualified as Pact5
 import Pact.Core.PactValue
+import Pact.Core.Persistence.Types qualified as Pact5
+import Pact.Core.Serialise qualified as Pact5
+import Pact.Parse qualified as Pact4
 import Pact.Types.ChainMeta qualified as Pact4
 import Pact.Types.Command qualified as Pact4
 import Pact.Types.Gas qualified as Pact4
+import Pact.Types.Names qualified as Pact4
+import Pact.Types.Persistence qualified as Pact4
 import PropertyMatchers qualified as P
 import Test.Tasty.HUnit (assertEqual)
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MP
 import Text.Printf (printf)
 
 bench :: RocksDb -> C.Benchmark
@@ -124,10 +134,10 @@ bench rdb = do
         , C.bgroup "Real World Blocks"
             [ C.bgroup "Chain 0"
                 [ C.bgroup "Pact4"
-                    [ C.bench "Height 4833261" $ realWorldBlock_Chain0_Height4833261 pact4Version rdb
+                    [ --C.bench "Height 4833261" $ realWorldBlock_Chain0_Height4833261 pact4Version rdb
                     ]
                 , C.bgroup "Pact 5"
-                    [ C.bench "Height 4833261" $ realWorldBlock_Chain0_Height4833261 pact5Version rdb
+                    [ C.bench "Height 4833261" $ realWorldBlock_Chain0_Height4833261 pact5VersionCheats rdb
                     ]
                 ]
             ]
@@ -216,26 +226,6 @@ oneBlock v rdb numTxs =
         revert fx prevCut
         return result
 
-{-
-data BlockHandle (pv :: PactVersion) = BlockHandle
-    { _blockHandleTxId :: !Pact4.TxId
-    , _blockHandlePending :: !(SQLitePendingData (PendingWrites pv))
-    }
-
-data SQLitePendingData w = SQLitePendingData
-    { _pendingTableCreation :: !SQLitePendingTableCreations
-    , _pendingWrites :: !w
-    -- See Note [TxLogs in SQLitePendingData]
-    , _pendingTxLogMap :: !TxLogMap
-    , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
-    }
-
-type family PendingWrites (pv :: PactVersion) = w | w -> pv where
-    PendingWrites Pact4 = SQLitePendingWrites
-    PendingWrites Pact5 = InMemDb.Store
-
--}
-
 -- Real World Block.
 -- Chain 0
 -- Height 4833261
@@ -247,18 +237,55 @@ realWorldBlock_Chain0_Height4833261 v rdb =
 
         setupEnv = do
             fx <- createFixture v rdb cfg
-            latestBlock <- getCut fx <&> \cut -> cut ^?! ixg cid
+
+            {-
+            let sqlite = fx._fixturePactServiceSqls ^?! atChain cid
+            let q = "INSERT OR REPLACE INTO [coin_coin-table] (rowkey,txid,rowdata) VALUES(?,?,?)"
+            e <- runExceptT $ do
+                --case fundAccount
+                case fundAccount "6583d24dd81256903c8c869d4d98340a98941fe41e5d210ef93d4872da1aff22" of
+                    UserTable _ rk rd -> do
+                        execMulti sqlite q
+                            [ [SText (toUtf8 rk), SInt 322_311_202, SBlob rd]
+                            ]
+                    _ -> error "expected UserTable"
+            case e of
+                Left err -> error $ "Coin insert failed: " <> sshow err
+                Right () -> return ()
+            -}
+
+            -- Run a block to fund accounts
+            {-_ <- advanceAllChains fx $ onChain cid $ \ph pactQueue mempool -> do
+                mempoolClear mempool
+
+                -- Create an empty BlockInProgress to modify its BlockHandle
+                bipEmpty <- throwIfNoHistory =<<
+                    newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+                block :: PayloadWithOutputs <- case bipEmpty of
+                    ForSomePactVersion Pact5T bipStart -> do
+                        let bip = bipStart
+                                & over (blockInProgressHandle . blockHandlePending . pendingWrites) (\_ ->
+                                    PactStore.empty
+                                        & insertReadItemPact5 (fundAccount "6583d24dd81256903c8c869d4d98340a98941fe41e5d210ef93d4872da1aff22")
+                                )
+                        bipContinued <- throwIfNoHistory =<< continueBlock bip pactQueue
+                        let block = finalizeBlock bipContinued
+                        pure block
+                    _ -> error "Pact5 only for this part"
+                return block-}
+
+            Pact4.TxCreationTime (Pact4.ParsedInteger now) <- Pact4.getCurrentCreationTime
             originalTxs <- fromMaybe (error "failed to decode txs FROM FILE")
                 <$> A.decodeFileStrict @A.Value "bench/data/chain0_block4833261_txs.json"
             let updatedTxs :: A.Value
                 updatedTxs = originalTxs
                     -- overwrite some fields
                     & over (AL._Array . traverse . AL.key "cmd") (\cmdObj ->
-                        -- We have to overwrite the networkId
-                        -- and the creationTime needs to be relative the parent in the test harness
                         cmdObj
+                            -- We have to overwrite the networkId
                             & AL.key "networkId" .~ A.String (getChainwebVersionName (_versionName v))
-                            & AL.key "meta" . AL.key "creationTime" .~ A.Number (fromIntegral (encodeTimeToWord64 (add second (_bct (view blockCreationTime latestBlock)))))
+                            -- the creationTime needs to be relative the parent in the test harness
+                            & AL.key "meta" . AL.key "creationTime" .~ A.Number (fromIntegral now)
                     )
                     -- turn the cmd object into a string
                     & over (AL._Array . traverse) (\obj ->
@@ -270,6 +297,7 @@ realWorldBlock_Chain0_Height4833261 v rdb =
             let pact4Cmds = case A.fromJSON @[Pact4.Command Text] updatedTxs of
                     A.Success cmds -> cmds
                     A.Error e -> error $ "failed to decode txs AFTER UPDATING: " <> e
+            -- TODO: use 'rawCommandCodec' to simplify this code
             let pact4UnparsedTxs = flip List.map pact4Cmds $ \cmd ->
                     let payloadBytes = T.encodeUtf8 (Pact4._cmdPayload cmd)
                         decodedPayload = case A.eitherDecodeStrict' @(Pact4.Payload Pact4.PublicMeta Text) payloadBytes of
@@ -282,16 +310,49 @@ realWorldBlock_Chain0_Height4833261 v rdb =
             let txs = case traverse parsePact4Command pact4UnparsedTxs of
                     Left e -> error $ "failed to parsePact4Command txs: " <> show e
                     Right t -> t
+            List.length txs & P.equals 207 -- 207 txs in the block
 
-            return (fx, txs)
+            rawReadItems <- parseReadItems "bench/data/chain0_block4833261_pact4_db_reads.json"
+            let readItems :: PactStore.Store
+                readItems = PactStore.empty
+                    & (\s -> foldr insertReadItemPact5 s rawReadItems)
 
-        cleanupEnv (fx, _) = do
+            let fakedTables = HashSet.fromList
+                    [ "free.radio02_gatewayGPSs1"
+                    , "free.radio02_nodes7"
+                    ]
+
+{-
+            parentHeader <- fmap (^?! ixg cid) $ getCut fx
+            let pactQueue = fx._fixturePactQueues ^?! atChain cid
+            bipEmpty <- throwIfNoHistory =<<
+                newBlock noMiner NewBlockEmpty (ParentHeader parentHeader) pactQueue
+            () <- case bipEmpty of
+                ForSomePactVersion Pact5T bipStart -> do
+                    let bip = bipStart
+                            & over (blockInProgressHandle . blockHandlePending . pendingTableCreation) (\tblCreations ->
+                                tblCreations `HashSet.union` fakedTables
+                            )
+                            & over (blockInProgressHandle . blockHandlePending . pendingWrites) (\_ ->
+                                readItems
+                            )
+                    commitBlockStateToDatabase
+                        (fx._fixturePactServiceSqls ^?! atChain cid)
+                        (view blockHash parentHeader)
+                        (view blockHeight parentHeader)
+                        (view blockInProgressHandle bip)
+                _ -> error "Pact5 only for this part"
+-}
+
+            return (fx, txs, readItems, fakedTables)
+
+        cleanupEnv (fx, _, _, _) = do
             destroyFixture fx
 
     in
-    C.perRunEnvWithCleanup setupEnv cleanupEnv $ \ ~(fx, txs) -> do
+    C.perRunEnvWithCleanup setupEnv cleanupEnv $ \ ~(fx, txs, readItems, fakedTables) -> do
         prevCut <- getCut fx
-        result <- advanceAllChains fx $ onChain cid $ \ph pactQueue mempool -> do
+        result <- advanceAllChainsNoValidate fx $ onChain cid $ \ph pactQueue mempool -> do
             mempoolClear mempool
             mempoolInsertPact5 (fx._fixtureMempools ^?! atChain cid) UncheckedInsert txs
 
@@ -301,6 +362,9 @@ realWorldBlock_Chain0_Height4833261 v rdb =
             block :: PayloadWithOutputs <- case bipEmpty of
                 ForSomePactVersion Pact4T bipStart -> do
                     let bip = bipStart
+                            & over (blockInProgressHandle . blockHandleTxId) (\_ ->
+                                Pact4.TxId 322_311_004
+                            )
                             & over (blockInProgressHandle . blockHandlePending . pendingWrites) (\_ ->
                                 {-
                                 -- Pending writes to the pact db during a block, to be recorded in 'BlockState'.
@@ -320,16 +384,21 @@ realWorldBlock_Chain0_Height4833261 v rdb =
                                 --    correspond to the shape of 'SQLitePendingWrites'?
                                 --
                                 -- 2. What do we do for the 'TxId's in the 'SQLiteRowDelta'?
-                                HM.empty
+                                HashMap.empty
                             )
                     bipContinued <- throwIfNoHistory =<< continueBlock bip pactQueue
                     let block = finalizeBlock bipContinued
                     pure block
                 ForSomePactVersion Pact5T bipStart -> do
                     let bip = bipStart
+                            & over (blockInProgressHandle . blockHandleTxId) (\_ ->
+                                Pact4.TxId 322_311_004
+                            )
+                            & over (blockInProgressHandle . blockHandlePending . pendingTableCreation) (\tblCreations ->
+                                tblCreations `HashSet.union` fakedTables
+                            )
                             & over (blockInProgressHandle . blockHandlePending . pendingWrites) (\_ ->
-                                PactStore.empty
-                                {- insert :: forall k v. Domain k v CoreBuiltin Info -> k -> Entry v -> Store -> Store -}
+                                readItems
                             )
                     bipContinued <- throwIfNoHistory =<< continueBlock bip pactQueue
                     let block = finalizeBlock bipContinued
@@ -337,6 +406,10 @@ realWorldBlock_Chain0_Height4833261 v rdb =
 
             Vector.length (_payloadWithOutputsTransactions block)
                 & P.equals 207 -- 207 txs in the block
+
+            forM_ (_payloadWithOutputsTransactions block) $ \(_, txOut) -> do
+                decodeOrThrow' @_ @(Pact5.CommandResult A.Value A.Value) (LBS.fromStrict $ _transactionOutputBytes txOut)
+                    >>= P.fun Pact5._crResult (P.match Pact5._PactResultOk P.succeed)
 
             return block
 
@@ -355,12 +428,12 @@ revert Fixture{..} c = do
 
 -- this mines a block on *all chains*. if you don't specify a payload on a chain,
 -- it adds empty blocks!
-advanceAllChains :: ()
+advanceAllChainsNoValidate :: ()
     => Fixture
     -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
-    -> IO (ChainMap (Vector TestPact5CommandResult))
-advanceAllChains Fixture{..} blocks = do
-    commandResults <-
+    -> IO (ChainMap PayloadWithOutputs)
+advanceAllChainsNoValidate Fixture{..} blocks = do
+    payloads <-
         forConcurrently (HashSet.toList (chainIds _chainwebVersion)) $ \c -> do
             ph <- getParentTestBlockDb _fixtureBlockDb c
             creationTime <- getCurrentTimeIntegral
@@ -380,20 +453,21 @@ advanceAllChains Fixture{..} blocks = do
                 payload
             when (not added) $
                 error "failed to mine block"
-            ph' <- getParentTestBlockDb _fixtureBlockDb c
-            payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
-            assertEqual "payloads must not be altered by validateBlock" payload payload'
-            commandResults :: Vector TestPact5CommandResult
-                <- forM
-                    (_payloadWithOutputsTransactions payload')
-                    (decodeOrThrow'
-                    . LBS.fromStrict
-                    . _transactionOutputBytes
-                    . snd)
-            -- assert on the command results
-            return (c, commandResults)
+            return (c, payload)
+    return (onChains payloads)
 
-    return (onChains commandResults)
+advanceAllChains :: ()
+    => Fixture
+    -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
+    -> IO (ChainMap PayloadWithOutputs)
+advanceAllChains fx blocks = do
+    payloads <- advanceAllChainsNoValidate fx blocks
+    forConcurrently_ (chainIds fx._chainwebVersion) $ \c -> do
+        ph <- getParentTestBlockDb (_fixtureBlockDb fx) c
+        let payload = payloads ^?! atChain c
+        payload' <- validateBlock ph (CheckablePayloadWithOutputs payload) (fx._fixturePactQueues ^?! atChain c)
+        assertEqual "payloads must not be altered by validateBlock" payload payload'
+    return payloads
 
 transferCmd :: ChainId -> Decimal -> CmdBuilder
 transferCmd chain transferAmount = (defaultCmd chain)
@@ -418,3 +492,122 @@ pact4Version = instantCpmTestVersion singletonChainGraph
 
 pact5Version :: ChainwebVersion
 pact5Version = pact5InstantCpmTestVersion singletonChainGraph
+
+pact5VersionCheats :: ChainwebVersion
+pact5VersionCheats = pact5InstantCpmTestDisableIntegrityChecksVersion singletonChainGraph
+
+data ReadItem
+    = UserTable !Text !Text !ByteString
+    | Module !Pact4.ModuleName !ByteString
+    deriving stock (Show)
+
+instance NFData ReadItem where
+    rnf !_ = ()
+
+insertReadItemPact5 :: ReadItem -> PactStore.Store -> PactStore.Store
+insertReadItemPact5 ri store = case ri of
+    UserTable tn rk rd -> case parsePact5UserTableName tn of
+        Nothing -> error $ "failed to parse Pact5 table name: " ++ show tn
+        Just tn5 -> case Pact5._decodeRowData Pact5.serialisePact_lineinfo rd of
+            Nothing -> error "failed to decode Pact5 row data"
+            Just rd5 -> store
+                & PactStore.insert
+                    (Pact5.DUserTables tn5)
+                    (Pact5.RowKey rk)
+                    (PactStore.ReadEntry (BS.length rd) (rd5 ^. Pact5.document))
+                -- & PactStore.markTableSeen tn5
+    Module (Pact4.ModuleName mnName mNsName) md ->
+        case Pact5._decodeModuleData Pact5.serialisePact_lineinfo md of
+            Nothing -> error "failed to parse Pact5 module data"
+            Just md5 -> store & PactStore.insert
+                Pact5.DModules
+                (Pact5.ModuleName mnName (case mNsName of { Nothing -> Nothing; Just (Pact4.NamespaceName nsName) -> Just (Pact5.NamespaceName nsName); }))
+                (PactStore.ReadEntry (BS.length md) (md5 ^. Pact5.document))
+    where
+        parsePact5UserTableName :: Text -> Maybe Pact5.TableName
+        parsePact5UserTableName s =
+            case reverse (T.splitOn "_" s) of
+                identRaw : tbl ->
+                    let tbl' = T.intercalate "_" (reverse tbl)
+                    in case (,) <$> MP.parseMaybe moduleNameParser tbl' <*> MP.parseMaybe identParser identRaw of
+                        Just (mn, ident) -> Just (TableName ident mn)
+                        _ -> Nothing
+                _ -> Nothing
+
+        identParser :: Parser Text
+        identParser = do
+            c1 <- MP.letterChar <|> MP.oneOf specials
+            rest <- MP.takeWhileP Nothing (\c -> Char.isLetter c || Char.isDigit c || elem c specials)
+            pure (T.cons c1 rest)
+            where
+            specials :: String
+            specials = "%#+-_&$@<>=^?*!|/~"
+
+        -- Copy pasted from Pact.Core.Names
+        -- exporting this causes a compliation error in Pact.Core.Principals
+        moduleNameParser :: Parser ModuleName
+        moduleNameParser = do
+            p <- identParser
+            MP.try (go p <|> pure (ModuleName p Nothing))
+            where
+            go ns = do
+                _ <- MP.char '.'
+                p1 <- identParser
+                pure (ModuleName p1 (Just (NamespaceName ns)))
+
+type Parser = MP.Parsec () Text
+
+parseReadItems :: FilePath -> IO [ReadItem]
+parseReadItems fp = do
+    items <- A.decodeFileStrict @A.Value fp >>= maybe (error "failed to decode items") pure
+    case items of
+        A.Array arr -> return $ List.map parseReadItem (Vector.toList arr)
+        _ -> error "expected array of items"
+
+parseReadItem :: A.Value -> ReadItem
+parseReadItem v = fromMaybe (error "failed to parse ReadItem") $ do
+    parseModule v
+    <|> parseUserTable v
+
+parseUserTable :: A.Value -> Maybe ReadItem
+parseUserTable v = do
+    tblName <- v ^? AL.key "domain" . AL._String
+    rk <- v ^? AL.key "key" . AL._String
+    rd <- v ^? AL.key "value" . AL._String
+    return $ UserTable tblName rk (T.encodeUtf8 rd)
+
+parseModule :: A.Value -> Maybe ReadItem
+parseModule v = do
+    domain <- v ^? AL.key "domain" . AL._String
+    guard (domain == "SYS:Modules")
+    moduleName <- do
+        obj <- v ^? AL.key "key" . AL._Value
+        case A.fromJSON obj of
+            A.Success mn@(Pact4.ModuleName {}) -> Just mn
+            _ -> Nothing
+    moduleData <- v ^? AL.key "value" . AL._String
+    return $ Module moduleName (T.encodeUtf8 moduleData)
+
+{-
+-- Fake an account's funds. Gives them 1_000_000.69 KDA.
+fundAccount :: Text -> ReadItem
+fundAccount pubKey =
+    let entry = LBS.toStrict $ J.encode $ J.object
+            {-[ "$d" J..= J.object
+                [ "guard" J..= J.object
+                    [ "$t" J..= ("g" :: Text)
+                    , "$v" J..= J.object
+                        [ "pred" J..= ("keys-all" :: Text)
+                        , "keys" J..= (J.Array [pubKey])
+                        ]
+                    ]
+                , "balance" J..= J.number 1000000.69
+                ]
+            , "$v" J..= J.number 1
+            ]-}
+            [ "balance" J..= StableEncoding (PDecimal 13.6942)
+            , "guard" J..= StableEncoding (Pact5.KeySet (Set.singleton (Pact5.PublicKeyText pubKey)) Pact5.KeysAll)
+            ]
+    in
+    UserTable "coin_coin-table" ("k:" <> pubKey) entry
+-}

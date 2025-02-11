@@ -17,6 +17,7 @@ module Chainweb.Test.TestVersions
     , timedConsensusVersion
     , instantCpmTestVersion
     , pact5InstantCpmTestVersion
+    , pact5InstantCpmTestDisableIntegrityChecksVersion
     , pact5CheckpointerTestVersion
     , pact5SlowCpmTestVersion
     , instantCpmTransitionTestVersion
@@ -131,6 +132,9 @@ testVersions = _versionName <$> concat
     ,   [ pact5InstantCpmTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
+    ,   [ pact5InstantCpmTestDisableIntegrityChecksVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
     ,   [ pact5CheckpointerTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
@@ -168,6 +172,7 @@ barebonesTestVersion g = buildTestVersion $ \v ->
             { _disablePow = True
             , _fakeFirstEpochStart = True
             , _disablePact = True
+            , _disablePactTxIntegrityChecks = True
             }
         & versionDefaults .~ VersionDefaults
             { _disableMempoolSync = True
@@ -201,6 +206,7 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         { _disablePow = True
         , _fakeFirstEpochStart = True
         , _disablePact = True
+        , _disablePactTxIntegrityChecks = True
         }
     & versionDefaults .~ VersionDefaults
         { _disableMempoolSync = True
@@ -233,6 +239,7 @@ pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
         { _disablePow = True
         , _fakeFirstEpochStart = True
         , _disablePact = True
+        , _disablePactTxIntegrityChecks = True
         }
     & versionDefaults .~ VersionDefaults
         { _disableMempoolSync = True
@@ -255,6 +262,7 @@ cpmTestVersion g v = v
         { _disablePow = True
         , _fakeFirstEpochStart = True
         , _disablePact = False
+        , _disablePactTxIntegrityChecks = False
         }
     & versionDefaults .~ VersionDefaults
         { _disableMempoolSync = False
@@ -459,6 +467,32 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, PIN0.payloadBlock) :
+            [(n, PINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
+
+pact5InstantCpmTestDisableIntegrityChecksVersion :: ChainGraph -> ChainwebVersion
+pact5InstantCpmTestDisableIntegrityChecksVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("instant-pact5-CPM-disable-integrity-checks-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        -- SPV Bridge is not in effect for Pact 5 yet.
+        SPVBridge -> AllChains ForkNever
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionQuirks .~ noQuirks
+    & versionCheats . disablePactTxIntegrityChecks .~ True
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, PIN0.payloadBlock) :

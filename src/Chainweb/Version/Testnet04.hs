@@ -179,6 +179,7 @@ testnet04 = ChainwebVersion
         { _disablePow = False
         , _fakeFirstEpochStart = False
         , _disablePact = False
+        , _disablePactTxIntegrityChecks = False
         }
     , _versionDefaults = VersionDefaults
         { _disablePeerValidation = False

@@ -45,6 +45,7 @@ module Chainweb.Version
     , disablePow
     , fakeFirstEpochStart
     , disablePact
+    , disablePactTxIntegrityChecks
     , disablePeerValidation
     , disableMempoolSync
     , ChainwebVersionCode(..)
@@ -548,6 +549,8 @@ data VersionCheats = VersionCheats
         -- ^ should we fake the start time of the first epoch? See `Chainweb.BlockHeader.epochStart`.
     , _disablePact :: Bool
         -- ^ Should we replace the pact service with a dummy that always makes empty blocks?
+    , _disablePactTxIntegrityChecks :: Bool
+        -- ^ Should we disable all pact tx hash and signature validation?
     }
     deriving stock (Generic, Eq, Ord, Show)
     deriving anyclass (ToJSON, FromJSON, NFData)

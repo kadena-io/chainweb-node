@@ -296,13 +296,13 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     preInsertSingle :: Pact4.UnparsedTransaction -> Either Mempool.InsertError Pact4.UnparsedTransaction
     preInsertSingle tx = do
         let !pay = Pact4.payloadObj . P._cmdPayload $ tx
-            pcid = P._pmChainId $ P._pMeta pay
-            sigs = P._cmdSigs tx
-            ver  = P._pNetworkId pay
+        let pcid = P._pmChainId $ P._pMeta pay
+        let sigs = P._cmdSigs tx
+        let ver  = P._pNetworkId pay
         if | not $ assertParseChainId pcid -> Left $ Mempool.InsertErrorOther "Unparsable ChainId"
            | not $ assertChainId cid pcid  -> Left Mempool.InsertErrorMetadataMismatch
-           | not $ assertSigSize sigs      -> Left $ Mempool.InsertErrorOther "Too many signatures"
            | not $ assertNetworkId v ver   -> Left Mempool.InsertErrorMetadataMismatch
+           | not (assertSigSize sigs)      -> Left $ Mempool.InsertErrorOther "Too many signatures"
            | otherwise                     -> Right tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
@@ -326,8 +326,8 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
             pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of
-                                 Just e -> Left (T2 h e)
-                                 Nothing -> Right (T2 h t)
+            Just e -> Left (T2 h e)
+            Nothing -> Right (T2 h t)
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 

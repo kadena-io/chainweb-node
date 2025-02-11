@@ -494,7 +494,7 @@ withTableExistenceCheck tableName action = do
             case tableStatus of
                 TableDoesNotExist -> liftGas $ throwDbOpErrorGasM $ Pact.NoSuchTable tableName
                 TableCreationPending -> return Nothing
-                TableExists -> internalDbError (sshow err)
+                TableExists -> internalDbError (Pact.renderTableName tableName <> sshow err)
         Left err -> internalDbError (sshow err)
         Right result -> return (Just result)
     else do
