@@ -133,6 +133,8 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "new block excludes invalid transactions" (testNewBlockExcludesInvalid baseRdb)
     , testCase "lookup pact txs spec" (lookupPactTxsSpec baseRdb)
     , testCase "failed txs should go into blocks" (failedTxsShouldGoIntoBlocks baseRdb)
+    , testCase "modules with higher level transitive dependencies (simple)" (modulesWithHigherLevelTransitiveDependenciesSimple baseRdb)
+    , testCase "modules with higher level transitive dependencies (complex)" (modulesWithHigherLevelTransitiveDependenciesComplex baseRdb)
     ]
 
 simpleEndToEnd :: RocksDb -> IO ()
@@ -420,6 +422,122 @@ failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
             let block = finalizeBlock bip
             assertEqual "block has 2 txs even though one of them failed" 2 (Vector.length $ _payloadWithOutputsTransactions block)
             return block
+
+        return ()
+
+modulesWithHigherLevelTransitiveDependenciesSimple :: RocksDb -> IO ()
+modulesWithHigherLevelTransitiveDependenciesSimple baseRdb = runResourceT $ do
+    fixture <- mkFixture baseRdb
+    liftIO $ do
+        cmd1 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (interface barbar (defconst FOO_CONST:integer 1))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.9
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd2 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (module foo g (defcap g () true) (defun calls-foo () barbar.FOO_CONST))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.8
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd3 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (module bar g (defcap g () true) (defun calls-bar () (foo.calls-foo)))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.7
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd4 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (module baz g (defcap g () true) (defun calls-baz () (bar.calls-bar)))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.6
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd5 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (baz.calls-baz)"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.5
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+
+        results <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
+            mempoolInsertPact5 mempool CheckedInsert [cmd1, cmd2, cmd3, cmd4, cmd5]
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            let block = finalizeBlock bip
+            assertEqual "block has 5 txs" 5 (Vector.length $ _payloadWithOutputsTransactions block)
+            return block
+
+        results &
+            P.alignExact ? onChain chain0 ?
+                P.alignExact ? Vector.replicate 5 successfulTx
+
+        return ()
+
+modulesWithHigherLevelTransitiveDependenciesComplex :: RocksDb -> IO ()
+modulesWithHigherLevelTransitiveDependenciesComplex baseRdb = runResourceT $ do
+    fixture <- mkFixture baseRdb
+    liftIO $ do
+        cmd1 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (interface barbar (defconst FOO_CONST:integer 1))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.9
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd2 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' $ T.unlines
+                [ "(namespace 'free)"
+                , "(module foo g"
+                , "  (defcap g () true)"
+                , "     (defun calls-foo (sender:string amount:integer)"
+                , "     (with-capability (FOO_MANAGED sender amount)"
+                , "       (with-capability (FOO_CAP)"
+                , "         barbar.FOO_CONST"
+                , "       )"
+                , "     )"
+                , "   )"
+                , "   (defcap FOO_CAP () true)"
+                , ""
+                , "   (defun foo-mgr (a:integer b:integer) (+ a b))"
+                , ""
+                , "   (defcap FOO_MANAGED (sender:string a:integer)"
+                , "     @managed a foo-mgr"
+                , "     true"
+                , "   )"
+                , " )"
+                ]
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.8
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd3 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (module bar g (defcap g () true) (defun calls-bar () (install-capability (foo.FOO_MANAGED \"bob\" 100)) (foo.calls-foo \"bob\" 100)))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.7
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd4 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (module baz g (defcap g () true) (defun calls-baz () (bar.calls-bar)))"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.6
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        cmd5 <- buildCwCmd v (defaultCmd chain0)
+            { _cbRPC = mkExec' "(namespace 'free) (baz.calls-baz)"
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.5
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+
+        results <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
+            mempoolInsertPact5 mempool CheckedInsert [cmd1, cmd2, cmd3, cmd4, cmd5]
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            let block = finalizeBlock bip
+            assertEqual "block has 5 txs" 5 (Vector.length $ _payloadWithOutputsTransactions block)
+            return block
+
+        results &
+            P.alignExact ? onChain chain0 ?
+                P.alignExact ? Vector.replicate 5 successfulTx
 
         return ()
 

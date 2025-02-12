@@ -29,13 +29,13 @@
 (namespace 'user)
 (env-keys [])
 
-(module mod G
+(module modl G
   (defcap G () (enforce false "disabled"))
   (defun foo () 1))
 
 (namespace 'free)
 
-(module mod G
+(module modl G
   (defcap G () (enforce false "disabled"))
   (defun foo () 2))
 
@@ -48,15 +48,15 @@
 
 (namespace 'kadena)
 
-(module mod G
+(module modl G
   (defcap G () (enforce false "disabled"))
   (defun foo () 3))
 
 (commit-tx)
 
-(expect "user.mod works" 1 (user.mod.foo))
-(expect "free.mod works" 2 (free.mod.foo))
-(expect "kadena.mod works" 3 (kadena.mod.foo))
+(expect "user.modl works" 1 (user.modl.foo))
+(expect "free.modl works" 2 (free.modl.foo))
+(expect "kadena.modl works" 3 (kadena.modl.foo))
 
 (begin-tx)
 (env-keys ["operate"])
@@ -79,13 +79,13 @@
 
 (namespace 'kadena)
 
-(module mod2 G
+(module modl2 G
   (defcap G () (enforce false "disabled"))
   (defun foo () 4))
 (commit-tx)
 (begin-tx)
 
-(expect "kadena.mod2 works" 4 (kadena.mod2.foo))
+(expect "kadena.modl2 works" 4 (kadena.modl2.foo))
 
 (use ns)
 (env-keys ["operate"])
@@ -171,12 +171,12 @@
   )
 
 (namespace "n_c1a583206e24450af26de41110042b019695db8c")
-(module modK G
+(module modlK G
   (defcap G () true)
   (defun f () 1))
 
 (namespace "n_64bfdef1c668b167c87f7cf329454c572e284664")
-(module modW G
+(module modlW G
   (defcap G () true)
   (defun f () 2))
 
@@ -186,12 +186,12 @@
 (expect
   "k: principal namespaces work"
   1
-  (n_c1a583206e24450af26de41110042b019695db8c.modK.f))
+  (n_c1a583206e24450af26de41110042b019695db8c.modlK.f))
 
 (expect
   "w: principal namespaces work"
   2
-  (n_64bfdef1c668b167c87f7cf329454c572e284664.modW.f))
+  (n_64bfdef1c668b167c87f7cf329454c572e284664.modlW.f))
 
 (commit-tx)
 (begin-tx)
