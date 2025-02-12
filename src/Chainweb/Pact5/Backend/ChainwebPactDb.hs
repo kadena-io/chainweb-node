@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -72,7 +73,18 @@ module Chainweb.Pact5.Backend.ChainwebPactDb
     , initSchema
     ) where
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeight
+import Chainweb.Logger
+import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Utils (sshow, T2)
+import Chainweb.Utils.Serialization (runPutS)
+import Chainweb.Version
+import Chainweb.Version.Guards (pact5Serialiser)
 import Control.Applicative
+import Control.Concurrent.MVar
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
@@ -81,63 +93,43 @@ import Control.Monad.Morph
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
-import Control.Concurrent.MVar
-
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.DList as DL
-import Data.Foldable
-import Data.List(sort)
-import qualified Data.HashSet as HashSet
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map.Strict as M
-import Data.Maybe
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Database.SQLite3.Direct as SQ3
-
-import Prelude hiding (concat, log)
-
--- pact
-
-import qualified Pact.Types.Persistence as Pact4
-
-
-import qualified Pact.Core.Evaluate as Pact
-import qualified Pact.Core.Guards as Pact
-import qualified Pact.Core.Names as Pact
-import qualified Pact.Core.Persistence as Pact
-import qualified Pact.Core.Serialise as Pact
-import qualified Pact.Core.Builtin as Pact
-import qualified Pact.Core.Errors as Pact
-import qualified Pact.Core.Gas as Pact
-import Pact.Core.Command.Types (RequestKey (..))
-import Pact.Core.Hash
-import Pact.Core.StableEncoding (encodeStable)
-
--- chainweb
-
-import Chainweb.BlockHeight
-import Chainweb.Logger
-
-import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Backend.Types
-import Chainweb.Utils (sshow, T2)
-import Chainweb.Utils.Serialization (runPutS)
-import Data.Text (Text)
-import Chainweb.Version
-import Data.DList (DList)
 import Data.ByteString (ByteString)
-import Chainweb.BlockHash
-import Data.Vector (Vector)
-import qualified Data.ByteString.Short as SB
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as B8
+import Data.ByteString.Short qualified as SB
+import Data.DList (DList)
+import Data.DList qualified as DL
+import Data.Foldable
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
-import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
-import Data.Singletons (Dict(..))
-import Pact.Core.Persistence (throwDbOpErrorGasM)
+import Data.HashMap.Strict qualified as HM
+import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet qualified as HashSet
 import Data.Int
+import Data.List(sort)
+import Data.Map.Strict qualified as M
+import Data.Maybe
+import Data.Singletons (Dict(..))
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Vector (Vector)
+import Database.SQLite3.Direct qualified as SQ3
 import GHC.Stack
+import Pact.Core.Builtin qualified as Pact
+import Pact.Core.Command.Types (RequestKey (..))
+import Pact.Core.Errors qualified as Pact
+import Pact.Core.Evaluate qualified as Pact
+import Pact.Core.Gas qualified as Pact
+import Pact.Core.Guards qualified as Pact
+import Pact.Core.Hash
+import Pact.Core.Info qualified as Pact
+import Pact.Core.Names qualified as Pact
+import Pact.Core.Persistence (throwDbOpErrorGasM)
+import Pact.Core.Persistence qualified as Pact
+import Pact.Core.Serialise qualified as Pact
+import Pact.Core.StableEncoding (encodeStable)
+import Pact.Types.Persistence qualified as Pact4
+import Prelude hiding (concat, log)
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -232,16 +224,7 @@ data BlockState = BlockState
     }
 
 makeLenses ''BlockState
-makeLensesWith
-    (lensRulesFor
-        [ ("_blockHandlerDb", "blockHandlerDb")
-        , ("_blockHandlerLogger", "blockHandlerLogger")
-        , ("_blockHandlerMode", "blockHandlerMode")
-        , ("_blockHandlerUpperBoundTxId", "blockHandlerUpperBoundTxId")
-        , ("_blockHandlerBlockHeight", "blockHandlerBlockHeight")
-        , ("_blockHandlerAtTip", "blockHandlerAtTip")
-        ])
-    ''BlockHandlerEnv
+makeLenses ''BlockHandlerEnv
 
 getPendingTxLogOrError :: Text -> BlockHandler logger (DList (Pact.TxLog ByteString))
 getPendingTxLogOrError msg = do
@@ -382,19 +365,22 @@ doReadRow d k = do
                 InMemDb.insert d k (InMemDb.ReadEntry encodedValueLength decodedValue)
             return (Just decodedValue)
     where
-    (decodeValueDoc, encodedKey) = case d of
-        Pact.DKeySets ->
-            (Pact._decodeKeySet Pact.serialisePact_lineinfo, convKeySetName k)
-        Pact.DModules ->
-            (Pact._decodeModuleData Pact.serialisePact_lineinfo, convModuleName k)
-        Pact.DNamespaces ->
-            (Pact._decodeNamespace Pact.serialisePact_lineinfo, convNamespaceName k)
-        Pact.DUserTables _ ->
-            (Pact._decodeRowData Pact.serialisePact_lineinfo, convRowKey k)
-        Pact.DDefPacts ->
-            (Pact._decodeDefPactExec Pact.serialisePact_lineinfo, convPactId k)
-        Pact.DModuleSource ->
-            (Pact._decodeModuleCode Pact.serialisePact_lineinfo, convHashedModuleName k)
+    codec :: BlockHandler logger (ByteString -> Maybe (Pact.Document v), Text)
+    codec = do
+        serialiser <- getSerialiser
+        return $ case d of
+            Pact.DKeySets ->
+                (Pact._decodeKeySet serialiser, convKeySetName k)
+            Pact.DModules ->
+                (Pact._decodeModuleData serialiser, convModuleName k)
+            Pact.DNamespaces ->
+                (Pact._decodeNamespace serialiser, convNamespaceName k)
+            Pact.DUserTables _ ->
+                (Pact._decodeRowData serialiser, convRowKey k)
+            Pact.DDefPacts ->
+                (Pact._decodeDefPactExec serialiser, convPactId k)
+            Pact.DModuleSource ->
+                (Pact._decodeModuleCode serialiser, convHashedModuleName k)
 
     lookupInMem :: BlockHandler logger (Maybe (Int, v))
     lookupInMem = do
@@ -402,9 +388,6 @@ doReadRow d k = do
             return $ InMemDb.lookup d k store <&> \case
                 (InMemDb.ReadEntry len a) -> (len, a)
                 (InMemDb.WriteEntry _ bs a) -> (BS.length bs, a)
-
-    decodeValue = fmap (view Pact.document) . decodeValueDoc
-    encodedKeyUtf8 = toUtf8 encodedKey
 
     lookupInDb :: BlockHandler logger (Maybe (Int, v))
     lookupInDb = do
@@ -416,6 +399,9 @@ doReadRow d k = do
         where
         fetchRowFromDb :: ExceptT SQ3.Error (BlockHandler logger) (Maybe (Int, v))
         fetchRowFromDb = do
+            (decodeValueDoc, encodedKey) <- lift codec
+            let decodeValue = fmap (view Pact.document) . decodeValueDoc
+            let encodedKeyUtf8 = toUtf8 encodedKey
             Pact.TxId txIdUpperBoundWord64 <- view blockHandlerUpperBoundTxId
             let tablename = domainTableName d
             let queryStmt =
@@ -515,13 +501,14 @@ writeSys
     -> BlockHandler logger ()
 writeSys d k v = do
     txid <- use latestTxId
+    serialiser <- getSerialiser
     let !(!encodedKey, !encodedValue) = case d of
-            Pact.DKeySets -> (convKeySetName k, Pact._encodeKeySet Pact.serialisePact_lineinfo v)
-            Pact.DModules ->  (convModuleName k, Pact._encodeModuleData Pact.serialisePact_lineinfo v)
-            Pact.DNamespaces -> (convNamespaceName k, Pact._encodeNamespace Pact.serialisePact_lineinfo v)
-            Pact.DDefPacts -> (convPactId k, Pact._encodeDefPactExec Pact.serialisePact_lineinfo v)
+            Pact.DKeySets -> (convKeySetName k, Pact._encodeKeySet serialiser v)
+            Pact.DModules ->  (convModuleName k, Pact._encodeModuleData serialiser v)
+            Pact.DNamespaces -> (convNamespaceName k, Pact._encodeNamespace serialiser v)
+            Pact.DDefPacts -> (convPactId k, Pact._encodeDefPactExec serialiser v)
             Pact.DUserTables _ -> error "impossible"
-            Pact.DModuleSource -> (convHashedModuleName k, Pact._encodeModuleCode Pact.serialisePact_lineinfo v)
+            Pact.DModuleSource -> (convHashedModuleName k, Pact._encodeModuleCode serialiser v)
     recordPendingUpdate d k txid (encodedValue, v)
     recordTxLog d encodedKey encodedValue
 
@@ -548,7 +535,8 @@ writeUser wt tableName k (Pact.RowData newRow) = do
     finalRow <- case maybeExistingValue of
         Nothing -> return $ Pact.RowData newRow
         Just (Pact.RowData oldRow) -> return $ Pact.RowData $ M.union newRow oldRow
-    encodedFinalRow <- liftGas (Pact._encodeRowData Pact.serialisePact_lineinfo finalRow)
+    serialiser <- getSerialiser
+    encodedFinalRow <- liftGas (Pact._encodeRowData serialiser finalRow)
     recordTxLog (Pact.DUserTables tableName) (convRowKey k) encodedFinalRow
     recordPendingUpdate (Pact.DUserTables tableName) k (Pact.TxId txid) (encodedFinalRow, finalRow)
     where
@@ -701,11 +689,12 @@ doBegin _m = do
             bsPendingTxLog .= Just mempty
             Just <$> use latestTxId
 
-toTxLog :: MonadThrow m => T.Text -> SQ3.Utf8 -> BS.ByteString -> m (Pact.TxLog Pact.RowData)
-toTxLog d key value =
-        case fmap (view Pact.document) $ Pact._decodeRowData Pact.serialisePact_lineinfo value of
-            Nothing -> internalDbError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
-            Just v -> return $! Pact.TxLog d (fromUtf8 key) v
+toTxLog :: MonadThrow m => ChainwebVersion -> ChainId -> BlockHeight -> T.Text -> SQ3.Utf8 -> BS.ByteString -> m (Pact.TxLog Pact.RowData)
+toTxLog version cid bh d key value = do
+    let serialiser = pact5Serialiser version cid bh
+    case fmap (view Pact.document) $ Pact._decodeRowData serialiser value of
+        Nothing -> internalDbError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
+        Just v -> return $! Pact.TxLog d (fromUtf8 key) v
 
 toPactTxLog :: Pact.TxLog Pact.RowData -> Pact4.TxLog Pact.RowData
 toPactTxLog (Pact.TxLog d k v) = Pact4.TxLog d k v
@@ -880,3 +869,10 @@ initSchema sql =
       exec_ sql
         "CREATE INDEX IF NOT EXISTS \
          \ transactionIndexByBH ON TransactionIndex(blockheight)";
+
+getSerialiser :: BlockHandler logger (Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo)
+getSerialiser = do
+    version <- view blockHandlerVersion
+    cid <- view blockHandlerChainId
+    blockHeight <- view blockHandlerBlockHeight
+    return $ pact5Serialiser version cid blockHeight

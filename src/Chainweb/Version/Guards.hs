@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -56,25 +57,27 @@ module Chainweb.Version.Guards
     , validPPKSchemes
     , isWebAuthnPrefixLegal
     , validKeyFormats
+    , pact5Serialiser
 
     -- ** BlockHeader Validation Guards
     , slowEpochGuard
     , oldTargetGuard
     , skipFeatureFlagValidationGuard
     , oldDaGuard
-
-  ) where
-
-import Control.Lens
-import Numeric.Natural
-import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
-import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
+    ) where
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import qualified Chainweb.Pact4.Transaction as Pact4
-import Chainweb.Version
 import Chainweb.Utils.Rule
+import Chainweb.Version
+import Control.Lens
+import Numeric.Natural
+import Pact.Core.Builtin qualified as Pact5
+import Pact.Core.Info qualified as Pact5
+import Pact.Core.Serialise qualified as Pact5
+import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
+import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
+import Chainweb.Pact4.Transaction qualified as Pact4
 
 getForkHeight :: Fork -> ChainwebVersion -> ChainId -> ForkHeight
 getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . atChain cid
@@ -272,6 +275,11 @@ chainweb228Pact = checkFork atOrAfter Chainweb228Pact
 
 chainweb229Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb229Pact = checkFork atOrAfter Chainweb229Pact
+
+pact5Serialiser :: ChainwebVersion -> ChainId -> BlockHeight -> Pact5.PactSerialise Pact5.CoreBuiltin Pact5.LineInfo
+pact5Serialiser v cid bh
+    | chainweb228Pact v cid bh = Pact5.serialisePact_lineinfo_pact51
+    | otherwise                = Pact5.serialisePact_lineinfo_pact50
 
 pact4ParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> Pact4.PactParserVersion
 pact4ParserVersion v cid bh
