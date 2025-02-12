@@ -254,8 +254,7 @@ applyLocal
     -> IO (CommandResult [TxLog ByteString] (Pact5.PactError Info))
 applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
-  let
-    gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
+  let gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
   gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas gasLimitGas)) gasLogsEnabled
   let runLocal = do
         runVerifiers txCtx cmd
@@ -303,7 +302,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
     -- anyone's workflow
     , FlagAllowReadInLocal
     , FlagRequireKeysetNs
-    ]
+    ] `Set.union` (if guardCtx chainweb228Pact txCtx then Set.empty else Set.singleton FlagDisablePact51)
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command,
@@ -338,7 +337,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
         , FlagDisableHistoryInTransactionalMode
         , FlagEnforceKeyFormats
         , FlagRequireKeysetNs
-        ]
+        ] `Set.union` (if guardCtx chainweb228Pact txCtx then Set.empty else Set.singleton FlagDisablePact51)
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
   let !requestKey = cmdToRequestKey cmd

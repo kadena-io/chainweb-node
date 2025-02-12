@@ -493,7 +493,9 @@ getBlockHistory db blockHeader d = do
             [SInt s,SInt e]
             [RInt,RText,RBlob]
       forM r $ \case
-        [SInt txid, SText key, SBlob value] -> (key,fromIntegral txid,) <$> Pact5.toTxLog (Pact5.renderDomain d) key value
+        [SInt txid, SText key, SBlob value] ->
+            (key,fromIntegral txid,)
+            <$> Pact5.toTxLog (_chainwebVersion blockHeader) (_chainId blockHeader) (view blockHeight blockHeader) (Pact5.renderDomain d) key value
         err -> internalError $
           "queryHistory: Expected single row with three columns as the \
           \result, got: " <> T.pack (show err)
@@ -509,7 +511,9 @@ getBlockHistory db blockHeader d = do
         [RBlob]
       case r of
         [] -> return Nothing
-        [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> Pact5.toTxLog (Pact5.renderDomain d) k value
+        [[SBlob value]] ->
+            Just . (RowKey $ T.decodeUtf8 sk,)
+            <$> Pact5.toTxLog (_chainwebVersion blockHeader) (_chainId blockHeader) (view blockHeight blockHeader) (Pact5.renderDomain d) k value
         _ -> internalError $ "queryPrev: expected 0 or 1 rows, got: " <> T.pack (show r)
 
 -- TODO: do this in ChainwebPactDb instead?
@@ -532,6 +536,7 @@ lookupHistorical db blockHeader d k = do
         [SInt e, SText (toUtf8 $ Pact5.convRowKey k)]
         [RText, RBlob]
       case r of
-        [[SText key, SBlob value]] -> Just <$> Pact5.toTxLog (Pact5.renderDomain d) key value
+        [[SText key, SBlob value]] ->
+            Just <$> Pact5.toTxLog (_chainwebVersion blockHeader) (_chainId blockHeader) (view blockHeight blockHeader) (Pact5.renderDomain d) key value
         [] -> pure Nothing
         _ -> internalError $ "lookupHistorical: expected single-row result, got " <> sshow r
