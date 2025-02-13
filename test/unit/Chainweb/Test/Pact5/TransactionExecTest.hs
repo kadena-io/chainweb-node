@@ -934,8 +934,8 @@ testKeccak256 rdb = readFromAfterGenesis v rdb $ do
         applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
             ? P.checkAll
-                [ P.fun _crResult ? P.equals ? PactResultOk (PString "foo")
-                , P.fun _crGas ? P.equals ? Gas 1
+                [ P.fun _crResult ? P.equals ? PactResultOk (PString "DqM-LjT1ckQGQCRMfx9fBGl86XE5vacqZVjYZjwCs4g")
+                , P.fun _crGas ? P.equals ? Gas 75
                 ]
 
 testCommandResult5To4 :: RocksDb -> IO ()

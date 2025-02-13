@@ -270,7 +270,7 @@ chainweb226Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb226Pact = checkFork before Chainweb226Pact
 
 chainweb228Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb228Pact = checkFork before Chainweb228Pact
+chainweb228Pact = checkFork atOrAfter Chainweb228Pact
 
 pact5Serialiser :: ChainwebVersion -> ChainId -> BlockHeight -> Pact5.PactSerialise Pact5.CoreBuiltin Pact5.LineInfo
 pact5Serialiser v cid bh
