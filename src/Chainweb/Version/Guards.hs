@@ -267,7 +267,7 @@ chainweb225Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb225Pact = checkFork atOrAfter Chainweb225Pact
 
 chainweb226Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb226Pact = checkFork before Chainweb226Pact
+chainweb226Pact = checkFork atOrAfter Chainweb226Pact
 
 chainweb228Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb228Pact = checkFork atOrAfter Chainweb228Pact
