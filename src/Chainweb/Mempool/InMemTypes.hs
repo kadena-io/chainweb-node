@@ -43,6 +43,7 @@ import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 import Chainweb.Utils (T2)
+import Data.HashSet (HashSet)
 
 ------------------------------------------------------------------------------
 data PendingEntry = PendingEntry
@@ -80,6 +81,7 @@ data InMemConfig t = InMemConfig {
 data InMemoryMempool t = InMemoryMempool {
     _inmemCfg :: !(InMemConfig t)
   , _inmemDataLock :: !(MVar (InMemoryMempoolData t))
+  , _inmemInsertionPending :: !(IORef (HashSet TransactionHash))
   , _inmemNonce :: !ServerNonce
 }
 
