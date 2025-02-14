@@ -497,7 +497,7 @@ modulesWithHigherLevelTransitiveDependenciesComplex baseRdb = runResourceT $ do
                 , "   )"
                 , "   (defcap FOO_CAP () true)"
                 , ""
-                , "   (defcap foo-mgr (a:integer b:integer) (+ a b))"
+                , "   (defun foo-mgr (a:integer b:integer) (+ a b))"
                 , ""
                 , "   (defcap FOO_MANAGED (sender:string a:integer)"
                 , "     @managed a foo-mgr"
