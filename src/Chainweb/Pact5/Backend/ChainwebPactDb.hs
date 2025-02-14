@@ -224,18 +224,7 @@ data BlockState = BlockState
     }
 
 makeLenses ''BlockState
-makeLensesWith
-    (lensRulesFor
-        [ ("_blockHandlerDb", "blockHandlerDb")
-        , ("_blockHandlerLogger", "blockHandlerLogger")
-        , ("_blockHandlerMode", "blockHandlerMode")
-        , ("_blockHandlerUpperBoundTxId", "blockHandlerUpperBoundTxId")
-        , ("_blockHandlerBlockHeight", "blockHandlerBlockHeight")
-        , ("_blockHandlerAtTip", "blockHandlerAtTip")
-        , ("_blockHandlerVersion", "blockHandlerVersion")
-        , ("_blockHandlerChainId", "blockHandlerChainId")
-        ])
-    ''BlockHandlerEnv
+makeLenses ''BlockHandlerEnv
 
 getPendingTxLogOrError :: Text -> BlockHandler logger (DList (Pact.TxLog ByteString))
 getPendingTxLogOrError msg = do
