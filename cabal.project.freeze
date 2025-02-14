@@ -229,7 +229,7 @@ constraints: any.Cabal ==3.12.1.0,
              any.pact-json ==0.1.0.0,
              any.pact-time ==0.3.0.1,
              pact-time -with-time,
-             any.pact-tng ==5.0,
+             any.pact-tng ==5.1,
              pact-tng +with-crypto +with-funcall-tracing +with-native-tracing,
              any.pandoc ==3.6.2,
              any.pandoc-types ==1.23.1,
@@ -401,4 +401,4 @@ constraints: any.Cabal ==3.12.1.0,
              any.zigzag ==0.1.0.0,
              any.zip-archive ==0.4.3.2,
              any.zlib ==0.7.1.0
-index-state: hackage.haskell.org 2025-01-24T21:23:54Z
+index-state: hackage.haskell.org 2025-01-31T18:30:19Z

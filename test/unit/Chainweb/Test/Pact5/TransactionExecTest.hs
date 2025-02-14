@@ -98,6 +98,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "quirk spec" (quirkSpec baseRdb)
     , testCase "test writes to nonexistent tables" (testWritesToNonExistentTables baseRdb)
     , testCase "test CommandResult 5 is valid for 4" (testCommandResult5To4 baseRdb)
+    , testCase "test hash-keccak256" (testKeccak256 baseRdb)
     ]
 
 -- | Run with the context being that the parent block is the genesis block
@@ -544,12 +545,12 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     [ P.fun _crEvents ? P.list
                         [ event
                             (P.equals "TRANSFER")
-                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 568])
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 572])
                             (P.equals coinModuleName)
                         ]
                     , P.fun _crResult ? P.equals ? PactResultOk (PString "Loaded module free.m, hash Uj0lQPPu9CKvw13K4VP4DZoaPKOphk_-vuq823hLSLo")
                     -- reflects buyGas gas usage, as well as that of the payload
-                    , P.fun _crGas ? P.equals ? Gas 284
+                    , P.fun _crGas ? P.equals ? Gas 286
                     , P.fun _crContinuation ? P.equals ? Nothing
                     ]
 
@@ -920,6 +921,22 @@ testWritesToNonExistentTables rdb = readFromAfterGenesis v rdb $ do
             ? P.fun _crResult
             ? P.match (_PactResultErr . _PEExecutionError . _1)
             ? P.equals (DbOpFailure (NoSuchTable (TableName "t" (ModuleName "m" (Just "free")))))
+
+testKeccak256 :: RocksDb -> IO ()
+testKeccak256 rdb = readFromAfterGenesis v rdb $ do
+    txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
+    pactTransaction Nothing $ \pactDb -> do
+        cmd <- buildCwCmd v
+            $ set cbRPC (mkExec' "(hash-keccak256 [\"T73FllCNJKKgAQ4UCYC4CfucbVXsdRJYkd2YXTdmW9gPm-tqUCB1iKvzzu6Md82KWtSKngqgdO04hzg2JJbS-yyHVDuzNJ6mSZfOPntCTqktEi9X27CFWoAwWEN_4Ir7DItecXm5BEu_TYGnFjsxOeMIiLU2sPlX7_macWL0ylqnVqSpgt-tvzHvJVCDxLXGwbmaEH19Ov_9uJFHwsxMmiZD9Hjl4tOTrqN7THy0tel9rc8WtrUKrg87VJ7OR3Rtts5vZ91EBs1OdVldUQPRP536eTcpJNMo-N0fy-taji6L9Mdt4I4_xGqgIfmJxJMpx6ysWmiFVte8vLKl1L5p0yhOnEDsSDjuhZISDOIKC2NeytqoT9VpBQn1T3fjWkF8WEZIvJg5uXTge_qwA46QKV0LE5AlMKgw0cK91T8fnJ-u1Dyk7tCo3XYbx-292iiih8YM1Cr1-cdY5cclAjHAmlglY2ia_GXit5p6K2ggBmd1LpEBdG8DGE4jmeTtiDXLjprpDilq8iCuI0JZ_gvQvMYPekpf8_cMXtTenIxRmhDpYvZzyCxek1F4aoo7_VcAMYV71Mh_T8ox7U1Q4U8hB9oCy1BYcAt06iQai0HXhGFljxsrkL_YSkwsnWVDhhqzxWRRdX3PubpgMzSI290C1gG0Gq4xfKdHTrbm3Q\"])")
+            $ defaultCmd cid
+
+        logger <- testLogger
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            >>= P.match _Right
+            ? P.checkAll
+                [ P.fun _crResult ? P.equals ? PactResultOk (PString "DqM-LjT1ckQGQCRMfx9fBGl86XE5vacqZVjYZjwCs4g")
+                , P.fun _crGas ? P.equals ? Gas 75
+                ]
 
 testCommandResult5To4 :: RocksDb -> IO ()
 testCommandResult5To4 rdb = readFromAfterGenesis v rdb $ do
