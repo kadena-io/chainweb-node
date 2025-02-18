@@ -134,8 +134,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/ixset-typed
-    tag: 8b3227c59305f7e5ca6af7c0b9bc5435e78875a0
-    --sha256: 08xpx3vwl8w7gn6z9s5smc383b962mxal3nav0fd5qh55yxqsp97
+    tag: c234b19732a0576067305b001c02e783e19e0f2b
+    --sha256: 16x2awn8v7dhdbz66a170xbmdj0pyxn1xwinqmsxhlq3qs35ncfj
 
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
