@@ -143,6 +143,7 @@ import qualified Chainweb.Time as Time
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Data.HashMap.Strict (HashMap)
 import Data.LogMessage (LogFunctionText)
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Core.Command.Types as Pact5
@@ -292,8 +293,15 @@ data MempoolBackend t = MempoolBackend {
 
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
+                  -> HashMap TransactionHash ByteString -- if trustworthy, the encoded bytes of each tx
                   -> Vector t
                   -> IO ()
+
+    -- | Insert the given transactions into the mempool.
+  , mempoolInsertEncoded
+    :: InsertType      -- run pre-gossip check? Ignored at remote pools.
+    -> Vector ByteString
+    -> IO ()
 
     -- | Perform the pre-insert check for the given transactions. Short-circuits
     --   on the first Transaction that fails.
@@ -345,6 +353,7 @@ noopMempool = do
     , mempoolLookup = noopLookup
     , mempoolLookupEncoded = noopLookupEncoded
     , mempoolInsert = noopInsert
+    , mempoolInsertEncoded = noopInsertEncoded
     , mempoolInsertCheck = noopInsertCheck
     , mempoolInsertCheckVerbose = noopInsertCheckVerbose
     , mempoolMarkValidated = noopMV
@@ -367,7 +376,8 @@ noopMempool = do
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopLookupEncoded v = return $ V.replicate (V.length v) Missing
-    noopInsert = const $ const $ return ()
+    noopInsert _ _ _ = return ()
+    noopInsertEncoded = const $ const $ return ()
     noopInsertCheck _ = fail "unsupported"
     noopInsertCheckVerbose _ = fail "unsupported"
     noopMV = const $ return ()
@@ -493,9 +503,9 @@ syncMempools' log0 us localMempool remoteMempool = sync
     isPending _ = False
 
     fetchMissing chunk = do
-        res <- mempoolLookup remoteMempool chunk
+        res <- mempoolLookupEncoded remoteMempool chunk
         let !newTxs = V.map fromPending $ V.filter isPending res
-        mempoolInsert localMempool CheckedInsert newTxs
+        mempoolInsertEncoded localMempool CheckedInsert newTxs
 
     deb :: Text -> IO ()
     deb = log0 Debug
@@ -566,8 +576,8 @@ syncMempools' log0 us localMempool remoteMempool = sync
     -- Send a chunk of tranactions to the remote pool.
     --
     sendChunk chunk = do
-        v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        unless (V.null v) $ mempoolInsert remoteMempool CheckedInsert v
+        v <- (V.map fromPending . V.filter isPending) <$> mempoolLookupEncoded localMempool chunk
+        unless (V.null v) $ mempoolInsertEncoded remoteMempool CheckedInsert v
 
 
 syncMempools
