@@ -617,7 +617,7 @@ properties_miscCut db v =
     ]
 
 -- -------------------------------------------------------------------------- --
--- Other Miscelaneous Properties
+-- Other Miscellaneous Properties
 
 prop_blockCountAtChainHeight :: ChainGraph -> ChainGraph -> T.Property
 prop_blockCountAtChainHeight g0 g1 = T.counterexample (show v)
