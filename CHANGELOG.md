@@ -1,3 +1,14 @@
+## 2.28 (2025-03-03)
+This is an **Emergency** major version update. All nodes should be
+upgraded as soon as possible.
+
+The 2.28 feature upgrade will occur at block height 5659280 which is estimated to be mined at **2025-03-18T00:00:00Z**.
+
+### Changes
+- Fix transitive dependency module linking bug. [`1b8f917`](https://github.com/kadena-io/chainweb-node/commit/1b8f9172794a518d0062fdac3bcd6c00d16dc96b)
+- Re-introduce hash natives that were accidentally removed as part of the upgrade to Pact 5. [`6239f33`](https://github.com/kadena-io/chainweb-node/commit/6239f334f5da2879a54ed667b5d49afe02cca2ff)
+- Improve node performance on batch tx inserts. [`b6409f5`](https://github.com/kadena-io/chainweb-node/commit/b6409f5197db150da4b1802b570d45d826f9bc4c)
+
 ## 2.27 (2025-01-29)
 This is a major version update. This release replaces all previous versions.
 
