@@ -13,13 +13,13 @@
 (namespace 'user)
 (env-keys [])
 
-(module mod G
+(module modl G
   (defcap G () (enforce false "disabled"))
   (defun foo () 1))
 
 (namespace 'free)
 
-(module mod G
+(module modl G
   (defcap G () (enforce false "disabled"))
   (defun foo () 2))
 
@@ -32,15 +32,15 @@
 
 (namespace 'kadena)
 
-(module mod G
+(module modl G
   (defcap G () (enforce false "disabled"))
   (defun foo () 3))
 
 (commit-tx)
 
-(expect "user.mod works" 1 (user.mod.foo))
-(expect "free.mod works" 2 (free.mod.foo))
-(expect "kadena.mod works" 3 (kadena.mod.foo))
+(expect "user.modl works" 1 (user.modl.foo))
+(expect "free.modl works" 2 (free.modl.foo))
+(expect "kadena.modl works" 3 (kadena.modl.foo))
 
 (begin-tx)
 (env-keys ["operate"])
@@ -63,12 +63,12 @@
 
 (namespace 'kadena)
 
-(module mod2 G
+(module modl2 G
   (defcap G () (enforce false "disabled"))
   (defun foo () 4))
 (commit-tx)
 
-(expect "kadena.mod2 works" 4 (kadena.mod2.foo))
+(expect "kadena.modl2 works" 4 (kadena.modl2.foo))
 
 (use ns)
 (env-keys ["operate"])
