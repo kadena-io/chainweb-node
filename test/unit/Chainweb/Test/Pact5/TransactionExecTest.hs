@@ -545,7 +545,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     [ P.fun _crEvents ? P.list
                         [ event
                             (P.equals "TRANSFER")
-                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 572])
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 570])
                             (P.equals coinModuleName)
                         ]
                     , P.fun _crResult ? P.equals ? PactResultOk (PString "Loaded module free.m, hash Uj0lQPPu9CKvw13K4VP4DZoaPKOphk_-vuq823hLSLo")

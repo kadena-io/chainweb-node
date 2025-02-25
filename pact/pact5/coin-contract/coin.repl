@@ -27,7 +27,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  21572
+  21181
   (env-gas))
 
 (create-table coin.coin-table)
