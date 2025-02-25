@@ -545,12 +545,12 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     [ P.fun _crEvents ? P.list
                         [ event
                             (P.equals "TRANSFER")
-                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 572])
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 570])
                             (P.equals coinModuleName)
                         ]
                     , P.fun _crResult ? P.equals ? PactResultOk (PString "Loaded module free.m, hash Uj0lQPPu9CKvw13K4VP4DZoaPKOphk_-vuq823hLSLo")
                     -- reflects buyGas gas usage, as well as that of the payload
-                    , P.fun _crGas ? P.equals ? Gas 286
+                    , P.fun _crGas ? P.equals ? Gas 285
                     , P.fun _crContinuation ? P.equals ? Nothing
                     ]
 
