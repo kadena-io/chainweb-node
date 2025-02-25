@@ -120,9 +120,9 @@ testnet04 = ChainwebVersion
         Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_134_331  -- 2022-04-21T12:00:00Z
         Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_295_437  -- 2022-06-16T12:00:00+00:00
         Pact44NewTrans -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_500_369 -- Todo: add date
-        Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_516_739  -- 2022-09-01 12:00:00+00:00
-        Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_777_367  -- 2022-12-01 12:00:00+00:00
-        Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_038_343  -- 2023-03-02 12:00:00+00:00
+        Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_516_739 -- 2022-09-01 12:00:00+00:00
+        Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_777_367 -- 2022-12-01 12:00:00+00:00
+        Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_038_343 -- 2023-03-02 12:00:00+00:00
         Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_299_753 -- 2023-06-01 12:00:00+00:00
         Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_580_964 -- 2023-09-08 12:00:00+00:00
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_702_250 -- 2023-10-19 12:00:00+00:00
@@ -131,8 +131,8 @@ testnet04 = ChainwebVersion
         Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_333_587 -- 2024-05-29 12:00:00+00:00
         Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_575_072 -- 2024-08-21 12:00:00+00:00
         Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_816_925 -- 2024-11-13 12:00:00+00:00
-        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_058_738 -- 2025-02-05 12:00:00+00:00
-        Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight (error "FIXME")
+        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_058_738       -- 2025-02-05 12:00:00+00:00
+        Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_155_146 -- 2025-03-11 00:00:00+00:00
         Chainweb229Pact -> AllChains ForkNever
 
     , _versionGraphs =
@@ -193,5 +193,5 @@ testnet04 = ChainwebVersion
             , (unsafeChainId 2, HM.fromList [((BlockHeight 4108311, TxBlockIdx 0), Gas 65_130)])
             ]
         }
-    , _versionServiceDate = Just (error "FIXME")
+    , _versionServiceDate = Just "2025-04-30T00:00:00Z"
     }
