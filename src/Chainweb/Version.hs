@@ -231,6 +231,7 @@ data Fork
     | Chainweb226Pact
     | Pact5Fork
     | Chainweb228Pact
+    | Chainweb229Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -269,6 +270,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb226Pact = "chainweb226Pact"
     toText Pact5Fork = "pact5"
     toText Chainweb228Pact = "chainweb228Pact"
+    toText Chainweb229Pact = "chainweb229Pact"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -303,6 +305,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb226Pact" = return Chainweb226Pact
     fromText "pact5" = return Pact5Fork
     fromText "chainweb228Pact" = return Chainweb228Pact
+    fromText "chainweb229Pact" = return Chainweb229Pact
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
