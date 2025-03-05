@@ -177,8 +177,8 @@ _validatedHeaders (ValidatedHeaders hs) = hs
 --
 
 data InvalidValidationParameters
-    = InvalidChainStepParameters ParentHeader BlockHeader
-    | InvalidWebStepParameters (HM.HashMap ChainId ParentHeader) ChainStep
+    = InvalidChainStepParameters (Parent BlockHeader) BlockHeader
+    | InvalidWebStepParameters (HM.HashMap ChainId (Parent BlockHeader)) ChainStep
     deriving (Show, Eq, Ord, Generic)
 
 instance Exception InvalidValidationParameters where
@@ -193,10 +193,10 @@ instance Exception InvalidValidationParameters where
 --
 -- NOTE: the constructor of this type is intentionally NOT exported.
 --
-data ChainStep = ChainStep ParentHeader BlockHeader
+data ChainStep = ChainStep (Parent BlockHeader) BlockHeader
     deriving (Show, Eq, Ord, Generic)
 
-_chainStepParent :: ChainStep -> ParentHeader
+_chainStepParent :: ChainStep -> Parent BlockHeader
 _chainStepParent (ChainStep p _) = p
 {-# INLINE _chainStepParent #-}
 
@@ -206,13 +206,13 @@ _chainStepHeader (ChainStep _ h) = h
 
 chainStep
     :: MonadThrow m
-    => ParentHeader
+    => Parent BlockHeader
         -- ^ Parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ Block header under scrutiny
     -> m ChainStep
 chainStep p b
-    | view blockParent b == view blockHash (_parentHeader p)
+    | view blockParent b == view blockHash (unwrapParent p)
         = return $ ChainStep p b
     | otherwise = throwM $ InvalidChainStepParameters p b
 
@@ -225,12 +225,12 @@ chainStep p b
 --
 -- NOTE: the constructor of this type is intentionally NOT exported.
 --
-data WebStep = WebStep (HM.HashMap ChainId ParentHeader) ChainStep
+data WebStep = WebStep (HM.HashMap ChainId (Parent BlockHeader)) ChainStep
     deriving (Show, Eq, Ord, Generic)
 
 webStep
     :: MonadThrow m
-    => HM.HashMap ChainId ParentHeader
+    => HM.HashMap ChainId (Parent BlockHeader)
     -> ChainStep
     -> m WebStep
 webStep as hp@(ChainStep _ h) = WebStep
@@ -242,10 +242,10 @@ webStep as hp@(ChainStep _ h) = WebStep
     f cid a = case HM.lookup cid as of
         Nothing -> throwM $ InvalidWebStepParameters as hp
         Just x
-            | view blockHash (_parentHeader x) == a -> return x
+            | view blockHash (unwrapParent x) == a -> return x
             | otherwise -> throwM $ InvalidWebStepParameters as hp
 
-_webStepAdjs :: WebStep -> HM.HashMap ChainId ParentHeader
+_webStepAdjs :: WebStep -> HM.HashMap ChainId (Parent BlockHeader)
 _webStepAdjs (WebStep as _) = as
 {-# INLINE _webStepAdjs #-}
 
@@ -257,7 +257,7 @@ _webStepHeader :: WebStep -> BlockHeader
 _webStepHeader (WebStep _ p) = _chainStepHeader p
 {-# INLINE _webStepHeader #-}
 
-_webStepParent :: WebStep -> ParentHeader
+_webStepParent :: WebStep -> Parent BlockHeader
 _webStepParent (WebStep _ p) = _chainStepParent p
 {-# INLINE _webStepParent #-}
 
@@ -267,8 +267,8 @@ _webStepParent (WebStep _ p) = _chainStepParent p
 -- | A data type that describes a failure of validating a block header.
 --
 data ValidationFailure = ValidationFailure
-    { _validateFailureParent :: !(Maybe ParentHeader)
-    , _validateFailureAdjecents :: !(Maybe (HM.HashMap ChainId ParentHeader))
+    { _validateFailureParent :: !(Maybe (Parent BlockHeader))
+    , _validateFailureAdjecents :: !(Maybe (HM.HashMap ChainId (Parent BlockHeader)))
     , _validateFailureHeader :: !BlockHeader
     , _validationFailureFailures :: ![ValidationFailureType]
     }
@@ -290,8 +290,8 @@ instance Show ValidationFailure where
         = T.unpack $ "Validation failure"
             <> ". Description: " <> T.unlines (map description ts)
             <> ". Header: " <> encodeToText (ObjectEncoded e)
-            <> maybe "" (\p' -> ". Parent: " <> encodeToText (ObjectEncoded $ _parentHeader p')) p
-            <> maybe "" (\as' -> ". Adjacents: " <> encodeToText (ObjectEncoded . _parentHeader <$> as')) as
+            <> maybe "" (\p' -> ". Parent: " <> encodeToText (ObjectEncoded $ unwrapParent p')) p
+            <> maybe "" (\as' -> ". Adjacents: " <> encodeToText (ObjectEncoded . unwrapParent <$> as')) as
       where
         description t = case t of
             MissingParent -> "Parent isn't in the database"
@@ -545,9 +545,9 @@ validateBlockParentExists
     -> BlockHeader
     -> m (Either ValidationFailureType ChainStep)
 validateBlockParentExists lookupParent h
-    | isGenesisBlockHeader h = return $ Right $ ChainStep (ParentHeader h) h
+    | isGenesisBlockHeader h = return $ Right $ ChainStep (Parent h) h
     | otherwise = lookupParent (view blockParent h) >>= \case
-        (Just !p) -> return $ Right $ ChainStep (ParentHeader p) h
+        (Just !p) -> return $ Right $ ChainStep (Parent p) h
         Nothing -> return $ Left MissingParent
 
 -- | Validate that the parent and all adjacent parents exist with the given
@@ -568,9 +568,9 @@ validateAllParentsExist lookupParent h = runExceptT $ WebStep
     v = _chainwebVersion h
     f c ph
         | genesisParentBlockHash v c == ph = return
-            $ ParentHeader $ genesisBlockHeader v c
+            $ Parent $ genesisBlockHeader v c
         | otherwise = lift (lookupParent $ ChainValue c ph) >>= \case
-            (Just !p) -> return $ ParentHeader p
+            (Just !p) -> return $ Parent p
             Nothing -> throwError MissingAdjacentParent
 
 -- -------------------------------------------------------------------------- --
@@ -726,23 +726,23 @@ prop_block_adjacent_chainIds b
 -- Single chain inductive properties
 
 prop_block_height :: ChainStep -> Bool
-prop_block_height (ChainStep (ParentHeader p) b)
+prop_block_height (ChainStep (Parent p) b)
     | isGenesisBlockHeader b = view blockHeight b == view blockHeight p
     | otherwise = view blockHeight b == view blockHeight p + 1
 
 prop_block_chainwebVersion :: ChainStep -> Bool
-prop_block_chainwebVersion (ChainStep (ParentHeader p) b) =
+prop_block_chainwebVersion (ChainStep (Parent p) b) =
     view blockChainwebVersion p == view blockChainwebVersion b
 
 prop_block_weight :: ChainStep -> Bool
-prop_block_weight (ChainStep (ParentHeader p) b)
+prop_block_weight (ChainStep (Parent p) b)
     | isGenesisBlockHeader b = view blockWeight b == view blockWeight p
     | otherwise = view blockWeight b == expectedWeight
   where
     expectedWeight = int (targetToDifficulty (view blockTarget b)) + view blockWeight p
 
 prop_block_chainId :: ChainStep -> Bool
-prop_block_chainId (ChainStep (ParentHeader p) b)
+prop_block_chainId (ChainStep (Parent p) b)
     = view blockChainId p == view blockChainId b
 
 -- -------------------------------------------------------------------------- --
@@ -756,21 +756,21 @@ prop_block_epoch :: WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))
     | oldDaGuard (_chainwebVersion b) (_chainId b) (view blockHeight b)
         = view blockEpochStart b <= EpochStartTime (_bct $ view blockCreationTime b)
-        && view blockEpochStart (_parentHeader p) <= view blockEpochStart b
+        && view blockEpochStart (unwrapParent p) <= view blockEpochStart b
         && view blockEpochStart b == epochStart p as (view blockCreationTime b)
     | otherwise
         = view blockEpochStart b <= EpochStartTime (_bct $ view blockCreationTime b)
         && view blockEpochStart b == epochStart p as (view blockCreationTime b)
 
 prop_block_creationTime :: WebStep -> Bool
-prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
+prop_block_creationTime (WebStep as (ChainStep (Parent p) b))
     | isGenesisBlockHeader b
         = view blockCreationTime b == view blockCreationTime p
     | oldDaGuard (_chainwebVersion b) (_chainId b) (view blockHeight b)
         = view blockCreationTime b > view blockCreationTime p
     | otherwise
         = view blockCreationTime b > view blockCreationTime p
-        && all (\x -> view blockCreationTime b > view blockCreationTime (_parentHeader x)) as
+        && all (\x -> view blockCreationTime b > view blockCreationTime (unwrapParent x)) as
 
 -- | The chainId index of the adjacent parents of the header and the blocks
 -- in the webstep reference the same hashes and the chain Ids in of the
@@ -787,7 +787,7 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
             -- chainId indexes in web adjadent parent record references the
             -- genesis block parent hashes
     | otherwise
-        = adjsHashes == (view blockHash . _parentHeader <$> as)
+        = adjsHashes == (view blockHash . unwrapParent <$> as)
             -- chainId indexes in web adjadent parent record and web step are
             -- referencing the same hashes
         && iall (\cid h -> cid == _chainId h) as
@@ -799,7 +799,7 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
 
 prop_block_adjacent_parents_version :: WebStep -> Bool
 prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
-    = all ((== v) . view blockChainwebVersion . _parentHeader) as
+    = all ((== v) . view blockChainwebVersion . unwrapParent) as
   where
     v = view blockChainwebVersion b
 

@@ -38,6 +38,7 @@ module Chainweb.Pact.PactService.Checkpointer
     , SomeBlockM(..)
     , getEarliestBlock
     , getLatestBlock
+    , lookupBlock
     , lookupHistorical
     , getBlockHistory
     , Internal.withCheckpointerResources
@@ -390,6 +391,11 @@ getLatestBlock :: PactServiceM logger tbl (Maybe (BlockHeight, BlockHash))
 getLatestBlock = do
     cp <- view psCheckpointer
     liftIO $ Internal.getLatestBlock cp.cpSql
+
+lookupBlock :: RankedBlockHash -> PactServiceM logger tbl Bool
+lookupBlock b = do
+    cp <- view psCheckpointer
+    liftIO $ Internal.lookupBlock cp.cpSql b
 
 lookupHistorical
     :: BlockHeader

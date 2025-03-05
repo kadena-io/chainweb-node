@@ -42,6 +42,7 @@ module Chainweb.Pact.Types
   , psMempoolAccess
   , psCheckpointer
   , psPdb
+  , psCandidatePdb
   , psBlockHeaderDb
   , psReorgLimit
   , psPreInsertCheckTimeout
@@ -270,6 +271,9 @@ import Chainweb.BlockCreationTime
 import qualified Data.Aeson as Aeson
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
+import Chainweb.Storage.Table.Map (MapTable)
+import Chainweb.BlockPayloadHash
+import Chainweb.PayloadProvider.P2P
 
 
 -- | Gather tx logs for a block, along with last tx for each
@@ -288,8 +292,8 @@ instance Show BlockTxHistory where
 -- and knows its parent header (Nothing if it's a genesis block).
 -- Reports back its own header and some extra value.
 data RunnableBlock logger a
-  = Pact4RunnableBlock (PactDbFor logger Pact4 -> Maybe ParentHeader -> IO (a, BlockHeader))
-  | Pact5RunnableBlock (PactDbFor logger Pact5 -> Maybe ParentHeader -> BlockHandle Pact5 -> IO ((a, BlockHeader), BlockHandle Pact5))
+  = Pact4RunnableBlock (PactDbFor logger Pact4 -> Maybe (Parent RankedBlockHash) -> IO (a, RankedBlockHash))
+  | Pact5RunnableBlock (PactDbFor logger Pact5 -> Maybe (Parent RankedBlockHash) -> BlockHandle Pact5 -> IO ((a, RankedBlockHash), BlockHandle Pact5))
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -487,11 +491,11 @@ instance Semigroup MemPoolAccess where
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess mempty mempty mempty mempty
 
-
 data PactServiceEnv logger tbl = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
     , _psCheckpointer :: !(Checkpointer logger)
-    , _psPdb :: !(PayloadDb tbl)
+    , _psPdb :: !(PayloadStore (PayloadDb tbl) PayloadData)
+    , _psCandidatePdb :: !(MapTable RankedBlockPayloadHash PayloadData)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
@@ -646,7 +650,7 @@ makeLenses ''PactServiceState
 
 data PactBlockEnv logger pv tbl = PactBlockEnv
   { _psServiceEnv :: !(PactServiceEnv logger tbl)
-  , _psParentHeader :: !ParentHeader
+  , _psParentHeader :: !(Parent BlockHeader)
   , _psIsGenesis :: !Bool
   , _psBlockDbEnv :: !(PactDbFor logger pv)
   }
@@ -1039,7 +1043,7 @@ data NewBlockReq
     { _newBlockFill :: !NewBlockFill
     -- ^ whether to fill this block with transactions; if false, the block
     -- will be empty.
-    , _newBlockParent :: !ParentHeader
+    , _newBlockParent :: !(Parent BlockHeader)
     -- ^ the parent to use for the new block
     } deriving stock Show
 
@@ -1157,7 +1161,7 @@ type family CommandResultFor (pv :: PactVersion) where
 data BlockInProgress pv = BlockInProgress
   { _blockInProgressHandle :: !(BlockHandle pv)
   , _blockInProgressModuleCache :: !(ModuleCacheFor pv)
-  , _blockInProgressParentHeader :: !(Maybe ParentHeader)
+  , _blockInProgressParentHeader :: !(Maybe (Parent BlockHeader))
   , _blockInProgressChainwebVersion :: !ChainwebVersion
   , _blockInProgressChainId :: !ChainId
   , _blockInProgressRemainingGasLimit :: !Pact4.GasLimit
@@ -1197,7 +1201,7 @@ blockInProgressParent bip =
     maybe
     (genesisParentBlockHash v cid, genesisHeight v cid, v ^?! versionGenesis . genesisTime . atChain cid)
     (\bh -> (view blockHash bh, view blockHeight bh, view blockCreationTime bh))
-    (_parentHeader <$> _blockInProgressParentHeader bip)
+    (unwrapParent <$> _blockInProgressParentHeader bip)
     where
     v = _blockInProgressChainwebVersion bip
     cid = _blockInProgressChainId bip
@@ -1211,7 +1215,7 @@ instance Show (BlockInProgress pv) where
         "Pact5 block,"
     , T.unpack (blockHashToTextShort $ fromMaybe
         (genesisParentBlockHash (_blockInProgressChainwebVersion bip) (_blockInProgressChainId bip))
-        (view blockHash . _parentHeader <$> _blockInProgressParentHeader bip))
+        (view blockHash . unwrapParent <$> _blockInProgressParentHeader bip))
     , show (_blockInProgressMiner bip ^. minerId)
     , "# transactions " <> show (V.length (_transactionPairs $ _blockInProgressTransactions bip)) <> ","
     , "# gas remaining " <> show (_blockInProgressRemainingGasLimit bip)

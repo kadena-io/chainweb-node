@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -37,7 +38,6 @@ module Chainweb.Pact.PactService
     , execHistoricalLookup
     , execReadOnlyReplay
     , execSyncToBlock
-    , runPactService
     , withPactService
     , execNewGenesisBlock
     ) where
@@ -101,7 +101,6 @@ import Chainweb.Miner.Pact
 
 import Chainweb.Pact.PactService.Pact4.ExecBlock
 import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
 import Chainweb.Pact5.SPV qualified as Pact5
@@ -146,26 +145,13 @@ import qualified Pact.Core.StableEncoding as Pact5
 import Control.Monad.Cont (evalContT)
 import qualified Data.List.NonEmpty as NonEmpty
 import Chainweb.PayloadProvider.Pact.Genesis (genesisPayload)
+import Chainweb.PayloadProvider
+import Data.Function
+import Chainweb.Storage.Table
+import qualified Chainweb.Storage.Table.Map as MapTable
+import Chainweb.PayloadProvider.P2P
+import P2P.TaskQueue (Priority(..))
 
-
-runPactService
-    :: Logger logger
-    => CanReadablePayloadCas tbl
-    => ChainwebVersion
-    -> ChainId
-    -> logger
-    -> Maybe (Counter "txFailures")
-    -> PactQueue
-    -> MemPoolAccess
-    -> BlockHeaderDb
-    -> PayloadDb tbl
-    -> SQLiteEnv
-    -> PactServiceConfig
-    -> IO ()
-runPactService ver cid chainwebLogger txFailuresCounter reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config $ do
-        initialPayloadState ver cid
-        serviceRequests mempoolAccess reqQ
 
 withPactService
     :: (Logger logger, CanReadablePayloadCas tbl)
@@ -181,10 +167,12 @@ withPactService
     -> IO (T2 a PactServiceState)
 withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config act = do
     Checkpointer.withCheckpointerResources checkpointerLogger (_pactModuleCacheLimit config) sqlenv (_pactPersistIntraBlockWrites config) ver cid $ \checkpointer -> do
+        candidatePdb <- MapTable.emptyTable
         let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
                     , _psPdb = pdb
+                    , _psCandidatePdb = candidatePdb
                     , _psBlockHeaderDb = bhDb
                     , _psReorgLimit = _pactReorgLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
@@ -287,8 +275,8 @@ initializeCoinContract v cid pwo = do
                 logWarnPact "initializeCoinContract: Starting from genesis."
                 validateGenesis
   where
-    validateGenesis = void $!
-        execValidateBlock mempty genesisHeader (CheckablePayloadWithOutputs pwo)
+    validateGenesis = void $! undefined
+        -- execValidateBlock mempty genesisHeader (CheckablePayloadWithOutputs pwo)
 
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
@@ -311,173 +299,6 @@ lookupBlockHeader bhash ctx = do
     liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
         throwM $ BlockHeaderLookupFailure $
             "failed lookup of parent header in " <> ctx <> ": " <> sshow e
-
--- | Loop forever, serving Pact execution requests and reponses from the queues
-serviceRequests
-    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
-    => MemPoolAccess
-    -> PactQueue
-    -> PactServiceM logger tbl ()
-serviceRequests memPoolAccess reqQ = go
-  where
-    go :: PactServiceM logger tbl ()
-    go = do
-        PactServiceEnv{_psLogger} <- ask
-        logDebugPact "serviceRequests: wait"
-        SubmittedRequestMsg msg statusRef <- liftIO $ getNextRequest reqQ
-        requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
-        let
-          logFn :: LogFunction
-          logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
-        logDebugPact $ "serviceRequests: " <> sshow msg
-        case msg of
-            CloseMsg ->
-                tryOne "execClose" statusRef $ return ()
-            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth) -> do
-                trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
-                    tryOne "execLocal" statusRef $
-                        execLocal localRequest preflight sigVerify rewindDepth
-                go
-            NewBlockMsg NewBlockReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execNewBlock"
-                    () 1 $
-                    tryOne "execNewBlock" statusRef $
-                        execNewBlock memPoolAccess _newBlockFill _newBlockParent
-                go
-            ContinueBlockMsg (ContinueBlockReq bip) -> do
-                trace logFn "Chainweb.Pact.PactService.execContinueBlock"
-                    () 1 $
-                    tryOne "execContinueBlock" statusRef $
-                        execContinueBlock memPoolAccess bip
-                go
-            ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock" statusRef $
-                    fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
-                        (\_ -> _valBlockHeader)
-                        (\(_, g) -> fromIntegral g)
-                        (execValidateBlock memPoolAccess _valBlockHeader _valCheckablePayload)
-                go
-            LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes) -> do
-                trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
-                    (length txHashes) $
-                    tryOne "execLookupPactTxs" statusRef $
-                        execLookupPactTxs confDepth txHashes
-                go
-            PreInsertCheckMsg (PreInsertCheckReq txs) -> do
-                trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
-                    (length txs) $
-                    tryOne "execPreInsertCheckReq" statusRef $
-                        execPreInsertCheckReq txs
-                go
-            BlockTxHistoryMsg (BlockTxHistoryReq bh d) -> do
-                trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
-                    tryOne "execBlockTxHistory" statusRef $
-                        execBlockTxHistory bh d
-                go
-            HistoricalLookupMsg (HistoricalLookupReq bh d k) -> do
-                trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
-                    tryOne "execHistoricalLookup" statusRef $
-                        execHistoricalLookup bh d k
-                go
-            SyncToBlockMsg SyncToBlockReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
-                    tryOne "syncToBlockBlock" statusRef $
-                        execSyncToBlock _syncToBlockHeader
-                go
-            ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
-                    tryOne "readOnlyReplayBlock" statusRef $
-                        execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
-                go
-
-    tryOne
-        :: forall a. Text
-        -> TVar (RequestStatus a)
-        -> PactServiceM logger tbl a
-        -> PactServiceM logger tbl ()
-    tryOne which statusRef act =
-        evalPactOnThread
-        `catches`
-            [ Handler $ \(e :: SomeException) -> do
-                logErrorPact $ mconcat
-                    [ "Received exception running pact service ("
-                    , which
-                    , "): "
-                    , sshow e
-                    ]
-                liftIO $ throwIO e
-            ]
-        where
-        -- here we start a thread to service the request
-        evalPactOnThread :: PactServiceM logger tbl ()
-        evalPactOnThread = do
-            maybeException <- withPactState $ \run -> do
-                goLock <- newEmptyMVar
-                finishedLock <- newEmptyMVar
-                -- fork a thread to service the request
-                bracket
-                    (mask_ $ forkIOWithUnmask $ \restore ->
-                        -- We wrap this whole block in `tryAsync` because we
-                        -- want to ignore `RequestCancelled` exceptions that
-                        -- occur while we are waiting on `takeMVar goLock`.
-                        --
-                        -- Otherwise we get logs like `chainweb-node:
-                        -- RequestCancelled`.
-                        --
-                        -- We don't actually care about whether or not
-                        -- `RequestCancelled` was encountered, so we just `void`
-                        -- it.
-                        void $ tryAsync @_ @RequestCancelled $ flip finally (tryPutMVar finishedLock ()) $ do
-                            -- wait until we've been told to start.
-                            -- we don't want to start if the request was cancelled
-                            -- already
-                            takeMVar goLock
-
-                            -- run and report the answer.
-                            restore (tryAny (run act)) >>= \case
-                                Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
-                                Right r -> atomically $ writeTVar statusRef (RequestDone r)
-                    )
-                    -- if Pact itself is killed, kill the request thread too.
-                    (\tid -> throwTo tid RequestCancelled >> takeMVar finishedLock)
-                    (\_tid -> do
-                        -- check first if the request has been cancelled before
-                        -- starting work on it
-                        beforeStarting <- atomically $ do
-                            readTVar statusRef >>= \case
-                                RequestInProgress -> internalError "request in progress before starting"
-                                RequestDone _ -> internalError "request finished before starting"
-                                RequestFailed e -> return (Left e)
-                                RequestNotStarted -> do
-                                    writeTVar statusRef RequestInProgress
-                                    return (Right ())
-                        case beforeStarting of
-                            -- the request has already been cancelled, don't
-                            -- start work on it.
-                            Left ex -> return (Left ex)
-                            Right () -> do
-                                -- let the request thread start working
-                                putMVar goLock ()
-                                -- wait until the request thread has finished
-                                atomically $ readTVar statusRef >>= \case
-                                    RequestInProgress -> retry
-                                    RequestDone _ -> return (Right ())
-                                    RequestFailed e -> return (Left e)
-                                    RequestNotStarted -> internalError "request not started after starting"
-                    )
-            case maybeException of
-                Left (fromException -> Just AsyncCancelled) -> do
-                    logDebugPact "Pact action was cancelled"
-                Left (fromException -> Just ThreadKilled) -> do
-                    logWarnPact "Pact action thread was killed"
-                Left (exn :: SomeException) -> do
-                    logErrorPact $ mconcat
-                        [ "Received exception running pact service ("
-                        , which
-                        , "): "
-                        , sshow exn
-                        ]
-                Right () -> return ()
 
 execNewBlock
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
@@ -991,127 +812,207 @@ execSyncToBlock targetHeader = pactLabel "execSyncToBlock" $ do
 execValidateBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
     => MemPoolAccess
-    -> BlockHeader
-    -> CheckablePayload
-    -> PactServiceM logger tbl (PayloadWithOutputs, Pact4.Gas)
-execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "execValidateBlock" $ do
+    -> Maybe Hints
+    -> ForkInfo
+    -> PactServiceM logger tbl SyncState
+execValidateBlock memPoolAccess hints forkInfo = pactLabel "execValidateBlock" $ do
     bhdb <- view psBlockHeaderDb
     payloadDb <- view psPdb
     v <- view chainwebVersion
     cid <- view chainId
     RewindLimit reorgLimit <- view psReorgLimit
 
-    -- The parent block header must be available in the block header database.
-    parentOfHeaderToValidate <- getTarget
+    currHeader <- Checkpointer.findLatestValidBlockHeader' >>= \case
+        -- TODO: deal with genesis
+        Nothing -> error "no latest header... what do we do?"
+        Just h -> return h
 
-    -- Add block-hash to the logs if presented
-    let logBlockHash =
-            localLabelPact ("block-hash", blockHashToText (view blockParent headerToValidate))
+    let findForkPoint (tip:chain) = do
+            known <- Checkpointer.lookupBlock (_evaluationCtxRankedParentHash tip)
+            if known
+            then return (Just (tip, chain))
+            else findForkPoint chain
+        findForkPoint [] = return Nothing
 
-    logBlockHash $ do
-        currHeader <- Checkpointer.findLatestValidBlockHeader'
-        -- find the common ancestor of the new block and our current block
-        commonAncestor <- liftIO $ case (currHeader, parentOfHeaderToValidate) of
-            (Just currHeader', Just ph) ->
-                Just <$> forkEntry bhdb currHeader' (_parentHeader ph)
-            _ ->
-                return Nothing
-        -- check that we don't exceed the rewind limit. for the purpose
-        -- of this check, the genesis block and the genesis parent
-        -- have the same height.
-        let !currHeight = maybe (genesisHeight v cid) (view blockHeight) currHeader
-        let !ancestorHeight = maybe (genesisHeight v cid) (view blockHeight) commonAncestor
-        let !rewindLimitSatisfied = ancestorHeight + fromIntegral reorgLimit >= currHeight
-        unless rewindLimitSatisfied $
-            throwM $ RewindLimitExceeded
-                (RewindLimit reorgLimit)
-                currHeader
-                commonAncestor
-        -- get all blocks on the fork we're going to play, up to the parent
-        -- of the block we're validating
-        let withForkBlockStream kont = case parentOfHeaderToValidate of
-                Nothing ->
-                    -- we're validating a genesis block, so there are no fork blocks to speak of.
-                    kont (pure ())
-                Just (ParentHeader parentHeaderOfHeaderToValidate) ->
-                    let forkStartHeight = maybe (genesisHeight v cid) (succ . view blockHeight) commonAncestor
-                    in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
+    atTarget <- Checkpointer.lookupBlock (_forkInfoBaseRankedBlockHash forkInfo)
+    if atTarget
+    then return $ forkInfo._forkInfoTargetState._consensusStateLatest
+    else do
+        let wholeChainTopToBottom =
+                reverse forkInfo._forkInfoTrace
+        findForkPoint wholeChainTopToBottom >>= \case
+            Nothing ->
+                return $ syncStateOfBlockHeader currHeader
+            Just (forkPoint, _) | _evaluationCtxRankedParentHash forkPoint == _rankedBlockHash currHeader ->
+                -- we're already done, find the payload with outputs and return
+                return forkInfo._forkInfoTargetState._consensusStateLatest
+            Just (forkPoint, reverse -> forkChainBottomToTop) -> do -- it
+                pdb <- view psPdb
+                unknowns' <- liftIO $ dropWhile (isJust . snd) . zip forkChainBottomToTop
+                    <$> tableLookupBatch pdb (_evaluationCtxRankedPayloadHash <$> forkChainBottomToTop)
 
-        ((), results) <-
-            withPactState $ \runPact ->
-                withForkBlockStream $ \forkBlockHeaders -> do
+                -- assert db invariant
+                unless (all (isNothing . snd) unknowns') $
+                    error "Chainweb.PayloadProviders.Pact.syncToBlock: detected corrupted payload database"
 
-                    -- given a header for a block in the fork, fetch its payload
-                    -- and run its transactions, validating its hashes
-                    let runForkBlockHeaders = forkBlockHeaders & Stream.map (\forkBh -> do
-                            payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ view blockHeight forkBh) (view blockPayloadHash forkBh) >>= \case
-                                Nothing -> internalError
-                                    $ "execValidateBlock: lookup of payload failed"
-                                    <> ". BlockPayloadHash: " <> encodeToText (view blockPayloadHash forkBh)
-                                    <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
-                                Just x -> return $ payloadWithOutputsToPayloadData x
-                            SomeBlockM $ Pair
-                                (void $ Pact4.execBlock forkBh (CheckablePayload payload))
-                                (void $ Pact5.execExistingBlock forkBh (CheckablePayload payload))
-                            return ([], forkBh)
-                            )
+                let unknowns = fst <$> unknowns'
 
-                    -- run the new block, the one we're validating, and
-                    -- validate its hashes
-                    let runThisBlock = Stream.yield $ SomeBlockM $ Pair
-                            (do
-                                !output <- Pact4.execBlock headerToValidate payloadToValidate
-                                return ([output], headerToValidate)
-                            )
-                            (do
-                                !(gas, pwo) <- Pact5.execExistingBlock headerToValidate payloadToValidate
-                                return ([(fromIntegral (Pact5._gas gas), pwo)], headerToValidate)
-                            )
+                -- logDebug_ $ "unknown blocks in context: " <> sshow (length unknowns)
 
-                    -- here we rewind to the common ancestor block, run the
-                    -- transactions in all of its child blocks until the parent
-                    -- of the block we're validating, then run the block we're
-                    -- validating.
-                    runPact $ Checkpointer.restoreAndSave
-                        (ParentHeader <$> commonAncestor)
-                        (runForkBlockHeaders >> runThisBlock)
-        let logRewind =
-                -- we consider a fork of height more than 3 to be notable.
-                if ancestorHeight + 3 < currHeight
-                then logWarnPact
-                else logDebugPact
-        logRewind $
-            "execValidateBlock: rewound " <> sshow (currHeight - ancestorHeight) <> " blocks"
-        (totalGasUsed, result) <- case results of
-            [r] -> return r
-            _ -> internalError "execValidateBlock: wrong number of block results returned from _cpRestoreAndSave."
+                -- fetch all unkown payloads
+                --
+                -- FIXME do the right thing here. Ideally, fetch all
+                -- unknowns in batches without redundant local lookups. Then
+                -- validate all payloads together before sending them to the
+                -- EVM and inserting them into the DB.
+                --
 
-        -- update mempool
-        --
-        -- Using the parent isn't optimal, since it doesn't delete the txs of
-        -- `currHeader` from the set of pending tx. The reason for this is that the
-        -- implementation 'mpaProcessFork' uses the chain database and at this point
-        -- 'currHeader' is generally not yet available in the database. It would be
-        -- possible to extract the txs from the result and remove them from the set
-        -- of pending txs. However, that would add extra complexity and at little
-        -- gain.
-        --
-        case parentOfHeaderToValidate of
-            Nothing -> return ()
-            Just (ParentHeader p) -> liftIO $ do
-                mpaProcessFork memPoolAccess p
-                mpaSetLastHeader memPoolAccess p
+                plds <- forM unknowns $ \ctx -> do
+                    pld <- getPayloadForContext hints ctx
+                    return (ctx, pld)
 
-        return (result, totalGasUsed)
+                withPactState $ \runPact -> do
+                    let runForkBlockHeaders = plds
+                            & traverse Stream.yield
+                            & Stream.map (\(ctx, payload) -> do
+                                return $ SomeBlockM $ Pair
+                                    (void $ Pact4.execBlock forkBh (CheckablePayload payload))
+                                    (void $ Pact5.execExistingBlock forkBh (CheckablePayload payload))
+                                )
+                    undefined
 
-    where
-    getTarget
-        | isGenesisBlockHeader headerToValidate = return Nothing
-        | otherwise = Just . ParentHeader
-            <$> lookupBlockHeader (view blockParent headerToValidate) "execValidateBlock"
-                -- It is up to the user of pact service to guaranteed that this
-                -- succeeds. If this fails it usually means that the block
-                -- header database is corrupted.
+                undefined
+
+    -- -- The parent block header must be available in the block header database.
+    -- parentOfHeaderToValidate <- getTarget
+
+
+    -- -- Add block-hash to the logs if presented
+    -- let logBlockHash =
+    --         localLabelPact ("block-hash", blockHashToText (view blockParent headerToValidate))
+
+    -- logBlockHash $ do
+    --     -- find the common ancestor of the new block and our current block
+    --     commonAncestor <- liftIO $ case (currHeader, parentOfHeaderToValidate) of
+    --         (Just currHeader', Just ph) ->
+    --             Just <$> forkEntry bhdb currHeader' (_parentHeader ph)
+    --         _ ->
+    --             return Nothing
+    --     -- check that we don't exceed the rewind limit. for the purpose
+    --     -- of this check, the genesis block and the genesis parent
+    --     -- have the same height.
+    --     let !currHeight = maybe (genesisHeight v cid) (view blockHeight) currHeader
+    --     let !ancestorHeight = maybe (genesisHeight v cid) (view blockHeight) commonAncestor
+    --     let !rewindLimitSatisfied = ancestorHeight + fromIntegral reorgLimit >= currHeight
+    --     unless rewindLimitSatisfied $
+    --         throwM $ RewindLimitExceeded
+    --             (RewindLimit reorgLimit)
+    --             currHeader
+    --             commonAncestor
+    --     -- get all blocks on the fork we're going to play, up to the parent
+    --     -- of the block we're validating
+    --     let withForkBlockStream kont = case parentOfHeaderToValidate of
+    --             Nothing ->
+    --                 -- we're validating a genesis block, so there are no fork blocks to speak of.
+    --                 kont (pure ())
+    --             Just (ParentHeader parentHeaderOfHeaderToValidate) ->
+    --                 let forkStartHeight = maybe (genesisHeight v cid) (succ . view blockHeight) commonAncestor
+    --                 in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
+
+    --     ((), results) <-
+    --         withPactState $ \runPact ->
+    --             withForkBlockStream $ \forkBlockHeaders -> do
+
+    --                 -- given a header for a block in the fork, fetch its payload
+    --                 -- and run its transactions, validating its hashes
+    --                 let runForkBlockHeaders = forkBlockHeaders & Stream.map (\forkBh -> do
+    --                         payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ view blockHeight forkBh) (view blockPayloadHash forkBh) >>= \case
+    --                             Nothing -> internalError
+    --                                 $ "execValidateBlock: lookup of payload failed"
+    --                                 <> ". BlockPayloadHash: " <> encodeToText (view blockPayloadHash forkBh)
+    --                                 <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
+    --                             Just x -> return $ payloadWithOutputsToPayloadData x
+    --                         SomeBlockM $ Pair
+    --                             (void $ Pact4.execBlock forkBh (CheckablePayload payload))
+    --                             (void $ Pact5.execExistingBlock forkBh (CheckablePayload payload))
+    --                         return ([], forkBh)
+    --                         )
+
+    --                 -- run the new block, the one we're validating, and
+    --                 -- validate its hashes
+    --                 let runThisBlock = Stream.yield $ SomeBlockM $ Pair
+    --                         (do
+    --                             !output <- Pact4.execBlock headerToValidate payloadToValidate
+    --                             return ([output], headerToValidate)
+    --                         )
+    --                         (do
+    --                             !(gas, pwo) <- Pact5.execExistingBlock headerToValidate payloadToValidate
+    --                             return ([(fromIntegral (Pact5._gas gas), pwo)], headerToValidate)
+    --                         )
+
+    --                 -- here we rewind to the common ancestor block, run the
+    --                 -- transactions in all of its child blocks until the parent
+    --                 -- of the block we're validating, then run the block we're
+    --                 -- validating.
+    --                 runPact $ Checkpointer.restoreAndSave
+    --                     (ParentHeader <$> commonAncestor)
+    --                     (runForkBlockHeaders >> runThisBlock)
+    --     let logRewind =
+    --             -- we consider a fork of height more than 3 to be notable.
+    --             if ancestorHeight + 3 < currHeight
+    --             then logWarnPact
+    --             else logDebugPact
+    --     logRewind $
+    --         "execValidateBlock: rewound " <> sshow (currHeight - ancestorHeight) <> " blocks"
+    --     (totalGasUsed, result) <- case results of
+    --         [r] -> return r
+    --         _ -> internalError "execValidateBlock: wrong number of block results returned from _cpRestoreAndSave."
+
+    --     -- update mempool
+    --     --
+    --     -- Using the parent isn't optimal, since it doesn't delete the txs of
+    --     -- `currHeader` from the set of pending tx. The reason for this is that the
+    --     -- implementation 'mpaProcessFork' uses the chain database and at this point
+    --     -- 'currHeader' is generally not yet available in the database. It would be
+    --     -- possible to extract the txs from the result and remove them from the set
+    --     -- of pending txs. However, that would add extra complexity and at little
+    --     -- gain.
+    --     --
+    --     case parentOfHeaderToValidate of
+    --         Nothing -> return ()
+    --         Just (ParentHeader p) -> liftIO $ do
+    --             mpaProcessFork memPoolAccess p
+    --             mpaSetLastHeader memPoolAccess p
+
+    --     return (result, totalGasUsed)
+
+
+getPayloadForContext
+    :: Logger logger
+    => Maybe Hints
+    -> EvaluationCtx
+    -> PactServiceM logger tbl PayloadData
+getPayloadForContext h ctx = do
+    pdb <- view psPdb
+    candPdb <- view psCandidatePdb
+    mapM_ (insertPayloadData candPdb) (_evaluationCtxPayloadData ctx)
+
+    pld <- liftIO $ getPayload
+        pdb
+        candPdb
+        (Priority $ negate $ int $ _evaluationCtxParentHeight ctx)
+        (_hintsOrigin <$> h)
+        (_evaluationCtxRankedPayloadHash ctx)
+    liftIO $ tableInsert candPdb rh pld
+    return pld
+  where
+    rh = _evaluationCtxRankedPayloadHash ctx
+
+    insertPayloadData candPdb (EncodedPayloadData epld) = case decodePayloadData epld of
+        Right pld -> liftIO $ tableInsert candPdb rh pld
+        Left e -> do
+            logWarnPact $ "failed to decode encoded payload from evaluation ctx: " <> sshow e
+
 
 execBlockTxHistory
     :: Logger logger

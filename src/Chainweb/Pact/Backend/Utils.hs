@@ -53,6 +53,7 @@ module Chainweb.Pact.Backend.Utils
   -- * SQLite runners
   , withSqliteDb
   , startSqliteDb
+  , startReadSqliteDb
   , stopSqliteDb
   , withSQLiteConnection
   , openSQLiteConnection
@@ -64,7 +65,6 @@ module Chainweb.Pact.Backend.Utils
   ) where
 
 import Control.Exception (SomeAsyncException, evaluate)
-import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
@@ -100,7 +100,7 @@ import Chainweb.Utils
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Database.SQLite3.Direct hiding (open2)
-import GHC.Stack (HasCallStack)
+import GHC.Stack
 import qualified Data.ByteString.Short as SB
 import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HashMap
@@ -109,9 +109,9 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as BS
 import Chainweb.Pact.Backend.Types
 import Data.HashSet (HashSet)
-import Chainweb.BlockHeader
 import qualified Data.HashSet as HashSet
 import Data.Text (Text)
+import Chainweb.BlockHeader
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
@@ -265,6 +265,18 @@ startSqliteDb cid logger dbDir doResetDb = do
     resetDb = removeDirectoryRecursive dbDir
     sqliteFile = dbDir </> chainDbFileName cid
 
+startReadSqliteDb
+    :: Logger logger
+    => ChainId
+    -> logger
+    -> FilePath
+    -> IO SQLiteEnv
+startReadSqliteDb cid logger dbDir = do
+    logFunctionText logger Debug $ "(read-only) opening sqlitedb named " <> T.pack sqliteFile
+    openSQLiteConnection sqliteFile chainwebPragmas
+  where
+    sqliteFile = dbDir </> chainDbFileName cid
+
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
     [ "pact-v1-chain-"
@@ -366,13 +378,13 @@ doLookupSuccessful db curHeight hashes = do
         return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
 
-getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO (Historical Pact4.TxId)
+getEndTxId :: Text -> SQLiteEnv -> Maybe (Parent RankedBlockHash) -> IO (Historical Pact4.TxId)
 getEndTxId msg sql pc = case pc of
     Nothing -> return (Historical 0)
-    Just (ParentHeader ph) -> getEndTxId' msg sql (view blockHeight ph) (view blockHash ph)
+    Just ph -> getEndTxId' msg sql (_rankedBlockHashHeight <$> ph) (_rankedBlockHashHash <$> ph)
 
-getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO (Historical Pact4.TxId)
-getEndTxId' msg sql bh bhsh = do
+getEndTxId' :: Text -> SQLiteEnv -> Parent BlockHeight -> Parent BlockHash -> IO (Historical Pact4.TxId)
+getEndTxId' msg sql (Parent bh) (Parent bhsh) = do
     r <- Pact4.qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
       [ Pact4.SInt $ fromIntegral bh
@@ -389,12 +401,12 @@ getEndTxId' msg sql bh bhsh = do
 -- Returns the ending txid of the input parent header.
 rewindDbTo
     :: SQLiteEnv
-    -> Maybe ParentHeader
+    -> Maybe (Parent RankedBlockHash)
     -> IO Pact4.TxId
 rewindDbTo db Nothing = do
   rewindDbToGenesis db
   return 0
-rewindDbTo db mh@(Just (ParentHeader ph)) = do
+rewindDbTo db mh@(Just ph) = do
     !historicalEndingTxId <- getEndTxId "rewindDbToBlock" db mh
     endingTxId <- case historicalEndingTxId of
       NoHistory ->
@@ -404,7 +416,7 @@ rewindDbTo db mh@(Just (ParentHeader ph)) = do
           <> sshow ph
       Historical endingTxId ->
         return endingTxId
-    rewindDbToBlock db (view blockHeight ph) endingTxId
+    rewindDbToBlock db (_rankedBlockHashHeight <$> ph) endingTxId
     return endingTxId
 
 -- rewind before genesis, delete all user tables and all rows in all tables
@@ -430,10 +442,10 @@ rewindDbToGenesis db = do
 -- block.
 rewindDbToBlock
   :: Database
-  -> BlockHeight
+  -> Parent BlockHeight
   -> Pact4.TxId
   -> IO ()
-rewindDbToBlock db bh endingTxId = do
+rewindDbToBlock db (Parent bh) endingTxId = do
     tableMaintenanceRowsVersionedSystemTables
     droppedtbls <- dropTablesAtRewind
     vacuumTablesAtRewind droppedtbls

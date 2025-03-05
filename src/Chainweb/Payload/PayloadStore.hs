@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 
 -- |
 -- Module: Chainweb.Payload.PayloadStore
@@ -96,6 +97,9 @@ import Chainweb.Version
 import Chainweb.Storage.Table
 import Chainweb.BlockHeight
 import Chainweb.PayloadProvider.Pact.Genesis
+import Chainweb.BlockPayloadHash (RankedBlockPayloadHash)
+import Chainweb.Ranked
+import Data.Maybe (isJust)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -198,6 +202,16 @@ data PayloadDb_ a tbl = PayloadDb
     { _transactionDb :: !(TransactionDb_ a tbl)
     , _payloadCache :: !(PayloadCache_ a tbl)
     }
+
+instance CanReadablePayloadCas_ a tbl => ReadableTable (PayloadDb_ a tbl) (Ranked (BlockPayloadHash_ a)) (PayloadData_ a) where
+    tableLookup :: PayloadDb_ a tbl -> Ranked (BlockPayloadHash_ a) -> IO (Maybe (PayloadData_ a))
+    tableLookup pdb (Ranked hei hsh) =
+        lookupPayloadDataWithHeight pdb (Just hei) hsh
+    tableLookupBatch' :: PayloadDb_ a tbl -> Traversal s r (Ranked (BlockPayloadHash_ a)) (Maybe (PayloadData_ a)) -> s -> IO r
+    tableLookupBatch' pdb t s = traverseOf t (tableLookup pdb) s
+    -- TODO: optimize to stop decoding when we just do a membership check
+    tableMember :: PayloadDb_ a tbl -> Ranked (BlockPayloadHash_ a) -> IO Bool
+    tableMember pdb rhsh = isJust <$> tableLookup pdb rhsh
 
 type HeightedCas c t v = c (t (BlockHeight, CasKeyType v) v) (BlockHeight, CasKeyType v) v
 type CanReadablePayloadCas tbl = CanReadablePayloadCas_ ChainwebMerkleHashAlgorithm tbl

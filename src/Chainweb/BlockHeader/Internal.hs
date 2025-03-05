@@ -23,6 +23,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -42,12 +45,8 @@
 module Chainweb.BlockHeader.Internal
 (
 -- * Newtype wrappers for function parameters
-  ParentHeader(..)
-, parentHeader
-, parentHeaderHash
-, _rankedParentHash
-, rankedParentHash
-, ParentCreationTime(..)
+  Parent(..)
+, _Parent
 
 -- * Block Payload Hash
 , BlockPayloadHash
@@ -438,8 +437,8 @@ isLastInEpoch h = case effectiveWindow h of
 -- all chainweb version. Emergency DAs are enabled (and have occured) only on
 -- mainnet01 for cut heights smaller than 80,000.
 --
-slowEpoch :: ParentHeader -> BlockCreationTime -> Bool
-slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
+slowEpoch :: Parent BlockHeader -> BlockCreationTime -> Bool
+slowEpoch (Parent p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     v = _chainwebVersion p
@@ -462,9 +461,9 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
 -- transition.
 --
 powTarget
-    :: ParentHeader
+    :: Parent BlockHeader
         -- ^ parent header
-    -> HM.HashMap ChainId ParentHeader
+    -> HM.HashMap ChainId (Parent BlockHeader)
         -- ^ adjacent Parents
     -> BlockCreationTime
         -- ^ block creation time of new block
@@ -473,7 +472,7 @@ powTarget
         --
     -> HashTarget
         -- ^ POW target of new block
-powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
+powTarget p@(Parent ph) as bct = case effectiveWindow ph of
     Nothing -> maxTarget
     Just w
         -- Emergency DA, legacy
@@ -493,7 +492,7 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
         | otherwise
             = avgTarget $ adjustForParent w <$> (p : HM.elems as)
 
-    adjustForParent w (ParentHeader a)
+    adjustForParent w (Parent a)
         = adjust (_versionBlockDelay ver) w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
 
     toEpochStart = EpochStartTime . _bct . _blockCreationTime
@@ -506,9 +505,9 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
 -- | Compute the epoch start value for a new BlockHeader
 --
 epochStart
-    :: ParentHeader
+    :: Parent BlockHeader
         -- ^ parent header
-    -> HM.HashMap ChainId ParentHeader
+    -> HM.HashMap ChainId (Parent BlockHeader)
         -- ^ Adjacent parents of the block. It is not checked whether the
         -- set of adjacent parents conforms with the current graph.
     -> BlockCreationTime
@@ -518,7 +517,7 @@ epochStart
         --
     -> EpochStartTime
         -- ^ epoch start time of new block
-epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
+epochStart ph@(Parent p) adj (BlockCreationTime bt)
     | Nothing <- effectiveWindow p = _blockEpochStart p
 
     -- A special case for starting a new devnet, to compensate the inaccurate
@@ -601,9 +600,9 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- The result is guaranteed to be non-empty
     --
     adjCreationTimes = fmap (_blockCreationTime)
-        $ HM.insert cid (_parentHeader ph)
+        $ HM.insert cid (unwrapParent ph)
         $ HM.filter (not . isGenesisBlockHeader)
-        $ fmap _parentHeader adj
+        $ fmap unwrapParent adj
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
@@ -612,40 +611,16 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
-newtype ParentCreationTime = ParentCreationTime
-    { _parentCreationTime :: BlockCreationTime }
-    deriving stock (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
+newtype Parent h = Parent { unwrapParent :: h }
+    deriving stock (Show, Functor, Foldable, Traversable, Eq, Ord, Generic)
+    deriving newtype (NFData, ToJSON, FromJSON, Hashable, LeftTorsor)
 
-newtype ParentHeader = ParentHeader
-    { _parentHeader :: BlockHeader }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-
-parentHeader :: Lens' ParentHeader BlockHeader
-parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
-
-parentHeaderHash :: Getter ParentHeader BlockHash
-parentHeaderHash = parentHeader . blockHash
-
-_rankedParentHash :: ParentHeader -> RankedBlockHash
-_rankedParentHash = _rankedBlockHash . _parentHeader
-
-rankedParentHash :: Getter ParentHeader RankedBlockHash
-rankedParentHash = parentHeader . rankedBlockHash
-
-instance HasChainId ParentHeader where
-    _chainId = _chainId . _parentHeader
-    {-# INLINE _chainId #-}
-
-instance HasChainwebVersion ParentHeader where
-    _chainwebVersion = _chainwebVersion . _parentHeader
-    {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph ParentHeader where
-    _chainGraph = _chainGraph . _parentHeader
-    {-# INLINE _chainGraph #-}
+instance HasChainId h => HasChainId (Parent h) where
+    _chainId = _chainId . unwrapParent
+instance HasChainwebVersion h => HasChainwebVersion (Parent h) where
+    _chainwebVersion = _chainwebVersion . unwrapParent
+instance HasChainGraph h => HasChainGraph (Parent h) where
+    _chainGraph = _chainGraph . unwrapParent
 
 isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b =
@@ -1083,7 +1058,7 @@ instance IsBlockHeader BlockHeader where
 -- but might be worth it!
 --
 newBlockHeader
-    :: HM.HashMap ChainId ParentHeader
+    :: HM.HashMap ChainId (Parent BlockHeader)
         -- ^ Adjacent parent hashes. The hash and the PoW target of these are
         -- needed for construction the new header.
     -> BlockPayloadHash
@@ -1093,10 +1068,10 @@ newBlockHeader
         -- nonce is valid with respect to the target.
     -> BlockCreationTime
         -- ^ Creation time of the block.
-    -> ParentHeader
+    -> Parent BlockHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t p@(ParentHeader b) =
+newBlockHeader adj pay nonce t p@(Parent b) =
     fromLog @ChainwebMerkleHashAlgorithm $ newMerkleLog
         $ mkFeatureFlags
         :+: t
@@ -1114,7 +1089,7 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) =
     cid = _chainId p
     v = _chainwebVersion p
     target = powTarget p adj t
-    adjHashes = BlockHashRecord $ (_blockHash . _parentHeader) <$> adj
+    adjHashes = BlockHashRecord $ (_blockHash . unwrapParent) <$> adj
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -1206,3 +1181,4 @@ rankedBlockPayloadHash :: Getter BlockHeader RankedBlockPayloadHash
 rankedBlockPayloadHash = to _rankedBlockPayloadHash
 {-# INLINE rankedBlockPayloadHash #-}
 
+makePrisms ''Parent

@@ -96,6 +96,7 @@ import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Names as Pact5
 import qualified Chainweb.Pact.Backend.Utils as PactDb
+import Chainweb.PayloadProvider
 
 withCheckpointerResources
     :: (Logger logger)
@@ -150,14 +151,14 @@ readFrom
   :: forall logger pv a
   . (Logger logger)
   => Checkpointer logger
-  -> Maybe ParentHeader
+  -> Maybe (Parent RankedBlockHash)
   -> PactVersionT pv
   -> (PactDbFor logger pv -> BlockHandle pv -> IO a)
   -> IO (Historical a)
 readFrom res maybeParent pactVersion doRead = do
   let currentHeight = case maybeParent of
         Nothing -> genesisHeight res.cpCwVersion res.cpChainId
-        Just parent -> succ . view blockHeight . _parentHeader $ parent
+        Just parent -> succ $ _rankedBlockHashHeight $ unwrapParent parent
 
   modifyMVar res.cpModuleCacheVar $ \sharedModuleCache -> do
     bracket
@@ -166,6 +167,8 @@ readFrom res maybeParent pactVersion doRead = do
       -- NB it's important to do this *after* you start the savepoint (and thus
       -- the db transaction) to make sure that the latestHeader check is up to date.
       latestHeader <- getLatestBlock res.cpSql
+      -- is the parent the latest header, i.e., can we get away without rewinding?
+      let parentIsLatestHeader = latestHeader == maybeParent
       h <- case pactVersion of
         Pact4T
           | pact5 res.cpCwVersion res.cpChainId currentHeight -> internalError $
@@ -176,12 +179,6 @@ readFrom res maybeParent pactVersion doRead = do
               (Pact4.initBlockState defaultModuleCacheLimit startTxId)
                 { Pact4._bsModuleCache = sharedModuleCache }
             let
-              -- is the parent the latest header, i.e., can we get away without rewinding?
-              parentIsLatestHeader = case (latestHeader, maybeParent) of
-                (Nothing, Nothing) -> True
-                (Just (_, latestHash), Just (ParentHeader ph)) ->
-                  view blockHash ph == latestHash
-                _ -> False
               mkBlockDbEnv db = Pact4.CurrentBlockDbEnv
                 { Pact4._cpPactDbEnv = PactDbEnv db newDbEnv
                 , Pact4._cpRegisterProcessedTx = \hash ->
@@ -200,12 +197,6 @@ readFrom res maybeParent pactVersion doRead = do
           | pact5 res.cpCwVersion res.cpChainId currentHeight ->
             PactDb.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
             let
-              -- is the parent the latest header, i.e., can we get away without rewinding?
-              parentIsLatestHeader = case (latestHeader, maybeParent) of
-                (Nothing, Nothing) -> True
-                (Just (_, latestHash), Just (ParentHeader ph)) ->
-                  view blockHash ph == latestHash
-                _ -> False
               blockHandlerEnv = Pact5.BlockHandlerEnv
                 { Pact5._blockHandlerDb = res.cpSql
                 , Pact5._blockHandlerLogger = res.cpLogger
@@ -229,7 +220,7 @@ readFrom res maybeParent pactVersion doRead = do
 
 
 -- the special case where one doesn't want to extend the chain, just rewind it.
-rewindTo :: Logger logger => Checkpointer logger -> Maybe ParentHeader -> IO ()
+rewindTo :: Logger logger => Checkpointer logger -> Maybe (Parent RankedBlockHash) -> IO ()
 rewindTo cp ancestor = void $ restoreAndSave cp
     ancestor
     (pure () :: Stream (Of (RunnableBlock logger ())) IO ())
@@ -265,7 +256,7 @@ restoreAndSave
   :: forall logger r q.
   (Logger logger, Monoid q, HasCallStack)
   => Checkpointer logger
-  -> Maybe ParentHeader
+  -> Maybe (Parent RankedBlockHash)
   -> Stream (Of (RunnableBlock logger q)) IO r
   -> IO (r, q)
 restoreAndSave res rewindParent blocks = do
@@ -283,13 +274,13 @@ restoreAndSave res rewindParent blocks = do
 
     extend
       :: TxId -> DbCache PersistModuleData
-      -> IO (Of (q, Maybe ParentHeader, TxId, DbCache PersistModuleData) r)
+      -> IO (Of (q, Maybe RankedBlockHash, TxId, DbCache PersistModuleData) r)
     extend startTxId startModuleCache = Streaming.foldM
       (\(m, maybeParent, txid, moduleCache) block -> do
         let
           !bh = case maybeParent of
             Nothing -> genesisHeight res.cpCwVersion res.cpChainId
-            Just parent -> (succ . view blockHeight . _parentHeader) parent
+            Just parent -> _evaluationCtxCurrentHeight parent
         case block of
           Pact4RunnableBlock runBlock
             | pact5 res.cpCwVersion res.cpChainId bh ->
@@ -332,18 +323,18 @@ restoreAndSave res rewindParent blocks = do
               -- of the previous block
               case maybeParent of
                 Nothing
-                  | genesisHeight res.cpCwVersion res.cpChainId /= view blockHeight newBh -> internalError
+                  | genesisHeight res.cpCwVersion res.cpChainId /= _evaluationCtxCurrentHeight newBh -> internalError
                     "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
-                Just (ParentHeader ph)
-                  | succ (view blockHeight ph) /= view blockHeight newBh -> internalError $
+                Just ph
+                  | _evaluationCtxCurrentHeight ph /= _evaluationCtxParentHeight newBh -> internalError $
                     "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
-                      <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight newBh)
+                      <> sshow (_evaluationCtxParentHeight ph) <> ", child height " <> sshow (_evaluationCtxParentHeight newBh)
                 _ -> return ()
               -- persist any changes to the database
               Pact4.commitBlockStateToDatabase res.cpSql
-                (view blockHash newBh) (view blockHeight newBh)
+                (_evaluationCtxParentHash newBh) (_evaluationCtxParentHeight newBh)
                 (BlockHandle (Pact4._bsTxId nextState) (Pact4._bsPendingBlock nextState))
-              return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
+              return (m'', Just newBh, nextTxId, nextModuleCache)
           Pact5RunnableBlock runBlock
             | pact5 res.cpCwVersion res.cpChainId bh -> do
               let
@@ -364,18 +355,18 @@ restoreAndSave res rewindParent blocks = do
               let !m'' = m <> m'
               case maybeParent of
                 Nothing
-                  | genesisHeight res.cpCwVersion res.cpChainId /= view blockHeight nextBlockHeader -> internalError
+                  | genesisHeight res.cpCwVersion res.cpChainId /= _evaluationCtxCurrentHeight nextBlockHeader -> internalError
                     "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
-                Just (ParentHeader ph)
-                  | succ (view blockHeight ph) /= view blockHeight nextBlockHeader -> internalError $
+                Just ph
+                  | _evaluationCtxCurrentHeight ph /= _evaluationCtxParentHeight nextBlockHeader -> internalError $
                     "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
-                      <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight nextBlockHeader)
+                      <> sshow (_evaluationCtxParentHeight ph) <> ", child height " <> sshow (_evaluationCtxParentHeight nextBlockHeader)
                 _ -> return ()
               Pact5.commitBlockStateToDatabase res.cpSql
-                (view blockHash nextBlockHeader) (view blockHeight nextBlockHeader)
+                (_evaluationCtxParentHash nextBlockHeader) (_evaluationCtxParentHeight nextBlockHeader)
                 blockHandle
 
-              return (m'', Just (ParentHeader nextBlockHeader), _blockHandleTxId blockHandle, moduleCache)
+              return (m'', Just nextBlockHeader, _blockHandleTxId blockHandle, moduleCache)
 
             | otherwise -> internalError $
                 "Pact 5 block executed on block height before Pact 5 fork, height: " <> sshow bh
@@ -404,23 +395,23 @@ getEarliestBlock db = do
 -- is the height of the block of the block hash.
 --
 -- TODO: Under which circumstances does this return 'Nothing'?
-getLatestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
+getLatestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (Parent RankedBlockHash))
 getLatestBlock db = do
   r <- qry_ db qtext [RInt, RBlob] >>= mapM go
   case r of
     [] -> return Nothing
-    (!o:_) -> return (Just o)
+    (!o:_) -> return (Just $ Parent o)
   where
     qtext = "SELECT blockheight, hash FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
-        in return (fromIntegral hgt, hash)
+        in return $ RankedBlockHash (fromIntegral hgt) hash
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.getLatest: impossible. This is a bug in chainweb-node."
 
 -- | Ask: is the checkpointer aware of the given block?
-lookupBlock :: SQLiteEnv -> (BlockHeight, BlockHash) -> IO Bool
-lookupBlock db (bheight, bhash) = do
+lookupBlock :: SQLiteEnv -> RankedBlockHash -> IO Bool
+lookupBlock db (RankedBlockHash bheight bhash) = do
     r <- qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash bhash))]
                       [RInt]
     liftIO (expectSingle "row" r) >>= \case
@@ -433,7 +424,7 @@ getBlockParent :: ChainwebVersion -> ChainId -> SQLiteEnv -> (BlockHeight, Block
 getBlockParent v cid db (bh, hash)
     | bh == genesisHeight v cid = return Nothing
     | otherwise = do
-        blockFound <- lookupBlock db (bh, hash)
+        blockFound <- lookupBlock db (RankedBlockHash bh hash)
         if not blockFound
           then return Nothing
           else do
@@ -456,7 +447,7 @@ getBlockHistory
 getBlockHistory db blockHeader d = do
   historicalEndTxId <-
       fmap fromIntegral
-      <$> PactDb.getEndTxId "getBlockHistory" db (Just $ ParentHeader blockHeader)
+      <$> PactDb.getEndTxId "getBlockHistory" db (Just $ view rankedBlockHash blockHeader)
   forM historicalEndTxId $ \endTxId -> do
     startTxId <-
       if bHeight == genesisHeight v cid

@@ -76,7 +76,7 @@ instance Brief ChainId where brief = toText
 instance Brief BlockHash where brief = toTextShort
 instance Brief BlockPayloadHash where brief = toTextShort
 instance Brief BlockHeader where brief = brief . view blockHash
-instance Brief ParentHeader where brief = brief . _parentHeader
+instance Brief (Parent BlockHeader) where brief = brief . unwrapParent
 
 instance Brief BlockHashWithHeight where
     brief a = brief (_bhwhHeight a) <> ":" <> brief (_bhwhHash a)
@@ -114,4 +114,3 @@ briefValue (Object o) = Object (briefValue <$> o)
 briefValue (Array a) = Array (briefValue <$> a)
 briefValue (String t) = String (toTextShort t)
 briefValue n = n
-

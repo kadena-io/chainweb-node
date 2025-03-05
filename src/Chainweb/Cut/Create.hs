@@ -126,7 +126,7 @@ data CutExtension = CutExtension
         --
         -- This is overly restrictive, since the same cut extension can be
         -- valid for more than one cut. It's fine for now.
-    , _cutExtensionParent' :: !ParentHeader
+    , _cutExtensionParent' :: !(Parent BlockHeader)
         -- ^ The header onto which the new block is created. It is expected
         -- that this header is contained in the cut.
     , _cutExtensionAdjacentHashes' :: !BlockHashRecord
@@ -145,12 +145,12 @@ cutExtensionCut = cutExtensionCut'
 
 -- | The header onto which the new block is created.
 --
-_cutExtensionParent :: CutExtension -> ParentHeader
+_cutExtensionParent :: CutExtension -> Parent BlockHeader
 _cutExtensionParent = _cutExtensionParent'
 
 -- | The header onto which the new block is created.
 --
-cutExtensionParent :: Lens' CutExtension ParentHeader
+cutExtensionParent :: Lens' CutExtension (Parent BlockHeader)
 cutExtensionParent = cutExtensionParent'
 
 _cutExtensionAdjacentHashes :: CutExtension -> BlockHashRecord
@@ -211,7 +211,7 @@ getCutExtension c cid = do
 
     return CutExtension
         { _cutExtensionCut' = c
-        , _cutExtensionParent' = ParentHeader p
+        , _cutExtensionParent' = Parent p
         , _cutExtensionAdjacentHashes' = as
         }
   where
@@ -368,7 +368,7 @@ getAdjacentParentHeaders
     => Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> CutExtension
-    -> m (HM.HashMap ChainId ParentHeader)
+    -> m (HM.HashMap ChainId (Parent BlockHeader))
 getAdjacentParentHeaders hdb extension
     = itraverse select
     . _getBlockHashRecord
@@ -377,7 +377,7 @@ getAdjacentParentHeaders hdb extension
     c = _cutExtensionCut extension
 
     select cid h = case c ^? ixg cid of
-        Just ch -> ParentHeader <$> if view blockHash ch == h
+        Just ch -> Parent <$> if view blockHash ch == h
             then pure ch
             else hdb (ChainValue cid h)
 
@@ -390,9 +390,9 @@ getAdjacentParentHeaders hdb extension
 --
 
 data WorkParents = WorkParents
-    { _workParent' :: !ParentHeader
+    { _workParent' :: !(Parent BlockHeader)
         -- ^ The header onto which the new block is created.
-    , _workAdjacentParents' :: !(HM.HashMap ChainId ParentHeader)
+    , _workAdjacentParents' :: !(HM.HashMap ChainId (Parent BlockHeader))
         -- ^ The adjacent hashes for the new block. These must be at the same
         -- height as the parent and must be have a pairwise valid braiding among
         -- each other and with the parent.
@@ -402,15 +402,15 @@ data WorkParents = WorkParents
     }
     deriving (Show, Eq, Generic)
 
-_workParent :: WorkParents -> ParentHeader
+_workParent :: WorkParents -> Parent BlockHeader
 _workParent = _workParent'
 
-workParent :: Getter WorkParents ParentHeader
+workParent :: Getter WorkParents (Parent BlockHeader)
 workParent = to _workParent
 
 _workParentsAdjacentHashes :: WorkParents -> BlockHashRecord
 _workParentsAdjacentHashes = BlockHashRecord
-    . fmap (view parentHeaderHash)
+    . fmap (view (_Parent . blockHash))
     . _workAdjacentParents'
 
 workParentsAdjacentHashes :: Getter WorkParents BlockHashRecord

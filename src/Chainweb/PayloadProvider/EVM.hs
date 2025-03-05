@@ -1126,9 +1126,9 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
 
                     let unknowns = fst <$> unknowns'
 
-                    lf Debug $ "unkown blocks in context: " <> sshow (length unknowns)
+                    lf Debug $ "unknown blocks in context: " <> sshow (length unknowns)
 
-                    -- fetch all unkown payloads
+                    -- fetch all unknown payloads
                     --
                     -- FIXME do the right thing here. Ideally, fetch all
                     -- unknowns in batches without redundant local lookups. Then
@@ -1142,7 +1142,7 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                         validatePayload p pld ctx
                         return (_evaluationCtxRankedPayloadHash ctx, pld)
 
-                    lf Debug $ "fetched payloads for unkowns: " <> sshow (length plds)
+                    lf Debug $ "fetched payloads for unknowns: " <> sshow (length plds)
 
                     updateEvm p trgState pctx plds
 
@@ -1522,4 +1522,3 @@ getFinalHash
     -> ConsensusState
     -> IO EVM.BlockHash
 getFinalHash p = fmap (view EVM.hdrHash) . getFinalHdr p
-

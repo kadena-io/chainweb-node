@@ -24,7 +24,8 @@ module Chainweb.PayloadProvider
 -- * SyncState
 , SyncState(..)
 , syncStateOfBlockHeader
-, syncStateRankedBlockPayloadHash
+, _syncStateRankedBlockPayloadHash
+, _syncStateRankedBlockHash
 
 -- * ConsensusState
 , ConsensusState(..)
@@ -40,7 +41,9 @@ module Chainweb.PayloadProvider
 
 -- * Evaluation Context
 , EvaluationCtx(..)
+, _evaluationCtxCurrentHeight
 , _evaluationCtxRankedPayloadHash
+, _evaluationCtxRankedParentHash
 
 -- * Fork Info
 , ForkInfo(..)
@@ -50,6 +53,7 @@ module Chainweb.PayloadProvider
 , assertForkInfoInvariants
 , _forkInfoBaseHeight
 , _forkInfoBaseBlockHash
+, _forkInfoBaseRankedBlockHash
 , _forkInfoBaseRankedPayloadHash
 
 -- * New Payload
@@ -160,9 +164,13 @@ syncStateOfBlockHeader hdr = SyncState
     , _syncStateBlockPayloadHash = view blockPayloadHash hdr
     }
 
-syncStateRankedBlockPayloadHash :: SyncState -> RankedBlockPayloadHash
-syncStateRankedBlockPayloadHash s = RankedBlockPayloadHash
+_syncStateRankedBlockPayloadHash :: SyncState -> RankedBlockPayloadHash
+_syncStateRankedBlockPayloadHash s = RankedBlockPayloadHash
     (_syncStateHeight s) (_syncStateBlockPayloadHash s)
+
+_syncStateRankedBlockHash :: SyncState -> RankedBlockHash
+_syncStateRankedBlockHash s = RankedBlockHash
+    (_syncStateHeight s) (_syncStateBlockHash s)
 
 syncStateProperties :: forall e kv . KeyValue e kv => SyncState -> [kv]
 syncStateProperties a =
@@ -224,15 +232,15 @@ genesisConsensusState v c = ConsensusState
 
 latestRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
 latestRankedBlockPayloadHash =
-    syncStateRankedBlockPayloadHash . _consensusStateLatest
+    _syncStateRankedBlockPayloadHash . _consensusStateLatest
 
 safeRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
 safeRankedBlockPayloadHash =
-    syncStateRankedBlockPayloadHash . _consensusStateSafe
+    _syncStateRankedBlockPayloadHash . _consensusStateSafe
 
 finalRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
 finalRankedBlockPayloadHash =
-    syncStateRankedBlockPayloadHash . _consensusStateFinal
+    _syncStateRankedBlockPayloadHash . _consensusStateFinal
 
 consensusStateProperties :: forall e kv . KeyValue e kv => ConsensusState -> [kv]
 consensusStateProperties a =
@@ -275,9 +283,9 @@ data EvaluationCtx = EvaluationCtx
     { _evaluationCtxParentCreationTime :: !BlockCreationTime
         -- ^ Creation time of the parent block. If transactions in the block
         -- have a notion of "current" time, they should use this value.
-    , _evaluationCtxParentHash :: !BlockHash
+    , _evaluationCtxParentHash :: !(Parent BlockHash)
         -- ^ Block hash of the parent block.
-    , _evaluationCtxParentHeight :: !BlockHeight
+    , _evaluationCtxParentHeight :: !(Parent BlockHeight)
         -- ^ Block height of the parent block.
     , _evaluationCtxMinerReward :: !MinerReward
         -- ^ The miner reward that is assigned to the miner of the block. Miner
@@ -313,12 +321,22 @@ data EvaluationCtx = EvaluationCtx
     }
     deriving (Show, Eq, Ord)
 
+_evaluationCtxCurrentHeight :: EvaluationCtx -> BlockHeight
+_evaluationCtxCurrentHeight = succ . unwrapParent . _evaluationCtxParentHeight
+
 _evaluationCtxRankedPayloadHash
     :: EvaluationCtx
     -> RankedBlockPayloadHash
 _evaluationCtxRankedPayloadHash ctx = RankedBlockPayloadHash
-    (_evaluationCtxParentHeight ctx + 1)
+    (_evaluationCtxCurrentHeight ctx)
     (_evaluationCtxPayloadHash ctx)
+
+_evaluationCtxRankedParentHash
+    :: EvaluationCtx
+    -> Parent RankedBlockHash
+_evaluationCtxRankedParentHash ctx = Parent $ RankedBlockHash
+    (unwrapParent $ _evaluationCtxParentHeight ctx)
+    (unwrapParent $ _evaluationCtxParentHash ctx)
 
 evaluationCtxProperties :: forall e kv . KeyValue e kv => EvaluationCtx -> [kv]
 evaluationCtxProperties a =
@@ -364,21 +382,21 @@ data NewBlockCtx = NewBlockCtx
 -- | Get the evaluation context for given parent header and block payload hash
 --
 blockHeaderToEvaluationCtx
-    :: ParentHeader
+    :: Parent BlockHeader
     -> BlockPayloadHash
     -> Maybe EncodedPayloadData
     -> EvaluationCtx
-blockHeaderToEvaluationCtx (ParentHeader ph) pld pldData = EvaluationCtx
+blockHeaderToEvaluationCtx (Parent ph) pld pldData = EvaluationCtx
     { _evaluationCtxParentCreationTime = view blockCreationTime ph
-    , _evaluationCtxParentHash = view blockHash ph
+    , _evaluationCtxParentHash = Parent $ view blockHash ph
     , _evaluationCtxParentHeight = parentHeight
     , _evaluationCtxMinerReward = blockMinerReward v height
     , _evaluationCtxPayloadHash = pld
     , _evaluationCtxPayloadData = pldData
     }
   where
-    parentHeight = view blockHeight ph
-    height = parentHeight + 1
+    parentHeight = Parent $ view blockHeight ph
+    height = unwrapParent parentHeight + 1
     v = _chainwebVersion ph
 
 newBlockCtxProperties :: forall e kv . KeyValue e kv => NewBlockCtx -> [kv]
@@ -481,12 +499,17 @@ data ForkInfo = ForkInfo
 _forkInfoBaseHeight :: ForkInfo -> BlockHeight
 _forkInfoBaseHeight fi = case _forkInfoTrace fi of
     [] -> _latestHeight (_forkInfoTargetState fi)
-    (h:_) -> _evaluationCtxParentHeight h
+    (h:_) -> unwrapParent $ _evaluationCtxParentHeight h
 
 _forkInfoBaseBlockHash :: ForkInfo -> BlockHash
 _forkInfoBaseBlockHash fi = case _forkInfoTrace fi of
     [] -> _latestBlockHash (_forkInfoTargetState fi)
-    (h:_) -> _evaluationCtxParentHash h
+    (h:_) -> unwrapParent $ _evaluationCtxParentHash h
+
+_forkInfoBaseRankedBlockHash :: ForkInfo -> RankedBlockHash
+_forkInfoBaseRankedBlockHash fi = case _forkInfoTrace fi of
+    [] -> _latestRankedBlockHash (_forkInfoTargetState fi)
+    (h:_) -> unwrapParent $ _evaluationCtxRankedParentHash h
 
 _forkInfoBaseRankedPayloadHash :: ForkInfo -> RankedBlockPayloadHash
 _forkInfoBaseRankedPayloadHash fi = RankedBlockPayloadHash
@@ -919,6 +942,9 @@ withPayloadProvider (PayloadProviders ps) c f = case HM.lookup cid ps of
 _latestBlockHash :: ConsensusState -> BlockHash
 _latestBlockHash = _syncStateBlockHash . _consensusStateLatest
 
+_latestRankedBlockHash :: ConsensusState -> RankedBlockHash
+_latestRankedBlockHash = _syncStateRankedBlockHash . _consensusStateLatest
+
 _latestPayloadHash :: ConsensusState -> BlockPayloadHash
 _latestPayloadHash = _syncStateBlockPayloadHash . _consensusStateLatest
 
@@ -961,4 +987,3 @@ genesisState v c = ConsensusState
         , _syncStateBlockPayloadHash = view blockPayloadHash hdr
         }
     hdr = genesisBlockHeader (_chainwebVersion v) c
-

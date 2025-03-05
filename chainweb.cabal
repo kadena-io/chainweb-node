@@ -239,6 +239,7 @@ library
         , Chainweb.PayloadProvider.Minimal
         , Chainweb.PayloadProvider.Minimal.Payload
         , Chainweb.PayloadProvider.Minimal.PayloadDB
+        , Chainweb.PayloadProvider.Pact
         , Chainweb.PayloadProvider.Pact.Genesis
         , Chainweb.PayloadProvider.P2P
         , Chainweb.PayloadProvider.P2P.RestAPI
@@ -456,6 +457,7 @@ library
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
+        , resource-pool >= 0.4
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
