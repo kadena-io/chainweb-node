@@ -6,7 +6,7 @@
   , TypeApplications
 #-}
 
-module Chainweb.Pact5.SPV (pactSPV) where
+module Chainweb.Pact.SPV (pactSPV) where
 
 import Chainweb.BlockHeader (BlockHeader, blockHash, blockHeight)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)

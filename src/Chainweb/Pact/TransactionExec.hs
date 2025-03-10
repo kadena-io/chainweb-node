@@ -26,7 +26,7 @@
 --
 -- Pact command execution and coin-contract transaction logic for Chainweb
 --
-module Chainweb.Pact5.TransactionExec
+module Chainweb.Pact.TransactionExec
   ( -- * Public API
     TransactionM(..)
   , TransactionEnv(..)
@@ -104,11 +104,10 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
-import Chainweb.Pact5.Templates
-import Chainweb.Pact5.Types
+import Chainweb.Pact.Templates
 
 import Chainweb.Time
-import Chainweb.Pact5.Transaction
+import Chainweb.Pact.Transaction
 import Chainweb.VerifierPlugin hiding (chargeGas)
 import Chainweb.Utils
 import Chainweb.Version as V
@@ -131,6 +130,7 @@ import qualified Pact.Types.Capability as Pact4
 import qualified Pact.Types.Names as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.Evaluate as Pact5
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -329,7 +329,7 @@ applyCmd
       -- ^ initial gas cost
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] (Pact5.PactError Info)))
+    -> IO (Either TxInvalidError (CommandResult [TxLog ByteString] (Pact5.PactError Info)))
 applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
   logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
@@ -340,7 +340,6 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
         ] `Set.union` guardDisablePact51Flags txCtx
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
-  let !requestKey = cmdToRequestKey cmd
   -- this process is "paid for", i.e. it's powered by a supply of gas that was
   -- purchased by a user already. any errors here will result in the entire gas
   -- supply being paid to the miner and the transaction failing, but still going
@@ -361,11 +360,11 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
   eBuyGasResult <- do
     if GasLimit initialGas > gasLimit
     then do
-      pure $ Left (PurchaseGasTxTooBigForGasLimit requestKey)
+      pure $ Left PurchaseGasTxTooBigForGasLimit
     else do
       buyGas logger gasEnv db txCtx cmd >>= \case
         Left buyGasError -> do
-          pure $ Left (BuyGasError requestKey buyGasError)
+          pure $ Left (BuyGasError buyGasError)
         Right buyGasResult -> do
           pure $ Right buyGasResult
 
@@ -389,7 +388,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
             cmd
           case eRedeemGasResult of
             Left redeemGasError -> do
-              pure (Left (RedeemGasError requestKey redeemGasError))
+              pure (Left (RedeemGasError redeemGasError))
             Right redeemGasResult -> do
               return $ Right $ CommandResult
                 { _crReqKey = RequestKey $ _cmdHash cmd
@@ -414,7 +413,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
 
           case eRedeemGasResult of
             Left redeemGasError -> do
-              pure (Left (RedeemGasError requestKey redeemGasError))
+              pure (Left (RedeemGasError redeemGasError))
             Right redeemGasResult -> do
               -- ensure we include the events and logs from buyGas and redeemGas in the result
               return $ Right $ CommandResult
@@ -437,18 +436,17 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
 -- hash and blocktime data.
 --
 ctxToPublicData :: PublicMeta -> TxContext -> PublicData
-ctxToPublicData pm (TxContext ph _) = PublicData
+ctxToPublicData pm ctx = PublicData
     { _pdPublicMeta = pm
     , _pdBlockHeight = bh
     , _pdBlockTime = bt
     , _pdPrevBlockHash = toText h
     }
   where
-    bheader = _parentHeader ph
-    BlockHeight !bh = succ $ view blockHeight bheader
-    BlockCreationTime (Time (TimeSpan (Micros !bt))) =
-      view blockCreationTime bheader
-    BlockHash h = view blockHash bheader
+    BlockHeight !bh = succ $ unwrapParent $ _tcParentHeight ctx
+    Parent (BlockCreationTime (Time (TimeSpan (Micros !bt)))) =
+      _tcParentCreationTime ctx
+    Parent (BlockHash h) = _tcParentHash ctx
 
 -- | 'applyCoinbase' performs upgrade transactions and constructs and executes
 -- a transaction which pays miners their block reward.
@@ -462,7 +460,7 @@ applyCoinbase
       -- ^ Miner reward
     -> TxContext
       -- ^ tx metadata and parent header
-    -> IO (Either Pact5CoinbaseError (CommandResult [TxLog ByteString] Void))
+    -> IO (Either (Pact5.PactError Pact5.Info) (CommandResult [TxLog ByteString] Void))
 applyCoinbase logger db reward txCtx = do
   -- for some reason this is the base64-encoded hash, rather than the binary hash
   let coinbaseHash = Hash $ SB.toShort $ T.encodeUtf8 $ blockHashToText parentBlockHash
@@ -488,7 +486,7 @@ applyCoinbase logger db reward txCtx = do
       (noSpanInfo <$ coinbaseTerm)
   case eCoinbaseTxResult of
     Left err -> do
-      pure $ Left $ CoinbasePactError err
+      pure $ Left err
     Right coinbaseTxResult -> do
       return $! Right $! CommandResult
         { _crReqKey = RequestKey coinbaseHash
@@ -504,7 +502,7 @@ applyCoinbase logger db reward txCtx = do
         }
 
   where
-  parentBlockHash = view blockHash $ _parentHeader $ _tcParentHeader txCtx
+  parentBlockHash = unwrapParent $ _tcParentHash txCtx
   Miner mid mks = _tcMiner txCtx
 
 -- | Apply (forking) upgrade transactions and module cache updates
@@ -523,9 +521,7 @@ applyUpgrades
   -> TxContext
   -> IO ()
 applyUpgrades logger db txCtx
-    | Just Pact4Upgrade{} <-
-        v ^? versionUpgrades . atChain cid . ix currentHeight = error "Expected Pact 4 upgrade, got Pact 5"
-    | Just Pact5Upgrade{_pact5UpgradeTransactions = upgradeTxs} <-
+    | Just PactUpgrade{_pactUpgradeTransactions = upgradeTxs} <-
         v ^? versionUpgrades . atChain cid . ix currentHeight = applyUpgrade upgradeTxs
      | otherwise = return ()
   where
@@ -687,7 +683,7 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
           & csSlots .~ [CapSlot (CapToken (QualifiedName "REMEDIATE" (ModuleName "coin" Nothing)) []) []]
           & csModuleAdmin .~ S.singleton (ModuleName "coin" Nothing))
         (fmap (noSpanInfo <$) $ _pcExps $ _pmCode pm) >>= \case
-        Left err -> internalError $ "Pact5.runGenesis: internal error " <> sshow err
+        Left err -> error $ "Pact5.runGenesis: internal error " <> sshow err
         -- TODO: we should probably put these events somewhere!
         Right _r -> return ()
     Continuation _ -> error "runGenesisCore Continuation not supported"
@@ -733,7 +729,7 @@ buyGas
   -> PactDb CoreBuiltin Info
   -> TxContext
   -> Command (Payload PublicMeta ParsedCode)
-  -> IO (Either Pact5BuyGasError EvalResult)
+  -> IO (Either BuyGasError EvalResult)
 buyGas logger origGasEnv db txCtx cmd = do
   let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1_500_000))
   logFunctionText logger L.Debug $
@@ -804,10 +800,10 @@ buyGas logger origGasEnv db txCtx cmd = do
             | otherwise ->
               -- should never occur pre-chainweb 2.24:
               -- would mean coin.fund-tx is not a pact
-              internalError "buyGas: Internal error - empty continuation before 2.24 fork"
+              error "buyGas: Internal error - empty continuation before 2.24 fork"
           Just _pe
             | isChainweb224Pact ->
-              internalError "buyGas: Internal error - continuation found after 2.24 fork"
+              error "buyGas: Internal error - continuation found after 2.24 fork"
             | otherwise ->
               return er'
       Left err -> do
@@ -842,7 +838,7 @@ redeemGas :: (Logger logger)
   -> Gas
   -> Maybe DefPactId
   -> Command (Payload PublicMeta ParsedCode)
-  -> IO (Either Pact5RedeemGasError EvalResult)
+  -> IO (Either RedeemGasError EvalResult)
 redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
     | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
       logFunctionText logger L.Debug $
@@ -898,7 +894,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
             return $ Right evalResult
 
     | otherwise =
-      internalError "redeemGas: Internal error - defpact ID does not match chainweb224Pact flag"
+      error "redeemGas: Internal error - defpact ID does not match chainweb224Pact flag"
 
   where
     Hash chash = _cmdHash cmd

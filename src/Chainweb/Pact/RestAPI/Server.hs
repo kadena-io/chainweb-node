@@ -103,7 +103,7 @@ import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
-import Chainweb.Pact4.SPV qualified as Pact4
+import Chainweb.Pact.SPV qualified as Pact4
 import Pact.Types.ChainMeta qualified as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -114,11 +114,11 @@ import Chainweb.SPV.CreateProof
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
-import qualified Chainweb.Pact4.Transaction as Pact4 hiding (parsePact)
+import qualified Chainweb.Pact.Transaction as Pact4 hiding (parsePact)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import qualified Chainweb.Pact4.Validations as Pact4
+import qualified Chainweb.Pact.Validations as Pact4
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
@@ -131,9 +131,9 @@ import qualified Pact.Types.Hash as Pact4
 
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Pretty as Pact5
-import qualified Chainweb.Pact5.Transaction as Pact5
-import qualified Chainweb.Pact5.Types as Pact5
-import qualified Chainweb.Pact5.Validations as Pact5
+import qualified Chainweb.Pact.Transaction as Pact5
+import qualified Chainweb.Pact.Types as Pact5
+import qualified Chainweb.Pact.Validations as Pact5
 import Data.Coerce
 import qualified Pact.Core.Command.Server as Pact5
 import qualified Pact.Core.Errors as Pact5

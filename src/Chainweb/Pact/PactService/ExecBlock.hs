@@ -14,13 +14,12 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Chainweb.Pact.PactService.Pact5.ExecBlock
+module Chainweb.Pact.PactService.ExecBlock
     ( runCoinbase
     , continueBlock
     , execExistingBlock
     , validateRawChainwebTx
     , validateParsedChainwebTx
-
     ) where
 
 import Chainweb.BlockHeader
@@ -29,12 +28,12 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool(BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
 import Chainweb.MinerReward
 import Chainweb.Miner.Pact
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
-import Chainweb.Pact5.SPV qualified as Pact5
+import Chainweb.Pact.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact.SPV qualified as Pact5
 import Chainweb.Pact.Types
-import Chainweb.Pact5.Transaction
-import Chainweb.Pact5.TransactionExec
-import Chainweb.Pact5.Types
+import Chainweb.Pact.Transaction
+import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -74,17 +73,17 @@ import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Core.Gas as P
 import qualified Data.Text.Encoding as T
 import qualified Data.HashMap.Strict as HashMap
-import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
-import qualified Chainweb.Pact4.Transaction as Pact4
-import qualified Chainweb.Pact5.Transaction as Pact5
-import qualified Chainweb.Pact5.Validations as Pact5
+import qualified Chainweb.Pact.Backend.ChainwebPactDb as Pact5
+import qualified Chainweb.Pact.Transaction as Pact4
+import qualified Chainweb.Pact.Transaction as Pact5
+import qualified Chainweb.Pact.Validations as Pact5
 import Pact.Core.Pretty qualified as Pact5
 import qualified Data.ByteString.Short as SB
 import qualified Pact.Core.Hash as Pact5
 import System.LogLevel
 import qualified Data.Aeson as Aeson
 import qualified Data.List.NonEmpty as NEL
-import Chainweb.Pact5.NoCoinbase
+import Chainweb.Pact.NoCoinbase
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import Chainweb.Pact.Backend.Types

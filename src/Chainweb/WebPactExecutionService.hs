@@ -39,7 +39,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
-import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact.Transaction as Pact4
 import Chainweb.Utils
 
 import qualified Pact.Core.Persistence as Pact5
@@ -75,7 +75,7 @@ import qualified Data.ByteString as B
 --
 data NewBlock
     = NewBlockInProgress !(ForSomePactVersion BlockInProgress)
-    | NewBlockPayload !ParentHeader !PayloadWithOutputs
+    | NewBlockPayload !(Parent BlockHeader) !PayloadWithOutputs
     deriving Show
 
 newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
@@ -86,7 +86,7 @@ newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
 
 newBlockParent :: NewBlock -> (BlockHash, BlockHeight, BlockCreationTime)
 newBlockParent (NewBlockInProgress (ForSomePactVersion _ bip)) = blockInProgressParent bip
-newBlockParent (NewBlockPayload (ParentHeader ph) _) =
+newBlockParent (NewBlockPayload (Parent ph) _) =
     (view blockHash ph, view blockHeight ph, view blockCreationTime ph)
 
 instance HasChainwebVersion NewBlock where
@@ -135,7 +135,7 @@ data PactExecutionService = PactExecutionService
     , _pactNewBlock :: !(
         ChainId ->
         NewBlockFill ->
-        ParentHeader ->
+        Parent BlockHeader ->
         IO (Historical NewPayload)
         )
     , _pactContinueBlock :: !(
@@ -203,7 +203,7 @@ _webPactNewBlock
     :: WebPactExecutionService
     -> ChainId
     -> NewBlockFill
-    -> ParentHeader
+    -> Parent BlockHeader
     -> IO (Historical NewPayload)
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}

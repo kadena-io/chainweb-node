@@ -74,21 +74,16 @@ import Prelude hiding (lookup)
 import qualified Streaming as Stream
 import qualified Streaming.Prelude as Stream
 
-import qualified Pact.Gas as Pact4
 import Pact.Interpreter(PactDbEnv(..))
 import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.Command as Pact4
-import qualified Pact.Types.Hash as Pact4
-import qualified Pact.Types.Runtime as Pact4 hiding (catchesPactError)
-import qualified Pact.Types.Pretty as Pact4
 
-import qualified Pact.Core.Builtin as Pact5
-import qualified Pact.Core.Persistence as Pact5
-import qualified Pact.Core.Gas as Pact5
-import qualified Pact.Core.Info as Pact5
+import qualified Pact.Core.Builtin as Pact
+import qualified Pact.Core.Persistence as Pact
+import qualified Pact.Core.Gas as Pact
+import qualified Pact.Core.Info as Pact
 
-import qualified Chainweb.Pact4.TransactionExec as Pact4
-import qualified Chainweb.Pact4.Validations as Pact4
+import qualified Chainweb.Pact.TransactionExec as Pact
+import qualified Chainweb.Pact.Validations as Pact
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -99,15 +94,14 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
 
-import Chainweb.Pact.PactService.Pact4.ExecBlock
-import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
+import Chainweb.Pact.PactService.ExecBlock
+import qualified Chainweb.Pact.Backend.ChainwebPactDb as Pact
 import Chainweb.Pact.Types
-import Chainweb.Pact4.SPV qualified as Pact4
-import Chainweb.Pact5.SPV qualified as Pact5
+import Chainweb.Pact.SPV qualified as Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
-import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact.Transaction as Pact
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
@@ -117,31 +111,28 @@ import Chainweb.Counter
 import Data.Time.Clock
 import Text.Printf
 import Data.Time.Format.ISO8601
-import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
-import qualified Chainweb.Pact4.Types as Pact4
-import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Hash as Pact5
-import qualified Data.ByteString.Short as SB
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact
+import Pact.Core.Command.Types qualified as Pact
+import Pact.Core.Hash qualified as Pact
+import Data.ByteString.Short qualified as SB
 import Data.Coerce (coerce)
 import Data.Void
-import qualified Chainweb.Pact5.Types as Pact5
-import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
-import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.Names as Pact5
+import Chainweb.Pact.Types qualified as Pact
+import Chainweb.Pact.PactService.ExecBlock qualified as Pact
+import qualified Pact.Core.Evaluate as Pact
+import qualified Pact.Core.Names as Pact
 import Data.Functor.Product
-import qualified Chainweb.Pact5.TransactionExec as Pact5
-import qualified Chainweb.Pact5.Transaction as Pact5
+import qualified Chainweb.Pact.TransactionExec as Pact
+import qualified Chainweb.Pact.Transaction as Pact
 import Control.Monad.Except
-import qualified Chainweb.Pact5.NoCoinbase as Pact5
-import qualified Pact.Parse as Pact4
+import qualified Chainweb.Pact.NoCoinbase as Pact
 import qualified Control.Parallel.Strategies as Strategies
-import qualified Chainweb.Pact5.Validations as Pact5
-import qualified Pact.Core.Errors as Pact5
+import qualified Chainweb.Pact.Validations as Pact
+import qualified Pact.Core.Errors as Pact
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 import Chainweb.Pact.PactService.Checkpointer (SomeBlockM(..))
-import qualified Pact.Core.StableEncoding as Pact5
+import qualified Pact.Core.StableEncoding as Pact
 import Control.Monad.Cont (evalContT)
 import qualified Data.List.NonEmpty as NonEmpty
 import Chainweb.PayloadProvider.Pact.Genesis (genesisPayload)
@@ -1090,53 +1081,14 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 pure result
 
     where
-    attemptBuyGasPact4
-        :: forall logger tbl. (Logger logger)
-        => Miner
-        -> Pact4.Transaction
-        -> Pact4.PactBlockM logger tbl (Either InsertError ())
-    attemptBuyGasPact4 miner tx = Pact4.localLabelBlock ("transaction", "attemptBuyGas") $ do
-            mcache <- Pact4.getInitCache
-            l <- view (psServiceEnv . psLogger)
-            do
-                let cmd = Pact4.payloadObj <$> tx
-                    gasPrice = view Pact4.cmdGasPrice cmd
-                    gasLimit = fromIntegral $ view Pact4.cmdGasLimit cmd
-                    txst = Pact4.TransactionState
-                        { _txCache = mcache
-                        , _txLogs = mempty
-                        , _txGasUsed = 0
-                        , _txGasId = Nothing
-                        , _txGasModel = Pact4._geGasModel Pact4.freeGasEnv
-                        , _txWarnings = mempty
-                        }
-                let !nid = Pact4.networkIdOf cmd
-                let !rk = Pact4.cmdToRequestKey cmd
-                pd <- Pact4.getTxContext miner (Pact4.publicMetaOf cmd)
-                bhdb <- view (psServiceEnv . psBlockHeaderDb)
-                dbEnv <- Pact4._cpPactDbEnv <$> view psBlockDbEnv
-                spv <- Pact4.pactSPV bhdb . _parentHeader <$> view psParentHeader
-                let ec = Pact4.mkExecutionConfig $
-                        [ Pact4.FlagDisableModuleInstall
-                        , Pact4.FlagDisableHistoryInTransactionalMode ] ++
-                        Pact4.disableReturnRTC (Pact4.ctxVersion pd) (Pact4.ctxChainId pd) (Pact4.ctxCurrentBlockHeight pd)
-                let buyGasEnv = Pact4.TransactionEnv Pact4.Transactional dbEnv l Nothing (Pact4.ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing Nothing
-
-                cr <- liftIO
-                    $! Pact4.catchesPactError l Pact4.CensorsUnexpectedError
-                    $! Pact4.execTransactionM buyGasEnv txst
-                    $! Pact4.buyGas pd cmd miner
-
-                return $ bimap (InsertErrorBuyGas . sshow) (\_ -> ()) cr
-
-    attemptBuyGasPact5
+    attemptBuyGas
         :: (Logger logger)
         => logger
         -> ParentHeader
         -> Miner
         -> Pact5.Transaction
         -> ExceptT InsertError (Pact5.PactBlockM logger tbl) ()
-    attemptBuyGasPact5 logger ph miner tx = do
+    attemptBuyGas logger ph miner tx = do
         let logger' = addLabel ("transaction", "attemptBuyGas") logger
         result <- lift $ Pact5.pactTransaction Nothing $ \pactDb -> do
             let txCtx = Pact5.TxContext ph miner

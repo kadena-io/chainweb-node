@@ -90,7 +90,7 @@ testHeaderLookup :: TestHeader -> BlockHash -> Maybe BlockHeader
 testHeaderLookup testHdr x = lookup x tbl
   where
     h = _testHeaderHdr testHdr
-    p = _parentHeader $ _testHeaderParent testHdr
+    p = unwrapParent $ _testHeaderParent testHdr
     a = _testHeaderAdjs testHdr
     tbl
         = (view blockHash h, h)
@@ -106,8 +106,8 @@ instance FromJSON TestHeader where
 instance ToJSON TestHeader where
     toJSON o = object
         [ "header" .= _testHeaderHdr o
-        , "parent" .= _parentHeader (_testHeaderParent o)
-        , "adjacents" .= fmap _parentHeader (_testHeaderAdjs o)
+        , "parent" .= unwrapParent (_testHeaderParent o)
+        , "adjacents" .= fmap unwrapParent (_testHeaderAdjs o)
         ]
 
 -- | An unsafe convenience functions for hard coding test headers in the code
@@ -150,7 +150,7 @@ arbitraryTestHeaderHeight v cid h = do
     nonce <- arbitrary
     payloadHash <- arbitrary
     let pt = maximum $ _bct . view blockCreationTime
-            <$> HM.insert cid (_parentHeader parent) as
+            <$> HM.insert cid (unwrapParent parent) as
     t <- BlockCreationTime <$> chooseEnum (pt, maxBound)
     return $ TestHeader
         { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent

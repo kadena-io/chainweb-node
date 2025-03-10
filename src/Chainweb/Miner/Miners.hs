@@ -65,7 +65,7 @@ import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.RestAPI.Orphans ()
-import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
@@ -169,4 +169,3 @@ localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
         c <- _cutStm cdb
         let h' = view blockHeight $ c ^?! ixg cid
         guard (h <= h')
-

@@ -27,9 +27,8 @@ module Chainweb.Pact.Backend.Types
     , BlockHandle(..)
     , blockHandleTxId
     , blockHandlePending
-    , emptyPact4BlockHandle
-    , emptyPact5BlockHandle
     , SQLitePendingData(..)
+    , emptyBlockHandle
     , emptySQLitePendingData
     , pendingWrites
     , pendingSuccessfulTxs
@@ -39,22 +38,18 @@ module Chainweb.Pact.Backend.Types
     , Historical(..)
     , _Historical
     , _NoHistory
-    , PactDbFor
-    , PendingWrites
+    , ChainwebPactDb(..)
+    , RunnableBlock(..)
     ) where
 
 import Control.Lens
-import Chainweb.Pact.Backend.DbCache
 import Chainweb.Version
 import Database.SQLite3.Direct (Database)
-import Control.Concurrent.MVar
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.DList (DList)
 import Data.Map (Map)
 import Data.HashSet (HashSet)
-import Data.HashMap.Strict (HashMap)
-import Data.List.NonEmpty (NonEmpty)
 import Control.DeepSeq (NFData)
 import GHC.Generics
 
@@ -62,11 +57,46 @@ import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
 
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Names as Pact4
+import Chainweb.BlockHeader
+import Chainweb.BlockHash
+import Pact.Core.Command.Types
+import qualified Pact.Core.Persistence as Pact
+import qualified Pact.Core.Builtin as Pact
+import qualified Pact.Core.Evaluate as Pact
+import Data.Vector (Vector)
+import Data.HashMap.Strict (HashMap)
+import Chainweb.BlockHeight
+import Chainweb.Utils
 
 -- | Whether we write rows to the database that were already overwritten
 -- in the same block.
 data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
     deriving (Eq, Ord, Show)
+
+-- | The Pact database as it's provided by the checkpointer.
+data ChainwebPactDb = ChainwebPactDb
+    { doChainwebPactDbTransaction
+        :: forall a
+        . BlockHandle
+        -> Maybe RequestKey
+        -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> IO a)
+        -> IO (a, BlockHandle)
+        -- ^ Give this function a BlockHandle representing the state of a pending
+        -- block and it will pass you a PactDb which contains the Pact state as of
+        -- that point in the block. After you're done, it passes you back a
+        -- BlockHandle representing the state of the block extended with any writes
+        -- you made to the PactDb.
+        -- Note also that this function handles registering
+        -- transactions as completed, if you pass it a RequestKey.
+    , lookupPactTransactions :: Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash))
+        -- ^ Used to implement transaction polling.
+    }
+
+newtype RunnableBlock logger a = RunnableBlock
+    ( ChainwebPactDb
+    -> Maybe (Parent RankedBlockHash)
+    -> BlockHandle -> IO ((a, RankedBlockHash), BlockHandle)
+    )
 
 data Checkpointer logger
     = Checkpointer
@@ -75,7 +105,6 @@ data Checkpointer logger
     , cpChainId :: ChainId
     , cpSql :: SQLiteEnv
     , cpIntraBlockPersistence :: IntraBlockPersistence
-    , cpModuleCacheVar :: MVar (DbCache Pact4.PersistModuleData)
     }
 
 type SQLiteEnv = Database
@@ -111,10 +140,6 @@ type SQLitePendingTableCreations = HashSet Text
 -- | Pact transaction hashes resolved during this block.
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
--- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
--- Structured as a map from table name to a map from rowkey to inserted row delta.
-type SQLitePendingWrites = HashMap Text (HashMap ByteString (NonEmpty SQLiteRowDelta))
-
 -- Note [TxLogs in SQLitePendingData]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- We should really not store TxLogs in SQLitePendingData,
@@ -127,39 +152,26 @@ type SQLitePendingWrites = HashMap Text (HashMap ByteString (NonEmpty SQLiteRowD
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-data SQLitePendingData w = SQLitePendingData
+data SQLitePendingData = SQLitePendingData
     { _pendingTableCreation :: !SQLitePendingTableCreations
-    , _pendingWrites :: !w
+    , _pendingWrites :: !InMemDb.Store
     -- See Note [TxLogs in SQLitePendingData]
     , _pendingTxLogMap :: !TxLogMap
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
     deriving (Eq, Show)
 
-makeLenses ''SQLitePendingData
+emptySQLitePendingData :: SQLitePendingData
+emptySQLitePendingData = SQLitePendingData mempty InMemDb.empty mempty mempty
 
-type family PendingWrites (pv :: PactVersion) = w | w -> pv where
-    PendingWrites Pact4 = SQLitePendingWrites
-    PendingWrites Pact5 = InMemDb.Store
-
-emptySQLitePendingData :: w -> SQLitePendingData w
-emptySQLitePendingData w = SQLitePendingData mempty w mempty mempty
-
-data BlockHandle (pv :: PactVersion) = BlockHandle
+data BlockHandle = BlockHandle
     { _blockHandleTxId :: !Pact4.TxId
-    , _blockHandlePending :: !(SQLitePendingData (PendingWrites pv))
+    , _blockHandlePending :: !SQLitePendingData
     }
-deriving instance Eq (BlockHandle Pact4)
-deriving instance Eq (BlockHandle Pact5)
-deriving instance Show (BlockHandle Pact4)
-deriving instance Show (BlockHandle Pact5)
-makeLenses ''BlockHandle
+    deriving (Eq, Show)
 
-emptyPact4BlockHandle :: Pact4.TxId -> BlockHandle Pact4
-emptyPact4BlockHandle txid = BlockHandle txid (emptySQLitePendingData mempty)
-
-emptyPact5BlockHandle :: Pact4.TxId -> BlockHandle Pact5
-emptyPact5BlockHandle txid = BlockHandle txid (emptySQLitePendingData InMemDb.empty)
+emptyBlockHandle :: Pact4.TxId -> BlockHandle
+emptyBlockHandle txid = BlockHandle txid emptySQLitePendingData
 
 -- | The result of a historical lookup which might fail to even find the
 -- header the history is being queried for.
@@ -170,5 +182,5 @@ data Historical a
     deriving anyclass NFData
 
 makePrisms ''Historical
-
-type family PactDbFor logger (pv :: PactVersion)
+makeLenses ''BlockHandle
+makeLenses ''SQLitePendingData

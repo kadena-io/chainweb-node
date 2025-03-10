@@ -17,8 +17,8 @@ module Chainweb.Mempool.InMem.ValidatingConfig
 import Chainweb.ChainId
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact4.Validations
+import Chainweb.Pact.Transaction qualified as Pact4
+import Chainweb.Pact.Validations
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -95,5 +95,3 @@ validatingMempoolConfig cid v gl gp mv = InMemConfig
                                  Nothing -> Right (T2 h t)
         f (That (T2 h _)) = Left (T2 h $ InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (TransactionHash "") (InsertErrorOther "preInsertBatch: align mismatch 1"))
-
-

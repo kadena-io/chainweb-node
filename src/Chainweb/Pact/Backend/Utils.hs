@@ -48,8 +48,6 @@ module Chainweb.Pact.Backend.Utils
   , fromUtf8
   , asStringUtf8
   , convSavepointName
-  , expectSingleRowCol
-  , expectSingle
   -- * SQLite runners
   , withSqliteDb
   , startSqliteDb
@@ -64,9 +62,9 @@ module Chainweb.Pact.Backend.Utils
   , chainwebPragmas
   ) where
 
-import Control.Exception (SomeAsyncException, evaluate)
+import Control.Exception (evaluate)
+import Control.Exception.Safe
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.State.Strict
 
 import Data.Bits
@@ -94,7 +92,6 @@ import Pact.Types.Util (AsString(..))
 import Chainweb.Logger
 import Chainweb.Pact.Backend.SQLite.DirectV2
 
-import Chainweb.Pact.Types
 import Chainweb.Version
 import Chainweb.Utils
 import Chainweb.BlockHash
@@ -145,9 +142,8 @@ withSavepoint db name action = mask $ \resetMask -> do
         r <- resetMask action `onException` abortSavepoint db name
         liftIO $ commitSavepoint db name
         liftIO $ evaluate r
-    throwErr s = internalError $ "withSavepoint (" <> toText name <> "): " <> s
-    handlers = [ Handler $ \(e :: PactException) -> throwErr (sshow e)
-               , Handler $ \(e :: SomeAsyncException) -> throwM e
+    throwErr s = error $ "withSavepoint (" <> show name <> "): " <> s
+    handlers = [ Handler $ \(e :: SomeAsyncException) -> throwM e
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
@@ -202,22 +198,6 @@ instance HasTextRepresentation SavepointName where
         $ "failed to decode SavepointName " <> t
         <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
     {-# INLINE fromText #-}
-
-expectSingleRowCol :: Show a => String -> [[a]] -> IO a
-expectSingleRowCol _ [[s]] = return s
-expectSingleRowCol s v =
-  internalError $
-  "expectSingleRowCol: "
-  <> asString s <>
-  " expected single row and column result, got: "
-  <> asString (show v)
-
-expectSingle :: Show a => String -> [a] -> IO a
-expectSingle _ [s] = return s
-expectSingle desc v =
-  internalError $
-  "Expected single-" <> asString (show desc) <> " result, got: " <>
-  asString (show v)
 
 chainwebPragmas :: [Pact4.Pragma]
 chainwebPragmas =
@@ -294,9 +274,9 @@ withSQLiteConnection file ps =
 openSQLiteConnection :: String -> [Pact4.Pragma] -> IO SQLiteEnv
 openSQLiteConnection file ps = open2 file >>= \case
     Left (err, msg) ->
-      internalError $
+      error $
       "withSQLiteConnection: Can't open db with "
-      <> asString (show err) <> ": " <> asString (show msg)
+      <> show err <> ": " <> show msg
     Right r -> do
       Pact4.runPragmas r ps
       return r
@@ -339,7 +319,7 @@ sqlite_open_fullmutex = 0x00010000
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
-    | B8.elem ']' b = error $ "Chainweb.Pact4.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | B8.elem ']' b = error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
 doLookupSuccessful :: Database -> BlockHeight -> V.Vector SB.ShortByteString -> IO (HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash))
@@ -381,20 +361,20 @@ doLookupSuccessful db curHeight hashes = do
 getEndTxId :: Text -> SQLiteEnv -> Maybe (Parent RankedBlockHash) -> IO (Historical Pact4.TxId)
 getEndTxId msg sql pc = case pc of
     Nothing -> return (Historical 0)
-    Just ph -> getEndTxId' msg sql (_rankedBlockHashHeight <$> ph) (_rankedBlockHashHash <$> ph)
+    Just ph -> getEndTxId' msg sql ph
 
-getEndTxId' :: Text -> SQLiteEnv -> Parent BlockHeight -> Parent BlockHash -> IO (Historical Pact4.TxId)
-getEndTxId' msg sql (Parent bh) (Parent bhsh) = do
+getEndTxId' :: Text -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact4.TxId)
+getEndTxId' msg sql (Parent rbh) = do
     r <- Pact4.qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-      [ Pact4.SInt $ fromIntegral bh
-      , Pact4.SBlob $ runPutS (encodeBlockHash bhsh)
+      [ Pact4.SInt $ fromIntegral $ _rankedBlockHashHeight rbh
+      , Pact4.SBlob $ runPutS (encodeBlockHash $ _rankedBlockHashHash rbh)
       ]
       [Pact4.RInt]
     case r of
       [[Pact4.SInt tid]] -> return $ Historical (Pact4.TxId (fromIntegral tid))
       [] -> return NoHistory
-      _ -> internalError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
+      _ -> error $ T.unpack msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
 
 
 -- | Delete any state from the database newer than the input parent header.
@@ -410,8 +390,7 @@ rewindDbTo db mh@(Just ph) = do
     !historicalEndingTxId <- getEndTxId "rewindDbToBlock" db mh
     endingTxId <- case historicalEndingTxId of
       NoHistory ->
-        throwM
-          $ BlockHeaderLookupFailure
+        error
           $ "rewindDbTo.getEndTxId: not in db: "
           <> sshow ph
       Historical endingTxId ->
@@ -433,7 +412,7 @@ rewindDbToGenesis db = do
     tblNames <- Pact4.qry_ db "SELECT tablename FROM VersionedTableCreation;" [Pact4.RText]
     forM_ tblNames $ \t -> case t of
       [Pact4.SText tn] -> Pact4.exec_ db ("DROP TABLE [" <> tn <> "];")
-      _ -> internalError "Something went wrong when resetting tables."
+      _ -> error "Something went wrong when resetting tables."
     Pact4.exec_ db "DELETE FROM VersionedTableCreation;"
     Pact4.exec_ db "DELETE FROM VersionedTableMutation;"
     Pact4.exec_ db "DELETE FROM TransactionIndex;"
@@ -460,7 +439,7 @@ rewindDbToBlock db (Parent bh) endingTxId = do
             [Pact4.SText tblname@(Utf8 tn)] -> do
                 Pact4.exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
                 return tn
-            _ -> internalError rewindmsg
+            _ -> error rewindmsg
         Pact4.exec' db
             "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?"
             [Pact4.SInt (fromIntegral bh)]
@@ -479,7 +458,7 @@ rewindDbToBlock db (Parent bh) endingTxId = do
     vacuumTablesAtRewind droppedtbls = do
         let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
               [Pact4.SText (Utf8 tn)] -> return tn
-              _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
+              _ -> error "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
                                  \of the table to possibly vacuum."
         mutatedTables <- Pact4.qry db
             "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?;"

@@ -186,7 +186,7 @@ pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHas
       let logger' = addChainIdLabel cid logger
       logFunctionText logger' Info
         $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-      Checkpointer.Internal.withCheckpointerResources logger defaultModuleCacheLimit sqliteEnv DoNotPersistIntraBlockWrites v cid $ \cp -> do
+      Checkpointer.Internal.withCheckpointerResources logger sqliteEnv DoNotPersistIntraBlockWrites v cid $ \cp -> do
         Checkpointer.Internal.rewindTo cp (Just $ ParentHeader $ blockHeader $ snapshotChainHashes ^?! ix cid)
 
 data PactImportConfig = PactImportConfig

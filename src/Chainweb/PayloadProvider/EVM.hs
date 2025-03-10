@@ -1208,14 +1208,14 @@ getPayloadForContext
     :: Logger logger
     => EvmPayloadProvider logger
     -> Maybe Hints
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> IO Payload
 getPayloadForContext p h ctx = do
-    mapM_ insertPayloadData (_evaluationCtxPayloadData ctx)
+    mapM_ insertPayloadData (_consensusPayloadData $ _evaluationCtxPayload ctx)
     pld <- getPayload
         (_evmPayloadStore p)
         (_evmCandidatePayloads p)
-        (Priority $ negate $ int $ _evaluationCtxParentHeight ctx)
+        (Priority $ negate $ int $ unwrapParent $ _evaluationCtxParentHeight ctx)
         (_hintsOrigin <$> h)
         (_evaluationCtxRankedPayloadHash ctx)
     tableInsert (_evmCandidatePayloads p) rh pld
@@ -1239,7 +1239,7 @@ getPayloadForContext p h ctx = do
 validatePayload
     :: EvmPayloadProvider logger
     -> Payload
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> IO ()
 validatePayload p pld ctx = return ()
 

@@ -82,6 +82,7 @@ module Chainweb.PayloadProvider.Minimal
 , newMinimalPayloadProvider
 ) where
 
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.Logger
@@ -298,7 +299,7 @@ validatePayload
     . MonadThrow m
     => MinimalPayloadProvider
     -> Payload
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> m ()
 validatePayload p pld ctx = do
     checkEq PayloadInvalidChainwebVersion
@@ -308,15 +309,15 @@ validatePayload p pld ctx = do
         (_chainId p)
         (_chainId pld)
     checkEq PayloadInvalidHeight
-        (_evaluationCtxParentHeight ctx + 1)
+        (_evaluationCtxCurrentHeight ctx)
         (view payloadBlockHeight pld)
     checkEq PayloadInvalidMinerReward
         (_evaluationCtxMinerReward ctx)
         (view payloadMinerReward pld)
     checkEq PayloadInvalidHash
-        (_evaluationCtxPayloadHash ctx)
+        (_consensusPayloadHash $ _evaluationCtxPayload ctx)
         (view payloadHash pld)
-    case _evaluationCtxPayloadData ctx of
+    case _consensusPayloadData $ _evaluationCtxPayload ctx of
         Nothing -> return ()
         Just x -> checkEq PayloadInvalidPayloadData x (encodedPayloadData pld)
   where
@@ -354,14 +355,14 @@ instance PayloadProvider MinimalPayloadProvider where
 getPayloadForContext
     :: MinimalPayloadProvider
     -> Maybe Hints
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> IO Payload
 getPayloadForContext p h ctx = do
-    insertPayloadData (_evaluationCtxPayloadData ctx)
+    insertPayloadData (_consensusPayloadData $ _evaluationCtxPayload ctx)
     pld <- Rest.getPayload
         (_minimalPayloadStore p)
         (_minimalCandidatePayloads p)
-        (Priority $ negate $ int $ _evaluationCtxParentHeight ctx)
+        (Priority $ negate $ int $ unwrapParent $ _evaluationCtxParentHeight ctx)
         (_hintsOrigin <$> h)
         (_evaluationCtxRankedPayloadHash ctx)
     casInsert (_minimalCandidatePayloads p) pld
@@ -521,4 +522,3 @@ pruneCandidates p s = deleteLt (_minimalCandidatePayloads p) lrh
   where
     lrh = latestRankedBlockPayloadHash s
     h = _rankedHeight lrh
-

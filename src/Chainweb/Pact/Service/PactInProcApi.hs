@@ -46,7 +46,7 @@ import Chainweb.Pact.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload.PayloadStore
-import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
 

@@ -63,6 +63,9 @@ instance Brief a => Brief (Maybe a) where
 instance Brief a => Brief [a] where
     brief l = "[" <> (T.intercalate "," $ brief <$> l) <> "]"
 
+instance Brief a => Brief (Parent a) where
+    brief = brief . unwrapParent
+
 -- -------------------------------------------------------------------------- --
 -- Core Chainweb Types
 

@@ -349,7 +349,7 @@ forkInfoForHeader wdb hdr pldData
         state <- consensusState wdb hdr
         return $ ForkInfo
             { _forkInfoTrace = [blockHeaderToEvaluationCtx phdr pld pldData]
-            , _forkInfoBasePayloadHash = view blockPayloadHash (_parentHeader phdr)
+            , _forkInfoBasePayloadHash = view blockPayloadHash (unwrapParent phdr)
             , _forkInfoTargetState = state
             , _forkInfoNewBlockCtx = Just nbctx
             }

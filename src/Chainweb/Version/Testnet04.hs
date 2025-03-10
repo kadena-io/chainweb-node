@@ -25,22 +25,6 @@ import P2P.BootstrapNodes
 import Pact.Types.Runtime (Gas(..))
 import Pact.Types.Verifier
 
-import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
-import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
-import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
-import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
-import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
-import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1
-import qualified Chainweb.Pact.Transactions.Mainnet2Transactions as MN2
-import qualified Chainweb.Pact.Transactions.Mainnet3Transactions as MN3
-import qualified Chainweb.Pact.Transactions.Mainnet4Transactions as MN4
-import qualified Chainweb.Pact.Transactions.Mainnet5Transactions as MN5
-import qualified Chainweb.Pact.Transactions.Mainnet6Transactions as MN6
-import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
-import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
-import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
-import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
-
 -- | Initial hash target for testnet04 20-chain transition. Based on the following
 -- header from recap devnet running with 5 GPUs hash power. Using this target unchanged
 -- means, that we should do to the transition with the hash power of about
@@ -172,26 +156,7 @@ testnet04 = ChainwebVersion
             , (unsafeChainId 19, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
             ]
         }
-    , _versionUpgrades = chainZip HM.union
-        (indexByForkHeights testnet04
-        [ (CoinV2, onChains $
-            [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
-            , (unsafeChainId 1, pact4Upgrade MN1.transactions)
-            , (unsafeChainId 2, pact4Upgrade MN2.transactions)
-            , (unsafeChainId 3, pact4Upgrade MN3.transactions)
-            , (unsafeChainId 4, pact4Upgrade MN4.transactions)
-            , (unsafeChainId 5, pact4Upgrade MN5.transactions)
-            , (unsafeChainId 6, pact4Upgrade MN6.transactions)
-            , (unsafeChainId 7, pact4Upgrade MN7.transactions)
-            , (unsafeChainId 8, pact4Upgrade MN8.transactions)
-            , (unsafeChainId 9, pact4Upgrade MN9.transactions)
-            ])
-        , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-        , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-        , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
-        , (Chainweb223Pact, AllChains (pact4Upgrade CoinV6.transactions))
-        ])
-        (onChains [(unsafeChainId 0, HM.singleton to20ChainsTestnet (pact4Upgrade MNKAD.transactions))])
+    , _versionUpgrades = onChains []
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = False

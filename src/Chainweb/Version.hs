@@ -21,6 +21,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeAbstractions #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -53,7 +54,6 @@ module Chainweb.Version
     , decodeChainwebVersionCode
     , ChainwebVersionName(..)
     , ChainwebVersion(..)
-    , pact4Upgrade
     , TxIdxInBlock(..)
     , _TxBlockIdx
     , VersionQuirks(..)
@@ -84,15 +84,6 @@ module Chainweb.Version
     , genesisHeightAndGraph
 
     , PactUpgrade(..)
-    , PactVersion(..)
-    , PactVersionT(..)
-    , ForBothPactVersions(..)
-    , ForSomePactVersion(..)
-    , pattern ForPact4
-    , _ForPact4
-    , pattern ForPact5
-    , _ForPact5
-    , forAnyPactVersion
 
     -- * Typelevel ChainwebVersionName
     , ChainwebVersionT(..)
@@ -189,8 +180,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
-import qualified Chainweb.Pact4.Transaction as Pact4
-import qualified Chainweb.Pact5.Transaction as Pact5
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
@@ -374,87 +364,26 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
 
 -- -------------------------------------------------------------------------- --
--- Pact Version
-
-data PactVersion = Pact4 | Pact5
-  deriving stock (Eq, Show)
-data PactVersionT (v :: PactVersion) where
-    Pact4T :: PactVersionT Pact4
-    Pact5T :: PactVersionT Pact5
-deriving stock instance Eq (PactVersionT v)
-deriving stock instance Show (PactVersionT v)
-instance NFData (PactVersionT v) where
-    rnf Pact4T = ()
-    rnf Pact5T = ()
-
-data ForSomePactVersion f = forall pv. ForSomePactVersion (PactVersionT pv) (f pv)
-forAnyPactVersion :: (forall pv. f pv -> a) -> ForSomePactVersion f -> a
-forAnyPactVersion k (ForSomePactVersion _ f) = k f
-instance (forall pv. Eq (f pv)) => Eq (ForSomePactVersion f) where
-    ForSomePactVersion Pact4T f == ForSomePactVersion Pact4T f' = f == f'
-    ForSomePactVersion Pact5T f == ForSomePactVersion Pact5T f' = f == f'
-    ForSomePactVersion _ _ == ForSomePactVersion _ _ = False
-deriving stock instance (forall pv. Show (f pv)) => Show (ForSomePactVersion f)
-instance (forall pv. NFData (f pv)) => NFData (ForSomePactVersion f) where
-    rnf (ForSomePactVersion pv f) = rnf pv `seq` rnf f
-pattern ForPact4 :: f Pact4 -> ForSomePactVersion f
-pattern ForPact4 x = ForSomePactVersion Pact4T x
-_ForPact4 :: Prism' (ForSomePactVersion f) (f Pact4)
-_ForPact4 = prism' ForPact4 $ \case
-    ForPact4 x -> Just x
-    _ -> Nothing
-_ForPact5 :: Prism' (ForSomePactVersion f) (f Pact5)
-_ForPact5 = prism' ForPact5 $ \case
-    ForPact5 x -> Just x
-    _ -> Nothing
-pattern ForPact5 :: f Pact5 -> ForSomePactVersion f
-pattern ForPact5 x = ForSomePactVersion Pact5T x
-{-# COMPLETE ForPact4, ForPact5 #-}
-data ForBothPactVersions f = ForBothPactVersions
-    { _forPact4 :: (f Pact4)
-    , _forPact5 :: (f Pact5)
-    }
-deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForBothPactVersions f)
-deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForBothPactVersions f)
-instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForBothPactVersions f) where
-    rnf b = rnf (_forPact4 b) `seq` rnf (_forPact5 b)
-
--- -------------------------------------------------------------------------- --
 -- Pact Upgrade
 
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
 
-data PactUpgrade where
-    Pact4Upgrade ::
-        { _pact4UpgradeTransactions :: [Pact4.Transaction]
-        , _legacyUpgradeIsPrecocious :: Bool
-        -- ^ when set to `True`, the upgrade transactions are executed using the
-        -- forks of the next block, rather than the block the upgrade
-        -- transactions are included in.  do not use this for new upgrades
-        -- unless you are sure you need it, this mostly exists for old upgrades.
-        } -> PactUpgrade
-    Pact5Upgrade ::
-        { _pact5UpgradeTransactions :: [Pact5.Transaction]
-        } -> PactUpgrade
+data PactUpgrade =
+    PactUpgrade
+        { _pactUpgradeTransactions :: [Pact.Transaction]
+        }
 
 instance Eq PactUpgrade where
-    Pact4Upgrade txs precocious == Pact4Upgrade txs' precocious' =
-        txs == txs' && precocious == precocious'
-    Pact5Upgrade txs == Pact5Upgrade txs' =
+    PactUpgrade txs == PactUpgrade txs' =
         txs == txs'
     _ == _ = False
 
 instance Show PactUpgrade where
-    show Pact4Upgrade {} = "<pact4 upgrade>"
-    show Pact5Upgrade {} = "<pact5 upgrade>"
+    show PactUpgrade {} = "<pact upgrade>"
 
 instance NFData PactUpgrade where
-    rnf (Pact4Upgrade txs precocious) = rnf txs `seq` rnf precocious
-    rnf (Pact5Upgrade txs) = rnf txs
-
-pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
-pact4Upgrade txs = Pact4Upgrade txs False
+    rnf (PactUpgrade txs) = rnf txs
 
 -- -------------------------------------------------------------------------- --
 -- Version Quirks

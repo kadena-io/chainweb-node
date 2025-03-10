@@ -100,7 +100,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 import Chainweb.Pact.Types (RewindLimit(..))
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.PayloadProvider.EVM (EvmProviderConfig, defaultEvmProviderConfig, pEvmProviderConfig)
 import Chainweb.PayloadProvider.Minimal (MinimalProviderConfig, defaultMinimalProviderConfig, pMinimalProviderConfig)
@@ -135,6 +135,7 @@ import P2P.Node.Configuration
 import Pact.JSON.Encode qualified as J
 import Prelude hiding (log)
 import System.Directory
+import qualified Pact.Core.Gas as Pact
 
 -- -------------------------------------------------------------------------- --
 -- Payload Provider Configuration
@@ -598,8 +599,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
-    , _configModuleCacheLimit :: !DbCacheLimitBytes
-        -- ^ module cache size limit in bytes
     , _configEnableLocalTimeout :: !Bool
     , _configPayloadProviders :: PayloadProviderConfig
     } deriving (Show, Eq, Generic)
@@ -648,9 +647,9 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configP2p = defaultP2pConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 150_000
+    , _configBlockGasLimit = Pact.GasLimit (Pact.Gas 150_000)
     , _configLogGas = False
-    , _configMinGasPrice = 1e-8
+    , _configMinGasPrice = Pact.GasPrice 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = defaultReorgLimit
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
@@ -661,7 +660,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReadOnlyReplay = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
-    , _configModuleCacheLimit = defaultModuleCacheLimit
     , _configEnableLocalTimeout = False
     , _configPayloadProviders = minimalPayloadProviderConfig defaultMinimalProviderConfig
         -- Similar to bootstrap-peers, there is no default configuration that
@@ -703,7 +701,6 @@ instance ToJSON ChainwebConfiguration where
         , "readOnlyReplay" .= _configReadOnlyReplay o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
-        , "moduleCacheLimit" .= _configModuleCacheLimit o
         , "enableLocalTimeout" .= _configEnableLocalTimeout o
         , "payloadProviders" .= _configPayloadProviders o
         ]
@@ -735,7 +732,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
-        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
         <*< configEnableLocalTimeout ..: "enableLocalTimeout" % o
         <*< configPayloadProviders %.: "payloadProviders" % o
 
@@ -791,10 +787,6 @@ pChainwebConfiguration = id
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
-    <*< configModuleCacheLimit .:: option auto
-        % long "module-cache-limit"
-        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
-        <> metavar "INT"
     <*< configEnableLocalTimeout .:: option auto
         % long "enable-local-timeout"
         <> help "Enable timeout support on /local endpoints"

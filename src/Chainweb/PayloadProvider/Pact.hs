@@ -37,7 +37,6 @@ data PactPayloadProvider logger = PactPayloadProvider
     -- ^ Maximum allowed execution time for the transactions validation.
     , _pactReorgLimit :: !RewindLimit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
-    , _pactOnFatalError :: !(forall a. PactException -> Text -> IO a)
     , _pactGasLogger :: !(Maybe logger)
     , _pactTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     , _pactTxTimeLimit :: !(Maybe Micros)

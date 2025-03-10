@@ -35,7 +35,7 @@ module Chainweb.Pact.PactService.Checkpointer
     , findLatestValidBlockHeader
     , exitOnRewindLimitExceeded
     , rewindToIncremental
-    , SomeBlockM(..)
+    , PactBlockM(..)
     , getEarliestBlock
     , getLatestBlock
     , lookupBlock
@@ -74,16 +74,15 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 
-import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
-import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
+import qualified Chainweb.Pact.PactService.ExecBlock as Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import qualified Chainweb.Pact4.Types as Pact4
-import qualified Chainweb.Pact5.Types as Pact5
+import qualified Chainweb.Pact.Types as Pact4
+import qualified Chainweb.Pact.Types as Pact5
 import Chainweb.Version.Guards (pact5)
 import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Internal
 import Chainweb.BlockHash
@@ -113,11 +112,6 @@ exitOnRewindLimitExceeded = handle $ \case
             \ docs/RecoveringFromDeepForks.md"
         ]
 
-newtype SomeBlockM logger tbl a = SomeBlockM (Product (Pact4.PactBlockM logger tbl) (Pact5.PactBlockM logger tbl) a)
-    deriving newtype (Functor, Applicative, Monad)
-instance MonadIO (SomeBlockM logger tbl) where
-    liftIO a = SomeBlockM $ Pair (liftIO a) (liftIO a)
-
 -- read-only rewind to the latest block.
 -- note: because there is a race between getting the latest header
 -- and doing the rewind, there's a chance that the latest header
@@ -126,7 +120,7 @@ instance MonadIO (SomeBlockM logger tbl) where
 -- note: this function will never rewind before genesis.
 readFromLatest
     :: Logger logger
-    => SomeBlockM logger tbl a
+    => PactBlockM logger tbl a
     -> PactServiceM logger tbl a
 readFromLatest doRead = readFromNthParent 0 doRead
 
@@ -136,7 +130,7 @@ readFromNthParent
     :: forall logger tbl a
     . Logger logger
     => Word
-    -> SomeBlockM logger tbl a
+    -> PactBlockM logger tbl a
     -> PactServiceM logger tbl a
 readFromNthParent n doRead = go 0
     where
@@ -173,7 +167,7 @@ readFromNthParent n doRead = go 0
 readFrom
     :: Logger logger
     => Maybe ParentHeader
-    -> SomeBlockM logger tbl a
+    -> PactBlockM logger tbl a
     -> PactServiceM logger tbl (Historical a)
 readFrom ph doRead = do
     cp <- view psCheckpointer
@@ -193,7 +187,7 @@ readFrom ph doRead = do
                 evalPactServiceM s e $ do
                     fst <$> Pact5.runPactBlockM pactParent (isNothing ph) dbenv blockHandle act
     case doRead of
-        SomeBlockM (Pair forPact4 forPact5)
+        PactBlockM (Pair forPact4 forPact5)
             | pact5 v cid currentHeight -> execPact5 forPact5
             | otherwise -> execPact4 forPact4
 
@@ -213,7 +207,7 @@ getPactParent ph = do
 restoreAndSave
     :: (CanReadablePayloadCas tbl, Logger logger, Monoid q)
     => Maybe ParentHeader
-    -> Stream (Of (SomeBlockM logger tbl (q, BlockHeader))) IO r
+    -> Stream (Of (PactBlockM logger tbl (q, BlockHeader))) IO r
     -> PactServiceM logger tbl (r, q)
 restoreAndSave ph blocks = do
     cp <- view psCheckpointer
@@ -227,7 +221,7 @@ restoreAndSave ph blocks = do
         Internal.restoreAndSave cp ph
             $ blocks & S.zip (S.iterate succ firstBlockHeight) & S.map
                 (\case
-                    (height, SomeBlockM (Pair pact4Block pact5Block))
+                    (height, PactBlockM (Pair pact4Block pact5Block))
                         | pact5 v cid height ->
                             Pact5RunnableBlock $ \dbEnv mph blockHandle -> runPact $ do
                                 pactParent <- getPactParent mph
@@ -355,7 +349,7 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                                         <> ". Block: "<> encodeToText (ObjectEncoded blockHeader)
                                     Just x -> return $ payloadWithOutputsToPayloadData x
                                 liftIO $ writeIORef heightRef (view blockHeight blockHeader)
-                                SomeBlockM $ Pair
+                                PactBlockM $ Pair
                                     (void $ Pact4.execBlock blockHeader (CheckablePayload payload))
                                     (void $ Pact5.execExistingBlock blockHeader (CheckablePayload payload))
                                 return (Last (Just blockHeader), blockHeader)

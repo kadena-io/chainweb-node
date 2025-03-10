@@ -72,7 +72,7 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Cut.CutHashes (cutIdToText)
 import Chainweb.CutDB (cutHashesTable)
 import Chainweb.Logger (Logger, l2l, setComponent, logFunctionText)
-import Chainweb.Pact4.Backend.ChainwebPactDb ()
+import Chainweb.Pact.Backend.ChainwebPactDb ()
 import Chainweb.Pact.Backend.PactState
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils

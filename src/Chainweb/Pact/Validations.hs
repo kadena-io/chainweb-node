@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 -- |
--- Module: Chainweb.Pact5.Validations
+-- Module: Chainweb.Pact.Validations
 -- Copyright: Copyright © 2018,2019,2020,2021,2022 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainers: Lars Kuhtz, Emily Pillmore, Stuart Popejoy, Greg Hale
@@ -13,7 +13,7 @@
 --  - The codepath for adding transactions to the mempool
 --  - The codepath for letting users test their transaction via /local
 --
-module Chainweb.Pact5.Validations
+module Chainweb.Pact.Validations
 ( -- * Local metadata _validation
   assertPreflightMetadata
   -- * Validation checks
@@ -56,11 +56,8 @@ import qualified Pact.Core.Command.Types as P
 import qualified Pact.Core.ChainData as P
 import qualified Pact.Core.Gas.Types as P
 import qualified Pact.Core.Hash as P
-import qualified Chainweb.Pact5.Transaction as P
-import qualified Pact.Types.Gas as Pact4
-import qualified Pact.Parse as Pact4
-import Chainweb.Pact5.Types
-import qualified Chainweb.Pact5.Transaction as Pact5
+import qualified Chainweb.Pact.Transaction as P
+import qualified Chainweb.Pact.Transaction as Pact5
 import Chainweb.Utils (ebool_)
 
 
@@ -72,9 +69,9 @@ assertPreflightMetadata
     -> Maybe LocalSignatureVerification
     -> PactServiceM logger tbl (Either (NonEmpty Text) ())
 assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
-    v <- view psVersion
+    v <- view chainwebVersion
     cid <- view chainId
-    Pact4.GasLimit (Pact4.ParsedInteger bgl) <- view psBlockGasLimit
+    bgl <- view psBlockGasLimit
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -84,7 +81,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           [ eUnless "Chain id mismatch" $ assertChainId cid pcid
           -- TODO: use failing conversion
           , eUnless "Transaction Gas limit exceeds block gas limit"
-            $ assertBlockGasLimit (P.GasLimit $ P.Gas (fromIntegral @Integer @P.SatWord bgl)) gl
+            $ assertBlockGasLimit bgl gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
           , eUnless "Network id mismatch" $ assertNetworkId v nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
@@ -100,11 +97,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       | Just NoVerify <- sigVerify = True
       | otherwise = isRight $ assertValidateSigs hsh signers sigs
 
-    pct = ParentCreationTime
-      . view blockCreationTime
-      . _parentHeader
-      . _tcParentHeader
-      $ txCtx
+    pct = _tcParentCreationTime txCtx
 
     eUnless t assertion
       | assertion = Nothing
@@ -180,10 +173,10 @@ assertValidateSigs hsh signers sigs = do
 -- skipped when replaying old blocks.
 --
 assertTxTimeRelativeToParent
-    :: ParentCreationTime
+    :: Parent BlockCreationTime
     -> P.Command (P.Payload P.PublicMeta c)
     -> Bool
-assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxTimeRelativeToParent (Parent (BlockCreationTime txValidationTime)) tx =
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
@@ -197,10 +190,10 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 -- | Check that the tx's creation time is not too far in the future relative
 -- to the block creation time
 assertTxNotInFuture
-    :: ParentCreationTime
+    :: Parent BlockCreationTime
     -> P.Command (P.Payload P.PublicMeta c)
     -> Bool
-assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxNotInFuture (Parent (BlockCreationTime txValidationTime)) tx =
     timeFromSeconds txOriginationTime <= lenientTxValidationTime
   where
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral

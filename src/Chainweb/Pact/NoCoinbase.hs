@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Pact4.NoCoinbase
+-- Module: Chainweb.Pact.NoCoinbase
 -- Copyright: Copyright © 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -10,22 +10,21 @@
 --
 -- A noop coin base for genesis transactions and testing purposes.
 --
-module Chainweb.Pact4.NoCoinbase
+module Chainweb.Pact.NoCoinbase
 ( noCoinbase
 ) where
 
--- internal modules
-
-import Pact.Types.Command
-import Pact.Types.Exp
-import Pact.Types.Hash
-import Pact.Types.PactValue
+import Data.Void
+import Pact.Core.Command.Types
+import Pact.Core.Gas
+import Pact.Core.Hash
+import Pact.Core.PactValue
 
 -- | No-op coinbase payload
 --
-noCoinbase :: CommandResult a
+noCoinbase :: CommandResult a Void
 noCoinbase = CommandResult
     (RequestKey pactInitialHash) Nothing
-    (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
-    0 Nothing Nothing Nothing []
+    (PactResultOk (PString "NO_COINBASE"))
+    (Gas 0) Nothing Nothing Nothing []
 {-# NOINLINE noCoinbase #-}

@@ -69,6 +69,7 @@ import Data.List qualified as L
 import Data.Map.Strict qualified as M
 import Numeric.Natural
 import Chainweb.BlockHeight
+import Chainweb.BlockHeader
 
 -- | A new payload cache for a chain.
 --
@@ -88,7 +89,7 @@ import Chainweb.BlockHeight
 --
 data PayloadCache = PayloadCache
     { _payloadCacheDepth :: !Natural
-    , _payloadCacheMap :: !(TVar (M.Map (RankedBlockHash, Int) NewPayload))
+    , _payloadCacheMap :: !(TVar (M.Map (Parent RankedBlockHash, Int) NewPayload))
     }
 
 -- NOTE that we provide separate @STM@ and @IO@ versions for functions. The
@@ -125,7 +126,7 @@ payloadHashesIO pc = fmap _newPayloadBlockPayloadHash . M.elems
 --
 getLatestSTM
     :: PayloadCache
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> STM (Maybe NewPayload)
 getLatestSTM pc rh = do
     lookupValueGE (rh, minBound) <$> readTVar (_payloadCacheMap pc) >>= \case
@@ -137,7 +138,7 @@ getLatestSTM pc rh = do
 --
 getLatestIO
     :: PayloadCache
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> IO (Maybe NewPayload)
 getLatestIO pc rh =
     lookupValueGE (rh, minBound) <$> readTVarIO (_payloadCacheMap pc) >>= \case
@@ -149,7 +150,7 @@ getLatestIO pc rh =
 --
 awaitLatestSTM
     :: PayloadCache
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> STM NewPayload
 awaitLatestSTM pc rh = getLatestSTM pc rh >>= maybe retry return
 
@@ -157,7 +158,7 @@ awaitLatestSTM pc rh = getLatestSTM pc rh >>= maybe retry return
 --
 awaitLatestIO
     :: PayloadCache
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> IO NewPayload
 awaitLatestIO pc = atomically . awaitLatestSTM pc
 
@@ -165,7 +166,7 @@ awaitLatestIO pc = atomically . awaitLatestSTM pc
 --
 lookupSTM
     :: PayloadCache
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> BlockPayloadHash
     -> STM (Maybe NewPayload)
 lookupSTM pc rh pld = do
@@ -189,7 +190,7 @@ lookupSTM pc rh pld = do
 --
 lookupIO
     :: PayloadCache
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> BlockPayloadHash
     -> IO (Maybe NewPayload)
 lookupIO pc rh pld = do
@@ -221,7 +222,7 @@ insertSTM pc pld =
   where
     h = _newPayloadParentHeight pld
     p = _newPayloadParentHash pld
-    key = (RankedBlockHash h p, _newPayloadNumber pld)
+    key = (Parent (RankedBlockHash h p), _newPayloadNumber pld)
 
 -- | Insert a new payload into the cache. The cache is pruned before the new
 -- item is inserted.
@@ -260,11 +261,10 @@ lookupValueGE k m = snd <$> M.lookupGE k m
 prune
     :: Natural
     -> BlockHeight
-    -> M.Map (RankedBlockHash, Int) v
-    -> M.Map (RankedBlockHash, Int) v
+    -> M.Map (Parent RankedBlockHash, Int) v
+    -> M.Map (Parent RankedBlockHash, Int) v
 prune d h m
     | h < fromIntegral d = m
     | otherwise = snd $ M.split pivot m
   where
-    pivot = (RankedBlockHash (h - fromIntegral d) nullBlockHash, minBound)
-
+    pivot = (Parent $ RankedBlockHash (h - fromIntegral d) nullBlockHash, minBound)

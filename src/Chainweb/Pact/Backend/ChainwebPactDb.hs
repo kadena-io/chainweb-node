@@ -49,19 +49,19 @@
 --
 -- Transactions must be nested in this way.
 --
--- SQLite transaction ensures that the Pact5Db transaction
+-- SQLite transaction ensures that the ChainwebPactDb transaction
 -- sees a consistent view of the database, especially if its
 -- writes are committed later.
 --
--- Pact5Db tx ensures that the Pact tx's writes
+-- ChainwebPactDb tx ensures that the Pact tx's writes
 -- are recorded.
 --
 -- Pact tx ensures that failed transactions' writes are not recorded.
 
 
-module Chainweb.Pact5.Backend.ChainwebPactDb
+module Chainweb.Pact.Backend.ChainwebPactDb
     ( chainwebPactBlockDb
-    , Pact5Db(..)
+    , ChainwebPactDb(..)
     , BlockHandlerEnv(..)
     , blockHandlerDb
     , blockHandlerLogger
@@ -100,7 +100,6 @@ import Data.ByteString.Short qualified as SB
 import Data.DList (DList)
 import Data.DList qualified as DL
 import Data.Foldable
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
@@ -112,7 +111,6 @@ import Data.Singletons (Dict(..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
-import Data.Vector (Vector)
 import Database.SQLite3.Direct qualified as SQ3
 import GHC.Stack
 import Pact.Core.Builtin qualified as Pact
@@ -218,8 +216,8 @@ data BlockHandlerEnv logger = BlockHandlerEnv
 -- | The state used by database operations.
 -- Includes both the state re: the whole block, and the state re: a transaction in progress.
 data BlockState = BlockState
-    { _bsBlockHandle :: !(BlockHandle Pact5)
-    , _bsPendingTxWrites :: !(SQLitePendingData InMemDb.Store)
+    { _bsBlockHandle :: !BlockHandle
+    , _bsPendingTxWrites :: !SQLitePendingData
     , _bsPendingTxLog :: !(Maybe (DList (Pact.TxLog ByteString)))
     }
 
@@ -231,27 +229,6 @@ getPendingTxLogOrError msg = do
     use bsPendingTxLog >>= \case
         Nothing -> liftGas $ Pact.throwDbOpErrorGasM (Pact.NotInTx msg)
         Just t -> return t
-
--- | The Pact 5 database as it's provided by the checkpointer.
-data Pact5Db = Pact5Db
-    { doPact5DbTransaction
-        :: forall a
-        . BlockHandle Pact5
-        -> Maybe RequestKey
-        -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> IO a)
-        -> IO (a, BlockHandle Pact5)
-        -- ^ Give this function a BlockHandle representing the state of a pending
-        -- block and it will pass you a PactDb which contains the Pact state as of
-        -- that point in the block. After you're done, it passes you back a
-        -- BlockHandle representing the state of the block extended with any writes
-        -- you made to the PactDb.
-        -- Note also that this function handles registering
-        -- transactions as completed, if you pass it a RequestKey.
-    , lookupPactTransactions :: Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash))
-        -- ^ Used to implement transaction polling.
-    }
-
-type instance PactDbFor logger Pact5 = Pact5Db
 
 -- this monad allows access to the database environment "in" a particular
 -- transaction, and allows charging gas for database operations.
@@ -309,9 +286,9 @@ runOnBlockGassed env stateVar act = do
         return (newState, fmap fst r)
     liftEither r
 
-chainwebPactBlockDb :: (Logger logger) => BlockHandlerEnv logger -> Pact5Db
-chainwebPactBlockDb env = Pact5Db
-    { doPact5DbTransaction = \blockHandle maybeRequestKey kont -> do
+chainwebPactBlockDb :: (Logger logger) => BlockHandlerEnv logger -> ChainwebPactDb
+chainwebPactBlockDb env = ChainwebPactDb
+    { doChainwebPactDbTransaction = \blockHandle maybeRequestKey kont -> do
         stateVar <- newMVar $ BlockState blockHandle (_blockHandlePending blockHandle) Nothing
         let pactDb = Pact.PactDb
                 { Pact._pdbPurity = Pact.PImpure
@@ -699,7 +676,7 @@ toTxLog version cid bh d key value = do
 toPactTxLog :: Pact.TxLog Pact.RowData -> Pact4.TxLog Pact.RowData
 toPactTxLog (Pact.TxLog d k v) = Pact4.TxLog d k v
 
-commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle Pact5 -> IO ()
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle -> IO ()
 commitBlockStateToDatabase db hsh bh blockHandle = throwOnDbError $ do
     let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
     mapM_ (\tn -> createUserTable (toUtf8 tn)) newTables

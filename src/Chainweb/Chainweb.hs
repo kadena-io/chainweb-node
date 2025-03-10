@@ -159,7 +159,7 @@ import Chainweb.OpenAPIValidation qualified as OpenAPIValidation
 import Chainweb.Pact.Backend.Types(IntraBlockPersistence(..))
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Types (PactServiceConfig(..))
-import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact4
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.PayloadProvider
@@ -390,7 +390,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
           isJust (_cutDbParamsInitialCutFile cutDbParams)
       , _pactNewBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
-      , _pactModuleCacheLimit = _configModuleCacheLimit conf
       , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
       , _pactFullHistoryRequired = _configFullHistoricPactState conf
       , _pactPersistIntraBlockWrites =
@@ -969,4 +968,3 @@ runChainweb cw nowServing = do
             -- return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
             logg Warn "Overwriting mempool p2p sync client configuration. It is currently not supported"
             return []
-

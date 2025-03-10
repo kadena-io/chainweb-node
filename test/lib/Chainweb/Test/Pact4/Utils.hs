@@ -849,7 +849,7 @@ runCut v bdb pact genTime noncer miner =
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.
-    whenM (addTestBlockDb bdb (succ $ view blockHeight $ _parentHeader ph) n genTime cid pout) $ do
+    whenM (addTestBlockDb bdb (succ $ view blockHeight $ unwrapParent ph) n genTime cid pout) $ do
         h <- getParentTestBlockDb bdb cid
         void $ _webPactValidateBlock pact h (CheckablePayloadWithOutputs pout)
 

@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      :  Chainweb.Pact5.Templates
+-- Module      :  Chainweb.Pact.Templates
 -- Copyright   :  Copyright © 2010 Kadena LLC.
 -- License     :  (see the file LICENSE)
 -- Maintainer  :  Stuart Popejoy
@@ -14,7 +14,7 @@
 --
 -- Prebuilt Term templates for automated operations (coinbase, gas buy)
 --
-module Chainweb.Pact5.Templates
+module Chainweb.Pact.Templates
 ( mkFundTxTerm
 , mkBuyGasTerm
 , mkRedeemGasTerm
@@ -39,7 +39,7 @@ import Chainweb.Utils (decodeOrThrow)
 import Pact.Core.StableEncoding (StableEncoding(_stableEncoding))
 import Control.Exception.Safe (impureThrow)
 import qualified Pact.Types.KeySet as Pact4
-import Chainweb.Pact5.Types
+import Chainweb.Pact.Types
 
 fundTxTemplate :: Text -> Text -> Expr ()
 fundTxTemplate sender mid =
