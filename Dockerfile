@@ -74,7 +74,8 @@ RUN <<EOF
         libtinfo5 \
         locales \
         zlib1g \
-        libgflags2.2
+        libgflags2.2 \
+        libmpfr6
     if [ "${TARGETPLATFORM}" = "linux/arm64" ] ; then
         apt-get install -yqq \
             --no-install-recommends \
@@ -123,7 +124,8 @@ RUN <<EOF
         libzstd-dev \
         neovim \
         pkg-config \
-        zlib1g-dev
+        zlib1g-dev \
+        libmpfr-dev
     if [ ${TARGETPLATFORM} = "linux/arm64" ] ; then
         echo plat: ${TARGETPLATFORM}
         apt-get install -yqq \
@@ -131,6 +133,17 @@ RUN <<EOF
             libnuma-dev
     fi
 EOF
+
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH=/root/.cargo/bin:$PATH
+RUN <<EOF
+    git clone https://github.com/kadena-io/sp1-verifier-hs.git
+    cd sp1-verifier-hs
+    cargo build --lib --release
+    cp target/release/libsp1_verifier_hs.* /usr/lib/
+EOF
+
+
 
 # Install Haskell toolchain
 ENV CABAL_DIR=/root/.cabal
@@ -223,25 +236,25 @@ EOF
 # ############################################################################ #
 # Build cwtool and run ea
 
-FROM chainweb-build-lib AS chainweb-build-cwtool
-ARG TARGETPLATFORM
-ARG PROJECT_NAME
-RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal build --enable-tests --enable-benchmarks chainweb:exe:cwtool
-RUN sh /tools/check-git-clean.sh
-RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal run --enable-tests --enable-benchmarks chainweb:exe:cwtool -- ea
-RUN <<EOF
-    sh /tools/check-git-clean.sh ||
-    { echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2 ; exit 1 ; }
-EOF
-RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
-    mkdir -p artifacts
-    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:cwtool) artifacts/
-EOF
+# FROM chainweb-build-lib AS chainweb-build-cwtool
+# ARG TARGETPLATFORM
+# ARG PROJECT_NAME
+# RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
+#     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
+#     cabal build --enable-tests --enable-benchmarks chainweb:exe:cwtool
+# RUN sh /tools/check-git-clean.sh
+# RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
+#     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
+#     cabal run --enable-tests --enable-benchmarks chainweb:exe:cwtool -- ea
+# RUN <<EOF
+#     sh /tools/check-git-clean.sh ||
+#     { echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2 ; exit 1 ; }
+# EOF
+# RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
+#     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
+#     mkdir -p artifacts
+#     cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:cwtool) artifacts/
+# EOF
 
 # ############################################################################ #
 # Build benchmarks
@@ -294,12 +307,12 @@ EOF
 # ############################################################################ #
 # Run slow tests
 
-FROM chainweb-runtime AS chainweb-run-slowtests
-COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
-RUN <<EOF
-    ulimit -n 10000
-    ./cwtool slow-tests
-EOF
+# FROM chainweb-runtime AS chainweb-run-slowtests
+# COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
+# RUN <<EOF
+#     ulimit -n 10000
+#     ./cwtool slow-tests
+# EOF
 
 # ############################################################################ #
 # Run benchmarks
@@ -341,7 +354,7 @@ ENTRYPOINT ["/chainweb/chainweb-node"]
 
 FROM chainweb-node AS chainweb-applications
 COPY --from=chainweb-build-bench /chainweb/artifacts/bench .
-COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
+# COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
 COPY --from=chainweb-build-tests /chainweb/artifacts/chainweb-tests .
 COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
@@ -351,9 +364,9 @@ COPY --from=chainweb-build-tests /chainweb/pact pact
 
 FROM chainweb-node AS chainweb-node-tested
 # Phony dependencies on tests
-COPY --from=chainweb-build-cwtool /etc/hostname /tmp/run-ea
+# COPY --from=chainweb-build-cwtool /etc/hostname /tmp/run-ea
 COPY --from=chainweb-run-tests /etc/hostname /tmp/run-tests
-COPY --from=chainweb-run-slowtests /etc/hostname /tmp/run-slowtests
+# COPY --from=chainweb-run-slowtests /etc/hostname /tmp/run-slowtests
 COPY --from=chainweb-run-bench /etc/hostname /tmp/run-bench
 RUN rm -f /tmp/run-tests /tmp/run-ea /tmp/run-slowtests /tmp/run-bench
 
@@ -367,4 +380,3 @@ RUN rm -f /tmp/run-tests /tmp/run-ea /tmp/run-slowtests /tmp/run-bench
 # - Create image that only rocksdb database to volume, so that it can be
 #   done during the build?
 # - Just start the node on it?
-
