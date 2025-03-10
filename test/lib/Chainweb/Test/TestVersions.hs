@@ -474,7 +474,7 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionVerifierPluginNames .~ AllChains
         (Bottom
             ( minBound
-            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message", "plonk"]
             )
         )
 

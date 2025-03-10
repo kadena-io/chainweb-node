@@ -1,0 +1,63 @@
+cabal-version:   3.0
+name:            sp1-verifier-hs
+version:         0.1.0.0
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Robert Soeldner
+maintainer:      robert@kadena.io
+
+build-type: Simple
+
+data-files:
+    verifier-assets/v4.0.0-rc.3.bin
+
+extra-source-files:
+    Cargo.toml
+    Cargo.lock
+    src/lib.rs
+
+custom-setup
+    setup-depends:
+        , Cabal
+        , base
+        , directory
+        , process
+        , filepath
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:           warnings
+    exposed-modules:
+        PlonkBn254.Verify,
+        PlonkBn254.Utils.EmbedVMKeys,
+        PlonkBn254.VMKeys
+    build-depends:
+        base ^>=4.20.0.0,
+        bytestring,
+        vector,
+        template-haskell,
+        filepath,
+        directory,
+        containers,
+        text,
+        lens
+
+    hs-source-dirs:   src-hs
+    default-language: Haskell2010
+
+    extra-libraries: sp1_verifier_hs
+    extra-lib-dirs:      /usr/local/lib
+
+test-suite sp1-verifier-hs-test
+    import:           warnings
+    default-language: Haskell2010
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+        base ^>=4.20.0.0,
+        sp1-verifier-hs,
+        bytestring,
+        base16-bytestring

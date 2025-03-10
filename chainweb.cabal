@@ -262,6 +262,7 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
         , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
+        , Chainweb.VerifierPlugin.Plonk
         , Chainweb.Version
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
@@ -470,6 +471,7 @@ library
         , warp-tls >= 3.4
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
+        , sp1-verifier-hs
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -652,6 +654,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact5.CheckpointerTest
         Chainweb.Test.Pact5.CutFixture
         Chainweb.Test.Pact5.HyperlanePluginTests
+        Chainweb.Test.Pact5.PlonkVerifierPluginTests
         Chainweb.Test.Pact5.PactServiceTest
         Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest

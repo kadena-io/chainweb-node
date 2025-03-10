@@ -3,6 +3,7 @@ packages:
     node/chainweb-node.cabal
     cwtools/cwtools.cabal
     libs/chainweb-storage/chainweb-storage.cabal
+    libs/sp1-verifier-hs/sp1-verifier-hs.cabal
 
 debug-info: True
 

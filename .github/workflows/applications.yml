@@ -815,9 +815,20 @@ jobs:
           locale-gen en_US.UTF-8 &&
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         EOF
+
+        RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+        ENV PATH=/root/.cargo/bin:$PATH
+
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/* .
+
+        RUN <<EOF
+        cd /chainweb/libs/sp1-verifier-hs
+        cargo build --lib --release
+        cp target/release/libsp1_verifier_hs.* /usr/lib/
+        EOF
+
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
         DEOF

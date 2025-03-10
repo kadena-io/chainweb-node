@@ -90,6 +90,7 @@ import Chainweb.Version
 import Chainweb.Version.Mainnet
 
 import Pact.Types.Verifier
+import qualified Chainweb.VerifierPlugin.Plonk
 
 -- -------------------------------------------------------------------------- --
 --  Utils
@@ -478,4 +479,5 @@ allVerifierPlugins = M.fromList $ map (over _1 VerifierName)
 
     , ("hyperlane_v3_announcement", Chainweb.VerifierPlugin.Hyperlane.Announcement.plugin)
     , ("hyperlane_v3_message", Chainweb.VerifierPlugin.Hyperlane.Message.plugin)
+    , ("plonk", Chainweb.VerifierPlugin.Plonk.plugin)
     ]
