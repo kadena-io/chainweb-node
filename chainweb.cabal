@@ -470,7 +470,6 @@ library
         , wai-app-static >= 3.1.6.3
         , wai-cors >= 0.2.7
         , wai-extra >= 3.0.28
-        , wai-middleware-throttle >= 0.3
         , wai-middleware-validation
         , warp >= 3.3.6
         , warp-tls >= 3.4
