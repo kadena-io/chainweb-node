@@ -19,6 +19,8 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE EmptyCase #-}
 
 -- | The database operations that manipulate and read the Pact state.
 
@@ -66,23 +68,20 @@ module Chainweb.Pact.Backend.ChainwebPactDb
     , blockHandlerDb
     , blockHandlerLogger
     , toTxLog
-    , toPactTxLog
     , domainTableName
     , convRowKey
     , commitBlockStateToDatabase
     , initSchema
+    , lookupBlock
+    , lookupBlockRanked
+    , getPayloadsAfter
+    , getEarliestBlock
+    , getBlockParent
+    , getConsensusState
+    , setConsensusState
+    , throwOnDbError
     ) where
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeight
-import Chainweb.Logger
-import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
-import Chainweb.Utils (sshow, T2)
-import Chainweb.Utils.Serialization (runPutS)
-import Chainweb.Version
-import Chainweb.Version.Guards (pact5Serialiser)
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Exception.Safe
@@ -113,21 +112,38 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Database.SQLite3.Direct qualified as SQ3
 import GHC.Stack
+
+import Prelude hiding (concat, log)
+
 import Pact.Core.Builtin qualified as Pact
 import Pact.Core.Command.Types (RequestKey (..))
 import Pact.Core.Errors qualified as Pact
 import Pact.Core.Evaluate qualified as Pact
 import Pact.Core.Gas qualified as Pact
 import Pact.Core.Guards qualified as Pact
-import Pact.Core.Hash
+import Pact.Core.Hash hiding (hash)
 import Pact.Core.Info qualified as Pact
 import Pact.Core.Names qualified as Pact
 import Pact.Core.Persistence (throwDbOpErrorGasM)
 import Pact.Core.Persistence qualified as Pact
 import Pact.Core.Serialise qualified as Pact
 import Pact.Core.StableEncoding (encodeStable)
-import Pact.Types.Persistence qualified as Pact4
-import Prelude hiding (concat, log)
+
+import Chainweb.BlockHash
+import Chainweb.BlockHeader (genesisHeight, encodeBlockPayloadHash, decodeBlockPayloadHash, BlockPayloadHash)
+import Chainweb.BlockHeight
+import Chainweb.Logger
+import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.SPV (pactSPV)
+import Chainweb.Parent
+import Chainweb.PayloadProvider (ConsensusState (..), SyncState (..), EvaluationCtx (_evaluationCtxPayload), _evaluationCtxCurrentHeight)
+import Chainweb.Utils (sshow)
+import Chainweb.Utils.Serialization (runPutS, runGetEitherS)
+import Chainweb.Version
+import Chainweb.Version.Guards (pact5Serialiser)
+import Chainweb.Ranked
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -212,6 +228,12 @@ data BlockHandlerEnv logger = BlockHandlerEnv
     , _blockHandlerMode :: !Pact.ExecutionMode
     , _blockHandlerAtTip :: Bool
     }
+
+instance HasChainId (BlockHandlerEnv logger) where
+    _chainId = _blockHandlerChainId
+
+instance HasChainwebVersion (BlockHandlerEnv logger) where
+    _chainwebVersion = _blockHandlerVersion
 
 -- | The state used by database operations.
 -- Includes both the state re: the whole block, and the state re: a transaction in progress.
@@ -306,7 +328,12 @@ chainwebPactBlockDb env = ChainwebPactDb
                 , Pact._pdbRollbackTx =
                     runOnBlockGassed env stateVar doRollback
                 }
-        r <- kont pactDb
+        let headerOracle = HeaderOracle
+                { chain = _chainId env
+                , consult = \bh -> throwOnDbError $ isJust <$> lookupBlock (_blockHandlerDb env) (Left bh)
+                }
+        let spv = pactSPV headerOracle
+        r <- kont pactDb spv
         finalState <- readMVar stateVar
         -- Register a successful transaction in the pending data for the block
         let registerRequestKey = case maybeRequestKey of
@@ -673,11 +700,8 @@ toTxLog version cid bh d key value = do
         Nothing -> internalDbError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
         Just v -> return $! Pact.TxLog d (fromUtf8 key) v
 
-toPactTxLog :: Pact.TxLog Pact.RowData -> Pact4.TxLog Pact.RowData
-toPactTxLog (Pact.TxLog d k v) = Pact4.TxLog d k v
-
-commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle -> IO ()
-commitBlockStateToDatabase db hsh bh blockHandle = throwOnDbError $ do
+commitBlockStateToDatabase :: SQLiteEnv -> BlockPayloadHash -> BlockHeight -> BlockHandle -> IO ()
+commitBlockStateToDatabase db payloadHash bh blockHandle = throwOnDbError $ do
     let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
     mapM_ (\tn -> createUserTable (toUtf8 tn)) newTables
     backendWriteUpdateBatch (_pendingWrites (_blockHandlePending blockHandle))
@@ -729,27 +753,27 @@ commitBlockStateToDatabase db hsh bh blockHandle = throwOnDbError $ do
         writeTable :: SQ3.Utf8 -> [[SType]] -> ExceptT SQ3.Error IO ()
         writeTable table writes = when (not (null writes)) $ do
             execMulti db q writes
-            markTableMutation table bh
+            markTableMutation table
             where
             q = "INSERT OR REPLACE INTO " <> tbl table <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
 
         -- Mark the table as being mutated during this block, so that we know
         -- to delete from it if we rewind past this block.
-        markTableMutation tablename blockheight = do
-            exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
+        markTableMutation tablename = do
+            exec' db mutq [SText tablename, SInt (fromIntegral bh)]
             where
             mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
 
     -- | Record a block as being in the history of the checkpointer.
-    blockHistoryInsert :: Pact4.TxId -> ExceptT SQ3.Error IO ()
-    blockHistoryInsert t =
+    blockHistoryInsert :: Pact.TxId -> ExceptT SQ3.Error IO ()
+    blockHistoryInsert (Pact.TxId t) =
         exec' db stmt
             [ SInt (fromIntegral bh)
-            , SBlob (runPutS (encodeBlockHash hsh))
+            , SBlob (runPutS (encodeBlockPayloadHash payloadHash))
             , SInt (fromIntegral t)
             ]
         where
-        stmt = "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+        stmt = "INSERT INTO BlockHistory ('blockheight','payloadhash', 'endingtxid') VALUES (?,?,?,?);"
 
     createUserTable :: SQ3.Utf8 -> ExceptT SQ3.Error IO ()
     createUserTable tablename = do
@@ -792,12 +816,53 @@ createVersionedTable tablename db = do
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
+setConsensusState :: SQ3.Database -> ConsensusState -> ExceptT SQ3.Error IO ()
+setConsensusState db cs = do
+    exec' db
+        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, type) VALUES\
+        \(?, ?, ?, 'final'), \
+        \(?, ?, ?, 'latest'), \
+        \(?, ?, ?, 'safe') \
+        \ON CONFLICT REPLACE;"
+        $ concatMap toRow
+        [ _consensusStateFinal cs
+        , _consensusStateSafe cs
+        , _consensusStateLatest cs
+        ]
+    where
+    toRow SyncState {..} =
+        [ SInt $ fromIntegral @BlockHeight @Int64 _syncStateHeight
+        , SBlob $ runPutS (encodeBlockHash _syncStateBlockHash)
+        , SBlob $ runPutS (encodeBlockPayloadHash _syncStateBlockPayloadHash)
+        ]
+
+getConsensusState :: SQ3.Database -> ExceptT SQ3.Error IO ConsensusState
+getConsensusState db = do
+    qry db "SELECT FROM ConsensusState (blockheight, hash, payloadhash, type) order by type"
+        [] [RInt, RBlob, RBlob, RText] >>= \case
+        [final, latest, safe] -> return ConsensusState
+            { _consensusStateFinal = readRow "final" final
+            , _consensusStateLatest = readRow "latest" latest
+            , _consensusStateSafe = readRow "safe" safe
+            }
+        inv -> error $ "invalid contents of the ConsensusState table: " <> sshow inv
+    where
+    readRow expectedType [SInt height, SBlob hash, SBlob payloadHash, SText type']
+        | expectedType == type' = SyncState
+            { _syncStateHeight = fromIntegral @Int64 @BlockHeight height
+            , _syncStateBlockHash = either error id $ runGetEitherS decodeBlockHash hash
+            , _syncStateBlockPayloadHash = either error id $ runGetEitherS decodeBlockPayloadHash payloadHash
+            }
+        | otherwise = error $ "wrong type; expected " <> sshow expectedType <> " but got " <> sshow type'
+    readRow expectedType invalidRow
+        = error $ "invalid row: expected " <> sshow expectedType <> " but got row " <> sshow invalidRow
 
 -- | Create all tables that exist pre-genesis
 -- TODO: migrate this logic to the checkpointer itself?
 initSchema :: SQLiteEnv -> IO ()
 initSchema sql =
-    withSavepoint sql DbTransaction $ throwOnDbError $ do
+    withSavepoint sql InitSchemaSavePoint $ throwOnDbError $ do
+        createConsensusStateTable
         createBlockHistoryTable
         createTableCreationTable
         createTableMutationTable
@@ -807,45 +872,61 @@ initSchema sql =
         create (toUtf8 $ Pact.renderDomain Pact.DNamespaces)
         create (toUtf8 $ Pact.renderDomain Pact.DDefPacts)
         create (toUtf8 $ Pact.renderDomain Pact.DModuleSource)
-  where
+    where
     create tablename = do
-      createVersionedTable tablename sql
+        createVersionedTable tablename sql
+
+    createConsensusStateTable :: ExceptT SQ3.Error IO ()
+    createConsensusStateTable = do
+        exec_ sql
+            "CREATE TABLE IF NOT EXISTS ConsensusState \
+            \(blockheight UNSIGNED BIGINT NOT NULL, \
+            \ hash BLOB NOT NULL, \
+            \ payloadhash BLOB NOT NULL, \
+            \ type VARCHAR NOT NULL, \
+            \ CONSTRAINT typeConstraint UNIQUE (type));"
 
     createBlockHistoryTable :: ExceptT SQ3.Error IO ()
-    createBlockHistoryTable =
-      exec_ sql
-        "CREATE TABLE IF NOT EXISTS BlockHistory \
-        \(blockheight UNSIGNED BIGINT NOT NULL,\
-        \ hash BLOB NOT NULL,\
-        \ endingtxid UNSIGNED BIGINT NOT NULL, \
-        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
+    createBlockHistoryTable = do
+        exec_ sql
+            "CREATE TABLE IF NOT EXISTS BlockHistory \
+            \(blockheight UNSIGNED BIGINT NOT NULL, \
+            \ endingtxid UNSIGNED BIGINT NOT NULL, \
+            \ payloadhash BLOB NOT NULL, \
+            \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
+        -- TODO PP: payload hash should really be NOT NULL but there may exist old databases without it.
+
+        -- making this index at block height 5,658,430 on us-e3 took around 2.5 minutes
+        exec_ sql
+            "CREATE UNIQUE INDEX BlockHistory_hash_ix IF NOT EXISTS \
+            \ ON BlockHistory(payloadhash);"
 
     createTableCreationTable :: ExceptT SQ3.Error IO ()
     createTableCreationTable =
-      exec_ sql
-        "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
-        \(tablename TEXT NOT NULL\
-        \, createBlockheight UNSIGNED BIGINT NOT NULL\
-        \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
+        exec_ sql
+            "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
+            \(tablename TEXT NOT NULL\
+            \, createBlockheight UNSIGNED BIGINT NOT NULL\
+            \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
 
     createTableMutationTable :: ExceptT SQ3.Error IO ()
     createTableMutationTable =
-      exec_ sql
-        "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
-         \(tablename TEXT NOT NULL\
-         \, blockheight UNSIGNED BIGINT NOT NULL\
-         \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
+        exec_ sql
+            "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+            \(tablename TEXT NOT NULL\
+            \, blockheight UNSIGNED BIGINT NOT NULL\
+            \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
 
     createTransactionIndexTable :: ExceptT SQ3.Error IO ()
     createTransactionIndexTable = do
-      exec_ sql
-        "CREATE TABLE IF NOT EXISTS TransactionIndex \
-         \ (txhash BLOB NOT NULL, \
-         \ blockheight UNSIGNED BIGINT NOT NULL, \
-         \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
-      exec_ sql
-        "CREATE INDEX IF NOT EXISTS \
-         \ transactionIndexByBH ON TransactionIndex(blockheight)";
+        exec_ sql
+            "CREATE TABLE IF NOT EXISTS TransactionIndex \
+            \ (txhash BLOB NOT NULL, \
+            \ blockheight UNSIGNED BIGINT NOT NULL, \
+            \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
+        exec_ sql
+            "CREATE INDEX IF NOT EXISTS \
+            \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
 getSerialiser :: BlockHandler logger (Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo)
 getSerialiser = do
@@ -853,3 +934,73 @@ getSerialiser = do
     cid <- view blockHandlerChainId
     blockHeight <- view blockHandlerBlockHeight
     return $ pact5Serialiser version cid blockHeight
+
+getPayloadsAfter :: HasCallStack => SQLiteEnv -> Parent BlockHeight -> ExceptT SQ3.Error IO [Ranked BlockPayloadHash]
+getPayloadsAfter db parentHeight = do
+    qry db "SELECT blockheight, payloadhash FROM BlockHistory WHERE blockheight > ?"
+        [SInt (fromIntegral @BlockHeight @Int64 (unwrapParent parentHeight))]
+        [RBlob] >>= traverse
+        \case
+            [SInt bh, SBlob bhash] ->
+                return $! Ranked (fromIntegral @Int64 @BlockHeight bh) $ either error id $ runGetEitherS decodeBlockPayloadHash bhash
+            _ -> error "incorrect column type"
+
+-- | Get the checkpointer's idea of the earliest block. The block height
+-- is the height of the block of the block hash.
+getEarliestBlock :: HasCallStack => SQLiteEnv -> ExceptT SQ3.Error IO (Maybe RankedBlockHash)
+getEarliestBlock db = do
+    r <- qry db qtext [] [RInt, RBlob] >>= mapM go
+    case r of
+        [] -> return Nothing
+        (!o:_) -> return (Just o)
+    where
+    qtext = "SELECT blockheight, hash FROM BlockHistory ORDER BY blockheight ASC LIMIT 1"
+
+    go [SInt hgt, SBlob blob] =
+        let hash = either error id $ runGetEitherS decodeBlockHash blob
+        in return (RankedBlockHash (fromIntegral hgt) hash)
+    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
+
+lookupBlock :: SQLiteEnv -> Either BlockHash BlockHeight -> ExceptT SQ3.Error IO (Maybe RankedBlockHash)
+lookupBlock db (Left hash) = do
+    qry db qtext [SBlob (runPutS (encodeBlockHash hash))] [RInt] >>= \case
+        [[SInt n]] -> return $! Just $!
+            RankedBlockHash (fromIntegral @Int64 @BlockHeight n) hash
+        [_] -> error "lookupBlock: output type mismatch"
+        _ -> error "Expected single-row result"
+    where
+    qtext = "SELECT blockheight FROM BlockHistory WHERE hash = ?;"
+lookupBlock db (Right height) = do
+    qry db qtext [SInt (fromIntegral @BlockHeight @Int64 height)] [RBlob] >>= \case
+        [[SBlob h]] -> return $! Just $!
+            RankedBlockHash height (either error id $ runGetEitherS decodeBlockHash h)
+        [_] -> error "lookupBlock: output type mismatch"
+        _ -> error "Expected single-row result"
+    where
+    qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?;"
+
+lookupBlockRanked :: SQ3.Database -> RankedBlockHash -> ExceptT SQ3.Error IO Bool
+lookupBlockRanked db (RankedBlockHash bheight bhash) = do
+    qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash bhash))] [RInt] >>= \case
+        [[SInt n]] -> return $! n == 1
+        [_] -> error "lookupBlock: output type mismatch"
+        _ -> error "Expected single-row result"
+    where
+    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
+
+getBlockParent :: ChainwebVersion -> ChainId -> SQLiteEnv -> RankedBlockHash -> ExceptT SQ3.Error IO (Maybe RankedBlockHash)
+getBlockParent v cid db rbh
+    | _rankedBlockHashHeight rbh == genesisHeight v cid = return Nothing
+    | otherwise = do
+        blockFound <- lookupBlockRanked db rbh
+        if blockFound
+        then do
+            let parentHeight = pred (_rankedBlockHashHeight rbh)
+            qry db qtext [SInt (fromIntegral @BlockHeight @Int64 parentHeight)] [RBlob] >>= \case
+                [[SBlob blob]] ->
+                    return $! Just $! RankedBlockHash parentHeight $ either error id $ runGetEitherS decodeBlockHash blob
+                [] -> error "getBlockParent: block was found but its parent couldn't be found"
+                _ -> error "getBlockParent: output type mismatch"
+        else return Nothing
+    where
+    qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"

@@ -98,7 +98,6 @@ import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 import Chainweb.Pact.Types (RewindLimit(..))
 import Chainweb.Pact.Types (defaultReorgLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
@@ -128,7 +127,7 @@ import Data.List qualified as L
 import Data.Maybe
 import Data.Text qualified as T
 import Data.Text.Read qualified as T
-import GHC.Generics hiding (from)
+import GHC.Generics hiding (from, to)
 import Network.Wai.Handler.Warp hiding (Port)
 import Numeric.Natural (Natural)
 import P2P.Node.Configuration
@@ -136,6 +135,7 @@ import Pact.JSON.Encode qualified as J
 import Prelude hiding (log)
 import System.Directory
 import qualified Pact.Core.Gas as Pact
+import Pact.Core.StableEncoding
 
 -- -------------------------------------------------------------------------- --
 -- Payload Provider Configuration
@@ -688,9 +688,9 @@ instance ToJSON ChainwebConfiguration where
         , "p2p" .= _configP2p o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
-        , "gasLimitOfBlock" .= J.toJsonViaEncode (_configBlockGasLimit o)
+        , "gasLimitOfBlock" .= J.toJsonViaEncode (StableEncoding $ _configBlockGasLimit o)
         , "logGas" .= _configLogGas o
-        , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
+        , "minGasPrice" .= J.toJsonViaEncode (StableEncoding $ _configMinGasPrice o)
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
@@ -719,9 +719,9 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configP2p %.: "p2p" % o
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configBlockGasLimit . iso StableEncoding _stableEncoding ..: "gasLimitOfBlock" % o
         <*< configLogGas ..: "logGas" % o
-        <*< configMinGasPrice ..: "minGasPrice" % o
+        <*< configMinGasPrice . iso StableEncoding _stableEncoding ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
@@ -747,13 +747,13 @@ pChainwebConfiguration = id
     <*< configP2p %:: pP2pConfiguration
     <*< configMempoolP2p %::
         pEnableConfig "mempool-p2p" pMempoolP2pConfig
-    <*< configBlockGasLimit .:: jsonOption
+    <*< configBlockGasLimit . iso StableEncoding _stableEncoding .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
     <*< configLogGas .:: boolOption_
         % long "log-gas"
         <> help "log gas consumed by Pact commands"
-    <*< configMinGasPrice .:: jsonOption
+    <*< configMinGasPrice . iso StableEncoding _stableEncoding .:: jsonOption
         % long "min-gas-price"
         <> help "the gas price of an individual transaction in a block must not be beneath this number"
     <*< configPactQueueSize .:: jsonOption

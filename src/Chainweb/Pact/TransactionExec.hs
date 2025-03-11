@@ -70,9 +70,7 @@ import qualified Data.Text.Encoding as T
 import qualified System.LogLevel as L
 
 -- internal Pact modules
-import qualified Pact.JSON.Decode as J
 import qualified Pact.JSON.Encode as J
-
 
 import Pact.Core.Builtin
 import Pact.Core.Capabilities
@@ -91,20 +89,25 @@ import Pact.Core.SPV
 import Pact.Core.Serialise.LegacyPact ()
 import Pact.Core.Signer
 import Pact.Core.StableEncoding
-import Pact.Core.Verifiers
 import Pact.Core.Syntax.ParseTree qualified as Lisp
-import Pact.Core.Gas.Utils qualified as Pact5
+import Pact.Core.Gas.Utils qualified as Pact
+
+import Pact.Core.Command.Types
+import Pact.Core.Command.RPC
+import qualified Pact.Core.Errors as Pact
+import qualified Pact.Core.Gas as Pact
+import qualified Pact.Core.Evaluate as Pact
 
 -- internal Chainweb modules
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Templates
+import Chainweb.Parent
 
 import Chainweb.Time
 import Chainweb.Pact.Transaction
@@ -114,23 +117,14 @@ import Chainweb.Version as V
 import Chainweb.Version.Guards as V
 import Chainweb.Version.Utils as V
 
-import Pact.Core.Command.Types
 import Data.ByteString (ByteString)
-import Pact.Core.Command.RPC
-import qualified Pact.Types.Gas as Pact4
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as Vector
 import Data.Set (Set)
 import Data.Void
 import Control.Monad.Except
-import Data.Int
-import qualified Pact.Types.Verifier as Pact4
-import qualified Pact.Types.Capability as Pact4
-import qualified Pact.Types.Names as Pact4
-import qualified Pact.Types.Runtime as Pact4
-import qualified Pact.Core.Errors as Pact5
-import qualified Pact.Core.Evaluate as Pact5
+import qualified Chainweb.MinerReward as MinerReward
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -153,13 +147,15 @@ makeLenses ''TransactionEnv
 
 -- | TODO: document how TransactionM is just for the "paid-for" fragment of the transaction flow
 newtype TransactionM logger a
-  = TransactionM { runTransactionM :: ReaderT (TransactionEnv logger) (ExceptT (Pact5.PactError Info) IO) a }
+  = TransactionM
+  { runTransactionM :: ReaderT (TransactionEnv logger) (ExceptT (Pact.PactError Pact.Info) IO) a
+  }
   deriving newtype
   ( Functor
   , Applicative
   , Monad
   , MonadReader (TransactionEnv logger)
-  , MonadError (Pact5.PactError Info)
+  , MonadError (Pact.PactError Pact.Info)
   , MonadThrow
   , MonadIO
   )
@@ -173,7 +169,7 @@ chargeGas info gasArgs = do
 -- run verifiers
 -- nasty... perhaps later convert verifier plugins to use GasM instead of tracking "gas remaining"
 -- TODO: Verifiers are also tied to Pact enough that this is going to be an annoying migration
-runVerifiers :: Logger logger => TxContext -> Command (Payload PublicMeta ParsedCode) -> TransactionM logger ()
+runVerifiers :: Logger logger => BlockCtx -> Command (Payload PublicMeta ParsedCode) -> TransactionM logger ()
 runVerifiers txCtx cmd = do
       logger <- view txEnvLogger
       let v = _chainwebVersion txCtx
@@ -181,46 +177,17 @@ runVerifiers txCtx cmd = do
       gasUsed <- liftIO . readIORef . _geGasRef . _txEnvGasEnv =<< ask
       let initGasRemaining = MilliGas $ case (gasToMilliGas (gasLimit ^. _GasLimit), gasUsed) of
             (MilliGas gasLimitMilliGasWord, MilliGas gasUsedMilliGasWord) -> gasLimitMilliGasWord - gasUsedMilliGasWord
-      let allVerifiers = verifiersAt v (_chainId txCtx) (ctxCurrentBlockHeight txCtx)
-      let toModuleName m =
-            Pact4.ModuleName
-                    { Pact4._mnName = _mnName m
-                    , Pact4._mnNamespace = coerce <$> _mnNamespace m
-                    }
-      let toQualifiedName qn =
-            Pact4.QualifiedName
-                { Pact4._qnQual = toModuleName $ _qnModName qn
-                , Pact4._qnName = _qnName qn
-                , Pact4._qnInfo = Pact4.Info Nothing
-                }
-      -- TODO: correct error handling here? we should probably charge the user
-      let convertPactValue pv = fromJuste $ J.decodeStrict $ encodeStable pv
-      let pact4TxVerifiers =
-            [ Pact4.Verifier
-              { Pact4._verifierName = case _verifierName pact5Verifier of
-                VerifierName n -> Pact4.VerifierName n
-              , Pact4._verifierProof =
-                  -- TODO: correct error handling here? we should probably charge the user
-                  Pact4.ParsedVerifierProof $ fromJuste $
-                    convertPactValue $ coerce @ParsedVerifierProof @PactValue $ _verifierProof pact5Verifier
-              , Pact4._verifierCaps =
-                [ Pact4.SigCapability (toQualifiedName n) (convertPactValue <$> args)
-                | SigCapability (CapToken n args) <- _verifierCaps pact5Verifier
-                ]
-              }
-              | pact5Verifier <- fromMaybe [] $ cmd ^. cmdPayload . pVerifiers
-              ]
+      let allVerifiers = verifiersAt v (_chainId txCtx) (_bctxCurrentBlockHeight txCtx)
+      let txVerifiers = fromMaybe [] $ cmd ^. cmdPayload . pVerifiers
       verifierResult <- liftIO $ runVerifierPlugins
-          (_chainwebVersion txCtx, _chainId txCtx, ctxCurrentBlockHeight txCtx) logger
+          (_chainwebVersion txCtx, _chainId txCtx, _bctxCurrentBlockHeight txCtx) logger
           allVerifiers
-          (Pact4.Gas $ fromIntegral @SatWord @Int64 $ _gas $ milliGasToGas $ initGasRemaining)
-          pact4TxVerifiers
+          (milliGasToGas $ initGasRemaining)
+          txVerifiers
       case verifierResult of
         Left err -> do
-          throwError (Pact5.PEVerifierError err noInfo)
-        Right (Pact4.Gas pact4VerifierGasRemaining) -> do
-          -- TODO: crash properly on negative?
-          let verifierGasRemaining = fromIntegral @Int64 @SatWord pact4VerifierGasRemaining
+          throwError (Pact.PEVerifierError err noInfo)
+        Right (Pact.Gas verifierGasRemaining) -> do
           -- NB: this is not nice.
           -- TODO: better gas info here
           -- Explanation by cases:
@@ -245,13 +212,13 @@ applyLocal
       -- ^ Pact gas logger
     -> PactDb CoreBuiltin Info
       -- ^ Pact db environment
-    -> TxContext
+    -> BlockCtx
       -- ^ tx metadata and parent header
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (CommandResult [TxLog ByteString] (Pact5.PactError Info))
+    -> IO (CommandResult [TxLog ByteString] (Pact.PactError Info))
 applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   let gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
@@ -320,7 +287,9 @@ applyCmd
       -- ^ Pact gas logger
     -> PactDb CoreBuiltin Info
       -- ^ Pact db environment
-    -> TxContext
+    -> Miner
+      -- ^ miner
+    -> BlockCtx
       -- ^ tx metadata
     -> TxIdxInBlock
     -> SPVSupport
@@ -329,8 +298,8 @@ applyCmd
       -- ^ initial gas cost
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (Either TxInvalidError (CommandResult [TxLog ByteString] (Pact5.PactError Info)))
-applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
+    -> IO (Either TxInvalidError (CommandResult [TxLog ByteString] (Pact.PactError Info)))
+applyCmd logger maybeGasLogger db miner txCtx txIdxInBlock spv initialGas cmd = do
   logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
         [ FlagDisableRuntimeRTC
@@ -362,7 +331,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
     then do
       pure $ Left PurchaseGasTxTooBigForGasLimit
     else do
-      buyGas logger gasEnv db txCtx cmd >>= \case
+      buyGas logger gasEnv db miner txCtx cmd >>= \case
         Left buyGasError -> do
           pure $ Left (BuyGasError buyGasError)
         Right buyGasResult -> do
@@ -382,7 +351,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
           -- and all of the gas is sent to the miner. only buying gas and sending it to the miner are recorded.
           -- the Pact transaction is cancelled, and events and logs from the command are not recorded.
           eRedeemGasResult <- redeemGas
-            logger db txCtx
+            logger db miner txCtx
             (gasLimit ^. _GasLimit)
             (_peDefPactId <$> _erExec buyGasResult)
             cmd
@@ -406,7 +375,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
           -- return all unused gas to the user and send all used
           -- gas to the miner.
           eRedeemGasResult <- redeemGas
-            logger db txCtx
+            logger db miner txCtx
             gasUsed
             (_peDefPactId <$> _erExec buyGasResult)
             cmd
@@ -435,7 +404,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
 -- current blockheight, referencing the parent header (not grandparent!)
 -- hash and blocktime data.
 --
-ctxToPublicData :: PublicMeta -> TxContext -> PublicData
+ctxToPublicData :: PublicMeta -> BlockCtx -> PublicData
 ctxToPublicData pm ctx = PublicData
     { _pdPublicMeta = pm
     , _pdBlockHeight = bh
@@ -443,10 +412,10 @@ ctxToPublicData pm ctx = PublicData
     , _pdPrevBlockHash = toText h
     }
   where
-    BlockHeight !bh = succ $ unwrapParent $ _tcParentHeight ctx
+    BlockHeight !bh = succ $ unwrapParent $ _bctxParentHeight ctx
     Parent (BlockCreationTime (Time (TimeSpan (Micros !bt)))) =
-      _tcParentCreationTime ctx
-    Parent (BlockHash h) = _tcParentHash ctx
+      _bctxParentCreationTime ctx
+    Parent (BlockHash h) = _bctxParentHash ctx
 
 -- | 'applyCoinbase' performs upgrade transactions and constructs and executes
 -- a transaction which pays miners their block reward.
@@ -456,20 +425,21 @@ applyCoinbase
       -- ^ Pact logger
     -> PactDb CoreBuiltin Info
       -- ^ Pact db environment
-    -> Decimal
-      -- ^ Miner reward
-    -> TxContext
+    -> Miner
+      -- ^ miner
+    -> BlockCtx
       -- ^ tx metadata and parent header
-    -> IO (Either (Pact5.PactError Pact5.Info) (CommandResult [TxLog ByteString] Void))
-applyCoinbase logger db reward txCtx = do
+    -> IO (Either (Pact.PactError Pact.Info) (CommandResult [TxLog ByteString] Void))
+applyCoinbase logger db (Miner mid mks) txCtx = do
   -- for some reason this is the base64-encoded hash, rather than the binary hash
   let coinbaseHash = Hash $ SB.toShort $ T.encodeUtf8 $ blockHashToText parentBlockHash
   -- applyCoinbase is when upgrades happen, so we call applyUpgrades first
   applyUpgrades logger db txCtx
   -- we construct the coinbase term and evaluate it
   freeGasEnv <- mkFreeGasEnv GasLogsDisabled
+  let MinerReward.Kda minerRewardKda = MinerReward.minerRewardKda $ _bctxMinerReward txCtx
   let
-    (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
+    (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks minerRewardKda
   eCoinbaseTxResult <-
     evalExecTerm Transactional
       db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
@@ -502,8 +472,7 @@ applyCoinbase logger db reward txCtx = do
         }
 
   where
-  parentBlockHash = unwrapParent $ _tcParentHash txCtx
-  Miner mid mks = _tcMiner txCtx
+  parentBlockHash = unwrapParent $ _bctxParentHash txCtx
 
 -- | Apply (forking) upgrade transactions and module cache updates
 -- at a particular blockheight.
@@ -518,7 +487,7 @@ applyUpgrades
   :: (Logger logger)
   => logger
   -> PactDb CoreBuiltin Info
-  -> TxContext
+  -> BlockCtx
   -> IO ()
 applyUpgrades logger db txCtx
     | Just PactUpgrade{_pactUpgradeTransactions = upgradeTxs} <-
@@ -526,7 +495,7 @@ applyUpgrades logger db txCtx
      | otherwise = return ()
   where
     v = _chainwebVersion txCtx
-    currentHeight = ctxCurrentBlockHeight txCtx
+    currentHeight = _bctxCurrentBlockHeight txCtx
     cid = _chainId txCtx
     applyUpgrade :: [Transaction] -> IO ()
     applyUpgrade upgradeTxs = do
@@ -547,9 +516,9 @@ runGenesisPayload
   => logger
   -> PactDb CoreBuiltin Info
   -> SPVSupport
-  -> TxContext
+  -> BlockCtx
   -> Command (Payload PublicMeta ParsedCode)
-  -> IO (Either (Pact5.PactError Info) (CommandResult [TxLog ByteString] Void))
+  -> IO (Either (Pact.PactError Info) (CommandResult [TxLog ByteString] Void))
 runGenesisPayload logger db spv ctx cmd = do
   gasRef <- newIORef (MilliGas 0)
   let gasEnv = GasEnv gasRef Nothing freeGasModel
@@ -596,7 +565,7 @@ runPayload
     -> [CapToken QualifiedName PactValue]
     -> NamespacePolicy
     -> GasEnv CoreBuiltin Info
-    -> TxContext
+    -> BlockCtx
     -> TxIdxInBlock
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
@@ -645,9 +614,8 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasEnv txCtx tx
   case maybeQuirkGasFee of
     Nothing -> return result
     Just quirkGasFee -> do
-      let convertedQuirkGasFee = Gas $ fromIntegral quirkGasFee
-      liftIO $ writeIORef (_geGasRef gasEnv) $ gasToMilliGas convertedQuirkGasFee
-      return result { _erGas = convertedQuirkGasFee }
+      liftIO $ writeIORef (_geGasRef gasEnv) $ gasToMilliGas quirkGasFee
+      return result { _erGas = quirkGasFee }
 
   where
     payload = cmd ^. cmdPayload
@@ -656,13 +624,13 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasEnv txCtx tx
     publicMeta = cmd ^. cmdPayload . pMeta
     v = _chainwebVersion txCtx
     cid = _chainId txCtx
-    maybeQuirkGasFee = v ^? versionQuirks . quirkGasFees . ixg cid . ix (ctxCurrentBlockHeight txCtx, txIdxInBlock)
+    maybeQuirkGasFee = v ^? versionQuirks . quirkGasFees . ixg cid . ix (_bctxCurrentBlockHeight txCtx, txIdxInBlock)
 
 runUpgrade
     :: (Logger logger)
     => logger
     -> PactDb CoreBuiltin Info
-    -> TxContext
+    -> BlockCtx
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ()
 runUpgrade _logger db txContext cmd = case payload ^. pPayload of
@@ -683,7 +651,7 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
           & csSlots .~ [CapSlot (CapToken (QualifiedName "REMEDIATE" (ModuleName "coin" Nothing)) []) []]
           & csModuleAdmin .~ S.singleton (ModuleName "coin" Nothing))
         (fmap (noSpanInfo <$) $ _pcExps $ _pmCode pm) >>= \case
-        Left err -> error $ "Pact5.runGenesis: internal error " <> sshow err
+        Left err -> error $ "Pact.runGenesis: internal error " <> sshow err
         -- TODO: we should probably put these events somewhere!
         Right _r -> return ()
     Continuation _ -> error "runGenesisCore Continuation not supported"
@@ -727,10 +695,11 @@ buyGas
   => logger
   -> GasEnv CoreBuiltin Info
   -> PactDb CoreBuiltin Info
-  -> TxContext
+  -> Miner
+  -> BlockCtx
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either BuyGasError EvalResult)
-buyGas logger origGasEnv db txCtx cmd = do
+buyGas logger origGasEnv db (Miner mid mks) txCtx cmd = do
   let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1_500_000))
   logFunctionText logger L.Debug $
     "buying gas for " <> sshow (_cmdHash cmd)
@@ -824,8 +793,6 @@ buyGas logger origGasEnv db txCtx cmd = do
     signersWithDebit =
       fmap addDebit signers
 
-    Miner mid mks = _tcMiner txCtx
-
     Hash chash = _cmdHash cmd
     bgHash = Hash (chash <> "-buygas")
 
@@ -834,12 +801,14 @@ buyGas logger origGasEnv db txCtx cmd = do
 --
 redeemGas :: (Logger logger)
   => logger
-  -> PactDb CoreBuiltin Info -> TxContext
+  -> PactDb CoreBuiltin Info
+  -> Miner
+  -> BlockCtx
   -> Gas
   -> Maybe DefPactId
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either RedeemGasError EvalResult)
-redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
+redeemGas logger db (Miner mid mks) txCtx gasUsed maybeFundTxPactId cmd
     | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
       logFunctionText logger L.Debug $
         "redeeming gas (post-2.24) for " <> sshow (_cmdHash cmd)
@@ -899,7 +868,6 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
   where
     Hash chash = _cmdHash cmd
     rgHash = Hash (chash <> "-redeemgas")
-    Miner mid mks = _tcMiner txCtx
     isChainweb224Pact = guardCtx chainweb224Pact txCtx
     publicMeta = cmd ^. cmdPayload . pMeta
     signers = cmd ^. cmdPayload . pSigners
@@ -974,14 +942,14 @@ dumpGasLogs :: (Logger logger)
 dumpGasLogs ctx txHash maybeGasLogger gasEnv = do
   forM_ ((,) <$> _geGasLog gasEnv <*> maybeGasLogger) $ \(gasLogRef, gasLogger) -> do
     gasLogs <- reverse <$> readIORef gasLogRef
-    let prettyLogs = Pact5.prettyGasLogs (_geGasModel gasEnv) (_gleArgs <$> gasLogs)
+    let prettyLogs = Pact.prettyGasLogs (_geGasModel gasEnv) (_gleArgs <$> gasLogs)
     let logger = addLabel ("transactionExecContext", ctx) $ addLabel ("cmdHash", hashToText txHash) $ gasLogger
     logFunctionText logger L.Debug $ "gas logs: " <> prettyLogs
 
     -- After every dump, we clear the gas logs, so that each context only writes the gas logs it induced.
     writeIORef gasLogRef mempty
 
-guardDisablePact51Flags :: TxContext -> Set ExecutionFlag
+guardDisablePact51Flags :: BlockCtx -> Set ExecutionFlag
 guardDisablePact51Flags txCtx
   | guardCtx chainweb228Pact txCtx = Set.empty
   | otherwise = Set.singleton FlagDisablePact51

@@ -133,6 +133,7 @@ import qualified Pact.JSON.Encode as J
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.Parent
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import Chainweb.Time qualified as Time
 import Chainweb.Pact.Transaction qualified as Pact
@@ -144,7 +145,6 @@ import Pact.Core.Hash qualified as Pact
 import Pact.Core.Gas
 import Pact.Core.ChainData
 import qualified Pact.Core.ChainData as Pact
-import Chainweb.BlockHeader
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing

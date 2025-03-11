@@ -52,7 +52,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Import
   )
   where
 
-import Chainweb.BlockHeader (ParentHeader(..), blockHash)
+import Chainweb.BlockHeader (blockHash)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Logger (Logger, logFunctionText)
@@ -62,7 +62,7 @@ import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Types
+import Chainweb.Parent
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow)
 import Chainweb.Version (ChainwebVersion(..))
@@ -83,7 +83,10 @@ import Patience.Map qualified as P
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.Environment (setEnv)
 import System.LogLevel (LogLevel(..))
-import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Checkpointer.Internal
+import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
+import Chainweb.Pact.Types (BlockCtx(..))
+import Chainweb.PayloadProvider
+import Chainweb.Miner.Pact (noMiner)
 
 -- | Verifies that the hashes and headers match @grands@.
 --
@@ -186,8 +189,20 @@ pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHas
       let logger' = addChainIdLabel cid logger
       logFunctionText logger' Info
         $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-      Checkpointer.Internal.withCheckpointerResources logger sqliteEnv DoNotPersistIntraBlockWrites v cid $ \cp -> do
-        Checkpointer.Internal.rewindTo cp (Just $ ParentHeader $ blockHeader $ snapshotChainHashes ^?! ix cid)
+      Checkpointer.withCheckpointerResources logger sqliteEnv DoNotPersistIntraBlockWrites v cid $ \cp -> do
+        let parent = blockHeaderToEvaluationCtx $ Parent $ blockHeader $ snapshotChainHashes ^?! ix cid
+        let parentBlockCtx = BlockCtx
+              { _bctxParentCreationTime = _evaluationCtxParentCreationTime parent
+              , _bctxParentHash = _evaluationCtxParentHash parent
+              , _bctxParentHeight = _evaluationCtxParentHeight parent
+              , _bctxChainId = cid
+              , _bctxChainwebVersion = v
+              , _bctxMinerReward = _evaluationCtxMinerReward parent
+              }
+
+        -- Checkpointer.rewindTo cp v cid parentBlockCtx
+        -- TODO: PP
+        undefined
 
 data PactImportConfig = PactImportConfig
   { sourcePactDir :: FilePath

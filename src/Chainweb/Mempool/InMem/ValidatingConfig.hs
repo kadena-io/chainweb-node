@@ -14,29 +14,28 @@ module Chainweb.Mempool.InMem.ValidatingConfig
 ( validatingMempoolConfig
 ) where
 
+import Control.Lens
 import Chainweb.ChainId
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Validations
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebPactExecutionService
-import Control.Concurrent
 import Data.These
 import Data.Vector qualified as V
-import Pact.Types.ChainMeta
-import Pact.Types.Command
+import qualified Pact.Core.Command.Types as Pact
+import qualified Pact.Core.ChainData as Pact
 
 validatingMempoolConfig
     :: ChainId
     -> ChainwebVersion
     -> GasLimit
     -> GasPrice
-    -> MVar PactExecutionService
-    -> InMemConfig Pact4.UnparsedTransaction
-validatingMempoolConfig cid v gl gp mv = InMemConfig
-    { _inmemTxCfg = txcfg
+    -> (V.Vector Pact.Transaction -> IO (V.Vector (Maybe InsertError)))
+    -> InMemConfig Pact.Transaction
+validatingMempoolConfig cid v gl gp preInsertCheck = InMemConfig
+    { _inmemTxCfg = pactTransactionConfig
     , _inmemTxBlockSizeLimit = gl
     , _inmemTxMinGasPrice = gp
     , _inmemMaxRecentItems = maxRecentLog
@@ -45,10 +44,6 @@ validatingMempoolConfig cid v gl gp mv = InMemConfig
     , _inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = pact4TransactionConfig
-        -- The mempool doesn't provide a chain context to the codec which means
-        -- that the latest version of the parser is used.
-
     maxRecentLog = 2048
 
     currentTxsSize = 1024 * 1024 -- ~16MB per mempool
@@ -58,14 +53,13 @@ validatingMempoolConfig cid v gl gp mv = InMemConfig
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
-    preInsertSingle :: Pact4.UnparsedTransaction -> Either InsertError Pact4.UnparsedTransaction
+    preInsertSingle :: Pact.Transaction -> Either InsertError Pact.Transaction
     preInsertSingle tx = do
-        let !pay = Pact4.payloadObj . _cmdPayload $ tx
-            pcid = _pmChainId $ _pMeta pay
-            sigs = _cmdSigs tx
-            ver  = _pNetworkId pay
-        if | not $ assertParseChainId pcid -> Left $ InsertErrorOther "Unparsable ChainId"
-           | not $ assertChainId cid pcid  -> Left InsertErrorMetadataMismatch
+        let !pay = view Pact.payloadObj . Pact._cmdPayload $ tx
+            pcid = Pact._pmChainId $ Pact._pMeta pay
+            sigs = Pact._cmdSigs tx
+            ver  = Pact._pNetworkId pay
+        if | not $ assertChainId cid pcid  -> Left InsertErrorMetadataMismatch
            | not $ assertSigSize sigs      -> Left $ InsertErrorOther "Too many signatures"
            | not $ assertNetworkId v ver   -> Left InsertErrorMetadataMismatch
            | otherwise                     -> Right tx
@@ -80,14 +74,13 @@ validatingMempoolConfig cid v gl gp mv = InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector (T2 TransactionHash Pact4.UnparsedTransaction)
+        :: V.Vector (T2 TransactionHash Pact.Transaction)
         -> IO (V.Vector (Either (T2 TransactionHash InsertError)
-                                (T2 TransactionHash Pact4.UnparsedTransaction)))
+                                (T2 TransactionHash Pact.Transaction)))
     preInsertBatch txs
         | V.null txs = return V.empty
         | otherwise = do
-            pex <- readMVar mv
-            rs <- _pactPreInsertCheck pex cid (V.map ssnd txs)
+            rs <- preInsertCheck (V.map ssnd txs)
             pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of

@@ -51,7 +51,7 @@ import qualified Data.Text as T
 
 import GHC.Generics
 
-import Pact.Types.Command
+import Pact.Core.Command.Types
 
 -- internal modules
 
@@ -209,4 +209,3 @@ runPayloadProof p = (_payloadProofRootType p, root,) <$> proofSubject blob
   where
     root = MerkleLogHash $ runMerkleProof blob
     blob = _payloadProofBlob p
-

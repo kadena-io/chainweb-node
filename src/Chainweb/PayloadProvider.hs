@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider
@@ -102,8 +103,10 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.MinerReward
+import Chainweb.Parent
 import Chainweb.Utils
 import Chainweb.Version
+
 import Control.Concurrent.STM
 import Control.DeepSeq (NFData)
 import Control.Lens hiding ((.=))
@@ -320,7 +323,7 @@ data EvaluationCtx p = EvaluationCtx
     --     -- more efficient synchronization and a reduction of block propagation
     --     -- latencies.
     }
-    deriving (Show, Eq, Ord)
+    deriving (Functor, Show, Eq, Ord)
 
 _evaluationCtxCurrentHeight :: EvaluationCtx p -> BlockHeight
 _evaluationCtxCurrentHeight = succ . unwrapParent . _evaluationCtxParentHeight

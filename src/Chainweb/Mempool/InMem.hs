@@ -57,6 +57,10 @@ import Data.Traversable (for)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
+import Numeric.AffineSpace
+import Data.ByteString (ByteString)
+import Data.Either (partitionEithers)
+import Control.Lens
 
 import Prelude hiding (init, lookup, pred)
 
@@ -72,15 +76,11 @@ import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Validations (defaultMaxTTLSeconds, defaultMaxCoinDecimalPlaces)
+import Chainweb.Parent
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
 
-import Numeric.AffineSpace
-import Data.ByteString (ByteString)
-import Data.Either (partitionEithers)
-import Control.Lens
-import Chainweb.BlockHeader
 import Pact.Core.Gas
 
 ------------------------------------------------------------------------------

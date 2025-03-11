@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Miner.Miners
@@ -38,16 +39,16 @@ import Control.Monad
 
 import Crypto.Hash.Algorithms (Blake2s_256)
 
-import qualified Data.ByteString.Short as BS
+import Data.ByteString.Short qualified as BS
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict qualified as HashMap
 
 import Numeric.Natural (Natural)
 
 import GHC.Stack
 
-import qualified System.Random.MWC as MWC
-import qualified System.Random.MWC.Distributions as MWC
+import System.Random.MWC qualified as MWC
+import System.Random.MWC.Distributions qualified as MWC
 
 -- internal modules
 
@@ -60,12 +61,12 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-import qualified Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.RestAPI.Orphans ()
-import qualified Chainweb.Pact.Transaction as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
@@ -123,7 +124,7 @@ localTest lf v coord cdb gen miners =
 --
 mempoolNoopMiner
     :: LogFunction
-    -> HashMap ChainId (MempoolBackend Pact4.UnparsedTransaction)
+    -> HashMap ChainId (MempoolBackend Pact.Transaction)
     -> IO ()
 mempoolNoopMiner lf chainRes =
     runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" $ do

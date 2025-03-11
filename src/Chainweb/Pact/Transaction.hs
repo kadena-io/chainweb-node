@@ -34,7 +34,7 @@ import "pact-tng" Pact.Core.Command.Types
 import "pact-tng" Pact.Core.StableEncoding
 import "pact-tng" Pact.Core.Errors
 import "pact-tng" Pact.Core.Info
-import "pact-tng" Pact.Core.Pretty qualified as Pact5
+import "pact-tng" Pact.Core.Pretty qualified as Pact
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Chainweb.Utils
@@ -78,7 +78,7 @@ payloadCodec = Codec enc dec
         -- Note: this can only ever emit a `ParseError`, which by default are quite small.
         -- Still, `pretty` instances are scary, but this cannot make it into block outputs so this should
         -- be okay
-        Just (cmd :: Command Text) -> over _Left Pact5.renderCompactString $ parseCommand cmd
+        Just (cmd :: Command Text) -> over _Left Pact.renderCompactString $ parseCommand cmd
         Nothing -> Left "decode PayloadWithText failed"
 
 parseCommand :: Command Text -> Either (PactError SpanInfo) (Command (PayloadWithText PublicMeta ParsedCode))

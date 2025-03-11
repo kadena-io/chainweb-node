@@ -21,7 +21,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import Pact.Types.Verifier
+import Pact.Core.Names
 
 pattern EvmDevelopment :: ChainwebVersion
 pattern EvmDevelopment <- ((== evmDevnet) -> True) where
@@ -95,4 +95,3 @@ evmDevnet = ChainwebVersion
         : (unsafeChainId 1, EvmProvider 1790)
         : [ (unsafeChainId i, MinimalProvider) | i <- [2..19] ]
     }
-

@@ -82,7 +82,6 @@ import System.LogLevel
 
 -- pact
 
-import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.SQLite as Pact4
 import Pact.Types.Util (AsString(..))
 
@@ -95,7 +94,9 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Version
 import Chainweb.Utils
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Parent
 import Database.SQLite3.Direct hiding (open2)
 import GHC.Stack
 import qualified Data.ByteString.Short as SB
@@ -108,7 +109,7 @@ import Chainweb.Pact.Backend.Types
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Text (Text)
-import Chainweb.BlockHeader
+import qualified Pact.Core.Persistence as Pact
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
@@ -130,22 +131,24 @@ asStringUtf8 = toUtf8 . asString
 --
 
 withSavepoint
-    :: SQLiteEnv
+    :: (MonadMask m, MonadIO m)
+    => SQLiteEnv
     -> SavepointName
-    -> IO a
-    -> IO a
+    -> m a
+    -> m a
 withSavepoint db name action = mask $ \resetMask -> do
-    beginSavepoint db name
+    liftIO $ beginSavepoint db name
     go resetMask `catches` handlers
   where
     go resetMask = do
-        r <- resetMask action `onException` abortSavepoint db name
+        r <- resetMask action `onException` liftIO (abortSavepoint db name)
         liftIO $ commitSavepoint db name
         liftIO $ evaluate r
     throwErr s = error $ "withSavepoint (" <> show name <> "): " <> s
-    handlers = [ Handler $ \(e :: SomeAsyncException) -> throwM e
-               , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
-               ]
+    handlers =
+      [ Handler $ \(e :: SomeAsyncException) -> throwM e
+      , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
+      ]
 
 beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
 beginSavepoint db name =
@@ -179,21 +182,33 @@ abortSavepoint db name = do
   rollbackSavepoint db name
   commitSavepoint db name
 
-data SavepointName = BatchSavepoint | DbTransaction | PreBlock
-  deriving (Eq, Ord, Enum, Bounded)
+data SavepointName
+    = ReadFromSavepoint
+    | ReadFromNSavepoint
+    | RestoreAndSaveSavePoint
+    | RewindSavePoint
+    | InitSchemaSavePoint
+    | ValidateBlockSavePoint
+    deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
     show = T.unpack . toText
 
 instance HasTextRepresentation SavepointName where
-    toText BatchSavepoint = "batch"
-    toText DbTransaction = "db-transaction"
-    toText PreBlock = "preblock"
+    toText ReadFromSavepoint = "read-from"
+    toText ReadFromNSavepoint = "read-from-n"
+    toText RestoreAndSaveSavePoint = "restore-and-save"
+    toText RewindSavePoint = "rewind"
+    toText InitSchemaSavePoint = "init-schema"
+    toText ValidateBlockSavePoint = "validate-block"
     {-# INLINE toText #-}
 
-    fromText "batch" = pure BatchSavepoint
-    fromText "db-transaction" = pure DbTransaction
-    fromText "preblock" = pure PreBlock
+    fromText "read-from" = pure ReadFromSavepoint
+    fromText "read-from-n" = pure ReadFromNSavepoint
+    fromText "restore-and-save" = pure RestoreAndSaveSavePoint
+    fromText "rewind" = pure RewindSavePoint
+    fromText "init-schema" = pure InitSchemaSavePoint
+    fromText "validate-block" = pure ValidateBlockSavePoint
     fromText t = throwM $ TextFormatException
         $ "failed to decode SavepointName " <> t
         <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
@@ -358,12 +373,14 @@ doLookupSuccessful db curHeight hashes = do
         return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
 
-getEndTxId :: Text -> SQLiteEnv -> Maybe (Parent RankedBlockHash) -> IO (Historical Pact4.TxId)
-getEndTxId msg sql pc = case pc of
-    Nothing -> return (Historical 0)
-    Just ph -> getEndTxId' msg sql ph
+getEndTxId :: ChainwebVersion -> ChainId -> Text -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
+getEndTxId v cid msg sql pc
+  | isGenesisBlockHeader' v cid (_rankedBlockHashHash <$> pc) =
+    return (Historical (Pact.TxId 0))
+  | otherwise =
+    getEndTxId' msg sql pc
 
-getEndTxId' :: Text -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact4.TxId)
+getEndTxId' :: Text -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
 getEndTxId' msg sql (Parent rbh) = do
     r <- Pact4.qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
@@ -372,7 +389,7 @@ getEndTxId' msg sql (Parent rbh) = do
       ]
       [Pact4.RInt]
     case r of
-      [[Pact4.SInt tid]] -> return $ Historical (Pact4.TxId (fromIntegral tid))
+      [[Pact4.SInt tid]] -> return $ Historical (Pact.TxId (fromIntegral tid))
       [] -> return NoHistory
       _ -> error $ T.unpack msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
 
@@ -380,22 +397,25 @@ getEndTxId' msg sql (Parent rbh) = do
 -- | Delete any state from the database newer than the input parent header.
 -- Returns the ending txid of the input parent header.
 rewindDbTo
-    :: SQLiteEnv
-    -> Maybe (Parent RankedBlockHash)
-    -> IO Pact4.TxId
-rewindDbTo db Nothing = do
-  rewindDbToGenesis db
-  return 0
-rewindDbTo db mh@(Just ph) = do
-    !historicalEndingTxId <- getEndTxId "rewindDbToBlock" db mh
+    :: ChainwebVersion
+    -> ChainId
+    -> SQLiteEnv
+    -> RankedBlockHash
+    -> IO Pact.TxId
+rewindDbTo v cid db pc
+  | isGenesisBlockHeader' v cid (Parent $ _rankedBlockHashHash pc) = do
+    rewindDbToGenesis db
+    return (Pact.TxId 0)
+  | otherwise = do
+    !historicalEndingTxId <- getEndTxId v cid "rewindDbToBlock" db (Parent pc)
     endingTxId <- case historicalEndingTxId of
       NoHistory ->
         error
           $ "rewindDbTo.getEndTxId: not in db: "
-          <> sshow ph
+          <> sshow pc
       Historical endingTxId ->
         return endingTxId
-    rewindDbToBlock db (_rankedBlockHashHeight <$> ph) endingTxId
+    rewindDbToBlock db (_rankedBlockHashHeight <$> Parent pc) endingTxId
     return endingTxId
 
 -- rewind before genesis, delete all user tables and all rows in all tables
@@ -422,7 +442,7 @@ rewindDbToGenesis db = do
 rewindDbToBlock
   :: Database
   -> Parent BlockHeight
-  -> Pact4.TxId
+  -> Pact.TxId
   -> IO ()
 rewindDbToBlock db (Parent bh) endingTxId = do
     tableMaintenanceRowsVersionedSystemTables
@@ -458,8 +478,9 @@ rewindDbToBlock db (Parent bh) endingTxId = do
     vacuumTablesAtRewind droppedtbls = do
         let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
               [Pact4.SText (Utf8 tn)] -> return tn
-              _ -> error "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
-                                 \of the table to possibly vacuum."
+              _ -> error
+                "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
+                \of the table to possibly vacuum."
         mutatedTables <- Pact4.qry db
             "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?;"
           [Pact4.SInt (fromIntegral bh)]
@@ -468,7 +489,7 @@ rewindDbToBlock db (Parent bh) endingTxId = do
         let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
         forM_ toVacuumTblNames $ \tblname ->
             Pact4.exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
-                  [Pact4.SInt $! fromIntegral endingTxId]
+                  [Pact4.SInt $! fromIntegral $ Pact._txId endingTxId]
         Pact4.exec' db "DELETE FROM VersionedTableMutation WHERE blockheight > ?;"
               [Pact4.SInt (fromIntegral bh)]
 
@@ -480,7 +501,7 @@ rewindDbToBlock db (Parent bh) endingTxId = do
         Pact4.exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
         Pact4.exec' db "DELETE FROM [SYS:ModuleSources] WHERE txid >= ?" tx
       where
-        tx = [Pact4.SInt $! fromIntegral endingTxId]
+        tx = [Pact4.SInt $! fromIntegral $ Pact._txId endingTxId]
 
     -- | Delete all future transactions from the index
     clearTxIndex :: IO ()

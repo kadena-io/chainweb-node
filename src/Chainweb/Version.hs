@@ -169,7 +169,8 @@ import GHC.Stack
 
 -- internal modules
 
-import Pact.Types.Runtime (Gas)
+import Pact.Core.Gas (Gas)
+import Pact.Core.Names (VerifierName)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -184,8 +185,6 @@ import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
-
-import Pact.Types.Verifier
 
 import Data.Singletons
 
@@ -372,12 +371,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
 data PactUpgrade =
     PactUpgrade
         { _pactUpgradeTransactions :: [Pact.Transaction]
-        }
-
-instance Eq PactUpgrade where
-    PactUpgrade txs == PactUpgrade txs' =
-        txs == txs'
-    _ == _ = False
+        } deriving Eq
 
 instance Show PactUpgrade where
     show PactUpgrade {} = "<pact upgrade>"

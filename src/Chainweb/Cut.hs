@@ -141,6 +141,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Cut
@@ -639,7 +640,7 @@ isBraidingOfCutPair a b = do
     ba <- getAdjacentHash a b -- adjacent of b on chain of a
     return
         $! (view blockParent a == ba && view blockParent b == ab) -- same graph
-        || (view blockHeight a > view blockHeight b) && ab == view blockHash b
+        || (view blockHeight a > view blockHeight b) && ab == Parent (view blockHash b)
         || (view blockHeight a < view blockHeight b) && True {- if same graph: ba == view blockHash a -}
 
 -- -------------------------------------------------------------------------- --
@@ -674,13 +675,13 @@ isMonotonicCutExtension c h = do
   where
     monotonic = view blockParent h == case c ^? ixg (_chainId h) . blockHash of
         Nothing -> error $ T.unpack $ "isMonotonicCutExtension.monotonic: missing parent in cut. " <> encodeToText h
-        Just x -> x
+        Just x -> Parent x
     validBraiding = getAll $ ifoldMap
         (\cid -> All . validBraidingCid cid)
         (_getBlockHashRecord $ view blockAdjacentHashes h)
 
     validBraidingCid cid a
-        | Just b <- c ^? ixg cid = view blockHash b == a || view blockParent b == a
+        | Just b <- c ^? ixg cid = Parent (view blockHash b) == a || view blockParent b == a
         | view blockHeight h == genesisHeight v cid = a == genesisParentBlockHash v cid
         | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> toText cid <> " in cut. " <> encodeToText h
 

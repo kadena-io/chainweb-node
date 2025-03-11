@@ -46,36 +46,35 @@ import Data.Word (Word8)
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
+import Chainweb.Parent
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Version
 
-import qualified Pact.Core.Command.Types as P
-import qualified Pact.Core.ChainData as P
-import qualified Pact.Core.Gas.Types as P
-import qualified Pact.Core.Hash as P
-import qualified Chainweb.Pact.Transaction as P
-import qualified Chainweb.Pact.Transaction as Pact5
+import qualified Pact.Core.Command.Types as Pact
+import qualified Pact.Core.ChainData as Pact
+import qualified Pact.Core.Gas.Types as Pact
+import qualified Pact.Core.Hash as Pact
+import qualified Chainweb.Pact.Transaction as Pact
 import Chainweb.Utils (ebool_)
 
 
 -- | Check whether a local Api request has valid metadata
 --
 assertPreflightMetadata
-    :: P.Command (P.Payload P.PublicMeta c)
-    -> TxContext
+    :: Pact.Command (Pact.Payload Pact.PublicMeta c)
+    -> BlockCtx
     -> Maybe LocalSignatureVerification
     -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
+assertPreflightMetadata cmd@(Pact.Command pay sigs hsh) txCtx sigVerify = do
     v <- view chainwebVersion
     cid <- view chainId
-    bgl <- view psBlockGasLimit
+    bgl <- view psNewBlockGasLimit
 
-    let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
-        nid = P._pNetworkId pay
-        signers = P._pSigners pay
+    let Pact.PublicMeta pcid _ gl gp _ _ = Pact._pMeta pay
+        nid = Pact._pNetworkId pay
+        signers = Pact._pSigners pay
 
     let errs = catMaybes
           [ eUnless "Chain id mismatch" $ assertChainId cid pcid
@@ -97,7 +96,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       | Just NoVerify <- sigVerify = True
       | otherwise = isRight $ assertValidateSigs hsh signers sigs
 
-    pct = _tcParentCreationTime txCtx
+    pct = _bctxParentCreationTime txCtx
 
     eUnless t assertion
       | assertion = Nothing
@@ -109,46 +108,46 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
 -- The supplied chain id should be derived from the current
 -- chainweb node structure
 --
-assertChainId :: ChainId -> P.ChainId -> Bool
-assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
+assertChainId :: ChainId -> Pact.ChainId -> Bool
+assertChainId cid0 cid1 = chainIdToText cid0 == Pact._chainId cid1
 
 -- | Check and assert that 'GasPrice' is rounded to at most 12 decimal
 -- places.
 --
-assertGasPrice :: P.GasPrice -> Bool
-assertGasPrice (P.GasPrice gp) = decimalPlaces gp <= defaultMaxCoinDecimalPlaces
+assertGasPrice :: Pact.GasPrice -> Bool
+assertGasPrice (Pact.GasPrice gp) = decimalPlaces gp <= defaultMaxCoinDecimalPlaces
 
 -- | Check and assert that the 'GasLimit' of a transaction is less than or eqaul to
 -- the block gas limit
 --
-assertBlockGasLimit :: P.GasLimit -> P.GasLimit -> Bool
+assertBlockGasLimit :: Pact.GasLimit -> Pact.GasLimit -> Bool
 assertBlockGasLimit bgl tgl = bgl >= tgl
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
 --
-assertNetworkId :: ChainwebVersion -> Maybe P.NetworkId -> Bool
+assertNetworkId :: ChainwebVersion -> Maybe Pact.NetworkId -> Bool
 assertNetworkId _ Nothing = False
-assertNetworkId v (Just (P.NetworkId nid)) = ChainwebVersionName nid == _versionName v
+assertNetworkId v (Just (Pact.NetworkId nid)) = ChainwebVersionName nid == _versionName v
 
 -- | Check and assert that the number of signatures in a 'Command' is
 -- at most 100.
 --
-assertSigSize :: [P.UserSig] -> Bool
+assertSigSize :: [Pact.UserSig] -> Bool
 assertSigSize sigs = length sigs <= defaultMaxCommandUserSigListSize
 
 -- | Check and assert that the initial 'Gas' cost of a transaction
 -- is less than the specified 'GasLimit'.
 --
-assertTxSize :: P.Gas -> P.GasLimit -> Bool
-assertTxSize initialGas gasLimit = P.GasLimit initialGas < gasLimit
+assertTxSize :: Pact.Gas -> Pact.GasLimit -> Bool
+assertTxSize initialGas gasLimit = Pact.GasLimit initialGas < gasLimit
 
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
 assertValidateSigs :: ()
-  => P.Hash
-  -> [P.Signer]
-  -> [P.UserSig]
+  => Pact.Hash
+  -> [Pact.Signer]
+  -> [Pact.UserSig]
   -> Either AssertValidateSigsError ()
 assertValidateSigs hsh signers sigs = do
   let signersLength = length signers
@@ -161,7 +160,7 @@ assertValidateSigs hsh signers sigs = do
     (signersLength == sigsLength)
 
   iforM_ (zip sigs signers) $ \pos (sig, signer) -> do
-    case P.verifyUserSig hsh sig signer of
+    case Pact.verifyUserSig hsh sig signer of
       Left errMsg -> Left (InvalidUserSig pos (Text.pack errMsg))
       Right () -> Right ()
 
@@ -174,7 +173,7 @@ assertValidateSigs hsh signers sigs = do
 --
 assertTxTimeRelativeToParent
     :: Parent BlockCreationTime
-    -> P.Command (P.Payload P.PublicMeta c)
+    -> Pact.Command (Pact.Payload Pact.PublicMeta c)
     -> Bool
 assertTxTimeRelativeToParent (Parent (BlockCreationTime txValidationTime)) tx =
     ttl > 0
@@ -183,35 +182,35 @@ assertTxTimeRelativeToParent (Parent (BlockCreationTime txValidationTime)) tx =
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= defaultMaxTTLSeconds
   where
-    P.TTLSeconds ttl = view (P.cmdPayload . P.pMeta . P.pmTTL) tx
+    Pact.TTLSeconds ttl = view (Pact.cmdPayload . Pact.pMeta . Pact.pmTTL) tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    P.TxCreationTime txOriginationTime = view (P.cmdPayload . P.pMeta . P.pmCreationTime) tx
+    Pact.TxCreationTime txOriginationTime = view (Pact.cmdPayload . Pact.pMeta . Pact.pmCreationTime) tx
 
 -- | Check that the tx's creation time is not too far in the future relative
 -- to the block creation time
 assertTxNotInFuture
     :: Parent BlockCreationTime
-    -> P.Command (P.Payload P.PublicMeta c)
+    -> Pact.Command (Pact.Payload Pact.PublicMeta c)
     -> Bool
 assertTxNotInFuture (Parent (BlockCreationTime txValidationTime)) tx =
     timeFromSeconds txOriginationTime <= lenientTxValidationTime
   where
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    P.TxCreationTime txOriginationTime = view (P.cmdPayload . P.pMeta . P.pmCreationTime) tx
+    Pact.TxCreationTime txOriginationTime = view (Pact.cmdPayload . Pact.pMeta . Pact.pmCreationTime) tx
     lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: Pact5.Transaction -> Either AssertCommandError ()
+assertCommand :: Pact.Transaction -> Either AssertCommandError ()
 assertCommand cmd = do
   _ <- assertHash & _Left .~ InvalidPayloadHash
-  assertValidateSigs hsh signers (P._cmdSigs cmd) & _Left %~ AssertValidateSigsError
+  assertValidateSigs hsh signers (Pact._cmdSigs cmd) & _Left %~ AssertValidateSigsError
   where
-    hsh = P._cmdHash cmd
-    pwt = P._cmdPayload cmd
-    cmdBS = SBS.fromShort $ pwt ^. P.payloadBytes
-    signers = pwt ^. P.payloadObj . P.pSigners
-    assertHash = P.verifyHash hsh cmdBS
+    hsh = Pact._cmdHash cmd
+    pwt = Pact._cmdPayload cmd
+    cmdBS = SBS.fromShort $ pwt ^. Pact.payloadBytes
+    signers = pwt ^. Pact.payloadObj . Pact.pSigners
+    assertHash = Pact.verifyHash hsh cmdBS
 
 -- -------------------------------------------------------------------- --
 -- defaults

@@ -107,6 +107,7 @@ import System.Random (randomRIO)
 import Control.Concurrent.Async
 import qualified Data.Vector as V
 import Data.Hashable
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -370,17 +371,17 @@ onSolved
     :: SolvedWork
     -> WorkState
     -> Maybe WorkState
-onSolved (SolvedWork hdr) (WorkSolved (Parent rh) _ ps)
+onSolved (SolvedWork hdr) (WorkSolved rh _ ps)
     -- If we solved this header in this cut before we do not change the work
     -- state, even if the payload differs.
     -- TODO: this might be wrong. `hdr` is the newly made work header, but `rh` looks to be the parent header of that.
-    | view blockParent hdr == _rankedBlockHashHash rh
+    | view blockParent hdr == fmap _rankedBlockHashHash rh
     && view blockAdjacentHashes hdr /= _workParentsAdjacentHashes ps = Nothing
-onSolved (SolvedWork hdr) (WorkReady (Parent rh) pld ps _)
+onSolved (SolvedWork hdr) (WorkReady rh pld ps _)
     -- If work is currently ready for this header in this cut, we mark it solved.
-    | view blockParent hdr == _rankedBlockHashHash rh
+    | view blockParent hdr == fmap _rankedBlockHashHash rh
     && view blockAdjacentHashes hdr /= _workParentsAdjacentHashes ps =
-        Just $ WorkSolved (Parent rh) pld ps
+        Just $ WorkSolved rh pld ps
     -- otherwise do not change the state.
 onSolved _ _ = Nothing
 
@@ -904,7 +905,7 @@ solve mr solved@(SolvedWork hdr) =
     cdb = _coordCutDb mr
     caches = _coordPayloadCache mr
     cache = caches HM.! cid
-    cacheKey = Parent $ RankedBlockHash (view blockHeight hdr - 1) (view blockParent hdr)
+    cacheKey = Parent $ RankedBlockHash (view blockHeight hdr - 1) (unwrapParent $ view blockParent hdr)
 
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr

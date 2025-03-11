@@ -89,7 +89,7 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 
-import Pact.Types.Verifier
+import Pact.Core.Names (VerifierName(..))
 
 -- -------------------------------------------------------------------------- --
 --  Utils

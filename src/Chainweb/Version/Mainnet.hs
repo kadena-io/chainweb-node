@@ -22,8 +22,8 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
 
-import Pact.Types.Runtime (Gas(..))
-import Pact.Types.Verifier
+import Pact.Core.Gas(Gas(..))
+import Pact.Core.Names
 
 -- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
 -- chains is 1/4 of the current difficulty. It is based on the following header

@@ -112,6 +112,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Difficulty
+import Chainweb.Parent
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -212,7 +213,7 @@ chainStep
         -- ^ Block header under scrutiny
     -> m ChainStep
 chainStep p b
-    | view blockParent b == view blockHash (unwrapParent p)
+    | view blockParent b == fmap (view blockHash) p
         = return $ ChainStep p b
     | otherwise = throwM $ InvalidChainStepParameters p b
 
@@ -237,12 +238,12 @@ webStep as hp@(ChainStep _ h) = WebStep
     <$> itraverse f hashes
     <*> pure hp
   where
-    hashes :: HM.HashMap ChainId BlockHash
+    hashes :: HM.HashMap ChainId (Parent BlockHash)
     hashes = view (blockAdjacentHashes . getBlockHashRecord) h
     f cid a = case HM.lookup cid as of
         Nothing -> throwM $ InvalidWebStepParameters as hp
         Just x
-            | view blockHash (unwrapParent x) == a -> return x
+            | fmap (view blockHash) x == a -> return x
             | otherwise -> throwM $ InvalidWebStepParameters as hp
 
 _webStepAdjs :: WebStep -> HM.HashMap ChainId (Parent BlockHeader)
@@ -546,7 +547,7 @@ validateBlockParentExists
     -> m (Either ValidationFailureType ChainStep)
 validateBlockParentExists lookupParent h
     | isGenesisBlockHeader h = return $ Right $ ChainStep (Parent h) h
-    | otherwise = lookupParent (view blockParent h) >>= \case
+    | otherwise = lookupParent (unwrapParent $ view blockParent h) >>= \case
         (Just !p) -> return $ Right $ ChainStep (Parent p) h
         Nothing -> return $ Left MissingParent
 
@@ -569,7 +570,7 @@ validateAllParentsExist lookupParent h = runExceptT $ WebStep
     f c ph
         | genesisParentBlockHash v c == ph = return
             $ Parent $ genesisBlockHeader v c
-        | otherwise = lift (lookupParent $ ChainValue c ph) >>= \case
+        | otherwise = lift (lookupParent $ fmap unwrapParent $ ChainValue c ph) >>= \case
             (Just !p) -> return $ Parent p
             Nothing -> throwError MissingAdjacentParent
 
@@ -787,7 +788,7 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
             -- chainId indexes in web adjadent parent record references the
             -- genesis block parent hashes
     | otherwise
-        = adjsHashes == (view blockHash . unwrapParent <$> as)
+        = adjsHashes == (fmap (view blockHash) <$> as)
             -- chainId indexes in web adjadent parent record and web step are
             -- referencing the same hashes
         && iall (\cid h -> cid == _chainId h) as
