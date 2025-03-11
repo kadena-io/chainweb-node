@@ -70,6 +70,7 @@ import Data.Map.Strict qualified as M
 import Numeric.Natural
 import Chainweb.BlockHeight
 import Chainweb.BlockHeader
+import Chainweb.Parent
 
 -- | A new payload cache for a chain.
 --

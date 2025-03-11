@@ -18,7 +18,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import Pact.Types.Verifier
+import Pact.Core.Names
 
 pattern Development :: ChainwebVersion
 pattern Development <- ((== devnet) -> True) where

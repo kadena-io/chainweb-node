@@ -1215,7 +1215,7 @@ getPayloadForContext p h ctx = do
     pld <- getPayload
         (_evmPayloadStore p)
         (_evmCandidatePayloads p)
-        (Priority $ negate $ int $ unwrapParent $ _evaluationCtxParentHeight ctx)
+        (Priority $ negate $ int $ _evaluationCtxCurrentHeight ctx)
         (_hintsOrigin <$> h)
         (_evaluationCtxRankedPayloadHash ctx)
     tableInsert (_evmCandidatePayloads p) rh pld

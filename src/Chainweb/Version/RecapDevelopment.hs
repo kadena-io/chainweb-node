@@ -19,7 +19,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import Pact.Types.Verifier
+import Pact.Core.Names
 
 to20ChainsHeight :: BlockHeight
 to20ChainsHeight = 60

@@ -70,9 +70,9 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import Control.Lens
 import Numeric.Natural
-import Pact.Core.Builtin qualified as Pact5
-import Pact.Core.Info qualified as Pact5
-import Pact.Core.Serialise qualified as Pact5
+import Pact.Core.Builtin qualified as Pact
+import Pact.Core.Info qualified as Pact
+import Pact.Core.Serialise qualified as Pact
 import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
 
@@ -273,10 +273,10 @@ chainweb228Pact = checkFork atOrAfter Chainweb228Pact
 chainweb229Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb229Pact = checkFork atOrAfter Chainweb229Pact
 
-pact5Serialiser :: ChainwebVersion -> ChainId -> BlockHeight -> Pact5.PactSerialise Pact5.CoreBuiltin Pact5.LineInfo
+pact5Serialiser :: ChainwebVersion -> ChainId -> BlockHeight -> Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo
 pact5Serialiser v cid bh
-    | chainweb228Pact v cid bh = Pact5.serialisePact_lineinfo_pact51
-    | otherwise                = Pact5.serialisePact_lineinfo_pact50
+    | chainweb228Pact v cid bh = Pact.serialisePact_lineinfo_pact51
+    | otherwise                = Pact.serialisePact_lineinfo_pact50
 
 maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
 maxBlockGasLimit v bh = snd $ ruleZipperHere $ snd

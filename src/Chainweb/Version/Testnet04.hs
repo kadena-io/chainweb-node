@@ -22,8 +22,8 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
 
-import Pact.Types.Runtime (Gas(..))
-import Pact.Types.Verifier
+import Pact.Core.Gas (Gas(..))
+import Pact.Core.Names
 
 -- | Initial hash target for testnet04 20-chain transition. Based on the following
 -- header from recap devnet running with 5 GPUs hash power. Using this target unchanged

@@ -105,6 +105,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -230,7 +231,7 @@ getCutExtension c cid = do
 
     -- | Try to get all adjacent hashes dependencies for the given graph.
     --
-    newAdjHashes :: ChainGraph -> Maybe (HM.HashMap ChainId BlockHash)
+    newAdjHashes :: ChainGraph -> Maybe (HM.HashMap ChainId (Parent BlockHash))
     newAdjHashes g =
         imapM (\xcid _ -> hashForChain xcid)
         $ HS.toMap -- converts to Map Foo ()
@@ -248,7 +249,7 @@ getCutExtension c cid = do
             <> sshow acid
             <> ".\n Cut: " <> sshow c
 
-    tryAdj :: BlockHeader -> Maybe BlockHash
+    tryAdj :: BlockHeader -> Maybe (Parent BlockHash)
     tryAdj b
 
         -- When the block is behind, we can move ahead
@@ -258,7 +259,7 @@ getCutExtension c cid = do
         | view blockHeight b + 1 == parentHeight = Nothing -- chain is blocked
 
         -- If this is not a graph transition cut we can move ahead
-        | view blockHeight b == parentHeight = Just $! view blockHash b
+        | view blockHeight b == parentHeight = Just $! Parent $ view blockHash b
 
         -- The cut is invalid
         | view blockHeight b > targetHeight = error $ T.unpack
@@ -376,10 +377,10 @@ getAdjacentParentHeaders hdb extension
   where
     c = _cutExtensionCut extension
 
-    select cid h = case c ^? ixg cid of
-        Just ch -> Parent <$> if view blockHash ch == h
-            then pure ch
-            else hdb (ChainValue cid h)
+    select cid (Parent h) = case c ^? ixg cid of
+        Just ch -> if view blockHash ch == h
+            then pure (Parent ch)
+            else Parent <$> hdb (ChainValue cid h)
 
         Nothing -> error $ T.unpack
             $ "Chainweb.Cut.Create.getAdjacentParentHeaders: inconsistent cut extension detected"
@@ -410,7 +411,7 @@ workParent = to _workParent
 
 _workParentsAdjacentHashes :: WorkParents -> BlockHashRecord
 _workParentsAdjacentHashes = BlockHashRecord
-    . fmap (view (_Parent . blockHash))
+    . fmap (fmap (view blockHash))
     . _workAdjacentParents'
 
 workParentsAdjacentHashes :: Getter WorkParents BlockHashRecord

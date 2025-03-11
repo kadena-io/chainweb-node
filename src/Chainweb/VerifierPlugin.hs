@@ -35,16 +35,17 @@ import Data.Set(Set)
 import qualified Data.Set as Set
 import Data.STRef
 
-import Pact.Types.Capability
-import Pact.Types.Gas
-import Pact.Types.PactValue
-import Pact.Types.Verifier
+import Pact.Core.Errors (VerifierError(..))
+import Pact.Core.Gas
+import Pact.Core.Names
+import Pact.Core.PactValue
+import Pact.Core.Signer (SigCapability)
+import Pact.Core.Verifiers
 
 import Chainweb.Version
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Utils
-import Pact.Core.Errors (VerifierError(..))
 
 newtype VerifierPlugin
     = VerifierPlugin
@@ -62,12 +63,12 @@ instance NFData VerifierPlugin where
 chargeGas :: STRef s Gas -> Gas -> ExceptT VerifierError (ST s) ()
 chargeGas r g = do
     gasRemaining <- lift $ readSTRef r
-    when (g < 0) $ throwError $ VerifierError $
+    when (_gas g < 0) $ throwError $ VerifierError $
         "verifier attempted to charge negative gas amount: " <> sshow g
     when (g > gasRemaining) $ throwError $ VerifierError $
         "gas exhausted in verifier. attempted to charge " <> sshow (case g of Gas g' -> g') <>
         " with only " <> sshow (case gasRemaining of Gas gasRemaining' -> gasRemaining') <> " remaining."
-    lift $ writeSTRef r (gasRemaining - g)
+    lift $ writeSTRef r (Gas $ _gas gasRemaining - _gas g)
 
 runVerifierPlugins
     :: Logger logger

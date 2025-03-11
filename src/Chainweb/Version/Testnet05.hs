@@ -20,7 +20,7 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
 
-import Pact.Types.Verifier
+import Pact.Core.Names
 
 pattern Testnet05 :: ChainwebVersion
 pattern Testnet05 <- ((== testnet05) -> True) where

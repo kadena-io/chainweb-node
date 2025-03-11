@@ -162,7 +162,7 @@ instance
 -- probably be passed as a parameter.
 --
 newPayloadStore
-    :: Table tbl RankedBlockPayloadHash a
+    :: ReadableTable tbl RankedBlockPayloadHash a
     => HTTP.Manager
         -- ^ Manager for P2P networking. This manager should be shared by all
         -- P2P networks.
@@ -193,7 +193,7 @@ newPayloadStore mgr logfun payloadDb cli = do
 --
 getPayloadSimple
     :: forall a tbl
-    . Table tbl RankedBlockPayloadHash a
+    . ReadableTable tbl RankedBlockPayloadHash a
     => CasKeyType a ~ RankedBlockPayloadHash
     => PayloadStore tbl a
     -> RankedBlockPayloadHash
@@ -211,7 +211,7 @@ getPayloadSimple s r = do
 --
 getPayload
     :: forall a tbl candidateTbl
-    . Table tbl RankedBlockPayloadHash a
+    . ReadableTable tbl RankedBlockPayloadHash a
     => Table candidateTbl RankedBlockPayloadHash a
     => PayloadStore tbl a
     -> candidateTbl
@@ -292,4 +292,3 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
             Left (e :: ClientError) -> do
                 logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
                 throwM e
-

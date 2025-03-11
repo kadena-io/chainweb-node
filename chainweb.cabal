@@ -194,7 +194,6 @@ library
         , Chainweb.Logger
         , Chainweb.Logging.Config
         , Chainweb.Logging.Miner
-        , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.CurrentTxs
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.InMem.ValidatingConfig
@@ -218,6 +217,7 @@ library
         , Chainweb.MinerReward
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
+        , Chainweb.Parent
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
@@ -279,7 +279,6 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Binary
         , Chainweb.VerifierPlugin.Hyperlane.Message
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
-        , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
@@ -292,7 +291,6 @@ library
         , Chainweb.Version.Testnet05
         , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
-        , Chainweb.WebPactExecutionService
 
         , Data.IVar
         , Data.LogMessage
@@ -335,7 +333,6 @@ library
         , Chainweb.Pact.Conversion
         , Chainweb.Pact.PactService
         , Chainweb.Pact.PactService.Checkpointer
-        , Chainweb.Pact.PactService.Checkpointer.Internal
         , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Client
@@ -343,7 +340,6 @@ library
         , Chainweb.Pact.RestAPI.SPV
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.SPV
-        , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.NoCoinbase
         , Chainweb.Pact.Templates
         , Chainweb.Pact.TransactionExec
@@ -373,6 +369,7 @@ library
         , chainweb-storage >= 0.1
         , chronos >= 1.1
         , clock >= 0.7
+        , comonad
         , configuration-tools >= 0.6
         , containers >= 0.5
         , crypton >= 0.31
@@ -392,6 +389,7 @@ library
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
+        , free
         , ghc-compact >= 0.1
         , growable-vector >= 0.1
         , hashable >= 1.4

@@ -9,6 +9,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Ranked
@@ -25,6 +26,8 @@
 --
 module Chainweb.Ranked
 ( Ranked(..)
+, rankedHeight
+, ranked
 , encodeRanked
 , decodeRanked
 , JsonRanked(..)
@@ -38,6 +41,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Control.DeepSeq
+import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson
@@ -46,7 +50,6 @@ import Data.Typeable (Proxy(..), Typeable, typeRep)
 
 import GHC.Generics (Generic)
 import GHC.TypeLits
-import Data.Kind (Type)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeight Ranked Data
@@ -65,6 +68,7 @@ data Ranked a = Ranked
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
+makeLenses ''Ranked
 
 encodeRanked :: (a -> Put) -> Ranked a -> Put
 encodeRanked putA (Ranked r a) = do
@@ -93,16 +97,11 @@ decodeRanked decodeA = Ranked
 -- abstract about both cases and to avoid cluttering the namespace.
 --
 class Ord r => IsRanked r where
-    type Unranked r :: Type
     rank :: r -> BlockHeight
-    unranked :: r -> Unranked r
-    ranked :: BlockHeight -> Unranked r -> r
 
 instance Ord a => IsRanked (Ranked a) where
-    type Unranked (Ranked a) = a
     rank = _rankedHeight
-    unranked = _ranked
-    ranked = Ranked
+
 
 -- -------------------------------------------------------------------------- --
 

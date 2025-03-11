@@ -2,23 +2,21 @@
     ImportQualifiedPost
   , LambdaCase
   , OverloadedStrings
+  , OverloadedRecordDot
   , ScopedTypeVariables
   , TypeApplications
 #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Chainweb.Pact.SPV (pactSPV) where
 
-import Chainweb.BlockHeader (BlockHeader, blockHash, blockHeight)
-import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Payload (TransactionOutput(..))
-import Chainweb.SPV (SpvException(..), TransactionOutputProof(..), outputProofChainId)
-import Chainweb.SPV.VerifyProof (verifyTransactionOutputProofAt_)
-import Chainweb.Utils (decodeB64UrlNoPaddingText)
+import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
+import Chainweb.SPV.VerifyProof (runTransactionOutputProof)
+import Chainweb.Utils (decodeB64UrlNoPaddingText, unlessM)
 import Chainweb.Version qualified as CW
-import Chainweb.Version.Guards qualified as CW
 import Control.Lens
 import Control.Monad (when)
-import Control.Monad.Catch (catch, throwM)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.Hash.Algorithms (SHA512t_256)
@@ -29,24 +27,32 @@ import Pact.Core.Command.Types (CommandResult(..), PactResult(..))
 import Pact.Core.DefPacts.Types (DefPactExec(..))
 import Pact.Core.Hash (Hash(..))
 import Pact.Core.PactValue (ObjectData(..), PactValue(..))
-import Pact.Core.SPV (ContProof(..), SPVSupport(..))
+import Pact.Core.SPV (SPVSupport(..), ContProof (..))
 import Pact.Core.StableEncoding (encodeStable)
+import Chainweb.Crypto.MerkleLog
+import Chainweb.Pact.Backend.Types
 
-pactSPV :: BlockHeaderDb -> BlockHeader -> SPVSupport
-pactSPV bdb bh = SPVSupport
-    { _spvSupport = \proofType proof -> verifySPV bdb bh proofType proof
-    , _spvVerifyContinuation = \contProof -> verifyCont bdb bh contProof
+pactSPV :: HeaderOracle -> SPVSupport
+pactSPV oracle = SPVSupport
+    { _spvSupport = \proofType proof -> verifySPV oracle proofType proof
+    , _spvVerifyContinuation = \contProof -> verifyCont oracle contProof
     }
+
+checkProofAndExtractOutput :: HeaderOracle -> TransactionOutputProof SHA512t_256 -> ExceptT Text IO TransactionOutput
+checkProofAndExtractOutput oracle proof@(TransactionOutputProof _cid p) = do
+    let h = runTransactionOutputProof proof
+    unlessM (liftIO $ oracle.consult h) $ throwError
+        "spv verification failed: target header is not in the chain"
+    proofSubject p
 
 -- | Attempt to verify an SPV proof of a continuation given
 --   a continuation payload object bytestring. On success, returns
 --   the 'DefPactExec' associated with the proof.
 verifyCont :: ()
-    => BlockHeaderDb
-    -> BlockHeader
+    => HeaderOracle
     -> ContProof
     -> IO (Either Text DefPactExec)
-verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
+verifyCont bdb (ContProof base64Proof) = runExceptT $ do
     proofBytes <- case decodeB64UrlNoPaddingText (Text.decodeUtf8 base64Proof) of
         Left _ -> throwError "verifyCont: Invalid base64-encoded transaction output proof"
         Right bs -> return bs
@@ -64,7 +70,7 @@ verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
     --   1. Verify SPV TransactionOutput proof via Chainweb SPV API
     --   2. Decode tx outputs to 'CommandResult' 'Hash' _
     --   3. Extract continuation 'DefPactExec' from decoded result and return the cont exec object
-    TransactionOutput proof <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
+    TransactionOutput proof <- checkProofAndExtractOutput bdb outputProof
 
     -- TODO: Do we care about the error type here?
     commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) proof of
@@ -76,23 +82,20 @@ verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
         Just defpactExec -> return defpactExec
 
 verifySPV :: ()
-    => BlockHeaderDb
-    -> BlockHeader
+    => HeaderOracle
     -> Text -- ^ ETH or TXOUT - defines the type of proof used in validation
     -> ObjectData PactValue
     -> IO (Either Text (ObjectData PactValue))
-verifySPV bdb bh proofType proof = runExceptT $ do
-    let cid = CW._chainId bdb
-
+verifySPV oracle proofType proof = runExceptT $ do
     case proofType of
         "ETH" -> do
-            throwError "verifySPV: ETH proof type is not yet supported in Pact5."
+            throwError "verifySPV: ETH proof type is not yet supported in Pact."
         "TXOUT" -> do
             outputProof <- case pactObjectOutputProof proof of
                 Left err -> throwError err
                 Right u -> return u
 
-            when (view outputProofChainId outputProof /= cid) $
+            when (view outputProofChainId outputProof /= oracle.chain) $
                 throwError "verifySPV: cannot redeem spv proof on wrong target chain"
 
             -- SPV proof verification is a 3-step process:
@@ -100,7 +103,8 @@ verifySPV bdb bh proofType proof = runExceptT $ do
             --   2. Decode tx outputs to 'CommandResult' 'Hash' _
             --   3. Extract tx outputs as a pact object and return the object
 
-            TransactionOutput rawCommandResult <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
+            TransactionOutput rawCommandResult <-
+              checkProofAndExtractOutput oracle outputProof
 
             commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) rawCommandResult of
                 Nothing -> throwError "verifySPV: Unable to decode SPV transaction output"
@@ -123,11 +127,3 @@ pactObjectOutputProof (ObjectData o) = do
     case Aeson.decodeStrict' @(TransactionOutputProof SHA512t_256) $ encodeStable o of
         Nothing -> Left "pactObjectOutputProof: Failed to decode proof object"
         Just outputProof -> Right outputProof
-
-catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
-catchAndDisplaySPVError bh eio =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (CW._chainId bh) (view blockHeight bh)
-  then catch eio $ \case
-    SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
-    spvErr -> throwM spvErr
-  else eio

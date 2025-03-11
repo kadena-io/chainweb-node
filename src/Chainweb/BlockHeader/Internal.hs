@@ -44,12 +44,9 @@
 -- are writing tests.
 module Chainweb.BlockHeader.Internal
 (
--- * Newtype wrappers for function parameters
-  Parent(..)
-, _Parent
 
 -- * Block Payload Hash
-, BlockPayloadHash
+  BlockPayloadHash
 , BlockPayloadHash_(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
@@ -120,6 +117,9 @@ module Chainweb.BlockHeader.Internal
 
 -- * Genesis BlockHeader
 , isGenesisBlockHeader
+, isGenesisBlockHeader'
+, childBlockHeight
+, parentBlockHeight
 , genesisParentBlockHash
 , genesisBlockHeader
 , genesisBlockHeaders
@@ -149,7 +149,9 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Parent
 import Chainweb.PowHash
+import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
@@ -321,7 +323,7 @@ data BlockHeader :: Type where
             -- an advantage to an attacker that would increase the success
             -- probability for an attack.
 
-        , _blockParent :: {-# UNPACK #-} !BlockHash
+        , _blockParent :: {-# UNPACK #-} !(Parent BlockHash)
             -- ^ authoritative
 
         , _blockAdjacentHashes :: !BlockHashRecord
@@ -566,7 +568,7 @@ epochStart ph@(Parent p) adj (BlockCreationTime bt)
     -- * Can handle non continuous non uniform distribution of hash power
     --   accross chains.
     --
-    _adjustmentMax = maximum adjCreationTimes .-. _blockCreationTime p
+    _adjustmentMax = maximum adjCreationTimes .-. fmap _blockCreationTime ph
         -- the maximum is at least @_blockCreationTime p@ and thus the result is
         -- greater or equal 0.
 
@@ -592,17 +594,17 @@ epochStart ph@(Parent p) adj (BlockCreationTime bt)
     _adjustmentAvg = x `divTimeSpan` length adjCreationTimes
       where
         x :: TimeSpan Micros
-        x = foldr1 addTimeSpan $ (.-. _blockCreationTime p) <$> adjCreationTimes
+        x = foldr1 addTimeSpan $ (.-. fmap _blockCreationTime ph) <$> adjCreationTimes
 
     -- This includes the parent header itself, but excludes any adjacent genesis
     -- headers which usually don't have accurate creation time.
     --
     -- The result is guaranteed to be non-empty
     --
-    adjCreationTimes = fmap (_blockCreationTime)
-        $ HM.insert cid (unwrapParent ph)
-        $ HM.filter (not . isGenesisBlockHeader)
-        $ fmap unwrapParent adj
+    adjCreationTimes = fmap (fmap _blockCreationTime)
+        $ HM.insert cid ph
+        $ HM.filter (not . isGenesisBlockHeader . unwrapParent)
+        $ adj
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
@@ -611,28 +613,39 @@ epochStart ph@(Parent p) adj (BlockCreationTime bt)
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
-newtype Parent h = Parent { unwrapParent :: h }
-    deriving stock (Show, Functor, Foldable, Traversable, Eq, Ord, Generic)
-    deriving newtype (NFData, ToJSON, FromJSON, Hashable, LeftTorsor)
-
-instance HasChainId h => HasChainId (Parent h) where
-    _chainId = _chainId . unwrapParent
-instance HasChainwebVersion h => HasChainwebVersion (Parent h) where
-    _chainwebVersion = _chainwebVersion . unwrapParent
-instance HasChainGraph h => HasChainGraph (Parent h) where
-    _chainGraph = _chainGraph . unwrapParent
-
 isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b =
     _blockHeight b == genesisHeight (_chainwebVersion b) (_chainId b)
+
+-- Alternate method of detecting a genesis block using only its parent + chain + version
+isGenesisBlockHeader' :: ChainwebVersion -> ChainId -> Parent BlockHash -> Bool
+isGenesisBlockHeader' v cid ph =
+    genesisParentBlockHash v cid == ph
+
+-- The height of a child of the given block.
+childBlockHeight :: ChainwebVersion -> ChainId -> Parent (Ranked BlockHash) -> BlockHeight
+childBlockHeight v cid (Parent rbh)
+    | isGenesisBlockHeader' v cid (Parent (_rankedBlockHashHash rbh)) =
+        _rankedBlockHashHeight rbh
+    | otherwise =
+        succ (_rankedBlockHashHeight rbh)
+
+-- | The height of a parent of the given block. Note that you need the hash of
+-- the parent and the height of the child.
+parentBlockHeight :: ChainwebVersion -> ChainId -> Ranked (Parent BlockHash) -> Parent (Ranked BlockHash)
+parentBlockHeight v cid (Ranked height parentHash)
+    | isGenesisBlockHeader' v cid parentHash =
+        Parent $ Ranked height $ unwrapParent parentHash
+    | otherwise =
+        Parent $ Ranked (pred height) $ unwrapParent parentHash
 
 -- | The genesis block hash includes the Chainweb version and the 'ChainId'
 -- within the Chainweb version.
 --
 -- It is the '_blockParent' of the genesis block
 --
-genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
-genesisParentBlockHash v p = BlockHash $ MerkleLogHash
+genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> Parent BlockHash
+genesisParentBlockHash v p = Parent $ BlockHash $ MerkleLogHash
     $ merkleRoot $ merkleTree @ChainwebMerkleHashAlgorithm
         [ InputNode "CHAINWEB_GENESIS"
         , encodeMerkleInputNode encodeChainwebVersionCode (_versionCode v)
@@ -741,7 +754,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
     type MerkleLogHeader BlockHeader =
         '[ FeatureFlags
         , BlockCreationTime
-        , BlockHash
+        , Parent BlockHash
         , HashTarget
         , BlockPayloadHash
         , ChainId
@@ -751,7 +764,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
         , EpochStartTime
         , Nonce
         ]
-    type MerkleLogBody BlockHeader = BlockHash
+    type MerkleLogBody BlockHeader = Parent BlockHash
 
     toLog bh = merkleLog @ChainwebMerkleHashAlgorithm root entries
       where
@@ -809,7 +822,7 @@ encodeBlockHeaderWithoutHash :: BlockHeader -> Put
 encodeBlockHeaderWithoutHash b = do
     encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
-    encodeBlockHash (_blockParent b)
+    encodeBlockHash (unwrapParent $ _blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
     encodeHashTarget (_blockTarget b)
     encodeBlockPayloadHash (_blockPayloadHash b)
@@ -857,7 +870,7 @@ decodeBlockHeaderWithoutHash :: Get BlockHeader
 decodeBlockHeaderWithoutHash = do
     a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
-    a2 <- decodeBlockHash -- parent hash
+    a2 <- Parent <$> decodeBlockHash
     a3 <- decodeBlockHashRecord
     a4 <- decodeHashTarget
     a5 <- decodeBlockPayloadHash
@@ -889,7 +902,7 @@ decodeBlockHeader :: Get BlockHeader
 decodeBlockHeader = BlockHeader
     <$> decodeFeatureFlags
     <*> decodeBlockCreationTime
-    <*> decodeBlockHash -- parent hash
+    <*> (Parent <$> decodeBlockHash)
     <*> decodeBlockHashRecord
     <*> decodeHashTarget
     <*> decodeBlockPayloadHash
@@ -924,7 +937,7 @@ blockAdjacentChainIds = to _blockAdjacentChainIds
 -- throws a @ChainNotAdjacentException@ if @cid@ is not adajcent with @_chainId
 -- h@ in the chain graph of @h@.
 --
-getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
+getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m (Parent BlockHash)
 getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
         (_chainId b)
@@ -1075,7 +1088,7 @@ newBlockHeader adj pay nonce t p@(Parent b) =
     fromLog @ChainwebMerkleHashAlgorithm $ newMerkleLog
         $ mkFeatureFlags
         :+: t
-        :+: _blockHash b
+        :+: Parent (_blockHash b)
         :+: target
         :+: pay
         :+: cid
@@ -1089,7 +1102,7 @@ newBlockHeader adj pay nonce t p@(Parent b) =
     cid = _chainId p
     v = _chainwebVersion p
     target = powTarget p adj t
-    adjHashes = BlockHashRecord $ (_blockHash . unwrapParent) <$> adj
+    adjHashes = BlockHashRecord $ fmap _blockHash <$> adj
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -1100,7 +1113,10 @@ instance TreeDbEntry BlockHeader where
     rank = int . _blockHeight
     parent e
         | isGenesisBlockHeader e = Nothing
-        | otherwise = Just (_blockParent e)
+        | otherwise = Just (unwrapParent $ _blockParent e)
+
+instance IsRanked BlockHeader where
+    rank = _blockHeight
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -1180,5 +1196,3 @@ _rankedBlockPayloadHash h = RankedBlockPayloadHash
 rankedBlockPayloadHash :: Getter BlockHeader RankedBlockPayloadHash
 rankedBlockPayloadHash = to _rankedBlockPayloadHash
 {-# INLINE rankedBlockPayloadHash #-}
-
-makePrisms ''Parent

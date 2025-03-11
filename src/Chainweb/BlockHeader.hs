@@ -10,12 +10,8 @@
 -- 'Setter', again only in tests, use 'Chainweb.BlockHeader.Internal' instead.
 module Chainweb.BlockHeader
 (
--- * Newtype wrappers for function parameters
-  I.Parent(..)
-, I._Parent
-
 -- * Block Payload Hash
-, I.BlockPayloadHash
+  I.BlockPayloadHash
 , I.BlockPayloadHash_(..)
 , I.encodeBlockPayloadHash
 , I.decodeBlockPayloadHash
@@ -86,6 +82,9 @@ module Chainweb.BlockHeader
 
 -- * Genesis BlockHeader
 , I.isGenesisBlockHeader
+, I.isGenesisBlockHeader'
+, I.childBlockHeight
+, I.parentBlockHeight
 , I.genesisParentBlockHash
 , I.genesisBlockHeader
 , I.genesisBlockHeaders
@@ -104,14 +103,16 @@ module Chainweb.BlockHeader
 where
 
 import Chainweb.ChainId (ChainId)
-import Chainweb.BlockWeight (BlockWeight)
-import Chainweb.BlockHeight (BlockHeight)
-import Chainweb.Version (ChainwebVersionCode)
-import Chainweb.Payload (BlockPayloadHash)
-import Chainweb.Difficulty (HashTarget)
+import Chainweb.BlockCreationTime (BlockCreationTime)
 import Chainweb.BlockHash (BlockHash, BlockHashRecord)
 import Chainweb.BlockHeader.Internal qualified as I
-import Chainweb.BlockCreationTime (BlockCreationTime)
+import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockWeight (BlockWeight)
+import Chainweb.Version (ChainwebVersionCode)
+import Chainweb.Parent
+import Chainweb.Payload (BlockPayloadHash)
+import Chainweb.Difficulty (HashTarget)
+
 import Control.Lens (Getter)
 
 blockFlags :: Getter I.BlockHeader I.FeatureFlags
@@ -120,7 +121,7 @@ blockFlags = I.blockFlags
 blockCreationTime :: Getter I.BlockHeader BlockCreationTime
 blockCreationTime = I.blockCreationTime
 
-blockParent :: Getter I.BlockHeader BlockHash
+blockParent :: Getter I.BlockHeader (Parent BlockHash)
 blockParent = I.blockParent
 
 blockAdjacentHashes :: Getter I.BlockHeader BlockHashRecord

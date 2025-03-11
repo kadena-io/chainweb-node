@@ -82,24 +82,6 @@ module Chainweb.PayloadProvider.Minimal
 , newMinimalPayloadProvider
 ) where
 
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.BlockPayloadHash
-import Chainweb.Logger
-import Chainweb.MinerReward
-import Chainweb.PayloadProvider
-import Chainweb.PayloadProvider.Minimal.Payload
-import Chainweb.PayloadProvider.Minimal.PayloadDB qualified as PDB
-import Chainweb.PayloadProvider.P2P
-import Chainweb.PayloadProvider.P2P qualified as Rest
-import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
-import Chainweb.Ranked
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.Map
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Utils
-import Chainweb.Utils.Serialization
-import Chainweb.Version
 import Configuration.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -118,6 +100,26 @@ import Numeric.Natural
 import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
+
+import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockPayloadHash
+import Chainweb.Logger
+import Chainweb.MinerReward
+import Chainweb.Parent
+import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.Minimal.Payload
+import Chainweb.PayloadProvider.Minimal.PayloadDB qualified as PDB
+import Chainweb.PayloadProvider.P2P
+import Chainweb.PayloadProvider.P2P qualified as Rest
+import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
+import Chainweb.Ranked
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.Map
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Utils
+import Chainweb.Utils.Serialization
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 

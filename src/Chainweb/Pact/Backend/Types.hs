@@ -18,11 +18,11 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 
 module Chainweb.Pact.Backend.Types
-    ( Checkpointer(..)
-    , SQLiteEnv
+    ( SQLiteEnv
     , IntraBlockPersistence(..)
     , BlockHandle(..)
     , blockHandleTxId
@@ -39,7 +39,7 @@ module Chainweb.Pact.Backend.Types
     , _Historical
     , _NoHistory
     , ChainwebPactDb(..)
-    , RunnableBlock(..)
+    , HeaderOracle(..)
     ) where
 
 import Control.Lens
@@ -53,11 +53,8 @@ import Data.HashSet (HashSet)
 import Control.DeepSeq (NFData)
 import GHC.Generics
 
-import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
-
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Names as Pact4
-import Chainweb.BlockHeader
 import Chainweb.BlockHash
 import Pact.Core.Command.Types
 import qualified Pact.Core.Persistence as Pact
@@ -65,8 +62,21 @@ import qualified Pact.Core.Builtin as Pact
 import qualified Pact.Core.Evaluate as Pact
 import Data.Vector (Vector)
 import Data.HashMap.Strict (HashMap)
+import qualified Pact.Core.SPV as Pact
+
 import Chainweb.BlockHeight
+import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
+import Chainweb.Parent
 import Chainweb.Utils
+
+data HeaderOracle = HeaderOracle
+    -- this hash must always have a child
+    { consult :: !(Parent BlockHash -> IO Bool)
+    , chain :: !ChainId
+    }
+
+instance HasChainId HeaderOracle where
+    _chainId oracle = oracle.chain
 
 -- | Whether we write rows to the database that were already overwritten
 -- in the same block.
@@ -79,7 +89,7 @@ data ChainwebPactDb = ChainwebPactDb
         :: forall a
         . BlockHandle
         -> Maybe RequestKey
-        -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> IO a)
+        -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> Pact.SPVSupport -> IO a)
         -> IO (a, BlockHandle)
         -- ^ Give this function a BlockHandle representing the state of a pending
         -- block and it will pass you a PactDb which contains the Pact state as of
@@ -90,21 +100,6 @@ data ChainwebPactDb = ChainwebPactDb
         -- transactions as completed, if you pass it a RequestKey.
     , lookupPactTransactions :: Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash))
         -- ^ Used to implement transaction polling.
-    }
-
-newtype RunnableBlock logger a = RunnableBlock
-    ( ChainwebPactDb
-    -> Maybe (Parent RankedBlockHash)
-    -> BlockHandle -> IO ((a, RankedBlockHash), BlockHandle)
-    )
-
-data Checkpointer logger
-    = Checkpointer
-    { cpLogger :: logger
-    , cpCwVersion :: ChainwebVersion
-    , cpChainId :: ChainId
-    , cpSql :: SQLiteEnv
-    , cpIntraBlockPersistence :: IntraBlockPersistence
     }
 
 type SQLiteEnv = Database
@@ -165,12 +160,12 @@ emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty InMemDb.empty mempty mempty
 
 data BlockHandle = BlockHandle
-    { _blockHandleTxId :: !Pact4.TxId
+    { _blockHandleTxId :: !Pact.TxId
     , _blockHandlePending :: !SQLitePendingData
     }
     deriving (Eq, Show)
 
-emptyBlockHandle :: Pact4.TxId -> BlockHandle
+emptyBlockHandle :: Pact.TxId -> BlockHandle
 emptyBlockHandle txid = BlockHandle txid emptySQLitePendingData
 
 -- | The result of a historical lookup which might fail to even find the

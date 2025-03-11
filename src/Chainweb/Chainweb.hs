@@ -383,7 +383,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
       { _pactReorgLimit = _configReorgLimit conf
       , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
       , _pactQueueSize = _configPactQueueSize conf
-      , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       , _pactUnlimitedInitialRewind =
           isJust (_cutDbParamsInitialHeightLimit cutDbParams) ||
