@@ -133,7 +133,7 @@ import Data.Hashable (Hashable)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Time.Clock.POSIX (getPOSIXTime, POSIXTime)
-import Ethereum.Misc
+import Ethereum.Misc qualified as E
 import Ethereum.RLP (RLP (..), putRlpByteString, getRlpL, putRlpL, label)
 import Ethereum.Trie
 import Ethereum.Utils hiding (int)
@@ -156,14 +156,14 @@ import Data.Word
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/paris.md#forkchoicestatev1
 --
 data ForkchoiceStateV1 = ForkchoiceStateV1
-    { _forkchoiceHeadBlockHash :: !BlockHash
+    { _forkchoiceHeadBlockHash :: !E.BlockHash
         -- ^ headBlockHash: DATA, 32 Bytes - block hash of the head of the
         -- canonical chain
-    , _forkchoiceSafeBlockHash :: !BlockHash
+    , _forkchoiceSafeBlockHash :: !E.BlockHash
         -- ^ safeBlockHash: DATA, 32 Bytes - the "safe" block hash of the
         -- canonical chain under certain synchrony and honesty assumptions. This
         -- value MUST be either equal to or an ancestor of headBlockHash
-    , _forkchoiceFinalizedBlockHash :: !BlockHash
+    , _forkchoiceFinalizedBlockHash :: !E.BlockHash
         -- ^ finalizedBlockHash: DATA, 32 Bytes - block hash of the most recent
         -- finalized block
     }
@@ -237,7 +237,7 @@ instance HasTextRepresentation PayloadStatusStatus where
 data PayloadStatusV1 = PayloadStatusV1
     { _payloadStatusV1Status :: !PayloadStatusStatus
         -- ^ Status of the payload
-    , _payloadStatusV1LatestValidHash :: !(Maybe BlockHash)
+    , _payloadStatusV1LatestValidHash :: !(Maybe E.BlockHash)
         -- ^ DATA|null, 32 Bytes - the hash of the most recent valid block in
         -- the branch defined by payload and its ancestors
     , _payloadStatusV1ValidationError :: !(Maybe T.Text)
@@ -290,7 +290,7 @@ data WithdrawalV1 = WithdrawalV1
         -- ^ index: QUANTITY, 64 Bits
     , _withdrawalValidatorIndex :: !Word64
         -- ^ validatorIndex: QUANTITY, 64 Bits
-    , _withdrawalAddress :: !Address
+    , _withdrawalAddress :: !E.Address
         -- ^ address: DATA, 20 Bytes
     , _withdrawalAmount :: !Word64
         -- ^ amount: QUANTITY, 64 Bits
@@ -339,7 +339,7 @@ instance RLP WithdrawalV1 where
 withdrawlsRoot :: [WithdrawalV1] -> WithdrawalsRoot
 withdrawlsRoot l = unsafePerformIO $ do
     store <- mkHashMapStore
-    Trie (Keccak256Hash !t) <- trie (_trieStoreAdd store)
+    Trie (E.Keccak256Hash !t) <- trie (_trieStoreAdd store)
         $ bimap putRlpByteString putRlpByteString <$> zip [0::Natural ..] l
     return (WithdrawalsRoot t)
 
@@ -348,26 +348,26 @@ withdrawlsRoot l = unsafePerformIO $ do
 
 -- | EIP-4844 KZG Commitment
 --
-newtype KzgCommitment = KzgCommitment { _kzgCommitment :: BytesN 48 }
+newtype KzgCommitment = KzgCommitment { _kzgCommitment :: E.BytesN 48 }
     deriving (Show, Eq, Ord)
-    deriving newtype (RLP, Bytes, Storable, Hashable)
-    deriving (ToJSON, FromJSON) via (HexBytes (BytesN 48))
+    deriving newtype (RLP, E.Bytes, Storable, Hashable)
+    deriving (ToJSON, FromJSON) via (HexBytes (E.BytesN 48))
 
 -- | EIP-4844 KZG Proof
 --
-newtype KzgProof = KzgProof { _kzgProof :: BytesN 48 }
+newtype KzgProof = KzgProof { _kzgProof :: E.BytesN 48 }
     deriving (Show, Eq, Ord)
-    deriving newtype (RLP, Bytes, Storable, Hashable)
-    deriving (ToJSON, FromJSON) via (HexBytes (BytesN 48))
+    deriving newtype (RLP, E.Bytes, Storable, Hashable)
+    deriving (ToJSON, FromJSON) via (HexBytes (E.BytesN 48))
 
 -- | EIP-4844 Blob
 --
 -- size: FIELD_ELEMENTS_PER_BLOB * BYTES_PER_FIELD_ELEMENT = 4096 * 32 = 131072
 --
-newtype Blob = Blob { _blob :: BytesN 131072 }
+newtype Blob = Blob { _blob :: E.BytesN 131072 }
     deriving (Show, Eq, Ord)
-    deriving newtype (RLP, Bytes, Storable, Hashable)
-    deriving (ToJSON, FromJSON) via (HexBytes (BytesN 131072))
+    deriving newtype (RLP, E.Bytes, Storable, Hashable)
+    deriving (ToJSON, FromJSON) via (HexBytes (E.BytesN 131072))
 
 -- | Blobs Bundle V1
 --
@@ -426,7 +426,7 @@ instance FromJSON BlobsBundleV1 where
 newtype TransactionBytes = TransactionBytes
     { _transactionBytes :: BS.ShortByteString }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (Hashable, Bytes)
+    deriving newtype (Hashable, E.Bytes)
 
 instance ToJSON TransactionBytes where
     toEncoding (TransactionBytes a) = toEncoding (HexBytes a)
@@ -440,12 +440,12 @@ instance FromJSON TransactionBytes where
         return b
     {-# INLINE parseJSON #-}
 
-transactionsRoot :: [TransactionBytes] -> TransactionsRoot
+transactionsRoot :: [TransactionBytes] -> E.TransactionsRoot
 transactionsRoot l = unsafePerformIO $ do
     store <- mkHashMapStore
     Trie !t <- trie (_trieStoreAdd store)
-        $ bimap putRlpByteString bytes <$> zip [0::Natural ..] l
-    return (TransactionsRoot t)
+        $ bimap putRlpByteString E.bytes <$> zip [0::Natural ..] l
+    return (E.TransactionsRoot t)
 
 -- | Execution Payload V1
 --
@@ -472,31 +472,31 @@ transactionsRoot l = unsafePerformIO $ do
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/paris.md#executionpayloadv1
 --
 data ExecutionPayloadV1 = ExecutionPayloadV1
-    { _executionPayloadV1ParentHash :: !ParentHash
+    { _executionPayloadV1ParentHash :: !E.ParentHash
         -- ^ parentHash: DATA, 32 Bytes
-    , _executionPayloadV1FeeRecipient :: !Beneficiary
+    , _executionPayloadV1FeeRecipient :: !E.Beneficiary
         -- ^ feeRecipient:  DATA, 20 Bytes
-    , _executionPayloadV1StateRoot :: !StateRoot
+    , _executionPayloadV1StateRoot :: !E.StateRoot
         -- ^ stateRoot: DATA, 32 Bytes
-    , _executionPayloadV1ReceiptsRoot :: !ReceiptsRoot
+    , _executionPayloadV1ReceiptsRoot :: !E.ReceiptsRoot
         -- ^ receiptsRoot: DATA, 32 Bytes
-    , _executionPayloadV1LogsBloom :: !Bloom
+    , _executionPayloadV1LogsBloom :: !E.Bloom
         -- ^ logsBloom: DATA, 256 Bytes
     , _executionPayloadV1PrevRandao :: !Randao
         -- ^ prevRandao: DATA, 32 Bytes
-    , _executionPayloadV1BlockNumber :: !BlockNumber
+    , _executionPayloadV1BlockNumber :: !E.BlockNumber
         -- ^ blockNumber: QUANTITY, 64 Bits
-    , _executionPayloadV1GasLimit :: !GasLimit
+    , _executionPayloadV1GasLimit :: !E.GasLimit
         -- ^ gasLimit: QUANTITY, 64 Bits
-    , _executionPayloadV1GasUsed :: !GasUsed
+    , _executionPayloadV1GasUsed :: !E.GasUsed
         -- ^ gasUsed: QUANTITY, 64 Bits
-    , _executionPayloadV1Timestamp :: !Timestamp
+    , _executionPayloadV1Timestamp :: !E.Timestamp
         -- ^ timestamp: QUANTITY, 64 Bits
-    , _executionPayloadV1ExtraData :: !ExtraData
+    , _executionPayloadV1ExtraData :: !E.ExtraData
         -- ^ extraData: DATA, 0 to 32 Bytes
     , _executionPayloadV1BaseFeePerGas :: !BaseFeePerGas
         -- ^ baseFeePerGas: QUANTITY, 256 Bits
-    , _executionPayloadV1BlockHash :: !BlockHash
+    , _executionPayloadV1BlockHash :: !E.BlockHash
         -- ^ blockHash: DATA, 32 Bytes
     , _executionPayloadV1Transactions :: ![TransactionBytes]
         -- ^ transactions: Array of DATA - Array of transaction objects, each
@@ -649,13 +649,13 @@ instance FromJSON ExecutionPayloadV3 where
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/paris.md#payloadattributesv1
 --
 data PayloadAttributesV1 = PayloadAttributesV1
-    { _payloadAttributesV1Timestamp :: !Timestamp
+    { _payloadAttributesV1Timestamp :: !E.Timestamp
         -- ^ timestamp: QUANTITY, 64 Bits - value for the timestamp field of the
         -- new payload
     , _payloadAttributesV1PrevRandao :: !Randao
         -- ^ prevRandao: DATA, 32 Bytes - value for the prevRandao field of the
         -- new payload.
-    , _payloadAttributesV1SuggestedFeeRecipient :: !Address
+    , _payloadAttributesV1SuggestedFeeRecipient :: !E.Address
         -- ^ suggestedFeeRecipient: DATA, 20 Bytes - suggested value for the
         -- feeRecipient field of the new payload
     }
@@ -773,7 +773,7 @@ instance FromJSON PayloadAttributesV3 where
 --
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#request-2
 --
-newtype PayloadId = PayloadId { _payloadId :: BytesN 8 }
+newtype PayloadId = PayloadId { _payloadId :: E.BytesN 8 }
     deriving (Show, Eq, Ord, Generic)
     deriving (ToJSON, FromJSON) via JsonTextRepresentation "PayloadId" PayloadId
 
@@ -1139,7 +1139,7 @@ instance FromJSON GetPayloadV3Response where
 --
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/authentication.md#jwt-specifications
 --
-newtype JwtSecret = JwtSecret { _jwtSecret :: BytesN 32 }
+newtype JwtSecret = JwtSecret { _jwtSecret :: E.BytesN 32 }
     deriving (Show, Eq, Ord, Generic)
     deriving (ToJSON, FromJSON) via (JsonTextRepresentation "JwtSecret" JwtSecret)
 
@@ -1157,14 +1157,14 @@ getJwtToken :: JwtSecret -> IO T.Text
 getJwtToken secret = jwtToken secret <$> getPOSIXTime
 
 jwtToken :: JwtSecret -> POSIXTime -> T.Text
-jwtToken (JwtSecret secret) timestamp =
+jwtToken (JwtSecret secret) t =
     T.intercalate "." [header, claim, signature]
   where
     header = b64 "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
-    claim = b64 $ "{\"iat\":" <> sshow (round @_ @Natural timestamp) <> "}"
+    claim = b64 $ "{\"iat\":" <> sshow (round @_ @Natural t) <> "}"
     signature = b64
         $ BA.convert
-        $ hmac @_ @_ @SHA256 (bytes secret)
+        $ hmac @_ @_ @SHA256 (E.bytes secret)
         $ T.encodeUtf8
         $ T.intercalate "." [header, claim]
     b64 = encodeB64UrlNoPaddingText
