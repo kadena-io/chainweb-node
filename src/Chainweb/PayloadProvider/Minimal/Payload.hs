@@ -63,7 +63,7 @@ import Data.Aeson.Types (Pair)
 import Data.ByteString.Short qualified as BS
 import Data.Function
 import Data.Hashable
-import Data.MerkleLog (MerkleProof, runMerkleProof)
+import Data.MerkleLog.V1 qualified as V1 (MerkleProof, runMerkleProof)
 import Data.Void
 import Data.Word
 import GHC.Generics (Generic)
@@ -234,15 +234,18 @@ proof
     => a ~ ChainwebMerkleHashAlgorithm
     -- => HasHeader a ChainwebHashTag c (MkLogType a ChainwebHashTag Payload)
     => Payload
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 proof = headerProof @Payload
 {-# INLINE proof #-}
 
 -- | Runs a proof. Returns the BlockPayloadHash of the payload for which
 -- inclusion is proven.
 --
-runProof :: MerkleProof ChainwebMerkleHashAlgorithm -> BlockPayloadHash
-runProof = BlockPayloadHash . MerkleLogHash . runMerkleProof
+runProof
+    :: MonadThrow m
+    => V1.MerkleProof ChainwebMerkleHashAlgorithm
+    -> m BlockPayloadHash
+runProof p = BlockPayloadHash . MerkleLogHash <$> V1.runMerkleProof p
 {-# INLINE runProof #-}
 
 -- -------------------------------------------------------------------------- --

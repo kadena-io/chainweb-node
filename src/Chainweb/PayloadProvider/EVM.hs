@@ -92,7 +92,6 @@ import Data.Maybe
 import Data.PQueue
 import Data.Singletons
 import Data.Text qualified as T
-import Data.Tuple
 import Ethereum.Misc
 import Ethereum.Misc qualified as EVM
 import Ethereum.Misc qualified as Ethereum
@@ -430,13 +429,6 @@ data EvmHeaderNotFoundException
     | EvmHeaderNotFoundByPayloadHash BlockPayloadHash
     deriving (Eq, Show, Generic)
 instance Exception EvmHeaderNotFoundException
-
-data LogEntryNotFoundException
-    = InvalidTransactionIndex XEventId
-    | InvalidEventIndex XEventId
-    | AmbiguousLogEntries XEventId [RpcLogEntry]
-    deriving (Eq, Show, Generic)
-instance Exception LogEntryNotFoundException
 
 data InvalidEvmState
     = EvmGenesisHeaderNotFound
@@ -1288,7 +1280,7 @@ getLogEntry
     -> XEventId
     -> IO LogEntry
 getLogEntry p e = do
-    -- it would be nice if we could just use the long entry index, but that is
+    -- it would be nice if we could just use the log entry index, but that is
     -- over the whole block and not just the tx
     logs <- getLogEntries p (int $ _xEventBlockHeight e)
     case filter ftx logs of
@@ -1308,7 +1300,7 @@ getSpvProof
 getSpvProof p e = do
     le <- getLogEntry p e
     lf Info $ "got logEntry: " <> encodeToText le
-    ld <- parseXLogData (_chainwebVersion p) (_xEventBlockHeight e)  le
+    ld <- parseXLogData (_chainwebVersion p) e le
     lf Info $ "got logData: " <> sshow ld
     return $ SpvProof $ object
         [ "origin" .= object

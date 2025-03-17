@@ -26,8 +26,6 @@ module Chainweb.Chainweb.CutResources
 , cutNetworks
 ) where
 
-import Control.Monad.Catch
-
 import Prelude hiding (log)
 
 import qualified Network.HTTP.Client as HTTP

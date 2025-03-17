@@ -21,8 +21,6 @@ module Chainweb.SPV.RestAPI.Client
 
 import Control.Monad.Identity
 
-import Crypto.Hash.Algorithms
-
 import Data.Proxy
 
 import Numeric.Natural
@@ -37,6 +35,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.SPV
 import Chainweb.SPV.RestAPI
 import Chainweb.Version
+import Chainweb.MerkleUniverse
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Proof Client
@@ -54,7 +53,7 @@ spvGetTransactionProofClient_
     -> Natural
         -- ^ the index of the proof subject, the transaction for which inclusion
         -- is proven.
-    -> ClientM (TransactionProof SHA512t_256)
+    -> ClientM (TransactionProof ChainwebMerkleHashAlgorithm)
 spvGetTransactionProofClient_ = client (spvGetTransactionProofApi @v @c)
 
 spvGetTransactionProofClient
@@ -71,7 +70,7 @@ spvGetTransactionProofClient
     -> Natural
         -- ^ the index of the proof subject, the transaction for which inclusion
         -- is proven.
-    -> ClientM (TransactionProof SHA512t_256)
+    -> ClientM (TransactionProof ChainwebMerkleHashAlgorithm)
 spvGetTransactionProofClient v tcid scid h i = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
@@ -94,7 +93,7 @@ spvGetTransactionOutputProofClient_
     -> Natural
         -- ^ the index of the proof subject, the transaction output for which
         -- inclusion is proven.
-    -> ClientM (TransactionOutputProof SHA512t_256)
+    -> ClientM (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 spvGetTransactionOutputProofClient_ = client (spvGetTransactionOutputProofApi @v @c)
 
 spvGetTransactionOutputProofClient
@@ -112,7 +111,7 @@ spvGetTransactionOutputProofClient
     -> Natural
         -- ^ the index of the proof subject, the transaction output for which
         -- inclusion is proven.
-    -> ClientM (TransactionOutputProof SHA512t_256)
+    -> ClientM (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 spvGetTransactionOutputProofClient v tcid scid h i = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid

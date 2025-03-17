@@ -36,7 +36,7 @@ module Chainweb.MerkleUniverse
 import Control.DeepSeq
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
+import Data.Hash.SHA2
 
 import Data.Aeson
 import qualified Data.Text as T
@@ -53,7 +53,7 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- Chainweb Merkle Hash Algorithm
 
-type ChainwebMerkleHashAlgorithm = SHA512t_256
+type ChainwebMerkleHashAlgorithm = Sha2_512_256
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Merkle Universe
@@ -177,7 +177,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'EthExcessBlobGasTag = 0x0052
     type MerkleTagVal ChainwebHashTag 'EthParentBeaconBlockRootTag = 0x0053
 
-instance HashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
     toMerkleNode = \case
     fromMerkleNode _ = throwM

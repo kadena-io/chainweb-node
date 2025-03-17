@@ -22,7 +22,8 @@
 module Chainweb.MerkleLogHash
 (
 -- * MerkleLogHash
-  MerkleLogHash(..) -- FIXME import this only internally
+  MerkleLogHash(..)
+, merkleLogHashBytes
 , MerkleLogHashBytesCount
 , merkleLogHashBytesCount
 , merkleLogHash
@@ -39,26 +40,23 @@ import Control.Monad.Catch (MonadThrow, displayException, throwM)
 import Data.Aeson (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bits
-import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
 import qualified Data.Text as T
 
-import Foreign.Storable
-
 import GHC.Generics
 import GHC.Stack (HasCallStack)
 import GHC.TypeNats
 
-import System.IO.Unsafe
-
 -- internal imports
 
-import Chainweb.Crypto.MerkleLog
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Data.Either
+import Data.Array.Byte
+import Data.Hash.Class.Mutable
 
 -- -------------------------------------------------------------------------- --
 -- MerkleLogHash
@@ -75,22 +73,29 @@ merkleLogHashBytesCount = natVal $ Proxy @MerkleLogHashBytesCount
 
 newtype MerkleLogHash a = MerkleLogHash (MerkleRoot a)
     deriving stock (Show, Eq, Ord, Generic)
-    deriving newtype (BA.ByteArrayAccess)
     deriving anyclass (NFData)
+
+instance Bytes (MerkleLogHash a) where
+   byteArray (MerkleLogHash r) = merkleRootBytes r
+   {-# INLINE byteArray #-}
 
 -- | Smart constructor
 --
 merkleLogHash
     :: MonadThrow m
-    => MerkleHashAlgorithm a
+    => IncrementalHash a
     => B.ByteString
     -> m (MerkleLogHash a)
 merkleLogHash = fmap MerkleLogHash . decodeMerkleRoot
 {-# INLINE merkleLogHash #-}
 
+merkleLogHashBytes :: MerkleLogHash a -> ByteArray
+merkleLogHashBytes (MerkleLogHash r) = merkleRootBytes r
+{-# INLINE merkleLogHashBytes #-}
+
 unsafeMerkleLogHash
     :: HasCallStack
-    => MerkleHashAlgorithm a
+    => IncrementalHash a
     => B.ByteString
     -> MerkleLogHash a
 unsafeMerkleLogHash = MerkleLogHash
@@ -98,28 +103,27 @@ unsafeMerkleLogHash = MerkleLogHash
     . decodeMerkleRoot
 {-# INLINE unsafeMerkleLogHash #-}
 
-encodeMerkleLogHash :: MerkleLogHash a -> Put
+encodeMerkleLogHash :: MerkleHashAlgorithm a => MerkleLogHash a -> Put
 encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot bytes
 {-# INLINE encodeMerkleLogHash #-}
 
 decodeMerkleLogHash
-    :: MerkleHashAlgorithm a
+    :: IncrementalHash a
     => Get (MerkleLogHash a)
 decodeMerkleLogHash = unsafeMerkleLogHash <$> getByteString (int merkleLogHashBytesCount)
 {-# INLINE decodeMerkleLogHash #-}
 
 instance Hashable (MerkleLogHash a) where
-    hashWithSalt s = xor s
-        . unsafeDupablePerformIO . flip BA.withByteArray (peek @Int)
+    hashWithSalt s = xor s . int . fromRight 0 . peekByteArray64
     -- BlockHashes are already cryptographically strong hashes
     -- that include the chain id.
     {-# INLINE hashWithSalt #-}
 
-nullHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
+nullHashBytes :: IncrementalHash a => MerkleLogHash a
 nullHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0x00
 {-# NOINLINE nullHashBytes #-}
 
-oneHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
+oneHashBytes :: IncrementalHash a => MerkleLogHash a
 oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0xff
 {-# NOINLINE oneHashBytes #-}
 
@@ -128,7 +132,7 @@ merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
 {-# INLINE merkleLogHashToText #-}
 
 merkleLogHashFromText
-    :: MerkleHashAlgorithm a
+    :: IncrementalHash a
     => MonadThrow m
     => T.Text
     -> m (MerkleLogHash a)
@@ -143,13 +147,13 @@ instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
     {-# INLINE fromText #-}
 
 instance MerkleHashAlgorithm a => ToJSON (MerkleLogHash a) where
-    toJSON = toJSON . toText
-    toEncoding = toEncoding . toText
+    toJSON = toJSON . merkleLogHashToText
+    toEncoding = toEncoding . merkleLogHashToText
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => ToJSONKey (MerkleLogHash a) where
-    toJSONKey = toJSONKeyText toText
+    toJSONKey = toJSONKeyText merkleLogHashToText
     {-# INLINE toJSONKey #-}
 
 instance MerkleHashAlgorithm a => FromJSON (MerkleLogHash a) where

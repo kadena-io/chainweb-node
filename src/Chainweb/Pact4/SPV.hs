@@ -47,8 +47,6 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Text.Read (readMaybe)
 
-import Crypto.Hash.Algorithms
-
 import qualified Ethereum.Header as EthHeader
 import Ethereum.Misc
 import Ethereum.Receipt
@@ -84,6 +82,7 @@ import qualified Pact.Types.Info as Pact4
 import qualified Pact.Types.PactValue as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Types.SPV as Pact4
+import Chainweb.MerkleUniverse
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
 catchAndDisplaySPVError bh =
@@ -296,7 +295,7 @@ verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
-extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof SHA512t_256)
+extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 extractProof False o = Pact4.toPactValue (Pact4.TObject o Pact4.noInfo) >>= k
   where
     k = aeson (Left . pack) Right

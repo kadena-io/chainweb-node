@@ -4,6 +4,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.SPV.RestAPI.Server
@@ -25,31 +27,25 @@ module Chainweb.SPV.RestAPI.Server
 ) where
 
 import Control.Monad.IO.Class
-
-import Crypto.Hash.Algorithms
-
+import Control.Exception (try, Exception(..))
 import Data.Foldable
-import qualified Data.Text.IO as T
-
-import Numeric.Natural
-
-import Servant
-
--- internal modules
-
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.CutDB
+import Chainweb.PayloadProvider
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV
 import Chainweb.SPV.CreateProof
 import Chainweb.SPV.RestAPI
 import Chainweb.Utils
 import Chainweb.Version
-
-import Data.Singletons
-import Chainweb.PayloadProvider
 import Control.Lens (view)
+import Data.Singletons
+import Data.Text.IO qualified as T
+import Numeric.Natural
+import Servant
+import qualified Data.ByteString.Lazy.Char8 as BL8
+import Chainweb.MerkleUniverse
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Proof Handler
@@ -68,7 +64,7 @@ spvGetTransactionProofHandler
     -> Natural
         -- ^ the index of the proof subject, the transaction for which inclusion
         -- is proven.
-    -> Handler (TransactionProof SHA512t_256)
+    -> Handler (TransactionProof ChainwebMerkleHashAlgorithm)
 spvGetTransactionProofHandler db tcid scid bh i =
     liftIO $ createTransactionProof db tcid scid bh (int i)
     -- FIXME: add proper error handling
@@ -91,7 +87,7 @@ spvGetTransactionOutputProofHandler
     -> Natural
         -- ^ the index of the proof subject, the transaction output for which
         -- inclusion is proven.
-    -> Handler (TransactionOutputProof SHA512t_256)
+    -> Handler (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 spvGetTransactionOutputProofHandler db tcid scid bh i =
     liftIO $ createTransactionOutputProof db tcid scid bh (int i)
     -- FIXME: add proper error handling
@@ -99,6 +95,13 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
 -- -------------------------------------------------------------------------- --
 -- SPV Event Output Proof Handler
 
+-- | TODO: we are probably missusing http status codes here. All
+-- PayloadSPvExceptions represent Application level protocol failures and not
+-- HTTP failures.
+--
+-- On the other hand, adding another level of failure reporting might be
+-- overkill.
+--
 spvGetEventProofHandler
     :: CutDb
     -> ChainId
@@ -117,11 +120,28 @@ spvGetEventProofHandler
     -> Natural
         -- ^ The event index in the transaction
     -> Handler FakeEventProof
-spvGetEventProofHandler db tcid scid bh i e = liftIO $ do
-    withPayloadProvider providers scid $ \p -> do
-        (SpvProof v) <- liftIO $ eventProof p xevent
-        return $ FakeEventProof tcid v
+spvGetEventProofHandler db tcid scid bh i e = do
+    liftIO (try getProof) >>= \case
+        Left err -> do
+            let msg = BL8.pack (displayException err)
+            throwError $ case err of
+                InvalidBlockHeight {} -> err404 { errBody = msg }
+                InvalidTransactionIndex {} -> err404 { errBody = msg }
+                InvalidEventIndex {} -> err404 { errBody = msg }
+                UnsupportedEventType {} -> err422 { errBody = msg }
+                InvalidEvent {} -> err422 { errBody = msg }
+                    -- or err400?
+                ProofPending {} -> err404 { errBody = msg }
+        Right v ->
+            return $ FakeEventProof tcid v
   where
+    getProof = withPayloadProvider providers scid $ \p -> do
+        -- trgHeader <- minimumTrgHeader headerDb tcid scid bh
+        -- TODO: check through block height whether a proof can possibly
+        -- already by available before we do any expensive computations.
+        (SpvProof v) <- eventProof p xevent
+        return v
+
     providers = view cutDbPayloadProviders db
     xevent = XEventId
         { _xEventBlockHeight = bh

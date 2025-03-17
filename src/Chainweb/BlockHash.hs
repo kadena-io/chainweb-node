@@ -19,6 +19,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DerivingVia #-}
 
 -- |
 -- Module: Chainweb.BlockHash
@@ -114,22 +115,16 @@ type BlockHash = BlockHash_ ChainwebMerkleHashAlgorithm
 newtype BlockHash_ a = BlockHash (MerkleLogHash a)
     deriving stock (Eq, Ord, Generic)
     deriving anyclass (NFData)
+    deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockHashTag
 
-instance Show (BlockHash_ a) where
+instance MerkleHashAlgorithm a => Show (BlockHash_ a) where
     show = T.unpack . encodeToText
 
 instance Hashable (BlockHash_ a) where
     hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
 
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockHash_ a) where
-    type Tag (BlockHash_ a) = 'BlockHashTag
-    toMerkleNode = encodeMerkleTreeNode
-    fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockHash :: BlockHash_ a -> Put
+encodeBlockHash :: MerkleHashAlgorithm a => BlockHash_ a -> Put
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
@@ -137,7 +132,7 @@ decodeBlockHash :: MerkleHashAlgorithm a => Get (BlockHash_ a)
 decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
-instance ToJSON (BlockHash_ a) where
+instance MerkleHashAlgorithm a => ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
@@ -148,7 +143,7 @@ instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
         . (runGetS decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
-instance ToJSONKey (BlockHash_ a) where
+instance MerkleHashAlgorithm a => ToJSONKey (BlockHash_ a) where
     toJSONKey = toJSONKeyText
         $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSONKey #-}
@@ -162,11 +157,11 @@ nullBlockHash :: MerkleHashAlgorithm a => BlockHash_ a
 nullBlockHash = BlockHash nullHashBytes
 {-# INLINE nullBlockHash #-}
 
-blockHashToText :: BlockHash_ a -> T.Text
+blockHashToText :: MerkleHashAlgorithm a => BlockHash_ a -> T.Text
 blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
 {-# INLINE blockHashToText #-}
 
-blockHashToTextShort :: BlockHash_ a -> T.Text
+blockHashToTextShort :: MerkleHashAlgorithm a => BlockHash_ a -> T.Text
 blockHashToTextShort = T.take 6 . blockHashToText
 
 blockHashFromText

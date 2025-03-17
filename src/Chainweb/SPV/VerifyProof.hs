@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.SPV.VerifyProof
@@ -27,9 +28,7 @@ module Chainweb.SPV.VerifyProof
 
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
-import Data.MerkleLog
+import Data.MerkleLog.V1 qualified as V1
 
 import Prelude hiding (lookup)
 
@@ -44,6 +43,7 @@ import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.MerkleUniverse
 
 -- -------------------------------------------------------------------------- --
 -- Transaction Proofs
@@ -51,9 +51,12 @@ import Chainweb.Utils
 -- | Runs a transaction Proof. Returns the block hash on the target chain for
 -- which inclusion is proven.
 --
-runTransactionProof :: TransactionProof SHA512t_256 -> BlockHash
+runTransactionProof
+    :: MonadThrow m
+    => TransactionProof ChainwebMerkleHashAlgorithm
+    -> m BlockHash
 runTransactionProof (TransactionProof _ p)
-    = BlockHash $ MerkleLogHash $ runMerkleProof p
+    = BlockHash . MerkleLogHash <$> V1.runMerkleProof p
 
 -- | Verifies the proof against the current state of consensus. The result
 -- confirms that the subject of the proof occurs in the history of the winning
@@ -61,14 +64,15 @@ runTransactionProof (TransactionProof _ p)
 --
 verifyTransactionProof
     :: CutDb
-    -> TransactionProof SHA512t_256
+    -> TransactionProof ChainwebMerkleHashAlgorithm
     -> IO Transaction
 verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
+    -- FIXME FIXME FIXME: If this is recorded on chain we have to double check
+    -- if this introduces a new failure condition!
+    h <- runTransactionProof proof
     unlessM (member cutDb cid h) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionProof proof
 
 -- | Verifies the proof for the given block hash. The result confirms that the
 -- subject of the proof occurs in the history of the target chain before the
@@ -79,15 +83,16 @@ verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
 --
 verifyTransactionProofAt
     :: CutDb
-    -> TransactionProof SHA512t_256
+    -> TransactionProof ChainwebMerkleHashAlgorithm
     -> BlockHash
     -> IO Transaction
 verifyTransactionProofAt cutDb proof@(TransactionProof cid p) ctx = do
+    -- FIXME FIXME FIXME: If this is recorded on chain we have to double check
+    -- if this introduces a new failure condition!
+    h <- runTransactionProof proof
     unlessM (memberOfM cutDb cid h ctx) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionProof proof
 
 -- | Verifies the proof for the given block hash. The result confirms that the
 -- subject of the proof occurs in the history of the target chain before the
@@ -98,15 +103,16 @@ verifyTransactionProofAt cutDb proof@(TransactionProof cid p) ctx = do
 --
 verifyTransactionProofAt_
     :: BlockHeaderDb
-    -> TransactionProof SHA512t_256
+    -> TransactionProof ChainwebMerkleHashAlgorithm
     -> BlockHash
     -> IO Transaction
 verifyTransactionProofAt_ bdb proof@(TransactionProof _cid p) ctx = do
+    -- FIXME FIXME FIXME: If this is recorded on chain we have to double check
+    -- if this introduces a new failure condition!
+    h <- runTransactionProof proof
     unlessM (ancestorOf bdb h ctx) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionProof proof
 
 -- -------------------------------------------------------------------------- --
 -- Output Proofs
@@ -114,9 +120,12 @@ verifyTransactionProofAt_ bdb proof@(TransactionProof _cid p) ctx = do
 -- | Runs a transaction Proof. Returns the block hash on the target chain for
 -- which inclusion is proven.
 --
-runTransactionOutputProof :: TransactionOutputProof SHA512t_256 -> BlockHash
+runTransactionOutputProof
+    :: MonadThrow m
+    => TransactionOutputProof ChainwebMerkleHashAlgorithm
+    -> m BlockHash
 runTransactionOutputProof (TransactionOutputProof _ p)
-    = BlockHash $ MerkleLogHash $ runMerkleProof p
+    = BlockHash . MerkleLogHash <$> V1.runMerkleProof p
 
 -- | Verifies the proof against the current state of consensus. The result
 -- confirms that the subject of the proof occurs in the history of the winning
@@ -124,14 +133,15 @@ runTransactionOutputProof (TransactionOutputProof _ p)
 --
 verifyTransactionOutputProof
     :: CutDb
-    -> TransactionOutputProof SHA512t_256
+    -> TransactionOutputProof ChainwebMerkleHashAlgorithm
     -> IO TransactionOutput
 verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
+    -- FIXME FIXME FIXME: If this is recorded on chain we have to double check
+    -- if this introduces a new failure condition!
+    h <- runTransactionOutputProof proof
     unlessM (member cutDb cid h) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionOutputProof proof
 
 -- | Verifies the proof for the given block hash. The result confirms that the
 -- subject of the proof occurs in the history of the target chain before the
@@ -142,15 +152,16 @@ verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
 --
 verifyTransactionOutputProofAt
     :: CutDb
-    -> TransactionOutputProof SHA512t_256
+    -> TransactionOutputProof ChainwebMerkleHashAlgorithm
     -> BlockHash
     -> IO TransactionOutput
 verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = do
+    -- FIXME FIXME FIXME: If this is recorded on chain we have to double check
+    -- if this introduces a new failure condition!
+    h <- runTransactionOutputProof proof
     unlessM (memberOfM cutDb cid h ctx) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionOutputProof proof
 
 -- | Verifies the proof for the given block hash. The result confirms that the
 -- subject of the proof occurs in the history of the target chain before the
@@ -161,12 +172,13 @@ verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = 
 --
 verifyTransactionOutputProofAt_
     :: BlockHeaderDb
-    -> TransactionOutputProof SHA512t_256
+    -> TransactionOutputProof ChainwebMerkleHashAlgorithm
     -> BlockHash
     -> IO TransactionOutput
 verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) ctx = do
+    -- FIXME FIXME FIXME: If this is recorded on chain we have to double check
+    -- if this introduces a new failure condition!
+    h <- runTransactionOutputProof proof
     unlessM (ancestorOf bdb h ctx) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionOutputProof proof

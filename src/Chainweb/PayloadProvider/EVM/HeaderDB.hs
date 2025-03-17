@@ -68,7 +68,6 @@ import Data.Aeson
 import Data.ByteString qualified as B
 import Data.Function
 import Data.Hashable
-import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Ethereum.RLP
 import GHC.Generics

@@ -25,6 +25,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -238,6 +239,19 @@ module Chainweb.Utils
 , unsafeHead
 , unsafeTail
 , withEarlyReturn
+
+-- * Bits and Bytes
+, Bytes(..)
+, fromByteString
+, toByteString
+, buildByteString
+, ByteSwap(..)
+, be
+, le
+, peekByteString
+, peekByteArray16
+, peekByteArray32
+, peekByteArray64
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -258,18 +272,23 @@ import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types qualified as Aeson
+import Data.Array.Byte
 import Data.Attoparsec.Text qualified as A
 import Data.Bifunctor
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
+import Data.ByteString.Unsafe qualified as B
 import Data.ByteString.Base64 qualified as B64
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short qualified as BS
+import Data.Coerce
 import Data.Csv qualified as CSV
 import Data.Decimal
+import Data.DoubleWord
 import Data.Functor.Of
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
@@ -284,12 +303,16 @@ import Data.Vector qualified as V
 import Data.Vector.Mutable qualified as MV
 import Data.Word
 
-import GHC.Exts (proxy#)
+import Foreign (Storable (sizeOf), peek, castPtr)
+
+import GHC.ByteOrder
+import GHC.Exts (proxy#, byteSwap#, indexWord64Array#, indexWord16Array#, indexWord32Array#)
 import GHC.Generics
 import GHC.Stack (HasCallStack, callStack, prettyCallStack)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal')
 import GHC.TypeLits qualified as Int (KnownNat, natVal')
 import GHC.TypeNats qualified as Nat (KnownNat, natVal')
+import GHC.Word (Word(W#), Word64 (W64#), Word16 (..), Word32 (..))
 
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client qualified as HTTP
@@ -297,6 +320,7 @@ import Network.HTTP.Client.TLS qualified as HTTP
 import Network.HTTP.Types qualified as HTTP
 import Network.Socket hiding (Debug)
 import Network.TLS qualified as HTTP
+import Network.URI
 
 import Numeric.Natural
 
@@ -307,7 +331,7 @@ import Servant.Client qualified
 import Streaming qualified as S (concats, effect, inspect)
 import Streaming.Prelude qualified as S
 
-import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO, unsafeDupablePerformIO)
 import System.LogLevel
 import System.Random.MWC qualified as Prob
 import System.Random.MWC.Probability qualified as Prob
@@ -315,7 +339,6 @@ import System.Timeout qualified as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
-import Network.URI
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -1510,6 +1533,146 @@ hostArch = "x86_64"
 #else
 hostArch = "unknown"
 #endif
+
+-- -------------------------------------------------------------------------- --
+-- Bits and Bytes
+
+-- | Class of types that can be coerced to ByteArray
+--
+-- Morally this should have Coercible ByteArray as superclass. However,
+-- Coercible dictionaries are not propagated by GHC in the same way like oher
+-- constraints. In particular, it is available only if the constructor for the
+-- respective type is brought into scope.
+--
+class Bytes a where
+    byteArray :: a -> ByteArray
+
+    default byteArray :: Coercible a ByteArray => a -> ByteArray
+    byteArray = coerce
+    {-# INLINE byteArray #-}
+
+instance Bytes ByteArray where
+instance Bytes BS.ShortByteString where
+
+bytes :: Coercible ByteArray b => Bytes a => a -> b
+bytes = coerce . byteArray
+{-# INLINE bytes #-}
+
+class ByteSwap a where swap :: a -> a
+instance ByteSwap Word where swap (W# w#) = W# (byteSwap# w#)
+instance ByteSwap Word16 where swap = byteSwap16
+instance ByteSwap Word32 where swap = byteSwap32
+instance ByteSwap Word64 where swap = byteSwap64
+instance ByteSwap Word128 where swap (Word128 a b) = Word128 (swap b) (swap a)
+instance ByteSwap Word256 where swap (Word256 a b) = Word256 (swap b) (swap a)
+
+toByteString :: Bytes a => a -> B.ByteString
+toByteString = BS.fromShort . bytes
+{-# INLINE toByteString #-}
+
+fromByteString :: Coercible ByteArray a => B.ByteString -> a
+fromByteString = coerce . BS.toShort
+{-# INLINE fromByteString #-}
+
+be :: ByteSwap a => a -> a
+be
+    | targetByteOrder == BigEndian = id
+    | otherwise = swap
+{-# INLINE be #-}
+
+le :: ByteSwap a => a -> a
+le
+    | targetByteOrder == LittleEndian = id
+    | otherwise = swap
+{-# INLINE le #-}
+
+buildByteString :: BB.Builder -> B.ByteString
+buildByteString = BL.toStrict . BB.toLazyByteString
+{-# INLINE buildByteString #-}
+
+peekByteString
+    :: forall w
+    . Storable w
+    => B.ByteString
+    -> Either T.Text w
+peekByteString bs
+    | l < s = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: " <> sshow s
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ unsafeDupablePerformIO $
+        B.unsafeUseAsCStringLen bs $ peek . castPtr . fst
+  where
+    l = B.length bs
+    s = sizeOf @w undefined
+
+peekByteArray16
+    :: Bytes b
+    => b
+    -> Either T.Text Word16
+peekByteArray16 b
+    | l < 2 = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: 2"
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ W16# (indexWord16Array# s# 0#)
+  where
+    s = bytes b
+    !(BS.SBS s#) = coerce s
+    l = BS.length s
+
+peekByteArray32
+    :: Bytes b
+    => b
+    -> Either T.Text Word32
+peekByteArray32 b
+    | l < 4 = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: 4"
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ W32# (indexWord32Array# s# 0#)
+  where
+    s = bytes b
+    !(BS.SBS s#) = coerce s
+    l = BS.length s
+
+peekByteArray64
+    :: Bytes b
+    => b
+    -> Either T.Text Word64
+peekByteArray64 b
+    | l < 8 = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: 8"
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ W64# (indexWord64Array# s# 0#)
+  where
+    s = bytes b
+    !(BS.SBS s#) = coerce s
+    l = BS.length s
+
+-- -- | Convert a 'Word64' to a 'ByteArray'.
+-- --
+-- word64ToByteArray :: Word64 -> ByteArray
+-- word64ToByteArray !(W64# h) = ByteArray $ runRW# $ \s0 -> do
+--     case newByteArray# 8# s0 of
+--         (# s1, mba #) -> case writeWord64Array# mba 0# h s1 of
+--             s2 -> case unsafeFreezeByteArray# mba s2 of
+--                 (# _, ba #) -> ba
+--
+-- -- | Convert a 'Word32' to a 'ByteArray'.
+-- --
+-- word32ToByteArray :: Word32 -> ByteArray
+-- word32ToByteArray !(W32# h) = ByteArray $ runRW# $ \s0 -> do
+--     case newByteArray# 4# s0 of
+--         (# s1, mba #) -> case writeWord32Array# mba 0# h s1 of
+--             s2 -> case unsafeFreezeByteArray# mba s2 of
+--                 (# _, ba #) -> ba
+--
+-- -- | Convert a 'Word' to a 'ByteArray'.
+-- --
+-- wordToByteArray :: Word -> ByteArray
+-- wordToByteArray !(W# h) = ByteArray $ runRW# $ \s0 -> do
+--     case newByteArray# (wordS s0 of
+--         (# s1, mba #) -> case writeWord32Array# mba 0# h s1 of
+--             s2 -> case unsafeFreezeByteArray# mba s2 of
+--                 (# _, ba #) -> ba
 
 -- -------------------------------------------------------------------------- --
 -- Debugging Tools

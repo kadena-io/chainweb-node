@@ -16,6 +16,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.SPV.PayloadProof
@@ -42,12 +43,12 @@ import Control.DeepSeq
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
+import Data.Hash.Keccak
 
 import Data.Aeson
-import qualified Data.ByteString as B
-import Data.MerkleLog
-import qualified Data.Text as T
+import Data.MerkleLog (MerkleNodeType(..))
+import Data.MerkleLog.V1 qualified as V1
+import Data.Text qualified as T
 
 import GHC.Generics
 
@@ -72,17 +73,21 @@ instance Exception RequestKeyNotFoundException
 -- | Internal helper type of holding the ToJSON dictionary for the
 -- proof subject encoding.
 --
-newtype JsonProofSubject a = JsonProofSubject (MerkleNodeType a B.ByteString)
+newtype JsonProofSubject a = JsonProofSubject (MerkleNodeType a)
 
-jsonProofSubjectProperties :: KeyValue e kv => JsonProofSubject a -> [kv]
+jsonProofSubjectProperties
+    :: MerkleHashAlgorithm a
+    => KeyValue e kv
+    => JsonProofSubject a
+    -> [kv]
 jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
-    [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
+    [ "tree" .= encodeB64UrlNoPaddingText (V1.encodeMerkleRoot h)
     ]
 jsonProofSubjectProperties (JsonProofSubject (InputNode bytes)) =
     [ "input" .= encodeB64UrlNoPaddingText bytes
     ]
 
-instance ToJSON (JsonProofSubject a) where
+instance MerkleHashAlgorithm a => ToJSON (JsonProofSubject a) where
     toJSON = object . jsonProofSubjectProperties
     toEncoding = pairs . mconcat . jsonProofSubjectProperties
     {-# INLINE toJSON #-}
@@ -103,7 +108,7 @@ instance ToJSON (JsonProofSubject a) where
 data PayloadProof a = PayloadProof
     { _payloadProofRootType :: !MerkleRootType
         -- ^ The type of the Merle root.
-    , _payloadProofBlob :: !(MerkleProof a)
+    , _payloadProofBlob :: !(V1.MerkleProof a)
         -- ^ The Merkle proof blob which coaintains both, the proof object and
         -- the proof subject.
     } deriving (Show, Eq, Generic, NFData)
@@ -111,21 +116,22 @@ data PayloadProof a = PayloadProof
 payloadProofProperties
     :: forall a e kv
     . MerkleHashAlgorithmName a
+    => MerkleHashAlgorithm a
     => KeyValue e kv
     => PayloadProof a
     -> [kv]
 payloadProofProperties p =
     [ "rootType" .= _payloadProofRootType p
-    , "object" .= (obj . _merkleProofObject) blob
-    , "subject" .= JsonProofSubject (_getMerkleProofSubject $ _merkleProofSubject blob)
+    , "object" .= (obj . V1._merkleProofObject) blob
+    , "subject" .= JsonProofSubject (V1._getMerkleProofSubject $ V1._merkleProofSubject blob)
     , "algorithm" .= merkleHashAlgorithmName @a
     ]
   where
     blob = _payloadProofBlob p
-    obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
+    obj = encodeB64UrlNoPaddingText . V1.encodeMerkleProofObject
 {-# INLINE payloadProofProperties #-}
 
-instance MerkleHashAlgorithmName a => ToJSON (PayloadProof a) where
+instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => ToJSON (PayloadProof a) where
     toJSON = object . payloadProofProperties
     toEncoding = pairs . mconcat . payloadProofProperties
     {-# INLINE toJSON #-}
@@ -137,21 +143,21 @@ instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => FromJSON (Payload
         <*> o .: "rootType"
         <*> parse o
       where
-        parse o = MerkleProof
+        parse o = V1.MerkleProof
             <$> (parseSubject =<< o .: "subject")
             <*> (parseObject =<< o .: "object")
 
-        parseSubject = withObject "ProofSubject" $ \o -> MerkleProofSubject
+        parseSubject = withObject "ProofSubject" $ \o -> V1.MerkleProofSubject
             <$> ((o .: "tree" >>= parseTreeNode) <|> (o .: "input" >>= parseInputNode))
 
         parseTreeNode = withText "TreeNode"
-            $ fmap TreeNode . parseBinary decodeMerkleRoot
+            $ fmap TreeNode . parseBinary V1.decodeMerkleRoot
 
         parseInputNode = withText "InputNode"
             $ fmap InputNode . parseBinary pure
 
         parseObject = withText "ProofObject"
-            $ parseBinary decodeMerkleProofObject
+            $ parseBinary V1.decodeMerkleProofObject
 
         assertJSON e a = unless (e == a)
             $ fail $ "expected " <> sshow e <> ", got " <> sshow a
@@ -179,8 +185,8 @@ instance FromJSON SomePayloadProof where
         pick a
             | a == merkleHashAlgorithmName @ChainwebMerkleHashAlgorithm =
                 SomePayloadProof @ChainwebMerkleHashAlgorithm <$> parseJSON v
-            | a == merkleHashAlgorithmName @Keccak_256 =
-                SomePayloadProof @Keccak_256 <$> parseJSON v
+            | a == merkleHashAlgorithmName @Keccak256 =
+                SomePayloadProof @Keccak256 <$> parseJSON v
             | otherwise = fail $ "unsupported Merkle hash algorithm: " <> T.unpack a
     {-# INLINE parseJSON #-}
 
@@ -205,8 +211,9 @@ runPayloadProof
     => IsMerkleLogEntry a ChainwebHashTag b
     => PayloadProof a
     -> m (MerkleRootType, MerkleLogHash a, b)
-runPayloadProof p = (_payloadProofRootType p, root,) <$> proofSubject blob
+runPayloadProof p = do
+    root <- MerkleLogHash <$> V1.runMerkleProof blob
+    (_payloadProofRootType p, root,) <$> proofSubject blob
   where
-    root = MerkleLogHash $ runMerkleProof blob
     blob = _payloadProofBlob p
 

@@ -21,7 +21,6 @@ import Control.Monad (when)
 import Control.Monad.Catch (catch, throwM)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
-import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson qualified as Aeson
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
@@ -31,6 +30,7 @@ import Pact.Core.Hash (Hash(..))
 import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Pact.Core.SPV (ContProof(..), SPVSupport(..))
 import Pact.Core.StableEncoding (encodeStable)
+import Chainweb.MerkleUniverse
 
 pactSPV :: BlockHeaderDb -> BlockHeader -> SPVSupport
 pactSPV bdb bh = SPVSupport
@@ -51,7 +51,7 @@ verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
         Left _ -> throwError "verifyCont: Invalid base64-encoded transaction output proof"
         Right bs -> return bs
 
-    outputProof <- case Aeson.decodeStrict' @(TransactionOutputProof SHA512t_256) proofBytes of
+    outputProof <- case Aeson.decodeStrict' @(TransactionOutputProof ChainwebMerkleHashAlgorithm) proofBytes of
         Nothing -> throwError "verifyCont: Cannot decode transaction output proof"
         Just u -> return u
 
@@ -118,9 +118,9 @@ verifySPV bdb bh proofType proof = runExceptT $ do
         _ -> do
             throwError $ "Unsupported SPV type: " <> proofType
 
-pactObjectOutputProof :: ObjectData PactValue -> Either Text (TransactionOutputProof SHA512t_256)
+pactObjectOutputProof :: ObjectData PactValue -> Either Text (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 pactObjectOutputProof (ObjectData o) = do
-    case Aeson.decodeStrict' @(TransactionOutputProof SHA512t_256) $ encodeStable o of
+    case Aeson.decodeStrict' @(TransactionOutputProof ChainwebMerkleHashAlgorithm) $ encodeStable o of
         Nothing -> Left "pactObjectOutputProof: Failed to decode proof object"
         Just outputProof -> Right outputProof
 

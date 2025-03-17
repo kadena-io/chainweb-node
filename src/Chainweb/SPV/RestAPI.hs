@@ -36,8 +36,6 @@ module Chainweb.SPV.RestAPI
 , someSpvApis
 ) where
 
-import Crypto.Hash.Algorithms
-
 import Data.Proxy
 
 import Numeric.Natural
@@ -52,6 +50,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV
 import Chainweb.Version
+import Chainweb.MerkleUniverse
 
 -- -------------------------------------------------------------------------- --
 -- GET Transaction Proof
@@ -61,7 +60,7 @@ type SpvGetTransactionProofApi_
     :> "chain" :> Capture "spvChain" ChainId
     :> "height" :> Capture "spvHeight" BlockHeight
     :> "transaction" :> Capture "spvTransactionIndex" Natural
-    :> Get '[JSON] (TransactionProof SHA512t_256)
+    :> Get '[JSON] (TransactionProof ChainwebMerkleHashAlgorithm)
 
 type SpvGetTransactionProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionProofApi_
@@ -79,7 +78,7 @@ type SpvGetTransactionOutputProofApi_
     :> "chain" :> Capture "spvChain" ChainId
     :> "height" :> Capture "spvHeight" BlockHeight
     :> "output" :> Capture "spvTransactionOutputIndex" Natural
-    :> Get '[JSON] (TransactionOutputProof SHA512t_256)
+    :> Get '[JSON] (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 
 type SpvGetTransactionOutputProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionOutputProofApi_
