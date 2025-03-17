@@ -45,13 +45,8 @@
 --
 module Chainweb.Chainweb
 (
--- * GC Configuration
-  ChainDatabaseGcConfig(..)
-, chainDatabaseGcToText
-, chainDatabaseGcFromText
-
 -- * Chainweb Resources
-, Chainweb(..)
+  Chainweb(..)
 , chainwebChains
 , chainwebCutResources
 , chainwebHostAddress
@@ -91,7 +86,6 @@ module Chainweb.Chainweb
 
 -- * Cut Config
 , CutConfig(..)
-, cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
 , cutFastForwardBlockHeightLimit
@@ -145,7 +139,6 @@ import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.Counter
 import Chainweb.Cut
 import Chainweb.CutDB
@@ -286,24 +279,7 @@ withChainwebInternal
     -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir resetDb inner = do
-
-    -- Garbage Collection
-    -- performed before PayloadDb and BlockHeaderDb used by other components
-    logFunctionJson logger Info PruningDatabases
-    when (_cutPruneChainDatabase (_configCuts conf) /= GcNone) $
-        logg Info "start pruning databases"
-    case _cutPruneChainDatabase (_configCuts conf) of
-        GcNone -> return ()
-        GcHeaders ->
-            pruneAllChains (pruningLogger "headers") rocksDb v []
-        GcHeadersChecked ->
-            pruneAllChains (pruningLogger "headers-checked") rocksDb v [CheckPayloads, CheckFull]
-        GcFull ->
-            fullGc (pruningLogger "full") rocksDb v
-    when (_cutPruneChainDatabase (_configCuts conf) /= GcNone) $
-        logg Info "finished pruning databases"
     logFunctionJson logger Info InitializingChainResources
-
     txFailuresCounter <- newCounter @"txFailures"
     let monitorTxFailuresCounter =
             runForever (logFunctionText logger) "monitor txFailuresCounter" $ do

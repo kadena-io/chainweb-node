@@ -340,9 +340,7 @@ node conf logger = do
     withRocksDb' <-
         if _configOnlySyncPact cwConf || _configReadOnlyReplay cwConf
         then
-            if _cutPruneChainDatabase (_configCuts cwConf) == GcNone
-            then withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
-            else withRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-write mode, if this wasn't intended, ensure that cuts.pruneChainDatabase is set to none"
+            withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
         else
             return withRocksDb
     withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do

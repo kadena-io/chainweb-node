@@ -176,7 +176,6 @@ library
         , Chainweb.Chainweb.MempoolSyncClient
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
-        , Chainweb.Chainweb.PruneChainDatabase
         , Chainweb.Core.Brief
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
@@ -410,7 +409,6 @@ library
         , crypton-x509 >=1.7
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
-        , cuckoo >= 0.3
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.2.3

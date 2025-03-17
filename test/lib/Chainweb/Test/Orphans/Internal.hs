@@ -788,14 +788,6 @@ instance Arbitrary ChainId where
 instance Arbitrary Fork where
     arbitrary = elements [minBound..maxBound]
 
-instance Arbitrary ChainDatabaseGcConfig where
-    arbitrary = elements
-        [ GcNone
-        , GcHeaders
-        , GcHeadersChecked
-        , GcFull
-        ]
-
 instance Arbitrary a => Arbitrary (EnableConfig a) where
     arbitrary = EnableConfig <$> arbitrary <*> arbitrary
 
