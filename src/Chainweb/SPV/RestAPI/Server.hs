@@ -17,8 +17,7 @@
 -- Server implementation of the SPV REST API
 --
 module Chainweb.SPV.RestAPI.Server
-( spvGetTransactionProofHandler
-, spvGetTransactionOutputProofHandler
+( spvGetTransactionOutputProofHandler
 , spvServer
 , spvApp
 , spvApiLayout
@@ -46,28 +45,6 @@ import Numeric.Natural
 import Servant
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Chainweb.MerkleUniverse
-
--- -------------------------------------------------------------------------- --
--- SPV Transaction Proof Handler
-
-spvGetTransactionProofHandler
-    :: CutDb
-    -> ChainId
-        -- ^ the target chain of the proof. This is the chain for which
-        -- inclusion is proved.
-    -> ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction for which inclusion is proven, is located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction for which
-        -- inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction for which inclusion
-        -- is proven.
-    -> Handler (TransactionProof ChainwebMerkleHashAlgorithm)
-spvGetTransactionProofHandler db tcid scid bh i =
-    liftIO $ createTransactionProof db tcid scid bh (int i)
-    -- FIXME: add proper error handling
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Output Proof Handler

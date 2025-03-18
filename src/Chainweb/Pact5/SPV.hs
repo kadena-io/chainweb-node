@@ -10,9 +10,10 @@ module Chainweb.Pact5.SPV (pactSPV) where
 
 import Chainweb.BlockHeader (BlockHeader, blockHash, blockHeight)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.MerkleUniverse
 import Chainweb.Payload (TransactionOutput(..))
 import Chainweb.SPV (SpvException(..), TransactionOutputProof(..), outputProofChainId)
-import Chainweb.SPV.VerifyProof (verifyTransactionOutputProofAt_)
+import Chainweb.SPV.VerifyProof (verifyTransactionOutputProofAt)
 import Chainweb.Utils (decodeB64UrlNoPaddingText)
 import Chainweb.Version qualified as CW
 import Chainweb.Version.Guards qualified as CW
@@ -30,7 +31,6 @@ import Pact.Core.Hash (Hash(..))
 import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Pact.Core.SPV (ContProof(..), SPVSupport(..))
 import Pact.Core.StableEncoding (encodeStable)
-import Chainweb.MerkleUniverse
 
 pactSPV :: BlockHeaderDb -> BlockHeader -> SPVSupport
 pactSPV bdb bh = SPVSupport
@@ -64,7 +64,8 @@ verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
     --   1. Verify SPV TransactionOutput proof via Chainweb SPV API
     --   2. Decode tx outputs to 'CommandResult' 'Hash' _
     --   3. Extract continuation 'DefPactExec' from decoded result and return the cont exec object
-    TransactionOutput proof <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
+    TransactionOutput proof <- catchAndDisplaySPVError bh $ liftIO $
+        verifyTransactionOutputProofAt bdb outputProof (view blockHash bh)
 
     -- TODO: Do we care about the error type here?
     commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) proof of
@@ -100,7 +101,8 @@ verifySPV bdb bh proofType proof = runExceptT $ do
             --   2. Decode tx outputs to 'CommandResult' 'Hash' _
             --   3. Extract tx outputs as a pact object and return the object
 
-            TransactionOutput rawCommandResult <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
+            TransactionOutput rawCommandResult <- catchAndDisplaySPVError bh $ liftIO $
+                verifyTransactionOutputProofAt bdb outputProof (view blockHash bh)
 
             commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) rawCommandResult of
                 Nothing -> throwError "verifySPV: Unable to decode SPV transaction output"

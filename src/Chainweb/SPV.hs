@@ -19,12 +19,8 @@
 --
 module Chainweb.SPV
 ( SpvException(..)
-, TransactionProof(..)
-, proofChainId
 , TransactionOutputProof(..)
 , outputProofChainId
-, EventProof(..)
-, eventProofChainId
 , FakeEventProof(..)
 ) where
 
@@ -44,15 +40,13 @@ import GHC.Generics (Generic)
 
 import Numeric.Natural
 
-import Prelude hiding (lookup)
-
 -- internal modules
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Utils
 import Chainweb.MerkleUniverse
+import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -159,36 +153,6 @@ parseProof name mkProof = withObject name $ \o -> mkProof
         p =<< decodeB64UrlNoPaddingText t
 
 -- -------------------------------------------------------------------------- --
--- Transaction Proofs
-
--- | Witness that a transaction is included in the head of a chain in a
--- chainweb.
---
-data TransactionProof a = TransactionProof
-    !ChainId
-        -- ^ the target chain of the proof, i.e the chain which contains
-        -- the root of the proof.
-    !(V1.MerkleProof a)
-        -- ^ the Merkle proof blob, which contains both the proof object and
-        -- the subject.
-    deriving (Show, Eq)
-
-instance ToJSON (TransactionProof ChainwebMerkleHashAlgorithm) where
-    toJSON (TransactionProof cid p) = object $ proofProperties cid p
-    toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties cid p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
-
-instance FromJSON (TransactionProof ChainwebMerkleHashAlgorithm) where
-    parseJSON = parseProof "TransactionProof" TransactionProof
-    {-# INLINE parseJSON #-}
-
--- | Getter into the chain id of a 'TransactionProof'
---
-proofChainId :: Getter (TransactionProof a) ChainId
-proofChainId = to (\(TransactionProof cid _) -> cid)
-
--- -------------------------------------------------------------------------- --
 -- Output Proofs
 
 -- | Witness that a transaction output is included in the head of a chain in a
@@ -217,69 +181,6 @@ instance FromJSON (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
 --
 outputProofChainId :: Getter (TransactionOutputProof a) ChainId
 outputProofChainId = to (\(TransactionOutputProof cid _) -> cid)
-
--- -------------------------------------------------------------------------- --
--- Event Proofs
-
--- | Witness that a event is included in the head of a chain in a chainweb.
---
-data EventProof a = EventProof
-    !ChainId
-        -- ^ the target chain of the proof, i.e the chain which contains
-        -- the root of the proof.
-    !(V1.MerkleProof a)
-        -- ^ the Merkle proof blob, which contains both the proof object and
-        -- the subject.
-    deriving (Show, Eq)
-
-instance ToJSON (EventProof ChainwebMerkleHashAlgorithm) where
-    toJSON (EventProof cid p) = object $ proofProperties cid p
-    toEncoding (EventProof cid p) = pairs . mconcat $ proofProperties cid p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
-
-instance FromJSON (EventProof ChainwebMerkleHashAlgorithm) where
-    parseJSON = parseProof "EventProof" EventProof
-    {-# INLINE parseJSON #-}
-
--- | Getter into the chain id of a 'EventProof'
---
-eventProofChainId :: Getter (EventProof a) ChainId
-eventProofChainId = to (\(EventProof cid _) -> cid)
-
--- -------------------------------------------------------------------------- --
--- XEvent Proofs
-
--- -- | Witness that a crosschain transaction event occurred at the source chain
--- --
--- data XEventProof a b = XEventProof
---     !ChainId
---         -- ^ the target chain of the proof, i.e the chain which contains
---         -- the root of the proof.
---     !(MerkleProof a)
---         -- ^ the Merkle proof blob, which contains both the proof object and
---         -- the subject.
---     !b
---         -- ^ Payload provider specific proof. The root of this proof is the
---         -- input to the Merkle proof
---         --
---         -- FIXME: implement proper proof composition
---     deriving (Show, Eq)
---
--- instance ToJSON b => ToJSON (XEventProof SHA512t_256 b) where
---     toJSON (XEventProof cid p) = object $ proofProperties cid p
---     toEncoding (XEventProof cid p) = pairs . mconcat $ proofProperties cid p
---     {-# INLINE toJSON #-}
---     {-# INLINE toEncoding #-}
---
--- instance FromJSON b => FromJSON (XEventProof SHA512t_256 b) where
---     parseJSON = parseProof "XEventProof" XEventProof
---     {-# INLINE parseJSON #-}
---
--- -- | Getter into the chain id of a 'XEventProof'
--- --
--- xEventProofChainId :: Getter (XEventProof a b) ChainId
--- xEventProofChainId = to (\(XEventProof cid _ _) -> cid)
 
 -- -------------------------------------------------------------------------- --
 -- Fake Event Proof

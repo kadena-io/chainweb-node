@@ -15,12 +15,8 @@
 --
 module Chainweb.SPV.RestAPI
 (
--- * Transaction Proof API
-  SpvGetTransactionProofApi
-, spvGetTransactionProofApi
-
 -- * Transaction Output Proof API
-, SpvGetTransactionOutputProofApi
+  SpvGetTransactionOutputProofApi
 , spvGetTransactionOutputProofApi
 
 -- * Event Proof API
@@ -51,24 +47,6 @@ import Chainweb.RestAPI.Utils
 import Chainweb.SPV
 import Chainweb.Version
 import Chainweb.MerkleUniverse
-
--- -------------------------------------------------------------------------- --
--- GET Transaction Proof
-
-type SpvGetTransactionProofApi_
-    = "spv"
-    :> "chain" :> Capture "spvChain" ChainId
-    :> "height" :> Capture "spvHeight" BlockHeight
-    :> "transaction" :> Capture "spvTransactionIndex" Natural
-    :> Get '[JSON] (TransactionProof ChainwebMerkleHashAlgorithm)
-
-type SpvGetTransactionProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionProofApi_
-
-spvGetTransactionProofApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (SpvGetTransactionProofApi v c)
-spvGetTransactionProofApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- GET Transaction Output Proof

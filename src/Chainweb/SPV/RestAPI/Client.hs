@@ -15,8 +15,7 @@
 -- Client implementation of the SPV REST API
 --
 module Chainweb.SPV.RestAPI.Client
-( spvGetTransactionProofClient
-, spvGetTransactionOutputProofClient
+( spvGetTransactionOutputProofClient
 ) where
 
 import Control.Monad.Identity
@@ -36,45 +35,6 @@ import Chainweb.SPV
 import Chainweb.SPV.RestAPI
 import Chainweb.Version
 import Chainweb.MerkleUniverse
-
--- -------------------------------------------------------------------------- --
--- SPV Transaction Proof Client
-
-spvGetTransactionProofClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction for which inclusion is proven, is located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction for which
-        -- inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction for which inclusion
-        -- is proven.
-    -> ClientM (TransactionProof ChainwebMerkleHashAlgorithm)
-spvGetTransactionProofClient_ = client (spvGetTransactionProofApi @v @c)
-
-spvGetTransactionProofClient
-    :: ChainwebVersion
-    -> ChainId
-        -- ^ the target chain of the proof. This is the chain for which
-        -- inclusion is proved.
-    -> ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction for which inclusion is proven, is located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction for which
-        -- inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction for which inclusion
-        -- is proven.
-    -> ClientM (TransactionProof ChainwebMerkleHashAlgorithm)
-spvGetTransactionProofClient v tcid scid h i = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
-    return $ spvGetTransactionProofClient_ @v @c scid h i
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Output Proof Client

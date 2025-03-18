@@ -158,7 +158,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt_ bdb u (view blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt bdb u (view blockHash bh)
 
         q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
           Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -281,7 +281,7 @@ verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt_ bdb u (view blockHash bh)
+          TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt bdb u (view blockHash bh)
 
           q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
             Nothing -> forkedThrower bh "unable to decode spv transaction output"
