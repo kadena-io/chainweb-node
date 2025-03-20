@@ -51,13 +51,16 @@ module Chainweb.Cut.Create
 , WorkHeader(..)
 , encodeWorkHeader
 , decodeWorkHeader
-, newWorkHeader
-, newWorkHeaderPure
+, workOnHeader
+, newHeaderForPayload
+, newHeaderForPayloadPure
 
 -- * Solved Work
-, SolvedWork(..)
+, SolvedWork
 , encodeSolvedWork
 , decodeSolvedWork
+, solvedWorkPayloadHash
+, makeSolvedWork
 , extend
 , InvalidSolvedHeader(..)
 , extendCut
@@ -68,6 +71,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SB
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
@@ -80,7 +84,7 @@ import GHC.Stack
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
@@ -284,28 +288,35 @@ decodeWorkHeader ver h = WorkHeader
     <*> decodeHashTarget
     <*> (SB.toShort <$> getByteString (int $ workSizeBytes ver h))
 
+workOnHeader :: BlockHeader -> WorkHeader
+workOnHeader nh = WorkHeader
+    { _workHeaderBytes = SB.toShort $ runPutS $ encodeAsWorkHeader nh
+    , _workHeaderTarget = view blockTarget nh
+    , _workHeaderChainId = _chainId nh
+    }
+
 -- | Create work header for cut
 --
-newWorkHeader
+newHeaderForPayload
     :: ChainValueCasLookup hdb BlockHeader
     => hdb
     -> CutExtension
     -> BlockPayloadHash
-    -> IO WorkHeader
-newWorkHeader hdb e h = do
+    -> IO BlockHeader
+newHeaderForPayload hdb e h = do
     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-    newWorkHeaderPure (chainLookupM hdb) creationTime e h
+    newHeaderForPayloadPure (chainLookupM hdb) creationTime e h
 
 -- | A pure version of 'newWorkHeader' that is useful in testing.
 --
-newWorkHeaderPure
+newHeaderForPayloadPure
     :: Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> BlockCreationTime
     -> CutExtension
     -> BlockPayloadHash
-    -> m WorkHeader
-newWorkHeaderPure hdb creationTime extension phash = do
+    -> m BlockHeader
+newHeaderForPayloadPure hdb creationTime extension phash = do
     -- Collect block headers for adjacent parents, some of which may be
     -- available in the cut.
     createWithParents <$> getAdjacentParentHeaders hdb extension
@@ -315,14 +326,9 @@ newWorkHeaderPure hdb creationTime extension phash = do
     -- core Mining logic.
     --
     createWithParents parents =
-        let nh = newBlockHeader parents phash (Nonce 0) creationTime
-                $! _cutExtensionParent extension
-                    -- FIXME: check that parents also include hashes on new chains!
-        in WorkHeader
-            { _workHeaderBytes = SB.toShort $ runPutS $ encodeBlockHeaderWithoutHash nh
-            , _workHeaderTarget = view blockTarget nh
-            , _workHeaderChainId = _chainId nh
-            }
+        newBlockHeader parents phash (Nonce 0) creationTime
+            $! _cutExtensionParent extension
+                -- FIXME: check that parents also include hashes on new chains!
 
 -- | Get all adjacent parent headers for a new block header for a given cut.
 --
@@ -369,7 +375,8 @@ getAdjacentParentHeaders hdb extension
 
 -- | A solved header is the result of mining. It has the final creation time and
 -- a valid nonce. The binary representation doesn't yet contain a Merkle Hash.
--- Also, the block header is not yet validated.
+-- Also, the block header is not yet validated. It also may contain a hashed record
+-- of adjacent blocks instead of the actual record of the adjacent block hashes.
 --
 -- This is an internal data type. On the client/miner side only the serialized
 -- representation is used.
@@ -384,7 +391,14 @@ encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
 decodeSolvedWork :: Get SolvedWork
 decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
 
-data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text
+solvedWorkPayloadHash :: SolvedWork -> BlockPayloadHash
+solvedWorkPayloadHash (SolvedWork bh) = view blockPayloadHash bh
+
+makeSolvedWork :: BlockHeader -> SolvedWork
+makeSolvedWork = SolvedWork
+
+
+data InvalidSolvedHeader = InvalidSolvedHeader T.Text
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
@@ -407,12 +421,13 @@ extend
     => Cut
     -> PayloadWithOutputs
     -> SolvedWork
+    -> BlockHeader
     -> m (BlockHeader, Maybe CutHashes)
-extend c pwo s = do
-    (bh, mc) <- extendCut c (_payloadWithOutputsPayloadHash pwo) s
-    return (bh, toCutHashes bh <$> mc)
+extend c pwo work bh = do
+    (bh', mc) <- extendCut c (_payloadWithOutputsPayloadHash pwo) work bh
+    return $ (bh',) $ toCutHashes <$> mc
   where
-    toCutHashes bh c' = cutToCutHashes Nothing c'
+    toCutHashes c' = cutToCutHashes Nothing c'
         & set cutHashesHeaders
             (HM.singleton (view blockHash bh) bh)
         & set cutHashesPayloads
@@ -427,23 +442,42 @@ extendCut
     => Cut
     -> BlockPayloadHash
     -> SolvedWork
+    -> BlockHeader
     -> m (BlockHeader, Maybe Cut)
-extendCut c ph (SolvedWork bh) = do
+extendCut c ph (SolvedWork wh) bh = do
+    bh' <-
+        -- encoding and decoding the block header is required to update the
+        -- block hash, after we changed the contents (that is the nonce,
+        -- creation time)
+        runGetS decodeBlockHeaderWithoutHash
+            $ runPutS
+            $ encodeBlockHeaderWithoutHash
+            $ set blockNonce (wh ^. blockNonce)
+            $ set blockCreationTime (wh ^. blockCreationTime)
+            $ bh
+    when (runPutS (encodeAsWorkHeader bh') /= runPutS (encodeBlockHeaderWithoutHash wh))
+        $ throwM $ InvalidSolvedHeader $
+            "work header does not match original header: \n\n" <>
+            sshow (BS.unpack (runPutS $ encodeAsWorkHeader bh')) <>
+            "\n\n" <>
+            sshow (BS.unpack (runPutS $ encodeBlockHeaderWithoutHash wh))
 
-        -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
-        -- Hash) is trivially incorrect, reject it.
-        --
-        unless (prop_block_pow bh)
-            $ throwM $ InvalidSolvedHeader bh "Invalid POW hash"
+    -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
+    -- Hash) is trivially incorrect, reject it.
+    --
+    when (not (prop_block_pow bh'))
+        $ throwM $ InvalidSolvedHeader $
+            "block header fails proof of work check: \n\n" <>
+                sshow (BS.unpack (runPutS $ encodeAsWorkHeader bh'))
 
-        -- Fail Early: check that the given payload matches the new block.
-        --
-        unless (view blockPayloadHash bh == ph) $ throwM $ InvalidSolvedHeader bh
-            $ "Invalid payload hash"
-            <> ". Expected: " <> sshow (view blockPayloadHash bh)
-            <> ", Got: " <> sshow ph
+    -- Fail Early: check that the given payload matches the new block.
+    --
+    unless (view blockPayloadHash bh' == ph) $ throwM $ InvalidSolvedHeader
+        $ "Invalid payload hash"
+        <> ". Expected: " <> sshow (view blockPayloadHash bh')
+        <> ", Got: " <> sshow ph
 
-        -- If the `BlockHeader` is already stale and can't be appended to the
-        -- best `Cut`, Nothing is returned
-        --
-        (bh,) <$> tryMonotonicCutExtension c bh
+    -- If the `BlockHeader` is already stale and can't be appended to the
+    -- best `Cut`, Nothing is returned
+    --
+    (bh',) <$> tryMonotonicCutExtension c bh'

@@ -78,6 +78,7 @@ recapDevnet = ChainwebVersion
         Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 640
         Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 650
         Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 660
+        HashedAdjacentRecord -> AllChains $ ForkAtBlockHeight $ BlockHeight 670
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet

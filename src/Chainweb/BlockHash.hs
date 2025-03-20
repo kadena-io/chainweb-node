@@ -49,6 +49,7 @@ module Chainweb.BlockHash
 , encodeBlockHashRecord
 , decodeBlockHashRecord
 , decodeBlockHashRecordChecked
+, convertBlockHashRecordForMining
 , blockHashRecordToVector
 , blockHashRecordFromVector
 , blockHashRecordChainIdx
@@ -95,6 +96,10 @@ import Chainweb.MerkleUniverse
 import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Crypto.Hash (SHA512t_256)
+import qualified Crypto.Hash as C
+import qualified Data.ByteArray as BA
+import Data.Ord (comparing)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHash
@@ -264,6 +269,25 @@ blockHashRecordFromVector g cid = BlockHashRecord
     . zip (L.sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
 
+-- | Manufacture a BlockHashRecord with zeroed hashes everywhere but the last block hash
+-- which has been replaced with a hash of the original block hashes.
+-- It also has a size at most equal to the degree of the peterson chain graph, which is 3.
+convertBlockHashRecordForMining :: BlockHashRecord -> BlockHashRecord
+convertBlockHashRecordForMining (BlockHashRecord r) =
+    BlockHashRecord $ HM.fromList
+        $ over _Snoc (\(i, l) ->
+            ( i & mapped . _2 .~ nullBlockHash
+            , l & _2 .~ BlockHash (unsafeMerkleLogHash blockRecordHash)
+            )
+        )
+        -- this is required for compatibility; we cannot enlarge the record beyond that
+        $ take (int @Natural @Int $ degree petersonChainGraph)
+        $ sorted
+    where
+    sorted = L.sortBy (comparing fst) (HM.toList r)
+    blockRecordHash = BA.convert $ C.hash @_ @SHA512t_256 $ runPutS $
+        traverse_ (encodeBlockHash . snd) sorted
+
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Hash
 
@@ -279,4 +303,3 @@ encodeRankedBlockHash = encodeRanked encodeBlockHash
 
 decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = decodeRanked decodeBlockHash
-
