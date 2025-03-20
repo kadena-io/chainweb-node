@@ -136,6 +136,7 @@ testnet04 = ChainwebVersion
         Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
         Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_542_190 -- 2025-07-23 12:00:00+00:00
         Chainweb231Pact -> AllChains ForkNever
+        HashedAdjacentRecord -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`

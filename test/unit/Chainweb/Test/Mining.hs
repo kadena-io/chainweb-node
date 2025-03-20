@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Test.Mining
@@ -23,9 +24,9 @@ import Control.Concurrent.STM.TVar
 import Control.Lens
 
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
+import Data.HashMap.Strict qualified as HM
 import Data.Maybe
-import qualified Data.Text as T
+import Data.Text qualified as T
 
 import GHC.Stack
 
@@ -46,6 +47,15 @@ import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Test.TestVersions (barebonesTestVersion)
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.BlockHeader.Internal
+import Data.HashSet qualified as HS
+import Chainweb.Version.Mainnet
+import Chainweb.Version
+import Chainweb.Cut.Create
+import Data.ByteString.Short qualified as SBS
+import Chainweb.Utils.Serialization
+import Chainweb.Version.Development
+import qualified Data.List as L
 
 -- -------------------------------------------------------------------------- --
 --
@@ -53,6 +63,8 @@ import Chainweb.Storage.Table.RocksDB
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Mining"
     [ testCaseSteps "Miner account names are not empty strings" (nonEmptyMiningAccount rdb)
+    , testCase "Solving a work header does not change its contents on mainnet" (solvingIsSafe mainnet)
+    , testCase "Solving a work header does not change its contents on devnet" (solvingIsSafe devnet)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -95,3 +107,16 @@ nonEmptyMiningAccount rdb logg = withTestCoordinator rdb logg Nothing $ \_logger
     forM_ (HM.keys w) $ \(MinerId k) ->
         assertBool "miner account name must not be the empty string" (not (T.null k))
 
+solvingIsSafe :: ChainwebVersion -> IO ()
+solvingIsSafe v = do
+    forM_ (L.sort $ HS.toList (chainIds v)) $ \cid -> do
+        let hdr = genesisBlockHeader v cid
+        solvedWorkHeader <- runGetS decodeBlockHeaderWithoutHash $ SBS.fromShort $ _workHeaderBytes (workOnHeader hdr)
+        -- they can disagree on the block hash as long as the other contents are
+        -- the same. they will also disagree on adjacents only if the adjacent
+        -- hash record is being hashed, which is the case on devnet.
+        let patchedSolvedWorkHeader
+                = solvedWorkHeader
+                & blockAdjacentHashes .~ hdr ^. blockAdjacentHashes
+                & blockHash .~ hdr ^. blockHash
+        assertEqual "" hdr patchedSolvedWorkHeader

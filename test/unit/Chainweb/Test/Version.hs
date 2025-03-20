@@ -112,7 +112,8 @@ prop_headerBaseSizeBytes v = property $ do
 
 prop_headerSizes_sorted :: ChainwebVersion -> Property
 prop_headerSizes_sorted v
-    = NE.reverse (NE.sort (ruleElems (headerSizes v))) === ruleElems (headerSizes v)
+    = forAll (oneof (pure <$> toList (chainIds v))) $ \cid ->
+        ruleValid (headerSizes v cid)
 
 prop_headerSizes_order :: ChainwebVersion -> Property
 prop_headerSizes_order v = orders === NE.reverse (NE.sort orders)

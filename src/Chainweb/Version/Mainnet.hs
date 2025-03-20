@@ -156,6 +156,7 @@ mainnet = ChainwebVersion
         Chainweb229Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_785_923) -- 2025-05-01 00:00:00+00:00
         Chainweb230Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 6_027_616) -- 2025-07-24 00:00:00+00:00
         Chainweb231Pact -> AllChains ForkNever
+        HashedAdjacentRecord -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`

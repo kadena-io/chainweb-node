@@ -5,6 +5,8 @@
 {-# language InstanceSigs #-}
 {-# language LambdaCase #-}
 {-# language TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Chainweb.Utils.Rule
   ( Rule(..)
@@ -19,13 +21,12 @@ module Chainweb.Utils.Rule
   , ruleZipperFind
   , ruleSeek
   , ruleZipperDown
-
   ) where
 
 import Control.DeepSeq
+import Control.Lens hiding ((<.>), below)
 
 import Data.Aeson
-import Data.Bifunctor
 import Data.Hashable
 import qualified Data.List.NonEmpty as NE
 import Data.Functor.Apply
@@ -46,6 +47,10 @@ import GHC.Generics
 data Rule h a = Above (h, a) (Rule h a) | Bottom (h, a)
     deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)
     deriving anyclass (Hashable, NFData)
+
+instance FunctorWithIndex h (Rule h) where
+    imap f ((h, a) `Above` r) = (h, f h a) `Above` imap f r
+    imap f (Bottom (h, a)) = Bottom (h, f h a)
 
 instance Bifunctor Rule where
   bimap :: (h -> h') -> (a -> a') -> Rule h a -> Rule h' a'

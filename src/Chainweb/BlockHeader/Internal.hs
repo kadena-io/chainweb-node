@@ -101,6 +101,7 @@ module Chainweb.BlockHeader.Internal
 , rankedBlockHash
 , _rankedBlockPayloadHash
 , rankedBlockPayloadHash
+, encodeAsMiningWork
 , encodeBlockHeader
 , encodeBlockHeaderWithoutHash
 , decodeBlockHeader
@@ -850,6 +851,34 @@ encodeBlockHeader b = do
     encodeBlockHeaderWithoutHash b
     encodeBlockHash (_blockHash b)
 
+-- | Encode the block header as a mining work value.
+--
+-- NOTE: The legacy format of this is just the block header without the block
+-- hash. With the legacy format the size and layout of the mining work depended
+-- on the chain graph. The new format has a fixed size and layout that matches
+-- the format that has been used in Mainnet01 and Testnet04 since genesis.
+--
+encodeAsMiningWork :: BlockHeader -> Put
+encodeAsMiningWork b = do
+    encodeFeatureFlags (_blockFlags b)
+    encodeBlockCreationTime (_blockCreationTime b)
+    encodeBlockHash (_blockParent b)
+
+    if hashedAdjacentRecord (_chainwebVersion b) (_chainId b) (_blockHeight b)
+    then do
+        encodeAdjacentsHash (adjacentsHash $ _blockAdjacentHashes b)
+    else do
+        encodeBlockHashRecord (_blockAdjacentHashes b)
+
+    encodeHashTarget (_blockTarget b)
+    encodeBlockPayloadHash (_blockPayloadHash b)
+    encodeChainId (_blockChainId b)
+    encodeBlockWeight (_blockWeight b)
+    encodeBlockHeight (_blockHeight b)
+    encodeChainwebVersionCode (_blockChainwebVersion b)
+    encodeEpochStartTime (_blockEpochStart b)
+    encodeNonce (_blockNonce b)
+
 -- | Decode and check that
 --
 -- 1. chain id is in graph
@@ -967,7 +996,7 @@ computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 --
 _blockPow :: BlockHeader -> PowHash
 _blockPow h = cryptoHash @Blake2s_256
-    $ runPutS $ encodeBlockHeaderWithoutHash h
+    $ runPutS $ encodeAsMiningWork h
 
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
@@ -1140,8 +1169,15 @@ instance TreeDbEntry BlockHeader where
 -- Note that for all but genesis headers the number of adjacent hashes depends
 -- on the graph of the parent.
 --
-headerSizes :: ChainwebVersion -> Rule BlockHeight Natural
-headerSizes v = fmap (\g -> _versionHeaderBaseSizeBytes v + 36 * degree g + 2) $ _versionGraphs v
+headerSizes :: ChainwebVersion -> ChainId -> Rule BlockHeight Natural
+headerSizes v cid = imap calculateHeaderSize $ _versionGraphs v
+    where
+    calculateHeaderSize h g
+        = _versionHeaderBaseSizeBytes v + 36 * truncatedDegree h g + 2
+    truncatedDegree h g
+        | hashedAdjacentRecord v cid h = min 3 (degree g)
+        | otherwise = degree g
+
 
 -- | The size of the serialized block header.
 --
@@ -1160,7 +1196,7 @@ headerSizeBytes
 headerSizeBytes v cid h = snd
     $ ruleHead
     $ ruleDropWhile (> relevantHeight)
-    $ headerSizes v
+    $ headerSizes v cid
   where
     relevantHeight
         | genesisHeight v cid == h = h
@@ -1177,12 +1213,20 @@ headerSizeBytes v cid h = snd
 -- given chainweb version. This would only ever change as part of the
 -- introduction of new block header format.
 --
+-- TODO: we should probably just make this a global constant, fix all tests and
+-- call it a day.
+--
 workSizeBytes
     :: HasCallStack
     => ChainwebVersion
     -> BlockHeight
     -> Natural
-workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
+workSizeBytes v h
+    | hashedAdjacentRecord (_chainwebVersion v) (unsafeChainId 0) h =
+        min
+            (headerSizeBytes v (unsafeChainId 0) h - 32)
+            (headerSizeBytes Mainnet01 (unsafeChainId 0) 0 - 32)
+    | otherwise = headerSizeBytes v (unsafeChainId 0) h - 32
 
 _rankedBlockHash :: BlockHeader -> RankedBlockHash
 _rankedBlockHash h = RankedBlockHash
@@ -1205,4 +1249,3 @@ _rankedBlockPayloadHash h = RankedBlockPayloadHash
 rankedBlockPayloadHash :: Getter BlockHeader RankedBlockPayloadHash
 rankedBlockPayloadHash = to _rankedBlockPayloadHash
 {-# INLINE rankedBlockPayloadHash #-}
-

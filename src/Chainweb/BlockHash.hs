@@ -1,16 +1,20 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -19,6 +23,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DerivingVia #-}
 
 -- |
 -- Module: Chainweb.BlockHash
@@ -61,6 +66,12 @@ module Chainweb.BlockHash
 , encodeRankedBlockHash
 , decodeRankedBlockHash
 
+-- * AdjacentsHash
+, AdjacentsHash(..)
+, adjacentsHash
+, adjacentsHashBytes
+, encodeAdjacentsHash
+
 -- * Exceptions
 ) where
 
@@ -73,12 +84,16 @@ import Data.Aeson
     (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bifoldable
+import Data.ByteString.Short qualified as SB
+import Data.DoubleWord
 import Data.Foldable
+import Data.Hash.SHA2
+import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable(..))
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as L
-import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.List qualified as L
+import Data.Text qualified as T
+import Data.Vector qualified as V
+import Data.Word
 
 import GHC.Generics hiding (to)
 
@@ -264,6 +279,57 @@ blockHashRecordFromVector g cid = BlockHashRecord
     . zip (L.sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
 
+-- ----------------------------------------------------------------------------
+-- | BlockHashRecord Hash for MiningWork
+
+-- | The MiningWork includes an (aggregate) hash of the adjacent block hashes
+-- that is calculate from the BlockHashRecord.
+--
+newtype AdjacentsHash = AdjacentsHash SB.ShortByteString
+    deriving stock (Show, Generic)
+    deriving newtype (Eq, Ord)
+
+-- instance HasTextRepresentation AdjacentsHash where
+--     toText (AdjacentsHash h) = toText h
+--     fromText = fmap AdjacentsHash . fromText
+--     {-# INLINE toText #-}
+--     {-# INLINE fromText #-}
+
+encodeAdjacentsHash :: AdjacentsHash -> Put
+encodeAdjacentsHash (AdjacentsHash sb) = do
+    putShortByteString sb
+{-# INLINE encodeAdjacentsHash #-}
+
+adjacentsHashBytes :: AdjacentsHash -> SB.ShortByteString
+adjacentsHashBytes (AdjacentsHash bytes) = bytes
+{-# INLINE adjacentsHashBytes #-}
+
+-- | Compute the AdjacentsHash from a BlockHashRecord.
+--
+-- Note that we try to keep this as small as the encoded input block hash record
+-- if the input is smaller than 3. Otherwise, we're breaking things elsewhere
+-- for graphs with a smaller degree than 3. But we truncate to 3 if it's larger
+-- than 3.
+adjacentsHash :: BlockHashRecord -> AdjacentsHash
+adjacentsHash r = AdjacentsHash $ SB.toShort $ runPutS $ do
+    encodeWordLe @Word16 (int recordSize)
+    case toList recVec of
+        (hdCid, _) : tl -> do
+            encodeChainId hdCid
+            let Sha2_512_256 adjHash =
+                    hashByteString_
+                    . foldMap (runPutS . encodeBlockHash . snd)
+                    $ recVec
+            putShortByteString adjHash
+            -- we need 3 total
+            forM_ (take 2 tl) $ \(cid, _) -> do
+                encodeChainId cid
+                encodeWordLe @Word256 0
+        [] -> return ()
+    where
+    recVec = L.sort . HM.toList $ _getBlockHashRecord r
+    recordSize = min 3 (length recVec)
+
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Hash
 
@@ -279,4 +345,3 @@ encodeRankedBlockHash = encodeRanked encodeBlockHash
 
 decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = decodeRanked decodeBlockHash
-
