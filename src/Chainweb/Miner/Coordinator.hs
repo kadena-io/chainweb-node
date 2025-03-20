@@ -163,7 +163,7 @@ isWorkReady = \case
 -- The key is hash of the current block's payload.
 --
 newtype MiningState = MiningState
-    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadWithOutputs (Time Micros)) }
+    { _miningState :: M.Map BlockPayloadHash (T4 BlockHeader Miner PayloadWithOutputs (Time Micros)) }
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -199,7 +199,7 @@ newWork
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
-    -> IO (Maybe (T2 WorkHeader PayloadWithOutputs))
+    -> IO (Maybe (T3 BlockHeader WorkHeader PayloadWithOutputs))
 newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     -- Randomly pick a chain to mine on. we no longer support the caller
@@ -240,8 +240,9 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
             then do
                 let payload = newBlockToPayloadWithOutputs newBlock
                 let !phash = _payloadWithOutputsPayloadHash payload
-                !wh <- newWorkHeader hdb extension phash
-                pure $ Just $ T2 wh payload
+                !bh <- newHeaderForPayload hdb extension phash
+                let wh = workOnHeader bh
+                pure $ Just $ T3 bh wh payload
             else do
                 -- The cut is too old or the primed work is outdated. Probably
                 -- the former because it the mining coordination background job
@@ -273,25 +274,26 @@ publish
     -> MinerId
     -> PayloadWithOutputs
     -> SolvedWork
+    -> BlockHeader
     -> IO ()
-publish lf cdb pwVar miner pwo s = do
+publish lf cdb pwVar miner pwo sw bh = do
     c <- _cut cdb
     now <- getCurrentTimeIntegral
-    try (extend c pwo s) >>= \case
+    try (extend c pwo sw bh) >>= \case
 
         -- Publish CutHashes to CutDb and log success
-        Right (bh, Just ch) -> do
+        Right (bh', Just ch) -> do
 
             -- reset the primed payload for this cut extension
             atomically $ modifyTVar pwVar $ \(PrimedWork pw) ->
-              PrimedWork $! HM.adjust (HM.insert (_chainId bh) (WorkAlreadyMined (view blockParent bh))) miner pw
+                PrimedWork $! HM.adjust (HM.insert (_chainId bh') (WorkAlreadyMined (view blockParent bh'))) miner pw
 
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes . fst) $
                         _payloadWithOutputsTransactions pwo
             lf Info $ JsonLog $ NewMinedBlock
-                { _minedBlockHeader = ObjectEncoded bh
+                { _minedBlockHeader = ObjectEncoded bh'
                 , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pwo
                 , _minedBlockSize = int bytes
                 , _minedBlockMiner = _minerId miner
@@ -299,17 +301,17 @@ publish lf cdb pwVar miner pwo s = do
                 }
 
         -- Log Orphaned Block
-        Right (bh, Nothing) -> do
+        Right (_, Nothing) -> do
             let !p = lookupInCut c bh
-            lf Info $ orphandMsg now p bh "orphaned solution"
+            lf Info $ orphandMsg now p "orphaned solution"
 
         -- Log failure and rethrow
-        Left e@(InvalidSolvedHeader bh msg) -> do
+        Left e@(InvalidSolvedHeader msg) -> do
             let !p = lookupInCut c bh
-            lf Info $ orphandMsg now p bh msg
+            lf Info $ orphandMsg now p msg
             throwM e
   where
-    orphandMsg now p bh msg = JsonLog OrphanedBlock
+    orphandMsg now p msg = JsonLog OrphanedBlock
         { _orphanedHeader = ObjectEncoded bh
         , _orphanedBestOnCut = ObjectEncoded p
         , _orphanedDiscoveredAt = now
@@ -333,14 +335,14 @@ work
     -> Miner
     -> IO WorkHeader
 work mr mcid m = do
-    T2 wh pwo <-
+    T3 bh wh pwo <-
         withAsync (logDelays False 0) $ \_ -> newWorkForCut
     now <- getCurrentTimeIntegral
     atomically
         . modifyTVar' (_coordState mr)
         . over miningState
         . M.insert (_payloadWithOutputsPayloadHash pwo)
-        $ T3 m pwo now
+        $ T4 bh m pwo now
     return wh
   where
     -- here we log the case that the work loop has stalled.
@@ -429,25 +431,25 @@ solve
     => MiningCoordination l tbl
     -> SolvedWork
     -> IO ()
-solve mr solved@(SolvedWork hdr) = do
+solve mr solved = do
     -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
     -- Payload we know about, reject it.
     --
     MiningState ms <- readTVarIO tms
     case M.lookup key ms of
         Nothing -> throwM NoAsscociatedPayload
-        Just x -> publishWork x `finally` deleteKey
+        Just (T4 bh m pwo _) -> do
+            publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pwo solved bh
+                `finally` deleteKey
             -- There is a race here, but we don't care if the same cut
             -- is published twice. There is also the risk that an item
             -- doesn't get deleted. Items get GCed on a regular basis by
             -- the coordinator.
   where
-    key = view blockPayloadHash hdr
+    key = solvedWorkPayloadHash solved
     tms = _coordState mr
 
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
     deleteKey = atomically . modifyTVar' tms . over miningState $ M.delete key
-    publishWork (T3 m pwo _) =
-        publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pwo solved

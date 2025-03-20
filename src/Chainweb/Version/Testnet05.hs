@@ -68,6 +68,7 @@ testnet05 = ChainwebVersion
         Pact5Fork -> AllChains ForkAtGenesis
         Chainweb228Pact -> AllChains ForkAtGenesis
         Chainweb229Pact -> AllChains ForkNever
+        HashedAdjacentRecord -> AllChains ForkNever
 
     , _versionGraphs =
         Bottom (minBound, twentyChainGraph)
