@@ -131,6 +131,14 @@ import System.LogLevel
 
 import qualified Pact.JSON.Encode as J
 
+import Pact.Core.Command.Types qualified as Pact
+import Pact.Core.Hash qualified as Pact
+import Pact.Core.Gas
+import Pact.Core.ChainData
+import Pact.Core.ChainData qualified as Pact
+
+import Data.LogMessage (LogFunctionText)
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Parent
@@ -139,12 +147,8 @@ import Chainweb.Time qualified as Time
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Data.LogMessage (LogFunctionText)
-import Pact.Core.Command.Types qualified as Pact
-import Pact.Core.Hash qualified as Pact
-import Pact.Core.Gas
-import Pact.Core.ChainData
-import qualified Pact.Core.ChainData as Pact
+
+import Chainweb.PayloadProvider (EvaluationCtx(..))
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -185,7 +189,7 @@ instance Traversable LookupResult where
                      Pending x -> Pending <$> f x
 
 ------------------------------------------------------------------------------
-type MempoolPreBlockCheck ti to = BlockHeight -> Parent BlockHash -> Vector ti -> IO (Vector (Either InsertError to))
+type MempoolPreBlockCheck ti to = EvaluationCtx () -> Vector ti -> IO (Vector (Either InsertError to))
 
 ------------------------------------------------------------------------------
 -- | Mempool operates over a transaction type @t@. Mempool needs several
@@ -333,7 +337,7 @@ data MempoolBackend t = MempoolBackend {
 }
 
 noopMempoolPreBlockCheck :: MempoolPreBlockCheck t t
-noopMempoolPreBlockCheck _ _ v = return $! V.map Right v
+noopMempoolPreBlockCheck _ v = return $! V.map Right v
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do

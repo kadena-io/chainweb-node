@@ -30,7 +30,7 @@ module Chainweb.Pact.PactService
     ( initialPayloadState
     -- , execNewBlock
     -- , execContinueBlock
-    , execValidateBlock
+    , syncToFork
     -- , execTransactions
     -- , execLocal
     , execLookupPactTxs
@@ -54,7 +54,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Either
-import Data.Foldable (toList)
+import Data.Foldable (toList, traverse_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
@@ -174,6 +174,7 @@ withPactService http ver cid memPoolAccess chainwebLogger txFailuresCounter pdb 
     miningPayloadVar <- newEmptyTMVarIO
     ChainwebPactDb.initSchema sqlenv
     candidatePdb <- MapTable.emptyTable
+
     let !pse = PactServiceEnv
             { _psVersion = ver
             , _psChainId = cid
@@ -193,38 +194,43 @@ withPactService http ver cid memPoolAccess chainwebLogger txFailuresCounter pdb 
             , _psMiningPayloadVar = miningPayloadVar
             }
 
-    runPactServiceM pse $ do
-        -- TODO: PP
-        -- when (_pactFullHistoryRequired config) $ do
-        --     mEarliestBlock <- Checkpointer.getEarliestBlock
-        --     case mEarliestBlock of
-        --         Nothing -> do
-        --             pure ()
-        --         Just (earliestBlockHeight, _) -> do
-        --             let gHeight = genesisHeight ver cid
-        --             when (gHeight /= earliestBlockHeight) $ do
-        --                 let msg = J.object
-        --                         [ "details" J..= J.object
-        --                             [ "earliest-block-height" J..= J.number (fromIntegral earliestBlockHeight)
-        --                             , "genesis-height" J..= J.number (fromIntegral gHeight)
-        --                             ]
-        --                         , "message" J..= J.text "Your node has been configured\
-        --                             \ to require the full Pact history; however, the full\
-        --                             \ history is not available. Perhaps you have compacted\
-        --                             \ your Pact state?"
-        --                         ]
-        --                 logError_ chainwebLogger (J.encodeText msg)
-        --                 throwM FullHistoryRequired
-        --                         { _earliestBlockHeight = earliestBlockHeight
-        --                         , _genesisHeight = gHeight
-        --                         }
-        -- If the latest header that is stored in the checkpointer was on an
-        -- orphaned fork, there is no way to recover it in the call of
-        -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
-        -- avaliable header in the block header database.
-        --
-        -- Checkpointer.exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
-        act
+    let run = runPactServiceM pse $ do
+            -- TODO: PP
+            -- when (_pactFullHistoryRequired config) $ do
+            --     mEarliestBlock <- Checkpointer.getEarliestBlock
+            --     case mEarliestBlock of
+            --         Nothing -> do
+            --             pure ()
+            --         Just (earliestBlockHeight, _) -> do
+            --             let gHeight = genesisHeight ver cid
+            --             when (gHeight /= earliestBlockHeight) $ do
+            --                 let msg = J.object
+            --                         [ "details" J..= J.object
+            --                             [ "earliest-block-height" J..= J.number (fromIntegral earliestBlockHeight)
+            --                             , "genesis-height" J..= J.number (fromIntegral gHeight)
+            --                             ]
+            --                         , "message" J..= J.text "Your node has been configured\
+            --                             \ to require the full Pact history; however, the full\
+            --                             \ history is not available. Perhaps you have compacted\
+            --                             \ your Pact state?"
+            --                         ]
+            --                 logError_ chainwebLogger (J.encodeText msg)
+            --                 throwM FullHistoryRequired
+            --                         { _earliestBlockHeight = earliestBlockHeight
+            --                         , _genesisHeight = gHeight
+            --                         }
+            -- If the latest header that is stored in the checkpointer was on an
+            -- orphaned fork, there is no way to recover it in the call of
+            -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
+            -- avaliable header in the block header database.
+            --
+            -- Checkpointer.exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
+            act
+    let cancelRefresher = do
+            refresherThread <- fmap fst <$> atomically (tryReadTMVar (_psMiningPayloadVar pse))
+            traverse_ cancel refresherThread
+
+    run `finally` cancelRefresher
   where
     pactServiceLogger = setComponent "pact" chainwebLogger
     checkpointerLogger = addLabel ("sub-component", "checkpointer") pactServiceLogger
@@ -263,126 +269,36 @@ runGenesisIfNeeded v cid = do
                     }
                 }
         let targetSyncState = genesisConsensusState v cid
-        actualSyncState <- execValidateBlock mempty Nothing
+        actualSyncState <- syncToFork mempty Nothing
             (ForkInfo [genesisEvaluationCtx] payloadHash targetSyncState Nothing)
         when (targetSyncState /= actualSyncState) $
             error "failed to run genesis block"
 
--- | Lookup a block header.
---
--- The block header is expected to be either in the block header database or to
--- be the the currently stored '_psParentHeader'. The latter addresses the case
--- when a block has already been validate with 'execValidateBlock' but isn't (yet)
--- available in the block header database. If that's the case two things can
--- happen:
---
--- 1. the header becomes available before the next 'execValidateBlock' call, or
--- 2. the header gets orphaned and the next 'execValidateBlock' call would cause
---    a rewind to an ancestor, which is available in the db.
---
--- lookupBlockHeader :: BlockHash -> Text -> PactServiceM logger tbl BlockHeader
--- lookupBlockHeader bhash ctx = do
---     bhdb <- view psBlockHeaderDb
---     liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
---         throwM $ BlockHeaderLookupFailure $
---             "failed lookup of parent header in " <> ctx <> ": " <> sshow e
-
--- execNewBlock
---     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
---     => MemPoolAccess
---     -> NewBlockFill
---     -> ParentHeader
---     -> PactServiceM logger tbl (Historical (ForSomePactVersion BlockInProgress))
--- execNewBlock mpAccess fill newBlockParent = pactLabel "execNewBlock" $ do
---     miner <- view psMiner >>= \case
---         Nothing -> internalError "Chainweb.Pact.PactService.execNewBlock: Mining is disabled. Please provide a valid miner in the pact service configuration"
---         Just x -> return x
---     let pHeight = view blockHeight $ _parentHeader newBlockParent
---     let pHash = view blockHash $ _parentHeader newBlockParent
---     logInfoPact $ "(parent height = " <> sshow pHeight <> ")"
---         <> " (parent hash = " <> sshow pHash <> ")"
---     blockGasLimit <- view psNewBlockGasLimit
---     v <- view chainwebVersion
---     cid <- view chainId
---     Checkpointer.readFrom (Just newBlockParent) $
---         -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
---         -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
---         SomeBlockM $ Pair
---             (do
---                 blockDbEnv <- view psBlockDbEnv
---                 initCache <- initModuleCacheForBlock
---                 coinbaseOutput <- Pact4.runCoinbase
---                     miner
---                     (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True)
---                     initCache
---                 let pactDb = Pact4._cpPactDbEnv blockDbEnv
---                 finalBlockState <- fmap Pact4._benvBlockState
---                     $ liftIO
---                     $ readMVar
---                     $ pdPactDbVar
---                     $ pactDb
---                 let blockInProgress = BlockInProgress
---                         { _blockInProgressModuleCache = Pact4ModuleCache initCache
---                         -- ^ we do not use the module cache populated by coinbase in
---                         -- subsequent transactions
---                         , _blockInProgressHandle = BlockHandle (Pact4._bsTxId finalBlockState) (Pact4._bsPendingBlock finalBlockState)
---                         , _blockInProgressParentHeader = Just newBlockParent
---                         , _blockInProgressRemainingGasLimit = blockGasLimit
---                         , _blockInProgressTransactions = Transactions
---                             { _transactionCoinbase = coinbaseOutput
---                             , _transactionPairs = mempty
---                             }
---                         , _blockInProgressMiner = miner
---                         , _blockInProgressPactVersion = Pact4T
---                         , _blockInProgressChainwebVersion = v
---                         , _blockInProgressChainId = cid
---                         }
---                 case fill of
---                     NewBlockFill -> ForPact4 <$> Pact4.continueBlock mpAccess blockInProgress
---                     NewBlockEmpty -> return (ForPact4 blockInProgress)
---             )
-
---             (do
---                 coinbaseOutput <- Pact.runCoinbase miner >>= \case
---                     Left coinbaseError -> internalError $ "Error during coinbase: " <> sshow coinbaseError
---                     Right coinbaseOutput ->
---                         -- pretend that coinbase can throw an error, when we know it can't.
---                         -- perhaps we can make the Transactions express this, may not be worth it.
---                         return $ coinbaseOutput & Pact.crResult . Pact._PactResultErr %~ absurd
---                 hndl <- use Pact.pbBlockHandle
---                 let blockInProgress = BlockInProgress
---                         { _blockInProgressModuleCache = Pact5NoModuleCache
---                         , _blockInProgressHandle = hndl
---                         , _blockInProgressParentHeader = Just newBlockParent
---                         , _blockInProgressRemainingGasLimit = blockGasLimit
---                         , _blockInProgressTransactions = Transactions
---                             { _transactionCoinbase = coinbaseOutput
---                             , _transactionPairs = mempty
---                             }
---                         , _blockInProgressMiner = miner
---                         , _blockInProgressPactVersion = Pact5T
---                         , _blockInProgressChainwebVersion = v
---                         , _blockInProgressChainId = cid
---                         }
---                 case fill of
---                     NewBlockFill -> ForPact5 <$> Pact.continueBlock mpAccess blockInProgress
---                     NewBlockEmpty -> return (ForPact5 blockInProgress)
---             )
-
--- execContinueBlock
---     :: forall logger tbl pv. (Logger logger, CanReadablePayloadCas tbl)
---     => MemPoolAccess
---     -> BlockInProgress pv
---     -> PactServiceM logger tbl (Historical (BlockInProgress pv))
--- execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
---     Checkpointer.readFrom newBlockParent $
---         case _blockInProgressPactVersion blockInProgress of
---             -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
---             -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
---             Pact4T -> SomeBlockM $ Pair (Pact4.continueBlock mpAccess blockInProgress) (error "pact5")
---             Pact5T -> SomeBlockM $ Pair (error "pact4") (Pact.continueBlock mpAccess blockInProgress)
---     where
---     newBlockParent = _blockInProgressParentHeader blockInProgress
+makeEmptyBlock
+    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
+    => PactBlockM logger tbl BlockInProgress
+makeEmptyBlock = do
+    miner <- view (psServiceEnv . psMiner) >>= \case
+        Nothing -> error "Chainweb.Pact.PactService.execNewBlock: Mining is disabled. Please provide a valid miner in the pact service configuration"
+        Just x -> return x
+    blockGasLimit <- view (psServiceEnv . psNewBlockGasLimit)
+    coinbaseOutput <- Pact.runCoinbase miner >>= \case
+        Left coinbaseError -> error $ "Error during coinbase: " <> sshow coinbaseError
+        Right coinbaseOutput ->
+            -- pretend that coinbase can throw an error, when we know it can't.
+            -- perhaps we can make the Transactions express this, may not be worth it.
+            return $ coinbaseOutput & Pact.crResult . Pact._PactResultErr %~ absurd
+    hndl <- use pbBlockHandle
+    blockCtx <- view psBlockCtx
+    return BlockInProgress
+            { _blockInProgressHandle = hndl
+            , _blockInProgressBlockCtx = blockCtx
+            , _blockInProgressRemainingGasLimit = blockGasLimit
+            , _blockInProgressTransactions = Transactions
+                { _transactionCoinbase = coinbaseOutput
+                , _transactionPairs = mempty
+                }
+            }
 
 -- -- | only for use in generating genesis blocks in tools.
 -- --
@@ -448,9 +364,9 @@ runGenesisIfNeeded v cid = do
 --         Historical block -> return block
 
 execReadOnlyReplay
-    :: forall logger tbl p
+    :: forall logger tbl
     . (Logger logger, CanReadablePayloadCas tbl)
-    => [EvaluationCtx p]
+    => [EvaluationCtx BlockPayloadHash]
     -> PactServiceM logger tbl ()
 execReadOnlyReplay blocks = undefined -- pactLabel "execReadOnlyReplay" $ do
     -- ParentHeader cur <- Checkpointer.findLatestValidBlockHeader
@@ -707,34 +623,25 @@ execReadOnlyReplay blocks = undefined -- pactLabel "execReadOnlyReplay" $ do
 --     targetHash = view blockHash targetHeader
 --     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
--- | Validate a mined block `(headerToValidate, payloadToValidate).
--- Note: The BlockHeader here is the header of the block being validated.
--- To do this, we atomically:
--- - determine if the block is on a different fork from the checkpointer's
---   current latest block, and execute all of the blocks on that fork if so,
---   all the way to the parent of the block we're validating.
--- - run the Pact transactions in the block.
--- - commit the result to the database.
---
-execValidateBlock
+syncToFork
     :: forall tbl logger
     . (CanReadablePayloadCas tbl, Logger logger)
     => MemPoolAccess
     -> Maybe Hints
     -> ForkInfo
     -> PactServiceM logger tbl ConsensusState
-execValidateBlock memPoolAccess hints forkInfo = do
+syncToFork memPoolAccess hints forkInfo = do
     sql <- view psReadWriteSql
     pdb <- view psPdb
-    (rewoundTxs, validatedTxs, newConsensusState) <- withSavepoint sql ValidateBlockSavePoint $ do -- pactLabel "execValidateBlock" $ do
+    (rewoundTxs, validatedTxs, newConsensusState) <- withSavepoint sql ValidateBlockSavePoint $ do
         let
             findForkChain (tip:chain) = go (NEL.singleton tip) chain
             findForkChain [] = return Nothing
             go !acc (tip:chain) = do
-                -- note that if we see the "parent hash" in the checkpointer,
-                -- that means that the *child* has been evaluated, thus we do
+                -- note that if we see the eval ctx in the checkpointer,
+                -- that means that the block has been evaluated, thus we do
                 -- not include `tip` in the resulting list.
-                known <- Checkpointer.lookupParentBlockRanked (Ranked (_evaluationCtxCurrentHeight tip) (_evaluationCtxParentHash tip))
+                known <- Checkpointer.lookupBlockByEvalCtx tip
                 if known
                 then return $ Just acc
                 -- if we don't know this block, remember it for later as we'll
@@ -743,67 +650,93 @@ execValidateBlock memPoolAccess hints forkInfo = do
             go _acc [] = return Nothing
 
         pactConsensusState <- Checkpointer.getConsensusState
-        let atTarget = _syncStateRankedBlockHash (_consensusStateLatest pactConsensusState) == _forkInfoBaseRankedBlockHash forkInfo
+        let atTarget =
+                _syncStateBlockHash (_consensusStateLatest pactConsensusState) ==
+                    _latestBlockHash (forkInfo._forkInfoTargetState)
         -- check if some past block had the target as its parent; if so, that
         -- means we can rewind to it
         latestBlockRewindable <-
             Checkpointer.lookupParentBlockHash (Parent $ _syncStateBlockHash (_consensusStateLatest pactConsensusState))
         if atTarget
-        then do
-            -- no work to do at all except set consensus state
-            -- TODO PP: disallow rewinding final?
-            logDebugPact $ "no work done to move to " <> sshow forkInfo._forkInfoTargetState
-            Checkpointer.setConsensusState forkInfo._forkInfoTargetState
-            return (mempty, mempty, forkInfo._forkInfoTargetState)
-        else if latestBlockRewindable
-        then do
-            -- we just have to rewind and set the final + safe blocks
-            -- TODO PP: disallow rewinding final?
-            logDebugPact $ "pure rewind to " <> sshow forkInfo._forkInfoTargetState
-            rewoundTxs <- getRewoundTxs (Parent $ _syncStateHeight (_consensusStateLatest pactConsensusState))
-            Checkpointer.rewindTo (_syncStateRankedBlockHash (_consensusStateLatest pactConsensusState))
-            Checkpointer.setConsensusState forkInfo._forkInfoTargetState
-            return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
-        else do
-            logDebugPact $ "no work done to move to " <> sshow forkInfo._forkInfoTargetState
-            findForkChain forkInfo._forkInfoTrace >>= \case
-                Nothing -> do
-                    logErrorPact $ "impossible to move to " <> sshow forkInfo._forkInfoTargetState
-                    -- error: we have no way to get to the target block. just report
-                    -- our current state and do nothing else.
-                    return (mempty, mempty, pactConsensusState)
-                Just forkChainBottomToTop -> do
-                    rewoundTxs <- getRewoundTxs (Parent $ _syncStateHeight (_consensusStateLatest pactConsensusState))
-                    -- the happy case: we can find a way to get to the target block
-                    -- look up all of the payloads to see if we've run them before
-                    -- even then we still have to run them, because they aren't in the checkpointer
-                    knownPayloads <- liftIO $
-                        tableLookupBatch' pdb (each . _2) ((\e -> (e, _evaluationCtxRankedPayloadHash e)) <$> forkChainBottomToTop)
+            then do
+                -- no work to do at all except set consensus state
+                -- TODO PP: disallow rewinding final?
+                logDebugPact $ "no work done to move to " <> sshow forkInfo._forkInfoTargetState
+                Checkpointer.setConsensusState forkInfo._forkInfoTargetState
+                return (mempty, mempty, forkInfo._forkInfoTargetState)
+            else if latestBlockRewindable
+            then do
+                -- we just have to rewind and set the final + safe blocks
+                -- TODO PP: disallow rewinding final?
+                logDebugPact $ "pure rewind to " <> sshow forkInfo._forkInfoTargetState
+                rewoundTxs <- getRewoundTxs (Parent $ _syncStateHeight (_consensusStateLatest pactConsensusState))
+                Checkpointer.rewindTo (_syncStateRankedBlockHash (_consensusStateLatest pactConsensusState))
+                Checkpointer.setConsensusState forkInfo._forkInfoTargetState
+                return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
+            else do
+                logDebugPact $ "no work done to move to " <> sshow forkInfo._forkInfoTargetState
+                findForkChain forkInfo._forkInfoTrace >>= \case
+                    Nothing -> do
+                        logErrorPact $ "impossible to move to " <> sshow forkInfo._forkInfoTargetState
+                        -- error: we have no way to get to the target block. just report
+                        -- our current state and do nothing else.
+                        return (mempty, mempty, pactConsensusState)
+                    Just forkChainBottomToTop -> do
+                        rewoundTxs <- getRewoundTxs (Parent $ _syncStateHeight (_consensusStateLatest pactConsensusState))
+                        -- the happy case: we can find a way to get to the target block
+                        -- look up all of the payloads to see if we've run them before
+                        -- even then we still have to run them, because they aren't in the checkpointer
+                        knownPayloads <- liftIO $
+                            tableLookupBatch' pdb (each . _2) ((\e -> (e, _evaluationCtxRankedPayloadHash e)) <$> forkChainBottomToTop)
 
-                    logDebugPact $ "unknown blocks in context: " <> sshow (length $ NEL.filter (isNothing . snd) knownPayloads)
+                        logDebugPact $ "unknown blocks in context: " <> sshow (length $ NEL.filter (isNothing . snd) knownPayloads)
 
-                    runnableBlocks <- forM knownPayloads $ \(evalCtx, maybePayload) -> do
-                        payload <- case maybePayload of
-                            -- fetch payload if missing
-                            Nothing -> getPayloadForContext hints evalCtx
-                            Just payload -> return payload
-                        let runBlock = Pact.execExistingBlock (_consensusPayloadHash <$> evalCtx) (CheckablePayload payload)
-                        return
-                            ( DList.singleton <$> runBlock
-                            , _consensusPayloadHash <$> evalCtx
-                            )
+                        runnableBlocks <- forM knownPayloads $ \(evalCtx, maybePayload) -> do
+                            payload <- case maybePayload of
+                                -- fetch payload if missing
+                                Nothing -> getPayloadForContext hints evalCtx
+                                Just payload -> return payload
+                            let runBlock = Pact.execExistingBlock (_consensusPayloadHash <$> evalCtx) (CheckablePayload payload)
+                            return
+                                ( DList.singleton <$> runBlock
+                                , _consensusPayloadHash <$> evalCtx
+                                )
 
-                    runExceptT (Checkpointer.restoreAndSave runnableBlocks) >>= \case
-                        Left err -> do
-                            logErrorPact $ "Error in execValidateBlock: " <> sshow err
-                            return (mempty, mempty, pactConsensusState)
-                        Right blockResults -> do
-                            let validatedTxHashes = V.concatMap
-                                    (fmap pactRequestKeyToTransactionHash . view _3)
-                                    (V.fromList $ DList.toList blockResults)
-                            Checkpointer.setConsensusState forkInfo._forkInfoTargetState
-                            return (rewoundTxs, validatedTxHashes, forkInfo._forkInfoTargetState)
+                        runExceptT (Checkpointer.restoreAndSave runnableBlocks) >>= \case
+                            Left err -> do
+                                logErrorPact $ "Error in execValidateBlock: " <> sshow err
+                                return (mempty, mempty, pactConsensusState)
+                            Right blockResults -> do
+                                let validatedTxHashes = V.concatMap
+                                        (fmap pactRequestKeyToTransactionHash . view _3)
+                                        (V.fromList $ DList.toList blockResults)
+                                Checkpointer.setConsensusState forkInfo._forkInfoTargetState
+                                return (rewoundTxs, validatedTxHashes, forkInfo._forkInfoTargetState)
     liftIO $ mpaProcessFork memPoolAccess (rewoundTxs, validatedTxs)
+    case forkInfo._forkInfoNewBlockCtx of
+        Just newBlockCtx
+            | _syncStateBlockHash (_consensusStateLatest newConsensusState) ==
+                _latestBlockHash (forkInfo._forkInfoTargetState) -> do
+                    -- if we're at the target block we were sent, and we were
+                    -- told to start mining, we produce an empty block
+                    -- immediately. then we set up a separate thread
+                    -- to add new transactions to the block.
+                    emptyBlock <- Checkpointer.readFromLatest newBlockCtx makeEmptyBlock
+                    payloadVar <- view psMiningPayloadVar
+
+                    -- cancel payload refresher thread
+                    liftIO $
+                        atomically (fmap fst <$> tryTakeTMVar payloadVar)
+                            >>= traverse_ cancel
+
+                    e <- ask
+
+                    refresherThread <- liftIO $ async (runPactServiceM e refreshPayloads)
+
+                    liftIO $
+                        atomically $ writeTMVar payloadVar (refresherThread, emptyBlock)
+
+        _ -> return ()
     return newConsensusState
     where
     -- remember to call this *before* executing the actual rewind,
@@ -819,6 +752,9 @@ execValidateBlock memPoolAccess hints forkInfo = do
         V.concat <$> traverse
             (fmap (fromRight (error "invalid payload in database")) . runExceptT . pact5TransactionsFromPayload)
             rewoundPayloads
+
+refreshPayloads :: PactServiceM logger tbl ()
+refreshPayloads = undefined
 
     -- -- The parent block header must be available in the block header database.
     -- parentOfHeaderToValidate <- getTarget
@@ -1017,13 +953,15 @@ execLookupPactTxs
     -> Vector SB.ShortByteString
     -> PactServiceM logger tbl (Historical (HM.HashMap SB.ShortByteString (T2 BlockHeight BlockHash)))
 execLookupPactTxs confDepth txs = do -- pactLabel "execLookupPactTxs" $ do
-    if V.null txs then return (Historical mempty) else go
+    if V.null txs
+    then return (Historical mempty)
+    else do
+        go =<< liftIO Checkpointer.fakeNewBlockCtx
     where
-    go = Checkpointer.readFromNthParent (maybe 0 (fromIntegral . _confirmationDepth) confDepth) $
-        (do
-            dbenv <- view psBlockDbEnv
-            fmap (HM.mapKeys coerce) $ liftIO $ Pact.lookupPactTransactions dbenv (coerce txs)
-        )
+    depth = maybe 0 (fromIntegral . _confirmationDepth) confDepth
+    go ctx = Checkpointer.readFromNthParent ctx depth $ do
+        dbenv <- view psBlockDbEnv
+        fmap (HM.mapKeys coerce) $ liftIO $ Pact.lookupPactTransactions dbenv (coerce txs)
 
 -- pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 -- pactLabel lbl x = localLabelPact ("pact-request", lbl) x

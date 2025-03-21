@@ -110,6 +110,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Text (Text)
 import qualified Pact.Core.Persistence as Pact
+import Control.Monad.Catch (ExitCase(..))
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
@@ -136,19 +137,12 @@ withSavepoint
     -> SavepointName
     -> m a
     -> m a
-withSavepoint db name action = mask $ \resetMask -> do
-    liftIO $ beginSavepoint db name
-    go resetMask `catches` handlers
-  where
-    go resetMask = do
-        r <- resetMask action `onException` liftIO (abortSavepoint db name)
-        liftIO $ commitSavepoint db name
-        liftIO $ evaluate r
-    throwErr s = error $ "withSavepoint (" <> show name <> "): " <> s
-    handlers =
-      [ Handler $ \(e :: SomeAsyncException) -> throwM e
-      , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
-      ]
+withSavepoint db name action = fmap fst $ generalBracket
+    (liftIO $ beginSavepoint db name)
+    (\_ -> liftIO . \case
+        ExitCaseSuccess {} -> commitSavepoint db name
+        _ -> abortSavepoint db name
+    ) $ \_ -> action
 
 beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
 beginSavepoint db name =

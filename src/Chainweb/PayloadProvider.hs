@@ -87,6 +87,7 @@ module Chainweb.PayloadProvider
 
 -- ** Consensus State Accessors
 , _latestBlockHash
+, _latestRankedBlockHash
 , _latestPayloadHash
 , _latestHeight
 , _safeBlockHash
@@ -377,7 +378,7 @@ instance ToJSON p => ToJSON (EvaluationCtx p) where
 data NewBlockCtx = NewBlockCtx
     { _newBlockCtxMinerReward :: !MinerReward
         -- ^ the miner reward for the new block.
-    , _newBlockCtxParentCreationTime :: !BlockCreationTime
+    , _newBlockCtxParentCreationTime :: !(Parent BlockCreationTime)
         -- ^ the creation time of the block on which the new is created.
     }
     deriving (Show, Eq, Ord)

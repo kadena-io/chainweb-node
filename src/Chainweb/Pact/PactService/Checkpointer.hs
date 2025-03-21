@@ -32,7 +32,8 @@
 -- Checkpointer interaction for Pact service.
 --
 module Chainweb.Pact.PactService.Checkpointer
-    ( readFromLatest
+    ( fakeNewBlockCtx
+    , readFromLatest
     , readFromNthParent
     , readFrom
     , restoreAndSave
@@ -44,7 +45,7 @@ module Chainweb.Pact.PactService.Checkpointer
     , PactBlockM(..)
     , getEarliestBlock
     -- , lookupBlock
-    , lookupParentBlockRanked
+    , lookupBlockByEvalCtx
     , lookupParentBlockHash
     , lookupBlockWithHeight
     , getPayloadsAfter
@@ -54,7 +55,6 @@ module Chainweb.Pact.PactService.Checkpointer
 
 import Control.Lens hiding ((:>), (:<))
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.List.NonEmpty (NonEmpty ((:|)))
@@ -86,6 +86,18 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards (pact5)
 
+-- readFrom demands to know this context in case it's mining a block.
+-- But it's not really used by /local, or polling, so we fabricate it
+-- for those users.
+fakeNewBlockCtx :: IO NewBlockCtx
+fakeNewBlockCtx = do
+    fakeCreationTime <- Parent . BlockCreationTime <$> getCurrentTimeIntegral
+    return NewBlockCtx
+        -- fake
+        { _newBlockCtxMinerReward = MinerReward 1848
+        , _newBlockCtxParentCreationTime = fakeCreationTime
+        }
+
 -- read-only rewind to the latest block.
 -- note: because there is a race between getting the latest header
 -- and doing the rewind, there's a chance that the latest header
@@ -94,9 +106,10 @@ import Chainweb.Version.Guards (pact5)
 -- note: this function will never rewind before genesis.
 readFromLatest
     :: Logger logger
-    => PactBlockM logger tbl a
+    => NewBlockCtx
+    -> PactBlockM logger tbl a
     -> PactServiceM logger tbl a
-readFromLatest doRead = readFromNthParent 0 doRead >>= \case
+readFromLatest newBlockCtx doRead = readFromNthParent newBlockCtx 0 doRead >>= \case
     NoHistory -> error "readFromLatest: failed to grab the latest header, this is a bug in chainweb"
     Historical a -> return a
 
@@ -105,10 +118,11 @@ readFromLatest doRead = readFromNthParent 0 doRead >>= \case
 readFromNthParent
     :: forall logger tbl a
     . Logger logger
-    => Word
+    => NewBlockCtx
+    -> Word
     -> PactBlockM logger tbl a
     -> PactServiceM logger tbl (Historical a)
-readFromNthParent n doRead = do
+readFromNthParent newBlockCtx n doRead = do
     sql <- view psReadWriteSql
     v <- view chainwebVersion
     cid <- view chainId
@@ -123,28 +137,27 @@ readFromNthParent n doRead = do
                 -- this case for shallow nodes without enough history
                 Nothing -> return NoHistory
                 Just nthBlock ->
-                    readFrom (parentBlockHeight v cid nthBlock) doRead
+                    readFrom newBlockCtx (parentBlockHeight v cid nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
 readFrom
     :: Logger logger
-    => Parent RankedBlockHash
+    => NewBlockCtx
+    -- ^ you can fake this if you're not making a new block
+    -> Parent RankedBlockHash
     -> PactBlockM logger tbl a
     -> PactServiceM logger tbl (Historical a)
-readFrom parent doRead = do
+readFrom newBlockCtx parent doRead = do
     sql <- view psReadWriteSql
     logger <- view psLogger
     v <- view chainwebVersion
     cid <- view chainId
-    fakeCreationTime <- liftIO $ Parent . BlockCreationTime <$> getCurrentTimeIntegral
     let blockCtx = BlockCtx
-            -- fake, we can't access this field without a block header db
-            { _bctxParentCreationTime = fakeCreationTime
+            { _bctxParentCreationTime = _newBlockCtxParentCreationTime newBlockCtx
             , _bctxParentHash = _rankedBlockHashHash <$> parent
             , _bctxParentHeight = _rankedBlockHashHeight <$> parent
-            -- fake, we can't access this field without a block header db
-            , _bctxMinerReward = MinerReward 1848
+            , _bctxMinerReward = _newBlockCtxMinerReward newBlockCtx
             , _bctxChainwebVersion = v
             , _bctxChainId = cid
             }
@@ -180,14 +193,8 @@ rewindTo ancestor = do
     sql <- view psReadWriteSql
     v <- view chainwebVersion
     cid <- view chainId
-    liftIO $ fmap fst $ generalBracket
-        (beginSavepoint sql RewindSavePoint)
-        (\_ -> \case
-            ExitCaseSuccess {} -> commitSavepoint sql RewindSavePoint
-            _ -> abortSavepoint sql RewindSavePoint
-        ) $ \_ -> do
-            _ <- PactDb.rewindDbTo v cid sql ancestor
-            return ()
+    liftIO $ withSavepoint sql RewindSavePoint $
+        void $ PactDb.rewindDbTo v cid sql ancestor
 
 getBlockCtx :: EvaluationCtx p -> PactServiceM logger tbl BlockCtx
 getBlockCtx ec = do
@@ -214,19 +221,14 @@ restoreAndSave
 restoreAndSave blocks@((_, forkPoint) :| _) = do
     sql <- view psReadWriteSql
     e <- ask
-    fmap fst $ generalBracket
-        (liftIO $ beginSavepoint sql RestoreAndSaveSavePoint)
-        (\_ -> liftIO . \case
-            ExitCaseSuccess {} -> commitSavepoint sql RestoreAndSaveSavePoint
-            _ -> abortSavepoint sql RestoreAndSaveSavePoint
-        ) $ \_ -> do
-            -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
-            txid <- liftIO $ PactDb.rewindDbTo
-                (_chainwebVersion e)
-                (_chainId e)
-                sql
-                (unwrapParent $ _evaluationCtxRankedParentHash forkPoint)
-            mapExceptT liftIO $ extend e (mempty, txid) (NEL.toList blocks)
+    withSavepoint sql RestoreAndSaveSavePoint $ do
+        -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
+        txid <- liftIO $ PactDb.rewindDbTo
+            (_chainwebVersion e)
+            (_chainId e)
+            sql
+            (unwrapParent $ _evaluationCtxRankedParentHash forkPoint)
+        mapExceptT liftIO $ extend e (mempty, txid) (NEL.toList blocks)
     where
     extend e (m, startTxId) = \case
         (blockAction, evalCtx) : subsequentBlocks -> let
@@ -403,10 +405,10 @@ lookupBlockWithHeight bh = do
     sql <- view psReadWriteSql
     liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockWithHeight sql bh
 
-lookupParentBlockRanked :: Ranked (Parent BlockHash) -> PactServiceM logger tbl Bool
-lookupParentBlockRanked rpbh = do
+lookupBlockByEvalCtx :: EvaluationCtx p -> PactServiceM logger tbl Bool
+lookupBlockByEvalCtx rpbh = do
     sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupParentBlockRanked sql rpbh
+    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockByEvalCtx sql rpbh
 
 lookupParentBlockHash :: Parent BlockHash -> PactServiceM logger tbl Bool
 lookupParentBlockHash pbh = do

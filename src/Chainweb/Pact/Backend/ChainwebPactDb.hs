@@ -74,7 +74,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
     , initSchema
     , lookupBlockWithHeight
     , lookupParentBlockHash
-    , lookupParentBlockRanked
+    , lookupBlockByEvalCtx
     , getPayloadsAfter
     , getEarliestBlock
     , getConsensusState
@@ -980,9 +980,12 @@ lookupParentBlockHash db (Parent parentHash) = do
     where
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE parenthash = ?;"
 
-lookupParentBlockRanked :: SQ3.Database -> Ranked (Parent BlockHash) -> ExceptT SQ3.Error IO Bool
-lookupParentBlockRanked db (Ranked bheight (Parent parentHash)) = do
-    qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash parentHash))] [RInt] >>= \case
+lookupBlockByEvalCtx :: SQ3.Database -> EvaluationCtx p -> ExceptT SQ3.Error IO Bool
+lookupBlockByEvalCtx db evalCtx = do
+    qry db qtext
+        [ SInt $ fromIntegral (_evaluationCtxCurrentHeight evalCtx)
+        , SBlob $ runPutS $ encodeBlockHash $ unwrapParent (_evaluationCtxParentHash evalCtx)
+        ] [RInt] >>= \case
         [[SInt n]] -> return $! n == 1
         [_] -> error "lookupBlock: output type mismatch"
         _ -> error "Expected single-row result"

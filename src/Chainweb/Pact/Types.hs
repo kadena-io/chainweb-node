@@ -36,6 +36,14 @@ module Chainweb.Pact.Types
     , psMiningPayloadVar
     , psNewBlockGasLimit
 
+    , BlockCtx(..)
+    , blockCtxOfEvaluationCtx
+    , evaluationCtxOfBlockCtx
+    , guardCtx
+    , _bctxParentRankedBlockHash
+    , _bctxIsGenesis
+    , _bctxCurrentBlockHeight
+
     , PactServiceConfig(..)
     , PactServiceM(..)
     , runPactServiceM
@@ -58,15 +66,9 @@ module Chainweb.Pact.Types
     , blockInProgressRemainingGasLimit
     , blockInProgressTransactions
     , toPayloadWithOutputs
+    , commandToBytes
 
     , MemPoolAccess(..)
-
-    , BlockCtx(..)
-    , blockCtxOfEvaluationCtx
-    , _bctxParentRankedBlockHash
-    , _bctxIsGenesis
-    , guardCtx
-    , _bctxCurrentBlockHeight
 
     , GasSupply(..)
     , RewindLimit(..)
@@ -158,21 +160,15 @@ import Pact.JSON.Encode qualified as J
 import System.LogLevel
 import Utils.Logging.Trace
 
-import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
-import Chainweb.ChainId qualified as Chainweb
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact (Miner, toMinerData)
-import Chainweb.MinerReward
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Parent
 import Chainweb.Payload qualified as Chainweb
 import Chainweb.Payload.PayloadStore
 import Chainweb.PayloadProvider.P2P
@@ -188,6 +184,12 @@ import Servant.API
 import Data.List.NonEmpty (NonEmpty)
 import Chainweb.PayloadProvider
 import Control.Concurrent.STM
+import Chainweb.BlockHeight
+import Chainweb.BlockHash
+import Chainweb.Parent
+import Chainweb.MinerReward
+import Chainweb.BlockCreationTime
+import Control.Concurrent.Async
 
 data Transactions t r = Transactions
     { _transactionPairs :: !(Vector (t, r))
@@ -342,6 +344,59 @@ type OnChainCommandResult =
 type OffChainCommandResult =
   Pact.CommandResult [Pact.TxLog ByteString] (Pact.PactError Pact.Info)
 
+-- | Pair parent header with transaction metadata.
+-- In cases where there is no transaction/Command, 'PublicMeta'
+-- default value is used.
+data BlockCtx = BlockCtx
+  { _bctxParentCreationTime :: !(Parent BlockCreationTime)
+  , _bctxParentHash :: !(Parent BlockHash)
+  , _bctxParentHeight :: !(Parent BlockHeight)
+  , _bctxChainId :: !ChainId
+  , _bctxChainwebVersion :: !ChainwebVersion
+  , _bctxMinerReward :: !MinerReward
+  } deriving (Eq, Show)
+
+blockCtxOfEvaluationCtx :: ChainwebVersion -> ChainId -> EvaluationCtx p -> BlockCtx
+blockCtxOfEvaluationCtx v cid ec = BlockCtx
+  { _bctxParentCreationTime = _evaluationCtxParentCreationTime ec
+  , _bctxParentHash = _evaluationCtxParentHash ec
+  , _bctxParentHeight = _evaluationCtxParentHeight ec
+  , _bctxChainId = cid
+  , _bctxChainwebVersion = v
+  , _bctxMinerReward = _evaluationCtxMinerReward ec
+  }
+
+evaluationCtxOfBlockCtx :: BlockCtx -> EvaluationCtx ()
+evaluationCtxOfBlockCtx bctx = EvaluationCtx
+  { _evaluationCtxParentCreationTime = _bctxParentCreationTime bctx
+  , _evaluationCtxParentHeight = _bctxParentHeight bctx
+  , _evaluationCtxParentHash = _bctxParentHash bctx
+  , _evaluationCtxMinerReward = _bctxMinerReward bctx
+  , _evaluationCtxPayload = ()
+  }
+
+guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> BlockCtx -> a
+guardCtx g txCtx = g (_chainwebVersion txCtx) (_chainId txCtx) (_bctxCurrentBlockHeight txCtx)
+
+instance HasChainId BlockCtx where
+  _chainId = _bctxChainId
+instance HasChainwebVersion BlockCtx where
+  _chainwebVersion = _bctxChainwebVersion
+
+_bctxIsGenesis :: BlockCtx -> Bool
+_bctxIsGenesis bc = isGenesisBlockHeader' (_chainwebVersion bc) (_chainId bc) (_bctxParentHash bc)
+
+_bctxParentRankedBlockHash :: BlockCtx -> Parent RankedBlockHash
+_bctxParentRankedBlockHash bc = Parent RankedBlockHash
+  { _rankedBlockHashHash = unwrapParent $ _bctxParentHash bc
+  , _rankedBlockHashHeight = unwrapParent $ _bctxParentHeight bc
+  }
+
+_bctxCurrentBlockHeight :: BlockCtx -> BlockHeight
+_bctxCurrentBlockHeight bc =
+  childBlockHeight (_chainwebVersion bc) (_chainId bc) (_bctxParentRankedBlockHash bc)
+
+
 
 -- | Externally-injected PactService properties.
 --
@@ -380,11 +435,10 @@ data PactServiceConfig = PactServiceConfig
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: !(forall to. BlockFill
+        :: !(forall to
+        . BlockFill
         -> MempoolPreBlockCheck Pact.Transaction to
-        -> BlockHeight
-        -> BlockHash
-        -> BlockCreationTime
+        -> EvaluationCtx ()
         -> IO (Vector to)
         )
   , mpaProcessFork :: !((Vector Pact.Transaction, Vector TransactionHash) -> IO ())
@@ -432,20 +486,19 @@ data PactServiceEnv logger tbl = PactServiceEnv
     -- If unset, defaults to a reasonable value based on the transaction's gas limit.
     , _psMiner :: !(Maybe Miner)
     -- ^ Miner identity for use in newly mined blocks.
-    , _psMiningPayloadVar :: !(TMVar NewPayload)
-    -- ^ Latest mining payload produced.
+    , _psMiningPayloadVar :: !(TMVar (Async (), BlockInProgress))
+    -- ^ Latest mining payload produced, and block continuation thread.
     , _psNewBlockGasLimit :: !Pact.GasLimit
     -- ^ Block gas limit in newly produced blocks.
     }
-makeLenses ''PactServiceEnv
 
 instance HasChainwebVersion (PactServiceEnv logger c) where
-    chainwebVersion = psVersion
-    {-# INLINE chainwebVersion #-}
+    _chainwebVersion = _psVersion
+    {-# INLINE _chainwebVersion #-}
 
 instance HasChainId (PactServiceEnv logger c) where
-    chainId = psChainId
-    {-# INLINE chainId #-}
+    _chainId = _psChainId
+    {-# INLINE _chainId #-}
 
 -- | The top level monad of PactService, notably allowing access to a
 -- checkpointer and module init cache and some configuration parameters.
@@ -538,46 +591,6 @@ tracePactBlockM' label calcParam calcWeight a = do
 logJsonTrace_ :: (MonadIO m, ToJSON a, Typeable a, NFData a, Logger logger) => logger -> LogLevel -> JsonLog a -> m ()
 logJsonTrace_ logger level msg = liftIO $ logFunction logger level msg
 
--- | Pair parent header with transaction metadata.
--- In cases where there is no transaction/Command, 'PublicMeta'
--- default value is used.
-data BlockCtx = BlockCtx
-  { _bctxParentCreationTime :: !(Parent BlockCreationTime)
-  , _bctxParentHash :: !(Parent BlockHash)
-  , _bctxParentHeight :: !(Parent BlockHeight)
-  , _bctxChainId :: !ChainId
-  , _bctxChainwebVersion :: !ChainwebVersion
-  , _bctxMinerReward :: !MinerReward
-  } deriving (Eq, Show)
-
-blockCtxOfEvaluationCtx :: ChainwebVersion -> ChainId -> EvaluationCtx p -> BlockCtx
-blockCtxOfEvaluationCtx v cid ec = BlockCtx
-  { _bctxParentCreationTime = _evaluationCtxParentCreationTime ec
-  , _bctxParentHash = _evaluationCtxParentHash ec
-  , _bctxParentHeight = _evaluationCtxParentHeight ec
-  , _bctxChainId = cid
-  , _bctxChainwebVersion = v
-  , _bctxMinerReward = _evaluationCtxMinerReward ec
-  }
-
-instance HasChainId BlockCtx where
-  _chainId = _bctxChainId
-instance HasChainwebVersion BlockCtx where
-  _chainwebVersion = _bctxChainwebVersion
-
-_bctxIsGenesis :: BlockCtx -> Bool
-_bctxIsGenesis bc = isGenesisBlockHeader' (_chainwebVersion bc) (_chainId bc) (_bctxParentHash bc)
-
-_bctxParentRankedBlockHash :: BlockCtx -> Parent RankedBlockHash
-_bctxParentRankedBlockHash bc = Parent RankedBlockHash
-  { _rankedBlockHashHash = unwrapParent $ _bctxParentHash bc
-  , _rankedBlockHashHeight = unwrapParent $ _bctxParentHeight bc
-  }
-
-_bctxCurrentBlockHeight :: BlockCtx -> BlockHeight
-_bctxCurrentBlockHeight bc =
-  childBlockHeight (_chainwebVersion bc) (_chainId bc) (_bctxParentRankedBlockHash bc)
-
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
 data BlockInProgress = BlockInProgress
@@ -587,6 +600,7 @@ data BlockInProgress = BlockInProgress
   , _blockInProgressTransactions :: !(Transactions Chainweb.Transaction OffChainCommandResult)
   }
 
+makeLenses ''PactServiceEnv
 makeLenses ''BlockInProgress
 
 instance Eq BlockInProgress where
@@ -607,9 +621,6 @@ instance HasChainId BlockInProgress where
 makeLenses ''PactBlockState
 
 makeLenses ''PactBlockEnv
-
-guardCtx :: (ChainwebVersion -> Chainweb.ChainId -> BlockHeight -> a) -> BlockCtx -> a
-guardCtx g txCtx = g (_chainwebVersion txCtx) (_chainId txCtx) (_bctxCurrentBlockHeight txCtx)
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _pact5GasSupply :: Decimal }
@@ -736,6 +747,10 @@ hashPactTxLogs :: Pact.CommandResult [Pact.TxLog ByteString] err -> Pact.Command
 hashPactTxLogs cr = cr & over (Pact.crLogs . _Just)
   (\ls -> Pact.hashTxLogs ls)
 
+commandToBytes :: Pact.Transaction -> Chainweb.Transaction
+commandToBytes = Chainweb.Transaction . J.encodeStrict
+  . fmap (T.decodeUtf8 . SB.fromShort . view Pact.payloadBytes)
+
 toPayloadWithOutputs
   :: Miner
   -> Transactions Pact.Transaction OffChainCommandResult
@@ -745,7 +760,7 @@ toPayloadWithOutputs mi ts =
         oldSeq :: Vector (Pact.Transaction, OffChainCommandResult)
         oldSeq = _transactionPairs ts
         trans :: Vector Chainweb.Transaction
-        trans = cmdBSToTx . fst <$> oldSeq
+        trans = commandToBytes . fst <$> oldSeq
         transOuts :: Vector Chainweb.TransactionOutput
         transOuts = Chainweb.TransactionOutput . pactCommandResultToBytes . hashPactTxLogs . snd <$> oldSeq
 
@@ -755,9 +770,6 @@ toPayloadWithOutputs mi ts =
         cb = Chainweb.CoinbaseOutput $ pactCommandResultToBytes $ hashPactTxLogs $ _transactionCoinbase ts
         blockTrans :: Chainweb.BlockTransactions
         blockTrans = snd $ Chainweb.newBlockTransactions miner trans
-        cmdBSToTx :: Pact.Transaction -> Chainweb.Transaction
-        cmdBSToTx = Chainweb.Transaction . J.encodeStrict
-          . fmap (T.decodeUtf8 . SB.fromShort . view Pact.payloadBytes)
         blockOuts :: Chainweb.BlockOutputs
         blockOuts = snd $ Chainweb.newBlockOutputs cb transOuts
 

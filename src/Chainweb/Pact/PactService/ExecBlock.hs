@@ -16,7 +16,7 @@
 
 module Chainweb.Pact.PactService.ExecBlock
     ( runCoinbase
-    -- , continueBlock
+    , continueBlock
     , execExistingBlock
     , validateParsedChainwebTx
     , pact5TransactionsFromPayload
@@ -130,73 +130,80 @@ runCoinbase miner = do
 continueBlock
     :: forall logger tbl
     . (Logger logger, CanReadablePayloadCas tbl)
-    => MemPoolAccess
+    => ChainwebPactDb
+    -> MemPoolAccess
     -> BlockInProgress
-    -> PactBlockM logger tbl BlockInProgress
-continueBlock mpAccess blockInProgress = do
-  pbBlockHandle .= _blockInProgressHandle blockInProgress
-  -- update the mempool, ensuring that we reintroduce any transactions that
-  -- were removed due to being completed in a block on a different fork.
-  case maybeBlockParentHeader of
-    Just blockParentHeader -> do
-      liftPactServiceM $
-        logInfoPact $ T.unwords
-            [ "(parent height = " <> sshow (view blockHeight blockParentHeader) <> ")"
-            , "(parent hash = " <> sshow (view blockHash blockParentHeader) <> ")"
-            ]
-    Nothing ->
-      liftPactServiceM $ logInfoPact "Continuing genesis block"
+    -> PactServiceM logger tbl BlockInProgress
+continueBlock dbEnv mpAccess blockInProgress = do
+  miner <- maybe (error "no miner but tried continuing block") return =<< view psMiner
+  let runBlock = runPactBlockM
+        (_blockInProgressBlockCtx blockInProgress)
+        dbEnv
+        (_blockInProgressHandle blockInProgress)
+  (blockInProgress', _newHandle) <- runBlock $ do
+    -- update the mempool, ensuring that we reintroduce any transactions that
+    -- were removed due to being completed in a block on a different fork.
+    blockCtx <- view psBlockCtx
+    case _bctxIsGenesis blockCtx of
+      True -> do
+        liftPactServiceM $
+          logInfoPact $ T.unwords
+              [ "(parent height = " <> sshow (_bctxParentHash blockCtx) <> ")"
+              , "(parent hash = " <> sshow (_bctxParentHeight blockCtx) <> ")"
+              ]
+      False ->
+        liftPactServiceM $ logInfoPact "Continuing genesis block"
 
-  blockGasLimit <- view (psServiceEnv . psNewBlockGasLimit)
-  mTxTimeLimit <- view (psServiceEnv . psNewPayloadTxTimeLimit)
-  let txTimeHeadroomFactor :: Double
-      txTimeHeadroomFactor = 5
-  let txTimeLimit :: Micros
-      -- 2.5 us per unit gas
-      txTimeLimit = fromMaybe (round $ 2.5 * txTimeHeadroomFactor * fromIntegral blockGasLimit) mTxTimeLimit
-  liftPactServiceM $ do
-    logDebugPact $ T.unwords
-        [ "Block gas limit:"
-        , sshow blockGasLimit <> ","
-        , "Transaction time limit:"
-        , sshow txTimeLimit
-        ]
+    blockGasLimit <- view (psServiceEnv . psNewBlockGasLimit)
+    mTxTimeLimit <- view (psServiceEnv . psNewPayloadTxTimeLimit)
+    let txTimeHeadroomFactor :: Double
+        txTimeHeadroomFactor = 5
+    let txTimeLimit :: Micros
+        -- 2.5 us per unit gas
+        txTimeLimit = fromMaybe (round $ 2.5 * txTimeHeadroomFactor * fromIntegral (view (Pact._GasLimit . to Pact._gas) blockGasLimit)) mTxTimeLimit
+    liftPactServiceM $ do
+      logDebugPact $ T.unwords
+          [ "Block gas limit:"
+          , sshow blockGasLimit <> ","
+          , "Transaction time limit:"
+          , sshow txTimeLimit
+          ]
 
-  let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
-  let startTxsRequestKeys =
-        foldMap' (S.singleton . pactRequestKeyToTransactionHash . view Pact.crReqKey . snd) startTxs
-  let initState = BlockFill
-        { _bfTxHashes = startTxsRequestKeys
-        , _bfGasLimit = _blockInProgressRemainingGasLimit blockInProgress
-        , _bfCount = 0
-        }
+    let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
+    let startTxsRequestKeys =
+          foldMap' (S.singleton . pactRequestKeyToTransactionHash . view Pact.crReqKey . snd) startTxs
+    let initState = BlockFill
+          { _bfTxHashes = startTxsRequestKeys
+          , _bfGasLimit = _blockInProgressRemainingGasLimit blockInProgress
+          , _bfCount = 0
+          }
 
-  let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
+    let fetchLimit = fromIntegral $ (view (Pact._GasLimit . to Pact._gas) blockGasLimit) `div` 1000
 
-  (BlockFill { _bfGasLimit = finalGasLimit }, valids, invalids) <-
-    refill fetchLimit txTimeLimit initState
+    (BlockFill { _bfGasLimit = finalGasLimit }, valids, invalids) <-
+      refill miner fetchLimit txTimeLimit initState
 
-  finalBlockHandle <- use pbBlockHandle
+    finalBlockHandle <- use pbBlockHandle
 
-  liftIO $ mpaBadlistTx mpAccess
-    (V.fromList $ fmap pactRequestKeyToTransactionHash $ concat invalids)
+    liftIO $ mpaBadlistTx mpAccess
+      (V.fromList $ fmap pactRequestKeyToTransactionHash $ concat invalids)
 
-  liftPactServiceM $ logDebugPact $ "Order of completed transactions: " <> sshow (map (Pact.unRequestKey . Pact._crReqKey . snd) $ concat $ reverse valids)
-  let !blockInProgress' = blockInProgress
-        & blockInProgressHandle .~
-          finalBlockHandle
-        & blockInProgressTransactions . transactionPairs .~
-          startTxs <> V.fromList (concat valids)
-        & blockInProgressRemainingGasLimit .~
-          finalGasLimit
+    liftPactServiceM $ logDebugPact $ "Order of completed transactions: " <> sshow (map (Pact.unRequestKey . Pact._crReqKey . snd) $ concat $ reverse valids)
+    let !blockInProgress' = blockInProgress
+          & blockInProgressHandle .~
+            finalBlockHandle
+          & blockInProgressTransactions . transactionPairs .~
+            startTxs <> V.fromList (concat valids)
+          & blockInProgressRemainingGasLimit .~
+            finalGasLimit
 
-  liftPactServiceM $ logDebugPact $ "Final block transaction order: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+    liftPactServiceM $ logDebugPact $ "Final block transaction order: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
+    return blockInProgress'
   return blockInProgress'
 
   where
-  maybeBlockParentHeader = unwrapParent <$> _blockInProgressParentHeader blockInProgress
-  refill fetchLimit txTimeLimit blockFillState = over _2 reverse <$> go [] [] blockFillState
+  refill miner fetchLimit txTimeLimit blockFillState = over _2 reverse <$> go [] [] blockFillState
     where
     go
       :: [CompletedTransactions]
@@ -208,9 +215,7 @@ continueBlock mpAccess blockInProgress = do
       | prevFillCount > fetchLimit = liftPactServiceM $ do
         logInfoPact $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
         pure stop
-      | prevRemainingGas < 0 =
-        throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow prevBlockFillState
-      | prevRemainingGas == 0 =
+      | prevRemainingGas == Pact.GasLimit (Pact.Gas 0) =
         pure stop
       | otherwise = do
         newTxs <- getBlockTxs prevBlockFillState
@@ -221,7 +226,7 @@ continueBlock mpAccess blockInProgress = do
           pure stop
         else do
           (newCompletedTransactions, newInvalidTransactions, newBlockGasLimit, timedOut) <-
-            execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
+            execNewTransactions prevRemainingGas txTimeLimit newTxs
 
           liftPactServiceM $ do
             logDebugPact $ "Refill: included request keys: " <> sshow @[Hash] (fmap (Pact.unRequestKey . Pact._crReqKey . snd) newCompletedTransactions)
@@ -252,24 +257,22 @@ continueBlock mpAccess blockInProgress = do
       stop = (prevBlockFillState, completedTransactions, invalidTransactions)
 
       execNewTransactions
-        :: Miner
-        -> Pact4.GasLimit
+        :: P.GasLimit
         -> Micros
         -> Vector Pact.Transaction
-        -> PactBlockM logger tbl (CompletedTransactions, InvalidTransactions, Pact4.GasLimit, Bool)
-      execNewTransactions miner remainingGas timeLimit txs = do
+        -> PactBlockM logger tbl (CompletedTransactions, InvalidTransactions, P.GasLimit, Bool)
+      execNewTransactions remainingGas timeLimit txs = do
         env <- ask
         startBlockHandle <- use pbBlockHandle
-        let p5RemainingGas = Pact.GasLimit $ Pact.Gas $ fromIntegral remainingGas
+        blockCtx <- view psBlockCtx
         logger' <- view (psServiceEnv . psLogger)
-        isGenesis <- view psIsGenesis
         ((txResults, timedOut), (finalBlockHandle, Identity finalRemainingGas)) <-
-          liftIO $ flip runStateT (startBlockHandle, Identity p5RemainingGas) $ foldr
+          liftIO $ flip runStateT (startBlockHandle, Identity remainingGas) $ foldr
             (\(txIdxInBlock, tx) rest -> StateT $ \s -> do
               let logger = addLabel ("transactionHash", sshow (Pact._cmdHash tx)) logger'
               let env' = env & psServiceEnv . psLogger .~ logger
               let timeoutFunc runTx =
-                    if isGenesis
+                    if _bctxIsGenesis blockCtx
                     then do
                       logFunctionText logger Info $ "Running genesis command"
                       fmap Just runTx
@@ -289,37 +292,31 @@ continueBlock mpAccess blockInProgress = do
                   return (([Left (Pact._cmdHash tx)], True), s)
                 Just (Left err) -> do
                   logFunctionText logger Debug $
-                    "applyCmd failed to buy gas: " <> prettyPact5GasPurchaseFailure err
+                    -- TODO PP: prettify
+                    "applyCmd failed to buy gas: " <> sshow err
                   ((as, timedOut), s') <- runStateT rest s
                   return ((Left (Pact._cmdHash tx):as, timedOut), s')
                 Just (Right (a, s')) -> do
                   logFunctionText logger Debug "applyCmd buy gas succeeded"
                   ((as, timedOut), s'') <- runStateT rest s'
-                  return ((Right (tx, a):as, timedOut), s'')
+                  let !txBytes = commandToBytes tx
+                  return ((Right (txBytes, a):as, timedOut), s'')
               )
               (return ([], False))
               (zip [0..] (V.toList txs))
         pbBlockHandle .= finalBlockHandle
         let (invalidTxHashes, completedTxs) = partitionEithers txResults
-        let p4FinalRemainingGas = fromIntegral @Pact.SatWord @Pact4.GasLimit $ finalRemainingGas ^. Pact._GasLimit . to Pact._gas
-        return (completedTxs, Pact.RequestKey <$> invalidTxHashes, p4FinalRemainingGas, timedOut)
+        return (completedTxs, Pact.RequestKey <$> invalidTxHashes, finalRemainingGas, timedOut)
 
   getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact.Transaction)
   getBlockTxs blockFillState = do
     liftPactServiceM $ logDebugPact "Refill: fetching transactions"
-    v <- view chainwebVersion
-    cid <- view chainId
+    blockCtx <- view psBlockCtx
     logger <- view (psServiceEnv . psLogger)
-    dbEnv <- view psBlockDbEnv
-    let (pHash, pHeight, parentTime) = blockInProgressParent blockInProgress
-    isGenesis <- view psIsGenesis
-    let validate bhi _bha txs = do
-          forM txs $
-            runExceptT . validateParsedChainwebTx logger v cid dbEnv (_blockInProgressHandle blockInProgress) (Parent $ parentTime) bhi isGenesis
-    liftIO $ mpaGetBlock mpAccess blockFillState validate
-      (succ pHeight)
-      pHash
-      parentTime
+    let validate _bha txs = do
+          forM txs $ \tx ->
+            fmap (tx <$) $ runExceptT (validateParsedChainwebTx logger dbEnv blockCtx tx)
+    liftIO $ mpaGetBlock mpAccess blockFillState validate (evaluationCtxOfBlockCtx blockCtx)
 
 type CompletedTransactions = [(Chainweb.Transaction, Pact.OffChainCommandResult)]
 type InvalidTransactions = [Pact.RequestKey]
@@ -549,18 +546,11 @@ execExistingBlock evaluationCtx payload = do
   -- TODO: Pact5: ACTUALLY log gas
   _gasLogger <- view (psServiceEnv . psGasLogger)
   v <- view chainwebVersion
-  cid <- view chainId
   db <- view psBlockDbEnv
-  blockHandlePreCoinbase <- use pbBlockHandle
   let
-    isGenesis = _bctxIsGenesis blockCtx
-    txValidationTime = _bctxParentCreationTime blockCtx
   errors <- liftIO $ flip foldMap txs $ \tx -> do
     errorOrSuccess <- runExceptT $
-      validateParsedChainwebTx logger v cid db blockHandlePreCoinbase txValidationTime
-        (_bctxCurrentBlockHeight blockCtx)
-        isGenesis
-        tx
+      validateParsedChainwebTx logger db blockCtx tx
     case errorOrSuccess of
       Right () -> return []
       Left err -> return [(Pact.RequestKey (Pact._cmdHash tx), err)]
