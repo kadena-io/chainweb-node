@@ -28,7 +28,7 @@
 -- temporary
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
-module Chainweb.Test.Pact5.RemotePactTest
+module Chainweb.Test.Pact.RemotePactTest
     ( tests
     , mkFixture
     , Fixture(..)
@@ -101,8 +101,8 @@ import Pact.Core.Hash
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.SPV
-import Pact.Types.API qualified as Pact4
-import Pact.Types.ChainId qualified as Pact4
+import Pact.Types.API qualified as Pact
+import Pact.Types.ChainId qualified as Pact
 
 import Chainweb.ChainId
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
@@ -113,10 +113,10 @@ import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils (someServerApplication)
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_)
-import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
-import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.CutFixture (advanceAllChains, advanceAllChains_)
+import Chainweb.Test.Pact.CutFixture qualified as CutFixture
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Utils
@@ -1244,7 +1244,7 @@ pollWithDepth
 pollWithDepth fx v cid rks mConfirmationDepth = do
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
     let rksNel = NE.fromList rks
-    pollResult <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rksNel)) clientEnv
+    pollResult <- runClientM (pactPollApiClient v cid mConfirmationDepth (Pact5.PollRequest rksNel)) clientEnv
     case pollResult of
         Left e -> do
             throwM (PollException (show e))

@@ -216,7 +216,7 @@ newMinimalPayloadProvider
     -> v
     -> c
     -> RocksDb
-    -> HTTP.Manager
+    -> Maybe HTTP.Manager
     -> MinimalProviderConfig
     -> IO MinimalPayloadProvider
 newMinimalPayloadProvider logger v c rdb mgr conf
@@ -451,8 +451,8 @@ makeNewPayload
 makeNewPayload p latest ctx = NewPayload
     { _newPayloadChainwebVersion = _chainwebVersion p
     , _newPayloadChainId = _chainId p
-    , _newPayloadParentHeight = _syncStateHeight latest
-    , _newPayloadParentHash = _syncStateBlockHash latest
+    , _newPayloadParentHeight = Parent $ _syncStateHeight latest
+    , _newPayloadParentHash = Parent $ _syncStateBlockHash latest
     , _newPayloadBlockPayloadHash = view payloadHash pld
     , _newPayloadEncodedPayloadData = Just epld
     , _newPayloadEncodedPayloadOutputs = Nothing

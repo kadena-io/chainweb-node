@@ -10,11 +10,6 @@
 
 module Chainweb.Pact.SPV (pactSPV) where
 
-import Chainweb.Payload (TransactionOutput(..))
-import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
-import Chainweb.SPV.VerifyProof (runTransactionOutputProof)
-import Chainweb.Utils (decodeB64UrlNoPaddingText, unlessM)
-import Chainweb.Version qualified as CW
 import Control.Lens
 import Control.Monad (when)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
@@ -29,8 +24,15 @@ import Pact.Core.Hash (Hash(..))
 import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Pact.Core.SPV (SPVSupport(..), ContProof (..))
 import Pact.Core.StableEncoding (encodeStable)
+
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Pact.Backend.Types
+import Chainweb.Parent
+import Chainweb.Payload (TransactionOutput(..))
+import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
+import Chainweb.SPV.VerifyProof (runTransactionOutputProof)
+import Chainweb.Utils (decodeB64UrlNoPaddingText, unlessM)
+import Chainweb.Version qualified as CW
 
 pactSPV :: HeaderOracle -> SPVSupport
 pactSPV oracle = SPVSupport
@@ -41,7 +43,7 @@ pactSPV oracle = SPVSupport
 checkProofAndExtractOutput :: HeaderOracle -> TransactionOutputProof SHA512t_256 -> ExceptT Text IO TransactionOutput
 checkProofAndExtractOutput oracle proof@(TransactionOutputProof _cid p) = do
     let h = runTransactionOutputProof proof
-    unlessM (liftIO $ oracle.consult h) $ throwError
+    unlessM (liftIO $ oracle.consult (Parent h)) $ throwError
         "spv verification failed: target header is not in the chain"
     proofSubject p
 

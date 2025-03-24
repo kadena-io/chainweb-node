@@ -6,9 +6,9 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.Test.Pact5.TransactionTests (tests) where
+module Chainweb.Test.Pact.TransactionTests (tests) where
 
-import Chainweb.Pact5.Templates
+import Chainweb.Pact.Templates
 import Chainweb.Miner.Pact
 import Control.Lens hiding ((.=))
 import Data.Foldable
@@ -21,7 +21,7 @@ import Pact.Core.Repl
 import Pact.Core.Repl.Utils
 import Control.Monad (when)
 import Data.Text qualified as Text
-import Pact.Types.KeySet qualified as Pact4
+import Pact.Types.KeySet qualified as Pact
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Map.Strict qualified as Map
@@ -30,7 +30,7 @@ import Data.Map.Strict qualified as Map
 -- Global settings
 
 tests :: TestTree
-tests = testGroup "Chainweb.Test.Pact5.TransactionTests"
+tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   [ testCase "coin contract v6" $ runReplTest coinReplV6
   , testCase "namespace v1" $ runReplTest nsReplV1
   , testCase "namespace v2" $ runReplTest nsReplV2

@@ -87,9 +87,10 @@ import GHC.Stack
 import Numeric.Natural
 
 import qualified Pact.JSON.Encode as J
-import Pact.Types.Command
-import Pact.Types.PactValue
-import Pact.Types.Runtime (PactEvent(..), Literal(..))
+import Pact.Core.Command.Types
+import Pact.Core.Capabilities
+import Pact.Core.PactValue
+import Pact.Core.Literal
 
 import Prelude hiding (Applicative(..))
 
@@ -166,6 +167,11 @@ import P2P.Test.Orphans ()
 import System.Logger.Types
 
 import Utils.Logging
+import Pact.Core.StableEncoding
+import Pact.Core.Errors (pactErrorToOnChainError)
+import Pact.Core.Info (spanInfoToLineInfo)
+import Chainweb.PayloadProvider
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -342,7 +348,7 @@ arbitraryBlockHashRecordVersionHeightChain v h cid
     | isWebChain graph cid = BlockHashRecord
         . HM.fromList
         . zip (toList $ adjacentChainIds graph cid)
-        <$> infiniteListOf arbitrary
+        <$> infiniteListOf (Parent <$> arbitrary)
     | otherwise = discard
   where
     graph
@@ -376,7 +382,7 @@ arbitraryBlockHeaderVersionHeightChain v h cid
     entries t
         = liftA2 (:+:) arbitrary -- feature flags
         $ liftA2 (:+:) (pure $ BlockCreationTime t) -- time
-        $ liftA2 (:+:) arbitrary -- parent hash
+        $ liftA2 (:+:) (Parent <$> arbitrary) -- parent hash
         $ liftA2 (:+:) arbitrary -- target
         $ liftA2 (:+:) arbitrary -- payload hash
         $ liftA2 (:+:) (pure cid) -- chain id
@@ -391,8 +397,6 @@ arbitraryBlockHeaderVersionHeightChain v h cid
 instance Arbitrary HeaderUpdate where
     arbitrary = HeaderUpdate
         <$> (ObjectEncoded <$> arbitrary)
-        <*> arbitrary
-        <*> arbitrary
         <*> arbitrary
         <*> arbitrary
 
@@ -412,7 +416,7 @@ instance Arbitrary CutId where
 instance Arbitrary CutHashes where
     arbitrary = CutHashes
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary <*> (fmap EncodedPayloadData <$> arbitrary)
         <*> return Nothing
 
 instance Arbitrary CutHeight where
@@ -688,7 +692,8 @@ arbitraryPayloadWithStructuredOutputs = resize 10 $ do
     payloads <- newPayloadWithOutputs
         <$> arbitrary
         <*> arbitrary
-        <*> pure (fmap (TransactionOutput . J.encodeStrict) <$> txs)
+        -- TODO: PP
+        <*> pure (fmap (TransactionOutput . J.encodeStrict . fmap (pactErrorToOnChainError . fmap spanInfoToLineInfo)) <$> txs)
     return (_crReqKey . snd <$> txs, payloads)
   where
     genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
@@ -830,16 +835,13 @@ instance Arbitrary CoordinationConfig where
         <$> arbitrary
         <*> arbitrary
         <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
 
 instance Arbitrary NodeMiningConfig where
     arbitrary = NodeMiningConfig
-        <$> arbitrary <*> arbitrary <*> pure (MinerCount 10)
+        <$> arbitrary <*> pure (MinerCount 10)
 
 instance Arbitrary MiningConfig where
-    arbitrary = MiningConfig <$> arbitrary <*> arbitrary
+    arbitrary = MiningConfig <$> arbitrary <*> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb.SPV.EventProof
@@ -854,7 +856,7 @@ arbitraryEventPactValue = oneof
 
 -- | Arbitrary Pact events that are supported in events proofs
 --
-arbitraryProofPactEvent :: Gen PactEvent
+arbitraryProofPactEvent :: Gen (PactEvent PactValue)
 arbitraryProofPactEvent = PactEvent
     <$> arbitrary
     <*> listOf arbitraryEventPactValue
@@ -871,7 +873,9 @@ instance Arbitrary OutputEvents where
 
 -- | Events that are supported in proofs
 --
-newtype ProofPactEvent = ProofPactEvent { getProofPactEvent :: PactEvent }
+newtype ProofPactEvent = ProofPactEvent
+    { getProofPactEvent :: StableEncoding (PactEvent PactValue)
+    }
     deriving (Show)
     deriving newtype (Eq, FromJSON)
 
@@ -880,7 +884,7 @@ instance ToJSON ProofPactEvent where
     {-# INLINEABLE toJSON #-}
 
 instance Arbitrary ProofPactEvent where
-    arbitrary = ProofPactEvent <$> arbitraryProofPactEvent
+    arbitrary = ProofPactEvent . StableEncoding <$> arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -891,7 +895,9 @@ instance Arbitrary Int256 where
 
 -- | PactValues that are supported in Proofs
 --
-newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
+newtype EventPactValue = EventPactValue
+    { getEventPactValue :: PactValue
+    }
     deriving (Show, Eq, Ord)
 
 instance Arbitrary EventPactValue where
@@ -939,8 +945,8 @@ instance Eq SomePayloadProof where
 instance Arbitrary MinerId where
     arbitrary = MinerId <$> arbitrary
 
-instance Arbitrary MinerKeys where
-    arbitrary = MinerKeys <$> arbitrary
+instance Arbitrary MinerGuard where
+    arbitrary = MinerGuard <$> arbitrary
 
 instance Arbitrary Miner where
     arbitrary = Miner <$> arbitrary <*> arbitrary

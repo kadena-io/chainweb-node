@@ -16,12 +16,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Chainweb.Test.Pact5.CmdBuilder where
+module Chainweb.Test.Pact.CmdBuilder where
 
-import Pact.Types.ChainMeta qualified as Pact4
-import Pact.Types.Command qualified as Pact4
-import Pact.JSON.Legacy.Value qualified as J
-import Chainweb.Pact4.Transaction qualified as Pact4
+-- import Pact.JSON.Legacy.Value qualified as J
 import Control.Lens hiding ((.=))
 import Pact.Core.Command.Types
 import Data.Text (Text)
@@ -38,7 +35,7 @@ import Chainweb.Time
 import Chainweb.Version
 import qualified Chainweb.ChainId as Chainweb
 import Data.ByteString (ByteString)
-import qualified Chainweb.Pact5.Transaction as Pact5
+import qualified Chainweb.Pact.Transaction as Pact
 import qualified Data.Text.Encoding as T
 import Chainweb.Utils
 import Data.Maybe
@@ -50,13 +47,14 @@ import Pact.Core.PactValue
 import Pact.Core.Signer
 import qualified Data.Set as Set
 import Pact.Core.StableEncoding
-import Chainweb.Pact.RestAPI.Server (validatePact5Command)
+import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Pact.Core.Command.Client (ApiKeyPair (..), mkCommandWithDynKeys)
+import Pact.Core.ChainData qualified as Pact
 import System.Random
 import Control.Monad
 import Data.Vector qualified as Vector
 import Data.Map.Strict qualified as Map
-import Data.Aeson qualified as Aeson
+-- import Data.Aeson qualified as Aeson
 
 type TextKeyPair = (Text,Text)
 
@@ -188,28 +186,28 @@ defaultCmd cid = CmdBuilder
 
 -- | Build parsed + verified Pact command
 -- TODO: Use the new `assertPact4Command` function.
-buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
+buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact.Transaction
 buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
-  case validatePact5Command v c of
+  case validateCommand v c of
     Left err -> throwM $ userError $ "buildCwCmd failed: " ++ err
     Right cmd' -> return cmd'
 
--- | Build a Pact4 command without parsing it. This can be useful for inserting txs directly into the mempool for testing.
-buildCwCmdNoParse :: forall m. (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact4.UnparsedTransaction
-buildCwCmdNoParse v cmd = do
-  cmd5 <- buildTextCmd v cmd
-  cmd4 <- case Aeson.fromJSON @(Pact4.Command Text) $ J._getLegacyValue $ J.toLegacyJsonViaEncode cmd5 of
-    Aeson.Error e -> throwM $ userError $ "buildCwCmdNoParse failed: " ++ e
-    Aeson.Success c -> return c
+-- -- | Build a Pact4 command without parsing it. This can be useful for inserting txs directly into the mempool for testing.
+-- buildCwCmdNoParse :: forall m. (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact4.UnparsedTransaction
+-- buildCwCmdNoParse v cmd = do
+--   cmd5 <- buildTextCmd v cmd
+--   cmd4 <- case Aeson.fromJSON @(Pact4.Command Text) $ J._getLegacyValue $ J.toLegacyJsonViaEncode cmd5 of
+--     Aeson.Error e -> throwM $ userError $ "buildCwCmdNoParse failed: " ++ e
+--     Aeson.Success c -> return c
 
-  let decodePayload :: ByteString -> m (Pact4.Payload Pact4.PublicMeta Text)
-      decodePayload bs = case Aeson.eitherDecodeStrict' bs of
-        Left err -> throwM $ userError $ "buildCwCmdNoParse failed to decode json payload: " ++ err
-        Right payload -> return payload
+--   let decodePayload :: ByteString -> m (Pact4.Payload Pact4.PublicMeta Text)
+--       decodePayload bs = case Aeson.eitherDecodeStrict' bs of
+--         Left err -> throwM $ userError $ "buildCwCmdNoParse failed to decode json payload: " ++ err
+--         Right payload -> return payload
 
-  let payloadBytes = T.encodeUtf8 $ Pact4._cmdPayload cmd4
-  payload <- decodePayload payloadBytes
-  return $ Pact4.mkPayloadWithText $ fmap (\_ -> (payloadBytes, payload)) cmd4
+--   let payloadBytes = T.encodeUtf8 $ Pact4._cmdPayload cmd4
+--   payload <- decodePayload payloadBytes
+--   return $ Pact4.mkPayloadWithText $ fmap (\_ -> (payloadBytes, payload)) cmd4
 
 -- | Build unparsed, unverified command
 --
@@ -241,7 +239,7 @@ buildRawCmd v CmdBuilder{..} = do
     pure cmd
   where
     nid = NetworkId (sshow v)
-    cid = ChainId _cbChainId
+    cid = Pact.ChainId _cbChainId
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return

@@ -283,7 +283,7 @@ applyCmd
     :: forall logger. (Logger logger)
     => logger
       -- ^ Pact logger
-    -> Maybe logger
+    -> Maybe GasLogger
       -- ^ Pact gas logger
     -> PactDb CoreBuiltin Info
       -- ^ Pact db environment
@@ -321,9 +321,10 @@ applyCmd logger maybeGasLogger db miner txCtx txIdxInBlock spv initialGas cmd = 
 
         runVerifiers txCtx cmd
 
-        liftIO $ dumpGasLogs "applyCmd.paidFor.beforeRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
+        -- TODO: PP
+        -- liftIO $ dumpGasLogs "applyCmd.paidFor.beforeRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
         evalResult <- runPayload Transactional flags db spv [] managedNamespacePolicy gasEnv txCtx txIdxInBlock cmd
-        liftIO $ dumpGasLogs "applyCmd.paidFor.afterRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
+        -- liftIO $ dumpGasLogs "applyCmd.paidFor.afterRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
         return evalResult
 
   eBuyGasResult <- do

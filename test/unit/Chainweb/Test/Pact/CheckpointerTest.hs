@@ -11,54 +11,54 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
-module Chainweb.Test.Pact5.CheckpointerTest (tests) where
+module Chainweb.Test.Pact.CheckpointerTest (tests) where
 
-import Chainweb.BlockHeader
-import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Logger
-import Chainweb.MerkleLogHash
-import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
-import Chainweb.Pact.Types
-import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils hiding (withTempSQLiteResource)
-import Chainweb.Time
-import Chainweb.Utils
-import Chainweb.Utils.Serialization (runGetS, runPutS)
-import Chainweb.Version
 import Control.Exception (evaluate)
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
-import Data.Foldable
 import Data.Functor.Product
-import qualified Data.Map as Map
-import Data.MerkleLog (MerkleNodeType(..), merkleRoot, merkleTree)
+import Data.List.NonEmpty qualified as NE
+import Data.Map qualified as Map
+import Data.MerkleLog (MerkleNodeType (..), merkleRoot, merkleTree)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Hedgehog hiding (Update)
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
-import Numeric.AffineSpace
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Pact.Core.Builtin
 import Pact.Core.Evaluate (Info)
 import Pact.Core.Literal
 import Pact.Core.Names
-import qualified Pact.Core.PactDbRegression as Pact.Core
+import Pact.Core.PactDbRegression qualified as Pact.Core
 import Pact.Core.PactValue
 import Pact.Core.Persistence
-import qualified Streaming.Prelude as Stream
+import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, testCase)
 import Test.Tasty.Hedgehog
-import Chainweb.Test.Pact5.Utils
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
-import Chainweb.Pact5.Types (noInfo)
+
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.Graph (singletonChainGraph)
+import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.Types
-import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Checkpointer
+import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
+import Chainweb.Pact.Types
+import Chainweb.Parent
+import Chainweb.PayloadProvider (NewBlockCtx (_newBlockCtxMinerReward, _newBlockCtxParentCreationTime), genesisConsensusState)
+import Chainweb.Test.Pact.Utils
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils hiding (withTempSQLiteResource)
+import Chainweb.Utils
+import Chainweb.Utils.Serialization (runGetS, runPutS)
+import Chainweb.Version
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
@@ -120,8 +120,7 @@ hoistDbAction f (DbCreateTable tn es) = DbCreateTable tn (f es)
 
 tryShow :: IO a -> IO (Either Text a)
 tryShow = handleAny (fmap Left . \case
-    (fromException -> Just (PactInternalError _ text)) -> return text
-    e -> return $ sshow e
+    e -> return (sshow e)
     ) . fmap Right
 
 -- Run an empty DbAction, annotating it with its result
@@ -158,54 +157,92 @@ runDbAction' pactDB = \case
 
 -- craft a fake block header from txlogs, i.e. some set of writes.
 -- that way, the block header changes if the write set stops agreeing.
-blockHeaderFromTxLogs :: ParentHeader -> [TxLog ByteString] -> IO BlockHeader
-blockHeaderFromTxLogs ph txLogs = do
-    let
-        logMerkleTree = merkleTree @ChainwebMerkleHashAlgorithm @ByteString
-            [ TreeNode $ merkleRoot $ merkleTree
-                [ InputNode (T.encodeUtf8 (_txDomain txLog))
-                , InputNode (T.encodeUtf8 (_txKey txLog))
-                , InputNode (_txValue txLog)
+blockHeaderFromTxLogs :: Parent RankedBlockHash -> [TxLog ByteString] -> IO (BlockHash, BlockPayloadHash)
+blockHeaderFromTxLogs parent txLogs = do
+    fakePayloadHash <- runGetS decodeBlockPayloadHash $
+        let
+            payloadLogMerkleTree = merkleTree @ChainwebMerkleHashAlgorithm @ByteString
+                [ TreeNode $ merkleRoot $ merkleTree
+                    [ InputNode (T.encodeUtf8 (_txDomain txLog))
+                    , InputNode (T.encodeUtf8 (_txKey txLog))
+                    , InputNode (_txValue txLog)
+                    ]
+                | txLog <- txLogs
                 ]
-            | txLog <- txLogs
-            ]
-        encodedLogRoot = runPutS $ encodeMerkleLogHash $ MerkleLogHash $ merkleRoot logMerkleTree
-    fakePayloadHash <- runGetS decodeBlockPayloadHash encodedLogRoot
-    return $ newBlockHeader
-        mempty
-        fakePayloadHash
-        (Nonce 0)
-        (view blockCreationTime (_parentHeader ph) .+^ TimeSpan (1_000_000 :: Micros))
-        ph
+        in
+            runPutS $ encodeMerkleLogHash $ MerkleLogHash $ merkleRoot payloadLogMerkleTree
+    fakeBlockHash <- runGetS decodeBlockHash $
+        let
+            blockLogMerkleTree = merkleTree @ChainwebMerkleHashAlgorithm @ByteString
+                [ TreeNode $ merkleRoot $ merkleTree
+                    [ InputNode (runPutS $ encodeBlockHash $ unwrapParent $ _rankedBlockHashHash <$> parent)
+                    , InputNode (runPutS $ encodeBlockPayloadHash @ChainwebMerkleHashAlgorithm fakePayloadHash)
+                    ]
+                ]
+        in
+            runPutS $ encodeMerkleLogHash $ MerkleLogHash $ merkleRoot blockLogMerkleTree
+    return (fakeBlockHash, fakePayloadHash)
 
 -- TODO things to test later:
 -- that a tree of blocks can be explored, such that reaching any particular block gives identical results to running to that block from genesis
 -- more specific regressions, like in the Pact 4 checkpointer test
 
 runBlocks
-    :: Checkpointer GenericLogger
-    -> ParentHeader
+    :: SQLiteEnv
+    -> Parent RankedBlockHash
     -> [DbBlock (Const ())]
-    -> IO [(BlockHeader, DbBlock Identity)]
-runBlocks cp ph blks = do
-    ((), finishedBlks) <- Checkpointer.restoreAndSave cp (Just ph) $ traverse_ Stream.yield
-        [ Pact5RunnableBlock $ \db _ph startHandle -> do
-            doPact5DbTransaction db startHandle Nothing $ \txdb -> do
-                _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
-                blk' <- traverse (runDbAction txdb) blk
-                txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
-                bh <- blockHeaderFromTxLogs (fromJuste _ph) txLogs
-                return ([(bh, blk')], bh)
-        | blk <- blks
-        ]
-    return finishedBlks
+    -> IO [(BlockCtx, (BlockHash, BlockPayloadHash), DbBlock Identity)]
+runBlocks sql rootBlockCtx blks = do
+    loop rootBlockCtx blks
+    where
+    loop parent (block:blocks) = do
+        logger <- getTestLogger
+        fakeNewBlockCtx <- Checkpointer.mkFakeNewBlockCtx
+        (fakeBlockInfo, block', _finalBlockHandle) <-
+            (throwIfNoHistory =<<) $
+                Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx parent $
+                    executeBlockTransaction parent block
+        let childBlockCtx = BlockCtx
+                { _bctxParentCreationTime = _newBlockCtxParentCreationTime fakeNewBlockCtx
+                , _bctxParentHash = Parent $ fst fakeBlockInfo
+                , _bctxParentHeight = Parent $ childBlockHeight testVer cid parent
+                , _bctxChainId = cid
+                , _bctxChainwebVersion = testVer
+                , _bctxMinerReward = _newBlockCtxMinerReward fakeNewBlockCtx
+                }
+        let parentBlockCtx = BlockCtx
+                { _bctxParentCreationTime = _newBlockCtxParentCreationTime fakeNewBlockCtx
+                , _bctxParentHash = _rankedBlockHashHash <$> parent
+                , _bctxParentHeight = _rankedBlockHashHeight <$> parent
+                , _bctxChainId = cid
+                , _bctxChainwebVersion = testVer
+                , _bctxMinerReward = _newBlockCtxMinerReward fakeNewBlockCtx
+                }
+        _ <- Checkpointer.restoreAndSave logger testVer cid sql
+            (NE.singleton (parentBlockCtx, \blockEnv blockHandle -> do
+                (fakeBlockInfo', _blk, finalBlockHandle) <- executeBlockTransaction parent block blockEnv blockHandle
+                fakeBlockInfo' & P.equals fakeBlockInfo
+                return ((), finalBlockHandle, fakeBlockInfo)
+                ))
+        ((parentBlockCtx, fakeBlockInfo, block') :) <$> loop (_bctxParentRankedBlockHash childBlockCtx) blocks
+    loop _ [] = return []
+    executeBlockTransaction parent block blockEnv blockHandle = do
+        ((childRankedBlockHash, blk'), finalBlockHandle) <- doChainwebPactDbTransaction (_psBlockDbEnv blockEnv) blockHandle Nothing $ \txdb _spv -> do
+            _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
+            blk' <- traverse (runDbAction txdb) block
+            txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
+            blockInfo <- blockHeaderFromTxLogs parent txLogs
+            return (blockInfo, blk')
+        return (childRankedBlockHash, blk', finalBlockHandle)
 
 -- Check that a block's result at the time it was added to the checkpointer
 -- is consistent with us executing that block with `readFrom`
-assertBlock :: Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
-assertBlock cp ph (expectedBh, blk) = do
-    hist <- Checkpointer.readFrom cp (Just ph) Pact5T $ \db startHandle -> do
-        ((), _endHandle) <- doPact5DbTransaction db startHandle Nothing $ \txdb -> do
+assertBlock :: SQLiteEnv -> BlockCtx -> (BlockHash, BlockPayloadHash) -> DbBlock Identity -> IO ()
+assertBlock sql blockCtx expectedBlockInfo blk = do
+    fakeNewBlockCtx <- Checkpointer.mkFakeNewBlockCtx
+    logger <- getTestLogger
+    hist <- Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx (_bctxParentRankedBlockHash blockCtx) $ \blockEnv startHandle -> do
+        ((), _endHandle) <- doChainwebPactDbTransaction (_psBlockDbEnv blockEnv) startHandle Nothing $ \txdb _spv -> do
             _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
             blk' <- forM blk (runDbAction' txdb)
             txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
@@ -221,48 +258,66 @@ assertBlock cp ph (expectedBh, blk) = do
                 DbCreateTable _tn (Pair expected actual) ->
                     assertEqual "create table result" expected actual
 
-            actualBh <- blockHeaderFromTxLogs ph txLogs
-            assertEqual "block header" expectedBh actualBh
+            actualBlockInfo <-
+                blockHeaderFromTxLogs (_bctxParentRankedBlockHash blockCtx) txLogs
+            assertEqual "block header" expectedBlockInfo actualBlockInfo
         return ()
     throwIfNoHistory hist
 
 tests :: TestTree
 tests = testGroup "Pact5 Checkpointer tests"
-    [ withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
+    [ withResourceT withTempSQLiteResource $ \sqlIO ->
         testCase "valid PactDb before genesis" $ do
-            cp <- cpIO
+            sql <- sqlIO
+            ChainwebPactDb.initSchema sql
+            Checkpointer.setConsensusState sql $ genesisConsensusState testVer cid
+            logger <- getTestLogger
+            fakeNewBlockCtx <- Checkpointer.mkFakeNewBlockCtx
             ((), _handle) <- (throwIfNoHistory =<<) $
-                Checkpointer.readFrom cp Nothing Pact5T $ \db blockHandle -> do
-                    doPact5DbTransaction db blockHandle Nothing $ \txdb ->
+                Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx genesisParentRanked
+                    $ \db blockHandle -> do
+                    doChainwebPactDbTransaction (_psBlockDbEnv db) blockHandle Nothing $ \txdb _spv ->
                         Pact.Core.runPactDbRegression txdb
             return ()
-    , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
+    , withResourceT withTempSQLiteResource $ \sqlIO ->
         testProperty "readFrom with linear block history is valid" $ withTests 1000 $ property $ do
             blocks <- forAll genBlockHistory
-            evalIO $ do
-                cp <- cpIO
+            sql <- evalIO sqlIO
+            finishedBlocks <- evalIO $ do
+                ChainwebPactDb.initSchema sql
+                Checkpointer.setConsensusState sql $ genesisConsensusState testVer cid
+                logger <- getTestLogger
                 -- extend this empty chain with the genesis block
-                ((), ()) <- Checkpointer.restoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
-                    return (((), gh), hndl)
+                _ <- Checkpointer.restoreAndSave logger testVer cid sql $
+                    (
+                        NE.singleton (blockCtxOfEvaluationCtx testVer cid (genesisEvaluationCtx testVer cid),
+                        \_ hndl -> return ((), hndl, (view blockHash (genesisBlockHeader testVer cid), genesisBlockPayloadHash testVer cid)))
+                    )
+                handle @_ @SomeException
+                    (\ex -> putStrLn (displayException ex) >> throw ex)
+                    (runBlocks sql (Parent $ view rankedBlockHash gh) blocks)
                 -- run all of the generated blocks
-                finishedBlocks <- runBlocks cp (ParentHeader gh) blocks
-                let
-                    finishedBlocksWithParents =
-                        zip (fmap ParentHeader $ gh : (fst <$> finishedBlocks)) finishedBlocks
-                -- assert that using readFrom to read from a parent, then executing the same block,
-                -- gives the same results
-                forM_ finishedBlocksWithParents $ \(ph, block) -> do
-                    assertBlock cp ph block
+            annotateShow finishedBlocks
+            -- assert that using readFrom to read from a parent, then executing the same block,
+            -- gives the same results
+            evalIO $ forM_ finishedBlocks $ \(parent, blockInfo, block) -> do
+                assertBlock sql parent blockInfo block
     ]
 
+
 testVer :: ChainwebVersion
-testVer = pact5CheckpointerTestVersion singletonChainGraph
+testVer = checkpointerTestVersion singletonChainGraph
 
 cid :: ChainId
 cid = unsafeChainId 0
 
 gh :: BlockHeader
 gh = genesisBlockHeader testVer cid
+
+genesisParentRanked :: Parent RankedBlockHash
+genesisParentRanked = Parent $ RankedBlockHash
+        (genesisHeight testVer cid)
+        (unwrapParent $ genesisParentBlockHash testVer cid)
 
 instance (forall a. Show a => Show (f a)) => Show (DbAction f) where
     showsPrec n (DbRead tn k v) = showParen (n > 10) $

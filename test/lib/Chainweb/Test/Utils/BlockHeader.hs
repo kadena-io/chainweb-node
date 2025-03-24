@@ -40,6 +40,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainValue
+import Chainweb.Parent
 import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
@@ -120,12 +121,12 @@ testGetNewAdjacentParentHeaders
     => ChainwebVersion
     -> (ChainValue BlockHash -> m BlockHeader)
     -> BlockHashRecord
-    -> m (HM.HashMap ChainId (Either BlockHash (Parent BlockHeader)))
+    -> m (HM.HashMap ChainId (Either (Parent BlockHash) (Parent BlockHeader)))
 testGetNewAdjacentParentHeaders v hdb = itraverse select . _getBlockHashRecord
   where
     select cid h
-        | h == genesisParentBlockHash v cid = pure $ Left h
-        | otherwise = Right . Parent <$> hdb (ChainValue cid h)
+        | h == genesisParentBlockHash v cid = pure $ Left $ h
+        | otherwise = Right . Parent <$> hdb (ChainValue cid (unwrapParent h))
 
 testBlockHeader
     :: HM.HashMap ChainId (Parent BlockHeader)

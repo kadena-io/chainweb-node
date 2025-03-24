@@ -54,6 +54,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.Logger
+import Chainweb.Parent
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Version
@@ -174,7 +175,7 @@ pruneForks_ logg cdb mar mir callback = do
     -- parent hashes of all blocks at height max rank @mar@.
     --
     !pivots <- entries cdb Nothing Nothing (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
-        $ fmap (force . L.nub) . S.toList_ . S.map (view blockParent)
+        $ fmap (force . L.nub) . S.toList_ . S.map (unwrapParent . view blockParent)
             -- the set of pivots is expected to be very small. In fact it is
             -- almost always a singleton set.
 
@@ -210,7 +211,7 @@ pruneForks_ logg cdb mar mir callback = do
                 <> ". Previous height: " <> sshow prevHeight
         | view blockHash cur `elem` pivots = do
             callback False cur
-            let !pivots' = force $ L.nub $ view blockParent cur : L.delete (view blockHash cur) pivots
+            let !pivots' = force $ L.nub $ unwrapParent (view blockParent cur) : L.delete (view blockHash cur) pivots
             return (pivots', curHeight, n)
         | otherwise = do
             deleteHdr cur

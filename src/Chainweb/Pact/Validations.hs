@@ -57,20 +57,25 @@ import qualified Pact.Core.ChainData as Pact
 import qualified Pact.Core.Gas.Types as Pact
 import qualified Pact.Core.Hash as Pact
 import qualified Chainweb.Pact.Transaction as Pact
-import Chainweb.Utils (ebool_)
+import Chainweb.Utils (ebool_, int)
+import Chainweb.Version.Guards (maxBlockGasLimit)
+import Control.Monad (forM)
+import Numeric.Natural
 
 
 -- | Check whether a local Api request has valid metadata
 --
 assertPreflightMetadata
-    :: Pact.Command (Pact.Payload Pact.PublicMeta c)
+    :: ServiceEnv tbl
+    -> Pact.Command (Pact.Payload Pact.PublicMeta c)
     -> BlockCtx
     -> Maybe LocalSignatureVerification
-    -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertPreflightMetadata cmd@(Pact.Command pay sigs hsh) txCtx sigVerify = do
-    v <- view chainwebVersion
-    cid <- view chainId
-    bgl <- view psNewBlockGasLimit
+    -> Either (NonEmpty Text) ()
+assertPreflightMetadata env cmd@(Pact.Command pay sigs hsh) blockCtx sigVerify = do
+    let v = view chainwebVersion env
+    let cid = view chainId env
+    -- TODO PP: fix this in master too; master uses the wrong block gas limit.
+    let mbgl = maxBlockGasLimit v (_bctxCurrentBlockHeight blockCtx)
 
     let Pact.PublicMeta pcid _ gl gp _ _ = Pact._pMeta pay
         nid = Pact._pNetworkId pay
@@ -79,8 +84,9 @@ assertPreflightMetadata cmd@(Pact.Command pay sigs hsh) txCtx sigVerify = do
     let errs = catMaybes
           [ eUnless "Chain id mismatch" $ assertChainId cid pcid
           -- TODO: use failing conversion
-          , eUnless "Transaction Gas limit exceeds block gas limit"
-            $ assertBlockGasLimit bgl gl
+          , mbgl >>= \bgl ->
+            eUnless "Transaction Gas limit exceeds block gas limit"
+              $ assertBlockGasLimit (Pact.GasLimit $ Pact.Gas $ int @Natural @Pact.SatWord bgl) gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
           , eUnless "Network id mismatch" $ assertNetworkId v nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
@@ -88,7 +94,7 @@ assertPreflightMetadata cmd@(Pact.Command pay sigs hsh) txCtx sigVerify = do
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
           ]
 
-    pure $ case nonEmpty errs of
+    case nonEmpty errs of
       Nothing -> Right ()
       Just vs -> Left vs
   where
@@ -96,7 +102,7 @@ assertPreflightMetadata cmd@(Pact.Command pay sigs hsh) txCtx sigVerify = do
       | Just NoVerify <- sigVerify = True
       | otherwise = isRight $ assertValidateSigs hsh signers sigs
 
-    pct = _bctxParentCreationTime txCtx
+    pct = _bctxParentCreationTime blockCtx
 
     eUnless t assertion
       | assertion = Nothing

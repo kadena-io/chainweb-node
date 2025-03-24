@@ -34,9 +34,9 @@ import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
-import Chainweb.Pact.Utils (toTxCreationTime)
-import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact4.Validations (defaultMaxTTL)
+import Chainweb.Pact.Utils (toTxCreationTime, emptyPayload)
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
@@ -52,8 +52,10 @@ import Control.Lens
 import Data.Aeson qualified as Aeson
 import Data.Foldable
 import Data.Functor
+import Data.Pool qualified as Pool
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
@@ -61,12 +63,16 @@ import Data.Traversable
 import Data.Vector qualified as V
 import Ea.Genesis
 import GHC.Exts(the)
-import Pact.ApiReq
-import Pact.Types.ChainMeta
-import Pact.Types.Command hiding (Payload)
 import System.LogLevel
 import System.IO.Temp
 import Text.Printf
+import Pact.Core.Command.Types
+import Pact.Core.Command.Client
+import Pact.Core.ChainData
+import qualified Pact.Core.Command.Types as Pact
+import qualified Chainweb.ChainId as Chainweb
+import qualified Pact.JSON.Encode as J
+import Pact.Core.StableEncoding
 
 ---
 
@@ -78,9 +84,9 @@ main = do
     mapConcurrently_ id
       [ recapDevnet
       , devnet
-      , fastnet
+      -- , fastnet
       , instantnet
-      , pact5Instantnet
+      -- , pact5Instantnet
       , quirkedPact5Instantnet
       , testnet04
       , testnet05
@@ -102,9 +108,9 @@ main = do
       [ fastDevelopment0
       , fastDevelopmentN
       ]
-    fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    -- fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
-    pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
+    -- pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
     quirkedPact5Instantnet = mkPayloads [quirkedPact5InstantCPM0, quirkedPact5InstantCPMN]
     testnet04 = mkPayloads [testnet040, testnet04N]
     testnet05 = mkPayloads [testnet050, testnet05N]
@@ -178,34 +184,33 @@ genCoinV6Payloads = genTxModule "CoinV6"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.UnparsedTransaction] -> IO Text
-genPayloadModule v tag cid cwTxs =
-    withTempRocksDb "chainweb-ea" $ \rocks ->
-    withBlockHeaderDb rocks v cid $ \bhdb -> do
-        let logger = genericLogger Warn TIO.putStrLn
-        pdb <- newPayloadDb
-        withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
-            T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                withPactService v cid logger Nothing bhdb pdb env testPactServiceConfig $
-                    execNewGenesisBlock noMiner (V.fromList cwTxs)
-            return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
+genPayloadModule :: ChainwebVersion -> Text -> Chainweb.ChainId -> [Pact.Transaction] -> IO Text
+genPayloadModule v tag cid cwTxs = do
+    let logger = genericLogger Warn TIO.putStrLn
+    pdb <- newPayloadDb
+    withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
+        payloadWO <- withSqliteDb cid logger pactDbDir False $ \readWriteSql -> do
+            roPool <- Pool.newPool $ Pool.defaultPoolConfig (startReadSqliteDb cid logger pactDbDir) stopSqliteDb 10 10
+            withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql (testPactServiceConfig emptyPayload) $ \serviceEnv ->
+                execNewGenesisBlock logger serviceEnv (V.fromList cwTxs)
+        return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [Pact4.UnparsedTransaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact.Transaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [Pact4.UnparsedTransaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact.Transaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
-        let parsedCmd =
-              traverse Aeson.eitherDecodeStrictText cmd
-        case parsedCmd of
-          Left err -> error err
-          Right unparsedTx -> do
-            let t = toTxCreationTime (Time (TimeSpan 0))
-            return $! Pact4.mkPayloadWithTextOldUnparsed <$> (unparsedTx & setTxTime t & setTTL defaultMaxTTL)
-  where
-    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
-    setTTL = set (cmdPayload . pMeta . pmTTL)
+        let parsedTx = either (error . sshow) (cmdPayload . pMeta %~ _stableEncoding) $ Pact.unsafeParseCommand (T.encodeUtf8 <$> cmd)
+        -- TODO: why is this always the tx creation time? different versions
+        -- have different block creation times
+        let epochCreationTime = toTxCreationTime (Time (TimeSpan 0))
+        let tx' = parsedTx
+              & set (cmdPayload . pMeta . pmCreationTime) epochCreationTime
+              & set (cmdPayload . pMeta . pmTTL) (TTLSeconds defaultMaxTTLSeconds)
+        return $! Pact.unsafeMkPayloadWithText
+          (tx' ^. cmdPayload)
+          (J.encodeStrict $ (tx' ^. cmdPayload) & pMeta %~ StableEncoding & fmap _pcCode) <$ parsedTx
 
 mkTx :: FilePath -> IO (Command Text)
 mkTx yamlFile = snd <$> mkApiReq yamlFile
@@ -308,7 +313,7 @@ genTxModule tag txFiles = do
 
     let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode Pact4.rawCommandCodec
+        encTx = encodeB64UrlNoPaddingText . codecEncode Pact.commandCodec
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
         fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -325,13 +330,13 @@ startTxModule tag =
     , "import Data.Bifunctor (first)"
     , "import System.IO.Unsafe"
     , ""
-    , "import qualified Chainweb.Pact4.Transaction as Pact4"
+    , "import qualified Chainweb.Pact.Transaction as Pact"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: [Pact4.Transaction]"
+    , "transactions :: [Pact.Transaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact4.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
     , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 

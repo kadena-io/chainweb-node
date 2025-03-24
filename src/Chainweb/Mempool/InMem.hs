@@ -69,19 +69,17 @@ import System.Random
 
 -- internal imports
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Validations (defaultMaxTTLSeconds, defaultMaxCoinDecimalPlaces)
-import Chainweb.Parent
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
 
 import Pact.Core.Gas
+import Chainweb.PayloadProvider (EvaluationCtx)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -567,11 +565,10 @@ getBlockInMem
     -> MVar (InMemoryMempoolData t)
     -> BlockFill
     -> MempoolPreBlockCheck t to
-    -> BlockHeight
-    -> Parent BlockHash
+    -> EvaluationCtx ()
     -> IO (Vector to)
-getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight phash = do
-    logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
+getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate evalCtx = do
+    -- logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,evalCtx)
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
 
@@ -650,7 +647,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
                   BadMap)
     validateBatch !psq0 !badmap q = do
         let txs = V.map (snd . snd) q
-        oks1 <- txValidate bheight phash txs
+        oks1 <- txValidate evalCtx txs
         let oks2 = V.map sizeOK txs
         let !oks = V.zipWith (\ok1 ok2 -> ok1 <* ok2) oks1 oks2
         let (bad1, good) =

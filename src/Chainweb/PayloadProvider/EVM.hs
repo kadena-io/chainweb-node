@@ -57,6 +57,7 @@ import Chainweb.ChainId
 import Chainweb.Core.Brief
 import Chainweb.Logger
 import Chainweb.MinerReward
+import Chainweb.Parent
 import Chainweb.PayloadProvider hiding (TransactionIndex)
 import Chainweb.PayloadProvider.EVM.EngineAPI
 import Chainweb.PayloadProvider.EVM.EthRpcAPI
@@ -480,7 +481,7 @@ withEvmPayloadProvider
     -> v
     -> c
     -> RocksDb
-    -> HTTP.Manager
+    -> Maybe HTTP.Manager
         -- ^ P2P Network manager. This is supposed to be shared among all P2P
         -- network clients.
         --
@@ -804,7 +805,7 @@ mkPayloadAttributes ph parentTimestamp addr nctx = PayloadAttributesV3
     -- I guess, for now this fine -- better than something that looks random.
     randao = Utils.Randao (Ethereum.encodeLeN 0)
 
-    et = EVM.timestamp parentTimestamp (_newBlockCtxParentCreationTime nctx)
+    et = EVM.timestamp parentTimestamp (unwrapParent $ _newBlockCtxParentCreationTime nctx)
 
 -- -------------------------------------------------------------------------- --
 -- Await New Payload
@@ -949,8 +950,8 @@ awaitNewPayload p = do
                     { _newPayloadTxCount = int $ length (_executionPayloadV1Transactions v1)
                     , _newPayloadSize = int $ sum $ (BS.length . _transactionBytes)
                             <$> (_executionPayloadV1Transactions v1)
-                    , _newPayloadParentHeight = _syncStateHeight sstate
-                    , _newPayloadParentHash = _syncStateBlockHash sstate
+                    , _newPayloadParentHeight = Parent $ _syncStateHeight sstate
+                    , _newPayloadParentHash = Parent $ _syncStateBlockHash sstate
                     , _newPayloadBlockPayloadHash = EVM._hdrPayloadHash pld
                     , _newPayloadOutputSize = 0
                     , _newPayloadNumber = n

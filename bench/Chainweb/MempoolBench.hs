@@ -19,8 +19,8 @@ import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Mempool.InMem qualified as InMem
 import Chainweb.Mempool.InMemTypes qualified as InMem
-import Chainweb.Pact4.Transaction
-import Chainweb.Test.Pact4.Utils
+import Chainweb.Pact.Transaction
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Utils
 import Chainweb.Utils.Bench

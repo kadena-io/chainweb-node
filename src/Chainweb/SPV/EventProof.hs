@@ -148,6 +148,7 @@ import Pact.Core.Capabilities
 import Pact.Core.Hash
 import Pact.Core.ModRefs
 import Pact.Core.Errors
+import Pact.Core.Pretty (renderCompactText)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Encoding Exceptions
@@ -271,13 +272,13 @@ int256Hex x@(Int256 i)
 
 encodePactEvent :: PactEvent PactValue -> Put
 encodePactEvent e = do
-    encodeString $ _eventName e
-    encodeModuleName $ _eventModule e
-    encodeHash $ _mhHash $ _eventModuleHash e
-    encodeArray (_eventParams e) encodeParam
+    encodeString $ _peName e
+    encodeModuleName $ _peModule e
+    encodeHash $ _mhHash $ _peModuleHash e
+    encodeArray (_peArgs e) encodeParam
 
 encodeModuleName :: ModuleName -> Put
-encodeModuleName = encodeString . asString
+encodeModuleName = encodeString . renderModuleName
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- input bytestring is too long.
@@ -308,7 +309,7 @@ encodeHash :: Hash -> Put
 encodeHash = encodeBytes . BS.fromShort . unHash
 
 encodeModRef :: ModRef -> Put
-encodeModRef n@(ModRef (Just _) _) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
+encodeModRef n@(ModRef _ s) | not (null s) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
 encodeModRef n = encodeString $ renderCompactText n
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
@@ -347,9 +348,9 @@ decodePactEvent = label "decodeEvent" $ do
     params <- decodeArray decodeParam
     return $ PactEvent
         name
+        params
         m
         mh
-        params
 
 decodeArray :: Get a -> Get [a]
 decodeArray f = label "decodeArray" $ do
@@ -390,8 +391,8 @@ decodeParam = label "decodeParam" $ getWord8 >>= \case
 decodeModuleName :: Get ModuleName
 decodeModuleName = label "decodeModuleName" $
     decodeString >>= \t -> case parseModuleName t of
-        Left e -> fail e
-        Right m -> return m
+        Nothing -> fail "invalid module name"
+        Just m -> return m
 
 decodeModRef :: Get ModRef
 decodeModRef = label "ModRef" $ ModRef

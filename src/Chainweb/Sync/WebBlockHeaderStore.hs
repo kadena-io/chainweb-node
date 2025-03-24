@@ -35,7 +35,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 
 -- *
 , WebBlockPayloadStore(..)
-, newEmptyWebPayloadStore
+-- , newEmptyWebPayloadStore
 , newWebPayloadStore
 
 -- * Utils
@@ -358,7 +358,7 @@ forkInfoForHeader wdb hdr pldData
 
     nbctx = NewBlockCtx
         { _newBlockCtxMinerReward = blockMinerReward v (height + 1)
-        , _newBlockCtxParentCreationTime = view blockCreationTime hdr
+        , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
         }
     height = view blockHeight hdr
     v = _chainwebVersion hdr
@@ -665,17 +665,6 @@ newWebBlockHeaderStore mgr wdb logfun = do
     m <- new
     queue <- newEmptyPQueue
     return $! WebBlockHeaderStore wdb m queue logfun mgr
-
-newEmptyWebPayloadStore
-    :: CanPayloadCas tbl
-    => ChainwebVersion
-    -> HTTP.Manager
-    -> LogFunction
-    -> PayloadDb tbl
-    -> IO (WebBlockPayloadStore tbl)
-newEmptyWebPayloadStore v mgr logfun payloadDb = do
-    initializePayloadDb v payloadDb
-    newWebPayloadStore mgr payloadDb logfun
 
 newWebPayloadStore
     :: HTTP.Manager

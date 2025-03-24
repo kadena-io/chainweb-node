@@ -202,9 +202,9 @@ ethSpvApi = Proxy
 
 type PactServiceApi v c
     = PactApi v c
-    :<|> PactSpvApi v c
-    :<|> EthSpvApi v c
-    :<|> PactSpv2Api v c
+    -- :<|> PactSpvApi v c
+    -- :<|> EthSpvApi v c
+    -- :<|> PactSpv2Api v c
 
 pactServiceApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

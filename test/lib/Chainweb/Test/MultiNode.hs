@@ -38,9 +38,11 @@
 module Chainweb.Test.MultiNode
   ( test
   , replayTest
-  , compactAndResumeTest
+-- TODO: PP
+--   , compactAndResumeTest
   , pactImportTest
-  , compactLiveNodeTest
+-- TODO: PP
+--   , compactLiveNodeTest
   ) where
 
 import Control.Concurrent
@@ -49,7 +51,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens (set, view, (^?!), ix)
 import Control.Monad
-import Chronos qualified
+-- import Chronos qualified
 
 import Patience.Map qualified as P
 import Data.ByteString.Base16 qualified as Base16
@@ -74,7 +76,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 import Prelude hiding (log)
 
-import System.Directory (createDirectoryIfMissing)
+-- import System.Directory (createDirectoryIfMissing)
 import System.FilePath
 import System.IO.Temp
 import System.LogLevel
@@ -91,21 +93,20 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Pact.Backend.Compaction qualified as Sigma
-import Chainweb.Pact.Backend.Utils (withSqliteDb)
+-- import Chainweb.Pact.Backend.Compaction qualified as Sigma
+-- import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
-import Chainweb.Miner.Pact
+-- import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.PactState (allChains, getLatestBlockHeight, getLatestPactStateAtDiffable, TableDiffable(..), addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Calc
 import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-import Chainweb.Test.Pact4.Utils (sigmaCompact)
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
@@ -185,7 +186,6 @@ multiConfig v n = defaultChainwebConfiguration v
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner
         , _nodeTestMiners = MinerCount n
         }
 
@@ -229,8 +229,8 @@ harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
         modifyMVar_ stateVar $
             sampleConsensusState
                 nid
-                (view (chainwebCutResources . cutsCutDb . cutDbWebBlockHeaderDb) cw)
-                (view (chainwebCutResources . cutsCutDb) cw)
+                (view (chainwebCutResources . cutResCutDb . cutDbWebBlockHeaderDb) cw)
+                (view (chainwebCutResources . cutResCutDb) cw)
         logFunctionText logger Info "shutdown node"
 
 multiNode
@@ -246,7 +246,7 @@ multiNode
     -> IO ()
 multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
-            withChainweb conf logger namespacedNodeRocksDb (pactDbDir </> show nid) backupTmpDir False $ \cw -> do
+            withChainweb conf logger namespacedNodeRocksDb (pactDbDir </> show nid) backupTmpDir $ \cw -> do
                 case cw of
                     StartedChainweb cw' ->
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
@@ -314,70 +314,71 @@ runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inn
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
 
--- | Ensure that we can compact a live node(s).
---
---   This test works like so:
---   1. Run a number of chainweb nodes in a network for 10 seconds.
---   2. Ensure that the nodes made sufficient progress.
---   3. Run two threads:
---        - The first runs all of the nodes for 60 seconds.
---        - The second compacts all of the nodes, after sleeping for 5 seconds.
---   4. At the end we compare how long each thread took. The node thread should
---      outlive the compaction thread.
-compactLiveNodeTest :: ()
-  => LogLevel
-  -> ChainwebVersion
-  -> Natural
-  -> RocksDb
-  -> FilePath
-  -> FilePath
-  -> (String -> IO ())
-  -> IO ()
-compactLiveNodeTest logLevel v n rocksDb srcPactDir targetPactDir step = do
-  let logFun = step . T.unpack
-  let logger = genericLogger logLevel logFun
+-- TODO: PP
+-- -- | Ensure that we can compact a live node(s).
+-- --
+-- --   This test works like so:
+-- --   1. Run a number of chainweb nodes in a network for 10 seconds.
+-- --   2. Ensure that the nodes made sufficient progress.
+-- --   3. Run two threads:
+-- --        - The first runs all of the nodes for 60 seconds.
+-- --        - The second compacts all of the nodes, after sleeping for 5 seconds.
+-- --   4. At the end we compare how long each thread took. The node thread should
+-- --      outlive the compaction thread.
+-- compactLiveNodeTest :: ()
+--   => LogLevel
+--   -> ChainwebVersion
+--   -> Natural
+--   -> RocksDb
+--   -> FilePath
+--   -> FilePath
+--   -> (String -> IO ())
+--   -> IO ()
+-- compactLiveNodeTest logLevel v n rocksDb srcPactDir targetPactDir step = do
+--   let logFun = step . T.unpack
+--   let logger = genericLogger logLevel logFun
 
-  logFun "Phase 1... creating blocks"
+--   logFun "Phase 1... creating blocks"
 
-  -- N.B: This consensus state stuff counts the number of blocks
-  -- in RocksDB, rather than the number of blocks in all chains
-  -- on the current cut. This is fine because we ultimately just want
-  -- to make sure that we are making progress (i.e, new blocks).
-  stateVar <- newMVar (emptyConsensusState v)
-  let ct :: Int -> StartedChainweb logger -> IO ()
-      ct = harvestConsensusState logger stateVar
-  do
-    runNodesForSeconds logLevel logFun (multiConfig v n) n 10 rocksDb srcPactDir ct
-    Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
-    assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
-    logFun $ sshow stats1
+--   -- N.B: This consensus state stuff counts the number of blocks
+--   -- in RocksDB, rather than the number of blocks in all chains
+--   -- on the current cut. This is fine because we ultimately just want
+--   -- to make sure that we are making progress (i.e, new blocks).
+--   stateVar <- newMVar (emptyConsensusState v)
+--   let ct :: Int -> StartedChainweb logger -> IO ()
+--       ct = harvestConsensusState logger stateVar
+--   do
+--     runNodesForSeconds logLevel logFun (multiConfig v n) n 10 rocksDb srcPactDir ct
+--     Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+--     assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
+--     logFun $ sshow stats1
 
-  let compactAll = Chronos.stopwatch_ $ do
-        threadDelay 5_000_000
-        Sigma.withDefaultLogger logLevel $ \lgr -> do
-          forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
-            -- We haven't gotten to run the node against the target yet,
-            -- and nothing has created its db directories, so we do that here.
-            createDirectoryIfMissing False (targetPactDir </> show nid)
-            forM_ (allChains v) $ \cid -> do
-              let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) lgr
-              withSqliteDb cid logger' (srcPactDir </> show nid) False $ \srcDb -> do
-                withSqliteDb cid logger' (targetPactDir </> show nid) False $ \targetDb -> do
-                  sigmaCompact srcDb targetDb (BlockHeight 25)
+--   let compactAll = Chronos.stopwatch_ $ do
+--         threadDelay 5_000_000
+--         Sigma.withDefaultLogger logLevel $ \lgr -> do
+--           forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+--             -- We haven't gotten to run the node against the target yet,
+--             -- and nothing has created its db directories, so we do that here.
+--             createDirectoryIfMissing False (targetPactDir </> show nid)
+--             forM_ (allChains v) $ \cid -> do
+--               let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) lgr
+--               withSqliteDb cid logger' (srcPactDir </> show nid) False $ \srcDb -> do
+--                 withSqliteDb cid logger' (targetPactDir </> show nid) False $ \targetDb -> do
+--                   sigmaCompact srcDb targetDb (BlockHeight 25)
 
-  let run = Chronos.stopwatch_ $ do
-        -- It may seem a bit strange that we never run the node against the
-        -- compacted state (see that we are using 'srcPactDir' here). This is
-        -- because we are only trying to see that compacting a node as it is,
-        -- does not disrupt it.
-        runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb srcPactDir ct
-        Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
-        assertGe "average block count before proceeding" (Actual $ _statBlockCount stats2) (Expected 100)
-        logFun $ sshow stats2
+--   let run = Chronos.stopwatch_ $ do
+--         -- It may seem a bit strange that we never run the node against the
+--         -- compacted state (see that we are using 'srcPactDir' here). This is
+--         -- because we are only trying to see that compacting a node as it is,
+--         -- does not disrupt it.
+--         runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb srcPactDir ct
+--         Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+--         assertGe "average block count before proceeding" (Actual $ _statBlockCount stats2) (Expected 100)
+--         logFun $ sshow stats2
 
-  (compactTime, nodeTime) <- concurrently compactAll run
+--   (compactTime, nodeTime) <- concurrently compactAll run
 
-  assertGe "node runs beyond compaction" (Actual nodeTime) (Expected compactTime)
+--   assertGe "node runs beyond compaction" (Actual nodeTime) (Expected compactTime)
 
 -- | This test is essentially just calling pact-calc followed by pact-import,
 --   and making sure that works end to end.
@@ -505,62 +506,63 @@ pactImportTest logLevel v n rocksDb pactDir step = do
                         log Error $ "In table " <> tbl <> ", there was a difference in rowdata at rowkey " <> T.decodeUtf8 x <> "."
               assertFailure "Diff failed"
 
--- | Run nodes
---   Each node creates blocks
---   We wait until they've made a sufficient amount of blocks
---   We stop the nodes
---   We compact the databases of each node
---   We restart all nodes with the same database dirs
---   We observe that they can make progress
-compactAndResumeTest :: ()
-  => LogLevel
-  -> ChainwebVersion
-  -> Natural
-  -> RocksDb
-  -> RocksDb
-  -> FilePath
-  -> FilePath
-  -> (String -> IO ())
-  -> IO ()
-compactAndResumeTest logLevel v n srcRocksDb targetRocksDb srcPactDir targetPactDir step = do
-    let logFun = step . T.unpack
-    let logger = genericLogger logLevel logFun
+-- TODO: PP
+-- -- | Run nodes
+-- --   Each node creates blocks
+-- --   We wait until they've made a sufficient amount of blocks
+-- --   We stop the nodes
+-- --   We compact the databases of each node
+-- --   We restart all nodes with the same database dirs
+-- --   We observe that they can make progress
+-- compactAndResumeTest :: ()
+--   => LogLevel
+--   -> ChainwebVersion
+--   -> Natural
+--   -> RocksDb
+--   -> RocksDb
+--   -> FilePath
+--   -> FilePath
+--   -> (String -> IO ())
+--   -> IO ()
+-- compactAndResumeTest logLevel v n srcRocksDb targetRocksDb srcPactDir targetPactDir step = do
+--     let logFun = step . T.unpack
+--     let logger = genericLogger logLevel logFun
 
-    logFun "phase 1... creating blocks"
-    -- N.B: This consensus state stuff counts the number of blocks
-    -- in RocksDB, rather than the number of blocks in all chains
-    -- on the current cut. This is fine because we ultimately just want
-    -- to make sure that we are making progress (i.e, new blocks).
-    stateVar <- newMVar (emptyConsensusState v)
-    let ct :: Int -> StartedChainweb logger -> IO ()
-        ct = harvestConsensusState logger stateVar
-    runNodesForSeconds logLevel logFun (multiConfig v n) n 10 srcRocksDb srcPactDir ct
-    Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
-    assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
-    logFun $ sshow stats1
+--     logFun "phase 1... creating blocks"
+--     -- N.B: This consensus state stuff counts the number of blocks
+--     -- in RocksDB, rather than the number of blocks in all chains
+--     -- on the current cut. This is fine because we ultimately just want
+--     -- to make sure that we are making progress (i.e, new blocks).
+--     stateVar <- newMVar (emptyConsensusState v)
+--     let ct :: Int -> StartedChainweb logger -> IO ()
+--         ct = harvestConsensusState logger stateVar
+--     runNodesForSeconds logLevel logFun (multiConfig v n) n 10 srcRocksDb srcPactDir ct
+--     Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+--     assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
+--     logFun $ sshow stats1
 
-    logFun "phase 2... compacting"
+--     logFun "phase 2... compacting"
 
-    logFun "phase 2.1...compacting pact state"
-    forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
-      forM_ (allChains v) $ \cid -> do
-        let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) logger
-        withSqliteDb cid logger' (srcPactDir </> show nid) False $ \srcDb -> do
-          withSqliteDb cid logger' (targetPactDir </> show nid) False $ \targetDb -> do
-            sigmaCompact srcDb targetDb (BlockHeight 25)
+--     logFun "phase 2.1...compacting pact state"
+--     forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+--       forM_ (allChains v) $ \cid -> do
+--         let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) logger
+--         withSqliteDb cid logger' (srcPactDir </> show nid) False $ \srcDb -> do
+--           withSqliteDb cid logger' (targetPactDir </> show nid) False $ \targetDb -> do
+--             sigmaCompact srcDb targetDb (BlockHeight 25)
 
-    logFun "phase 2.2...compacting RocksDB"
-    forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
-      let srcRdb = srcRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
-      let tgtRdb = targetRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
-      Sigma.compactRocksDb (addLabel ("nodeId", sshow nid) logger) v (allChains v) 20 srcRdb tgtRdb
+--     logFun "phase 2.2...compacting RocksDB"
+--     forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+--       let srcRdb = srcRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
+--       let tgtRdb = targetRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
+--       Sigma.compactRocksDb (addLabel ("nodeId", sshow nid) logger) v (allChains v) 20 srcRdb tgtRdb
 
-    logFun "phase 3... restarting nodes and ensuring progress"
-    runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 10 targetRocksDb targetPactDir ct
-    Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
-    -- We ensure that we've gotten to at least 1.5x the previous block count
-    assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
-    logFun $ sshow stats2
+--     logFun "phase 3... restarting nodes and ensuring progress"
+--     runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 10 targetRocksDb targetPactDir ct
+--     Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+--     -- We ensure that we've gotten to at least 1.5x the previous block count
+--     assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
+--     logFun $ sshow stats2
 
 replayTest
     :: LogLevel
@@ -707,7 +709,7 @@ sampleConsensusState
     :: Int
         -- ^ node Id
     -> WebBlockHeaderDb
-    -> CutDb tbl
+    -> CutDb
     -> ConsensusState
     -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do

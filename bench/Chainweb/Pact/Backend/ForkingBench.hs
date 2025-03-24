@@ -37,7 +37,7 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
-import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
@@ -213,10 +213,9 @@ withResources :: ()
   => RocksDb
   -> Word64
   -> LogLevel
-  -> IntraBlockPersistence
   -> RunPactService
   -> C.Benchmark
-withResources rdb trunkLength logLevel p f = C.envWithCleanup create destroy unwrap
+withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwrap
   where
 
     unwrap ~(NoopNFData (Resources {..})) =

@@ -139,6 +139,7 @@ module Chainweb.Payload
 
 , CheckablePayload(..)
 , checkablePayloadToPayloadData
+, checkablePayloadExpectedHash
 ) where
 
 import Control.DeepSeq
@@ -1425,11 +1426,16 @@ verifyPayloadWithOutputs p
 -- to run the payload to check if it's a valid block - but they are great
 -- for comparative error messages if the block is invalid.
 data CheckablePayload
-  = CheckablePayloadWithOutputs !PayloadWithOutputs
-  | CheckablePayload !PayloadData
-  deriving (Show)
+    = CheckablePayloadWithOutputs !PayloadWithOutputs
+    | CheckablePayload !BlockPayloadHash !PayloadData
+    deriving (Show, Generic, ToJSON)
 
 checkablePayloadToPayloadData :: CheckablePayload -> PayloadData
 checkablePayloadToPayloadData = \case
-  CheckablePayload pd -> pd
-  CheckablePayloadWithOutputs pwo -> payloadWithOutputsToPayloadData pwo
+    CheckablePayload _ pd -> pd
+    CheckablePayloadWithOutputs pwo -> payloadWithOutputsToPayloadData pwo
+
+checkablePayloadExpectedHash :: CheckablePayload -> BlockPayloadHash
+checkablePayloadExpectedHash = \case
+    CheckablePayload h _ -> h
+    CheckablePayloadWithOutputs pwo -> _payloadWithOutputsPayloadHash pwo

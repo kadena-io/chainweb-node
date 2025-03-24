@@ -6,60 +6,86 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Chainweb.PayloadProvider.Pact
     ( PactPayloadProvider(..)
+    , withPactPayloadProvider
     ) where
 
-import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeight
-import Chainweb.BlockPayloadHash
-import Chainweb.ChainId
-import Chainweb.Counter
-import Chainweb.Counter (Counter)
-import Chainweb.Logger
-import Chainweb.Mempool.Mempool
-import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
-import qualified Chainweb.Pact.PactService as PS
-import qualified Chainweb.Pact.Transaction as Pact
-import Chainweb.Pact.Types
-import Chainweb.Payload.PayloadStore
-import qualified Chainweb.Payload.PayloadStore as PDB
-import Chainweb.PayloadProvider
-import Chainweb.PayloadProvider.P2P
-import Chainweb.Storage.Table.Map
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Time
-import Chainweb.Utils
-import Chainweb.Version
-import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Data.IORef
 import Data.LogMessage
-import Data.Text (Text)
 import Data.Vector (Vector)
-import GHC.Stack (HasCallStack)
 import System.LogLevel
-import Chainweb.Payload (PayloadData)
-import Data.Coerce
 import Control.Lens
 import qualified Network.HTTP.Client as HTTP
+import qualified Data.Vector as V
+import Control.Monad.Reader
 
-newtype PactPayloadProvider logger tbl = PactPayloadProvider (PactServiceEnv logger tbl)
+import Chainweb.ChainId
+import Chainweb.Counter
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool
+import qualified Chainweb.MinerReward as MinerReward
+import Chainweb.Pact.Backend.Utils
+import qualified Chainweb.Pact.PactService as PactService
+import qualified Chainweb.Pact.Transaction as Pact
+import Chainweb.Pact.Types
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.PayloadProvider
+import Chainweb.Utils
+import Chainweb.Version
+import qualified Data.Pool as Pool
+
+data PactPayloadProvider logger tbl = PactPayloadProvider logger (ServiceEnv tbl)
+
 makePrisms ''PactPayloadProvider
+
+instance HasChainId (PactPayloadProvider logger tbl) where
+    chainId = _PactPayloadProvider . _2 . chainId
+
+instance HasChainwebVersion (PactPayloadProvider logger tbl) where
+    chainwebVersion = _PactPayloadProvider . _2 . chainwebVersion
 
 instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvider logger tbl) where
     prefetchPayloads :: Logger logger => PactPayloadProvider logger tbl -> Maybe Hints -> ForkInfo -> IO ()
-    prefetchPayloads pp hints forkInfo = undefined
+    prefetchPayloads _pp _hints _forkInfo = return ()
+
     syncToBlock :: Logger logger => PactPayloadProvider logger tbl -> Maybe Hints -> ForkInfo -> IO ConsensusState
-    syncToBlock pp hints forkInfo = undefined
+    syncToBlock (PactPayloadProvider logger e) hints forkInfo =
+        PactService.syncToFork logger e hints forkInfo
+
     latestPayloadSTM :: Logger logger => PactPayloadProvider logger tbl -> STM NewPayload
-    latestPayloadSTM = readTMVar . _psMiningPayloadVar . view _PactPayloadProvider
+    latestPayloadSTM (PactPayloadProvider _logger e) = do
+        (_, _, bip) <- readTMVar (_psMiningPayloadVar e)
+        let pwo = toPayloadWithOutputs
+                (fromJuste $ _psMiner e)
+                (_blockInProgressTransactions bip)
+        return NewPayload
+            { _newPayloadChainwebVersion = _chainwebVersion e
+            , _newPayloadChainId = _chainId e
+            , _newPayloadParentHeight = _bctxParentHeight $ _blockInProgressBlockCtx bip
+            , _newPayloadParentHash = _bctxParentHash $ _blockInProgressBlockCtx bip
+            , _newPayloadBlockPayloadHash = _payloadWithOutputsPayloadHash pwo
+            , _newPayloadEncodedPayloadData = Just $ EncodedPayloadData $ encodePayloadData $ payloadWithOutputsToPayloadData pwo
+            -- this doesn't make it anywhere in storage, right?
+            , _newPayloadEncodedPayloadOutputs = Just $ EncodedPayloadOutputs $ encodeBlockOutputs $
+                    BlockOutputs (_payloadWithOutputsOutputsHash pwo) (snd <$> _payloadWithOutputsTransactions pwo) (_payloadWithOutputsCoinbase pwo)
+            , _newPayloadNumber = _blockInProgressNumber bip
+            -- Informative:
+            , _newPayloadTxCount = int $ V.length $ _payloadWithOutputsTransactions pwo
+                -- ^ The number of user transactions in the block. The exact way how
+                -- transactions are counted is provider specific.
+            , _newPayloadSize = 0
+                -- ^ what do we do here? why do we care?
+            , _newPayloadOutputSize = 0
+                -- ^ what do we do here? why do we care?
+            , _newPayloadFees = MinerReward.Stu 0
+                -- I suppose this is the sum of the gas in the command results?
+            }
+
     eventProof :: Logger logger => PactPayloadProvider logger tbl -> XEventId -> IO SpvProof
     eventProof = error "not figured out yet"
 
@@ -67,9 +93,9 @@ instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvi
 withPactPayloadProvider
     :: CanReadablePayloadCas tbl
     => Logger logger
-    => HTTP.Manager
-    -> ChainwebVersion
+    => ChainwebVersion
     -> ChainId
+    -> Maybe HTTP.Manager
     -> logger
     -> Maybe (Counter "txFailures")
     -> MempoolBackend Pact.Transaction
@@ -78,9 +104,16 @@ withPactPayloadProvider
     -> PactServiceConfig
     -> (PactPayloadProvider logger tbl -> IO a)
     -> IO a
-withPactPayloadProvider http ver cid logger txFailuresCounter mp pdb pactDbDir config action =
-    withSqliteDb cid logger pactDbDir False $ \sqlenv ->
-        PS.withPactService http ver cid mp logger txFailuresCounter mpa pdb sqlenv config action
+withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config action =
+    withSqliteDb cid logger pactDbDir False $ \readWriteSqlenv -> do
+        readOnlySqlPool <- Pool.newPool $ Pool.defaultPoolConfig
+            (startReadSqliteDb cid logger pactDbDir)
+            stopSqliteDb
+            10 -- seconds to keep them around unused
+            2 -- connections at most
+            & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
+        PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
+            (action . PactPayloadProvider logger)
     where
     mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 
@@ -101,14 +134,12 @@ pactMemPoolGetBlock
     -> logger
     -> BlockFill
     -> (MempoolPreBlockCheck Pact.Transaction to
-            -> BlockHeight
-            -> BlockHash
-            -> BlockCreationTime
+            -> EvaluationCtx ()
             -> IO (Vector to))
-pactMemPoolGetBlock mp theLogger bf validate height hash _btime = do
+pactMemPoolGetBlock mp theLogger bf validate ctx = do
     logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
-        <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock mp bf validate height hash
+        <> "height = " <> sshow (_evaluationCtxCurrentHeight ctx) <> ", hash = " <> sshow (_evaluationCtxParentHash ctx)
+    mempoolGetBlock mp bf validate ctx
     where
     logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
     logFn l = logFunction l
@@ -117,7 +148,7 @@ pactProcessFork
     :: Logger logger
     => MempoolBackend Pact.Transaction
     -> logger
-    -> ((Vector Pact.Transaction, Vector TransactionHash) -> IO ())
+    -> ((Vector Pact.Transaction, Vector Pact.Transaction) -> IO ())
 pactProcessFork mp theLogger (reintroTxs, validatedTxs) = do
     logFn theLogger Debug $!
         "pactMemPoolAccess - " <> sshow (length reintroTxs) <> " transactions to reintroduce"

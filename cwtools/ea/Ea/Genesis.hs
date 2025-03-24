@@ -20,12 +20,12 @@ module Ea.Genesis
 , fastDevelopmentN
 
   -- * Testing Genesis Txs
-, fastTimedCPM0
-, fastTimedCPMN
+-- , fastTimedCPM0
+-- , fastTimedCPMN
 , instantCPM0
 , instantCPMN
-, pact5InstantCPM0
-, pact5InstantCPMN
+-- , pact5InstantCPM0
+-- , pact5InstantCPMN
 , quirkedPact5InstantCPM0
 , quirkedPact5InstantCPMN
 
@@ -255,23 +255,6 @@ instantCPMN = instantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 
-pact5InstantCPM0 :: Genesis
-pact5InstantCPM0 = Genesis
-    { _version = pact5InstantCpmTestVersion petersonChainGraph
-    , _tag = "Pact5InstantTimedCPM"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just fast0Grants
-    , _keysets = Just fastKeysets
-    , _allocations = Just fastAllocations
-    , _namespaces = Just devNs2
-    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
-    }
-
-pact5InstantCPMN :: Genesis
-pact5InstantCPMN = pact5InstantCPM0
-  & txChainIds .~ mkChainIdRange 1 9
-  & coinbase ?~ fastNGrants
-
 quirkedPact5InstantCPM0 :: Genesis
 quirkedPact5InstantCPM0 = Genesis
     { _version = quirkedGasPact5InstantCpmTestVersion petersonChainGraph
@@ -289,22 +272,22 @@ quirkedPact5InstantCPMN = quirkedPact5InstantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 
-fastTimedCPM0 :: Genesis
-fastTimedCPM0 = Genesis
-    { _version = fastForkingCpmTestVersion petersonChainGraph
-    , _tag = "FastTimedCPM"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just fast0Grants
-    , _keysets = Just fastKeysets
-    , _allocations = Just fastAllocations
-    , _namespaces = Just fastNs
-    , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
-    }
+-- fastTimedCPM0 :: Genesis
+-- fastTimedCPM0 = Genesis
+--     { _version = fastForkingCpmTestVersion petersonChainGraph
+--     , _tag = "FastTimedCPM"
+--     , _txChainIds = onlyChainId 0
+--     , _coinbase = Just fast0Grants
+--     , _keysets = Just fastKeysets
+--     , _allocations = Just fastAllocations
+--     , _namespaces = Just fastNs
+--     , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
+--     }
 
-fastTimedCPMN :: Genesis
-fastTimedCPMN = fastTimedCPM0
-    & txChainIds .~ mkChainIdRange 1 9
-    & coinbase ?~ fastNGrants
+-- fastTimedCPMN :: Genesis
+-- fastTimedCPMN = fastTimedCPM0
+--     & txChainIds .~ mkChainIdRange 1 9
+--     & coinbase ?~ fastNGrants
 
 fastNs :: FilePath
 fastNs = "pact/genesis/ns-v1.yaml"

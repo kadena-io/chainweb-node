@@ -16,14 +16,16 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Chainweb.Pact.Types
-    ( PactServiceEnv(..)
+    ( ServiceEnv(..)
     , psVersion
     , psChainId
-    , psLogger
     , psGasLogger
     , psReadWriteSql
+    , psReadSqlPool
     , psPdb
     , psCandidatePdb
     , psMempoolAccess
@@ -35,6 +37,7 @@ module Chainweb.Pact.Types
     , psMiner
     , psMiningPayloadVar
     , psNewBlockGasLimit
+    , psGenesisPayload
 
     , BlockCtx(..)
     , blockCtxOfEvaluationCtx
@@ -43,17 +46,13 @@ module Chainweb.Pact.Types
     , _bctxParentRankedBlockHash
     , _bctxIsGenesis
     , _bctxCurrentBlockHeight
+    , genesisEvaluationCtx
 
     , PactServiceConfig(..)
-    , PactServiceM(..)
-    , runPactServiceM
-    , withPactState
-    , PactBlockEnv(..)
+    , testPactServiceConfig
+    , BlockEnv(..)
     , psBlockDbEnv
     , psBlockCtx
-    , psServiceEnv
-    , PactBlockState(..)
-    , PactBlockM(..)
 
     , Transactions(..)
     , transactionPairs
@@ -65,23 +64,20 @@ module Chainweb.Pact.Types
     , blockInProgressBlockCtx
     , blockInProgressRemainingGasLimit
     , blockInProgressTransactions
+    , blockInProgressNumber
     , toPayloadWithOutputs
     , commandToBytes
+    , hashPactTxLogs
 
     , MemPoolAccess(..)
 
+    , GasLogger
     , GasSupply(..)
     , RewindLimit(..)
     , defaultReorgLimit
     , defaultPreInsertCheckTimeout
 
-    , pbBlockHandle
-    , runPactBlockM
-    , tracePactBlockM
-    , tracePactBlockM'
-    , liftPactServiceM
     , pactTransaction
-    , localLabelBlock
     -- * default values
     , noInfo
     , noPublicMeta
@@ -98,6 +94,10 @@ module Chainweb.Pact.Types
     , RewindDepth(..)
     , ConfirmationDepth(..)
     , LocalResult(..)
+    , _MetadataValidationFailure
+    , _LocalResultLegacy
+    , _LocalResultWithWarns
+    , _LocalTimeout
 
     , SpvRequest(..)
     , TransactionOutputProofB64(..)
@@ -114,11 +114,6 @@ module Chainweb.Pact.Types
     , logWarn_
     , logError_
 
-    , logInfoPact
-    , logWarnPact
-    , logErrorPact
-    , logDebugPact
-
     , PactTxFailureLog(..)
     )
     where
@@ -128,7 +123,6 @@ import Control.DeepSeq
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad.IO.Class
-import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson hiding (Error, (.=))
 import Data.Bool
@@ -137,6 +131,7 @@ import Data.ByteString.Short qualified as SB
 import Data.Decimal
 import Data.List.NonEmpty qualified as NE
 import Data.LogMessage
+import Data.Pool(Pool)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -158,7 +153,6 @@ import Pact.Core.Persistence
 import Pact.Core.StableEncoding qualified as Pact
 import Pact.JSON.Encode qualified as J
 import System.LogLevel
-import Utils.Logging.Trace
 
 import Chainweb.BlockHeader
 import Chainweb.BlockPayloadHash
@@ -190,6 +184,7 @@ import Chainweb.Parent
 import Chainweb.MinerReward
 import Chainweb.BlockCreationTime
 import Control.Concurrent.Async
+import qualified Data.Aeson as A
 
 data Transactions t r = Transactions
     { _transactionPairs :: !(Vector (t, r))
@@ -305,6 +300,8 @@ data LocalResult
     | LocalTimeout
     deriving stock (Generic, Show)
 
+makePrisms ''LocalResult
+
 instance J.Encode LocalResult where
     build (MetadataValidationFailure e) = J.object
         [ "preflightValidationFailures" J..= J.Array (J.text <$> e)
@@ -354,7 +351,17 @@ data BlockCtx = BlockCtx
   , _bctxChainId :: !ChainId
   , _bctxChainwebVersion :: !ChainwebVersion
   , _bctxMinerReward :: !MinerReward
-  } deriving (Eq, Show)
+  } deriving stock (Eq, Generic, Show)
+
+instance ToJSON BlockCtx where
+  toJSON BlockCtx{..} = object
+    [ "parentCreationTime" A..= _bctxParentCreationTime
+    , "parentHash" A..= _bctxParentHash
+    , "parentHeight" A..= _bctxParentHeight
+    , "chainId" A..= _bctxChainId
+    , "chainwebVersion" A..= _versionName _bctxChainwebVersion
+    , "minerReward" A..= _bctxMinerReward
+    ]
 
 blockCtxOfEvaluationCtx :: ChainwebVersion -> ChainId -> EvaluationCtx p -> BlockCtx
 blockCtxOfEvaluationCtx v cid ec = BlockCtx
@@ -397,8 +404,7 @@ _bctxCurrentBlockHeight bc =
   childBlockHeight (_chainwebVersion bc) (_chainId bc) (_bctxParentRankedBlockHash bc)
 
 
-
--- | Externally-injected PactService properties.
+-- |  Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !RewindLimit
@@ -421,16 +427,37 @@ data PactServiceConfig = PactServiceConfig
     --   available. Compaction can remove history.
   , _pactEnableLocalTimeout :: !Bool
     -- ^ Whether to enable the local timeout to prevent long-running transactions
-  , _pactPersistIntraBlockWrites :: !IntraBlockPersistence
-    -- ^ Whether or not the node requires that all writes made in a block
-    --   are persisted. Useful if you want to use PactService BlockTxHistory.
   , _pactTxTimeLimit :: !(Maybe Micros)
     -- ^ *Only affects Pact5*
     --   Maximum allowed execution time for a single transaction.
     --   If 'Nothing', it's a function of the BlockGasLimit.
-    --
   , _pactMiner :: !(Maybe Miner)
+    -- ^ The miner used to make new blocks.
+  , _pactGenesisPayload :: !Chainweb.PayloadWithOutputs
+    -- ^ The genesis payload for this chain.
   } deriving (Eq,Show)
+
+testPactServiceConfig :: Chainweb.PayloadWithOutputs -> PactServiceConfig
+testPactServiceConfig genesisPayload = PactServiceConfig
+      { _pactReorgLimit = defaultReorgLimit
+      , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+      , _pactQueueSize = 1000
+      , _pactAllowReadsInLocal = False
+      , _pactUnlimitedInitialRewind = False
+      , _pactNewBlockGasLimit = testBlockGasLimit
+      , _pactLogGas = False
+      , _pactFullHistoryRequired = False
+      , _pactEnableLocalTimeout = False
+      , _pactTxTimeLimit = Nothing
+      , _pactMiner = Nothing
+      , _pactGenesisPayload = genesisPayload
+      }
+
+-- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
+-- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
+--
+testBlockGasLimit :: Pact.GasLimit
+testBlockGasLimit = Pact.GasLimit $ Pact.Gas 100000
 
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
@@ -441,7 +468,7 @@ data MemPoolAccess = MemPoolAccess
         -> EvaluationCtx ()
         -> IO (Vector to)
         )
-  , mpaProcessFork :: !((Vector Pact.Transaction, Vector TransactionHash) -> IO ())
+  , mpaProcessFork :: !((Vector Pact.Transaction, Vector Pact.Transaction) -> IO ())
   , mpaBadlistTx :: !(Vector TransactionHash -> IO ())
   }
 
@@ -452,144 +479,88 @@ instance Semigroup MemPoolAccess where
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess mempty mempty mempty
 
-data PactServiceEnv logger tbl = PactServiceEnv
-    { _psVersion :: !ChainwebVersion
-    , _psChainId :: !ChainId
-    , _psLogger :: !logger
+-- TODO PP: this is really a cop-out. PactService is responsible for this,
+-- there's no need to make it so open. Just find a good solution and stick with
+-- it, like logging to a file, or returning to /local, or both.
+type GasLogger = Pact.RequestKey -> [Pact.GasLogEntry Pact.CoreBuiltin Pact.Info] -> IO ()
 
-    , _psGasLogger :: !(Maybe logger)
+data ServiceEnv tbl = ServiceEnv
+    { _psVersion :: ChainwebVersion
+    , _psChainId :: ChainId
+
+    , _psGasLogger :: Maybe GasLogger
     -- ^ Used to emit gas logs of Pact code; gas logs are disabled if this is set to `Nothing`.
     -- Gas logs have a non-zero cost, so usually this is disabled.
 
-    , _psReadWriteSql :: !SQLiteEnv
+    , _psReadWriteSql :: SQLiteEnv
     -- ^ Database connection used to mutate the Pact state.
-    , _psPdb :: !(PayloadStore (PayloadDb tbl) Chainweb.PayloadData)
+    , _psReadSqlPool :: Pool SQLiteEnv
+    , _psPdb :: PayloadStore (PayloadDb tbl) Chainweb.PayloadData
     -- ^ Used to store payloads of validated blocks.
     -- Contains outputs too.
-    , _psCandidatePdb :: !(MapTable RankedBlockPayloadHash Chainweb.PayloadData)
+    , _psCandidatePdb :: MapTable RankedBlockPayloadHash Chainweb.PayloadData
     -- ^ Used to store payloads of blocks that have not yet been validated.
 
-    , _psMempoolAccess :: !MemPoolAccess
+    , _psMempoolAccess :: MemPoolAccess
     -- ^ The mempool's limited interface as used by Pact.
-    , _psPreInsertCheckTimeout :: !Micros
+    , _psPreInsertCheckTimeout :: Micros
     -- ^ Maximum allowed execution time for mempool transaction validation.
 
-    , _psAllowReadsInLocal :: !Bool
+    , _psAllowReadsInLocal :: Bool
     -- ^ Whether to allow reads of arbitrary tables in /local.
 
-    , _psEnableLocalTimeout :: !Bool
+    , _psEnableLocalTimeout :: Bool
     -- ^ Whether to have a timeout for /local calls.
-    , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
+    , _psTxFailuresCounter :: Maybe (Counter "txFailures")
     -- ^ Counter of the number of failed transactions.
-    , _psNewPayloadTxTimeLimit :: !(Maybe Micros)
+    , _psNewPayloadTxTimeLimit :: Maybe Micros
     -- ^ Maximum amount of time to validate transactions while constructing payload.
     -- If unset, defaults to a reasonable value based on the transaction's gas limit.
-    , _psMiner :: !(Maybe Miner)
+    , _psMiner :: Maybe Miner
     -- ^ Miner identity for use in newly mined blocks.
-    , _psMiningPayloadVar :: !(TMVar (Async (), BlockInProgress))
+    , _psMiningPayloadVar :: TMVar (Async (), NewBlockCtx, BlockInProgress)
     -- ^ Latest mining payload produced, and block continuation thread.
-    , _psNewBlockGasLimit :: !Pact.GasLimit
+    , _psNewBlockGasLimit :: Pact.GasLimit
     -- ^ Block gas limit in newly produced blocks.
+    , _psGenesisPayload :: !Chainweb.PayloadWithOutputs
+    -- ^ The genesis payload for this chain.
     }
 
-instance HasChainwebVersion (PactServiceEnv logger c) where
+instance HasChainwebVersion (ServiceEnv tbl) where
     _chainwebVersion = _psVersion
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainId (PactServiceEnv logger c) where
+instance HasChainId (ServiceEnv tbl) where
     _chainId = _psChainId
     {-# INLINE _chainId #-}
 
--- | The top level monad of PactService, notably allowing access to a
--- checkpointer and module init cache and some configuration parameters.
-newtype PactServiceM logger tbl a = PactServiceM
-  { unPactServiceM ::
-      ReaderT (PactServiceEnv logger tbl) IO a
-  } deriving newtype
-    ( Functor, Applicative, Monad
-    , MonadReader (PactServiceEnv logger tbl)
-    , MonadThrow, MonadCatch, MonadMask
-    , MonadIO
-    )
-
-runPactServiceM :: PactServiceEnv logger tbl -> PactServiceM logger tbl a -> IO a
-runPactServiceM e a = runReaderT (unPactServiceM a) e
-
-withPactState
-  :: forall logger tbl b
-  . Logger logger
-  => ((forall a. PactServiceM logger tbl a -> IO a) -> IO b)
-  -> PactServiceM logger tbl b
-withPactState inner = do
-  e <- ask
-  liftIO $ inner $
-    runPactServiceM e
-
-data PactBlockEnv logger tbl = PactBlockEnv
-  { _psServiceEnv :: !(PactServiceEnv logger tbl)
-  , _psBlockCtx :: !BlockCtx
+data BlockEnv = BlockEnv
+  { _psBlockCtx :: !BlockCtx
   , _psBlockDbEnv :: !ChainwebPactDb
   }
 
-instance HasChainwebVersion (PactBlockEnv logger tbl) where
-  _chainwebVersion = _chainwebVersion . _psServiceEnv
-instance HasChainId (PactBlockEnv logger tbl) where
-  _chainId = _chainId . _psServiceEnv
+instance HasChainwebVersion BlockEnv where
+  _chainwebVersion = _chainwebVersion . _psBlockCtx
+instance HasChainId BlockEnv where
+  _chainId = _chainId . _psBlockCtx
 
-data PactBlockState = PactBlockState
-  { _pbBlockHandle :: !BlockHandle
-  }
-
--- | A sub-monad of PactServiceM, for actions taking place at a particular block.
-newtype PactBlockM logger tbl a = PactBlockM
-  { _unPactBlockM ::
-    ReaderT (PactBlockEnv logger tbl) (StateT PactBlockState IO) a
-  } deriving newtype
-  ( Functor, Applicative, Monad
-  , MonadReader (PactBlockEnv logger tbl)
-  , MonadState PactBlockState
-  , MonadThrow, MonadCatch, MonadMask
-  , MonadIO
-  )
-
--- | Lifts PactServiceM to PactBlockM by forgetting about the current block.
--- It is unsafe to use `runPactBlockM` inside the argument to this function.
-liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger tbl a
-liftPactServiceM (PactServiceM a) =
-  PactBlockM $ ReaderT $ \e ->
-    liftIO $ runReaderT a (_psServiceEnv e)
-
--- | Run 'PactBlockM' by providing the block context, in the form of
--- a database snapshot at that block and information about the parent header.
--- It is unsafe to use this function in an argument to `liftPactServiceM`.
-runPactBlockM
-  :: BlockCtx -> ChainwebPactDb -> BlockHandle
-  -> PactBlockM logger tbl a -> PactServiceM logger tbl (a, BlockHandle)
-runPactBlockM pctx dbEnv startBlockHandle (PactBlockM act) = PactServiceM $ ReaderT $ \e -> do
-  let blockEnv = PactBlockEnv
-        { _psServiceEnv = e
-        , _psBlockCtx = pctx
-        , _psBlockDbEnv = dbEnv
+-- the evaluation context for the genesis block; note that the payload is filled in
+genesisEvaluationCtx :: ServiceEnv tbl -> EvaluationCtx ConsensusPayload
+genesisEvaluationCtx serviceEnv = EvaluationCtx
+    { _evaluationCtxParentCreationTime = Parent $ v ^?! versionGenesis . genesisTime . atChain cid
+    , _evaluationCtxParentHash = genesisParentBlockHash v cid
+    , _evaluationCtxParentHeight = Parent $ genesisHeight v cid
+    -- should not be used
+    , _evaluationCtxMinerReward = MinerReward 0
+    , _evaluationCtxPayload = ConsensusPayload
+        { _consensusPayloadHash = genesisBlockPayloadHash v cid
+        , _consensusPayloadData = Just $ EncodedPayloadData $ Chainweb.encodePayloadData $
+            Chainweb.payloadWithOutputsToPayloadData (_psGenesisPayload serviceEnv)
         }
-  (a, s') <- runStateT
-    (runReaderT act blockEnv)
-    (PactBlockState startBlockHandle)
-  return ((a, _pbBlockHandle s'))
-
-tracePactBlockM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactBlockM logger tbl a -> PactBlockM logger tbl a
-tracePactBlockM label param weight a = tracePactBlockM' label (const param) (const weight) a
-
-tracePactBlockM' :: (Logger logger, ToJSON param) => Text -> (a -> param) -> (a -> Int) -> PactBlockM logger tbl a -> PactBlockM logger tbl a
-tracePactBlockM' label calcParam calcWeight a = do
-  e <- ask
-  s <- get
-  (r, s') <- liftIO $ trace' (logJsonTrace_ (_psLogger $ _psServiceEnv e)) label (calcParam . fst) (calcWeight . fst)
-    $ runStateT (runReaderT (_unPactBlockM a) e) s
-  put s'
-  return r
-
-logJsonTrace_ :: (MonadIO m, ToJSON a, Typeable a, NFData a, Logger logger) => logger -> LogLevel -> JsonLog a -> m ()
-logJsonTrace_ logger level msg = liftIO $ logFunction logger level msg
+    }
+    where
+    v = _chainwebVersion serviceEnv
+    cid = _chainId serviceEnv
 
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
@@ -598,9 +569,12 @@ data BlockInProgress = BlockInProgress
   , _blockInProgressBlockCtx :: !BlockCtx
   , _blockInProgressRemainingGasLimit :: !Pact.GasLimit
   , _blockInProgressTransactions :: !(Transactions Chainweb.Transaction OffChainCommandResult)
+  , _blockInProgressNumber :: !Int
+  -- ^ identifier sequentially increasing for the same given BlockCtx, to
+  -- indicate "freshness" to the miner
   }
 
-makeLenses ''PactServiceEnv
+makeLenses ''ServiceEnv
 makeLenses ''BlockInProgress
 
 instance Eq BlockInProgress where
@@ -618,9 +592,7 @@ instance HasChainId BlockInProgress where
     _chainId = _chainId . _blockInProgressBlockCtx
     {-# INLINE _chainId #-}
 
-makeLenses ''PactBlockState
-
-makeLenses ''PactBlockEnv
+makeLenses ''BlockEnv
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _pact5GasSupply :: Decimal }
@@ -631,17 +603,17 @@ instance J.Encode GasSupply where
   build = J.build . Pact.StableEncoding . Pact.LDecimal . _pact5GasSupply
 instance Show GasSupply where show (GasSupply g) = show g
 
-pactTransaction :: Maybe RequestKey -> (PactDb Pact.CoreBuiltin Pact.Info -> Pact.SPVSupport -> IO a) -> PactBlockM logger tbl a
-pactTransaction rk k = do
-  e <- view psBlockDbEnv
-  h <- use pbBlockHandle
-  (r, h') <- liftIO $ doChainwebPactDbTransaction e h rk k
-  pbBlockHandle .= h'
+pactTransaction
+  :: (MonadIO m, MonadState BlockHandle m)
+  => BlockEnv
+  -> Maybe RequestKey
+  -> (PactDb Pact.CoreBuiltin Pact.Info -> Pact.SPVSupport -> IO a)
+  -> m a
+pactTransaction env rk k = do
+  h <- get
+  (r, h') <- liftIO $ doChainwebPactDbTransaction (_psBlockDbEnv env) h rk k
+  put h'
   return r
-
-localLabelBlock :: (Logger logger) => (Text, Text) -> PactBlockM logger tbl x -> PactBlockM logger tbl x
-localLabelBlock lbl x = do
-  locally (psServiceEnv . psLogger) (addLabel lbl) x
 
 -- -------------------------------------------------------------------------- --
 -- Default Values
@@ -690,12 +662,12 @@ data BlockInvalidError
   | BlockInvalidDueToInvalidTxAtRuntime TxInvalidError
   | BlockInvalidDueToTxDecodeFailure [Text]
   | BlockInvalidDueToCoinbaseFailure (Pact.PactError Pact.Info)
-  deriving Show
+  deriving stock (Show, Generic)
 
 data BlockOutputMismatchError = BlockOutputMismatchError
-  { blockOutputMismatchCtx :: !(EvaluationCtx BlockPayloadHash)
+  { blockOutputMismatchCtx :: !BlockCtx
   , blockOutputMismatchActualPayload :: !Chainweb.PayloadWithOutputs
-  , blockOutputMismatchExpectedPayload :: !(Maybe Chainweb.PayloadWithOutputs)
+  , blockOutputMismatchExpectedPayload :: !Chainweb.CheckablePayload
   }
   deriving Show
 
@@ -703,7 +675,7 @@ instance J.Encode BlockOutputMismatchError where
   build bvf = J.object
     [ "ctx" J..= J.encodeWithAeson (blockOutputMismatchCtx bvf)
     , "actual" J..= J.encodeWithAeson (blockOutputMismatchActualPayload bvf)
-    , "expected" J..?= fmap J.encodeWithAeson (blockOutputMismatchExpectedPayload bvf)
+    , "expected" J..= J.encodeWithAeson (blockOutputMismatchExpectedPayload bvf)
     ]
 
 -- | Write log message
@@ -725,18 +697,6 @@ logError_ l = logg_ l Error
 logDebug_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
 logDebug_ l = logg_ l Debug
 
-logInfoPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logInfoPact msg = view psLogger >>= \l -> logInfo_ l msg
-
-logWarnPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logWarnPact msg = view psLogger >>= \l -> logWarn_ l msg
-
-logErrorPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logErrorPact msg = view psLogger >>= \l -> logError_ l msg
-
-logDebugPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logDebugPact msg = view psLogger >>= \l -> logDebug_ l msg
-
 -- | This function converts CommandResults into bytes in a stable way that can
 -- be stored on-chain.
 pactCommandResultToBytes :: Pact.CommandResult Pact.Hash (Pact.PactError Pact.Info) -> ByteString
@@ -753,14 +713,14 @@ commandToBytes = Chainweb.Transaction . J.encodeStrict
 
 toPayloadWithOutputs
   :: Miner
-  -> Transactions Pact.Transaction OffChainCommandResult
+  -> Transactions Chainweb.Transaction OffChainCommandResult
   -> Chainweb.PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let
-        oldSeq :: Vector (Pact.Transaction, OffChainCommandResult)
+        oldSeq :: Vector (Chainweb.Transaction, OffChainCommandResult)
         oldSeq = _transactionPairs ts
         trans :: Vector Chainweb.Transaction
-        trans = commandToBytes . fst <$> oldSeq
+        trans = fst <$> oldSeq
         transOuts :: Vector Chainweb.TransactionOutput
         transOuts = Chainweb.TransactionOutput . pactCommandResultToBytes . hashPactTxLogs . snd <$> oldSeq
 

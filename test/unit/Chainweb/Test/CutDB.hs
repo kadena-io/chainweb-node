@@ -82,7 +82,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
+-- import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -131,7 +131,6 @@ withTestCutDb rdb v conf n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
-    initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     pact <- pactIO webDb payloadDb

@@ -57,6 +57,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
+import Chainweb.Parent
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Version
 
@@ -67,8 +68,8 @@ import Chainweb.Storage.Table
 
 data TestHeader = TestHeader
     { _testHeaderHdr :: !BlockHeader
-    , _testHeaderParent :: !ParentHeader
-    , _testHeaderAdjs :: ![ParentHeader]
+    , _testHeaderParent :: !(Parent BlockHeader)
+    , _testHeaderAdjs :: ![Parent BlockHeader]
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -95,13 +96,13 @@ testHeaderLookup testHdr x = lookup x tbl
     tbl
         = (view blockHash h, h)
         : (view blockHash p, p)
-        : fmap (\(ParentHeader b) -> (view blockHash b, b)) a
+        : fmap (\(Parent b) -> (view blockHash b, b)) a
 
 instance FromJSON TestHeader where
     parseJSON = withObject "TestHeader" $ \o -> TestHeader
         <$> o .: "header"
-        <*> (ParentHeader <$> o .: "parent")
-        <*> (fmap ParentHeader <$> o .: "adjacents")
+        <*> (Parent <$> o .: "parent")
+        <*> (fmap Parent <$> o .: "adjacents")
 
 instance ToJSON TestHeader where
     toJSON o = object
@@ -139,7 +140,7 @@ arbitraryTestHeaderHeight
     -> BlockHeight
     -> Gen TestHeader
 arbitraryTestHeaderHeight v cid h = do
-    parent <- ParentHeader <$> arbitraryBlockHeaderVersionHeightChain v h cid
+    parent <- Parent <$> arbitraryBlockHeaderVersionHeightChain v h cid
     trace "a" $ return ()
 
     -- TODO: support graph changes in arbitary?
@@ -153,9 +154,9 @@ arbitraryTestHeaderHeight v cid h = do
             <$> HM.insert cid (unwrapParent parent) as
     t <- BlockCreationTime <$> chooseEnum (pt, maxBound)
     return $ TestHeader
-        { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
+        { _testHeaderHdr = newBlockHeader (Parent <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent
-        , _testHeaderAdjs = toList $ ParentHeader <$> as
+        , _testHeaderAdjs = toList $ Parent <$> as
         }
 
 -- -------------------------------------------------------------------------- --
@@ -186,8 +187,8 @@ genesisTestHeader
     -> TestHeader
 genesisTestHeader v cid = TestHeader
     { _testHeaderHdr = gen
-    , _testHeaderParent = ParentHeader gen
-    , _testHeaderAdjs = ParentHeader . genesisBlockHeader (_chainwebVersion v)
+    , _testHeaderParent = Parent gen
+    , _testHeaderAdjs = Parent . genesisBlockHeader (_chainwebVersion v)
         <$> toList (adjacentChainIds (_chainGraph gen) cid)
     }
   where

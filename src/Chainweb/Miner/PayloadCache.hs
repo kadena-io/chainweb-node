@@ -221,8 +221,8 @@ insertSTM pc pld =
     modifyTVar' (_payloadCacheMap pc) $
         M.insert key pld . prune (_payloadCacheDepth pc) h
   where
-    h = _newPayloadParentHeight pld
-    p = _newPayloadParentHash pld
+    Parent h = _newPayloadParentHeight pld
+    Parent p = _newPayloadParentHash pld
     key = (Parent (RankedBlockHash h p), _newPayloadNumber pld)
 
 -- | Insert a new payload into the cache. The cache is pruned before the new

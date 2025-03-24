@@ -33,17 +33,17 @@ import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection,
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, SomeBlockM(..))
 import Chainweb.Pact.Types
-import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact4
-import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact4.TransactionExec qualified as Pact4
-import Chainweb.Pact4.Types qualified as Pact4
-import Chainweb.Pact5.Transaction
-import Chainweb.Pact5.TransactionExec qualified as Pact5
-import Chainweb.Pact5.Types qualified as Pact5
+import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.TransactionExec qualified as Pact
+import Chainweb.Pact4.Types qualified as Pact
+import Chainweb.Pact.Transaction
+import Chainweb.Pact.TransactionExec qualified as Pact5
+import Chainweb.Pact.Types qualified as Pact5
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb(..), mkTestBlockDbIO)
-import Chainweb.Test.Pact4.Utils qualified as Pact4
-import Chainweb.Test.Pact5.CmdBuilder qualified as Pact5
+import Chainweb.Test.Pact4.Utils qualified as Pact
+import Chainweb.Test.Pact.CmdBuilder qualified as Pact5
 import Chainweb.Test.TestVersions
 import Chainweb.Utils (T2(..), T3(..))
 import Chainweb.Utils.Bench
@@ -67,10 +67,10 @@ import Pact.Core.Evaluate qualified as Pact5
 import Pact.Core.Gas.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.SPV qualified as Pact5
-import Pact.Types.Command qualified as Pact4
-import Pact.Types.Gas qualified as Pact4
-import Pact.Types.Runtime qualified as Pact4
-import Pact.Types.SPV qualified as Pact4
+import Pact.Types.Command qualified as Pact
+import Pact.Types.Gas qualified as Pact
+import Pact.Types.Runtime qualified as Pact
+import Pact.Types.SPV qualified as Pact
 
 bench :: RocksDb -> C.Benchmark
 bench rdb = C.bgroup "applyCmd"
@@ -85,7 +85,7 @@ data Env = Env
     , blockHeaderDb :: !BlockHeaderDb
     , logger :: !GenericLogger
     , pactServiceThreadId :: !ThreadId
-    , pactServiceEnv :: !(PactServiceEnv GenericLogger RocksDbTable)
+    , pactServiceEnv :: !(ServiceEnv GenericLogger RocksDbTable)
     }
 
 instance NFData Env where

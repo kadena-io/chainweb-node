@@ -65,7 +65,7 @@ module Chainweb.Payload.PayloadStore
 , lookupPayloadDataWithHeightBatch
 
 -- ** Initialize Payload Database with Genesis Payloads
-, initializePayloadDb
+-- , initializePayloadDb
 
 -- **  insert new payload
 , addPayload
@@ -339,20 +339,21 @@ instance (pk ~ CasKeyType (PayloadData_ a), CanReadableTransactionDbCas_ a tbl) 
 -- | Initialize a PayloadDb with genesis payloads for the given chainweb
 -- version.
 --
-initializePayloadDb
-    :: CanPayloadCas tbl
-    => ChainwebVersion
-    -> PayloadDb tbl
-    -> IO ()
-initializePayloadDb v db = traverse_ initForChain $ chainIds v
-  where
-    initForChain cid
-        | provider /= PactProvider =
-            error "Chainweb.Payload.PayloadStore.initializePayloadDb: this module must only be used by Pact"
-        | otherwise =
-            addNewPayload db (genesisBlockHeight v cid) $ genesisPayload v ^?! atChain cid
-      where
-        provider = payloadProviderTypeForChain v cid
+-- initializePayloadDb
+--     :: CanPayloadCas tbl
+--     => ChainwebVersion
+--     ->
+--     -> PayloadDb tbl
+--     -> IO ()
+-- initializePayloadDb v db = traverse_ initForChain $ chainIds v
+--   where
+--     initForChain cid
+--         | provider /= PactProvider =
+--             error "Chainweb.Payload.PayloadStore.initializePayloadDb: this module must only be used by Pact"
+--         | otherwise =
+--             addNewPayload db (genesisBlockHeight v cid) $ genesisPayload v ^?! atChain cid
+--       where
+--         provider = payloadProviderTypeForChain v cid
 
 
 -- -------------------------------------------------------------------------- --

@@ -146,7 +146,7 @@ executable db-checksum
         , directory
         , memory
         , mtl
-        , pact
+        , pact-tng
         , safe-exceptions
         , text
         , unordered-containers
@@ -176,7 +176,10 @@ executable ea
         , chainweb-storage
         , lens
         , loglevel
-        , pact
+        , pact-json
+        , pact-tng:pact-request-api
+        , pact-tng
+        , resource-pool
         , temporary
         , text
         , vector
@@ -350,4 +353,3 @@ executable evm-genesis
         , base
         , network-uri
         , http-client
-

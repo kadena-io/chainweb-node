@@ -63,7 +63,7 @@ mkTestBlockDb cv rdb = do
   liftIO $ do
     wdb <- initWebBlockHeaderDb testRdb cv
     let pdb = newPayloadDb testRdb
-    initializePayloadDb cv pdb
+    -- initializePayloadDb cv pdb
     initCut <- newMVar $ genesisCut cv
     return $! TestBlockDb wdb pdb initCut
 
@@ -77,7 +77,7 @@ mkTestBlockDbIO v rdb = do
   testRdb <- testRocksDb "mkTestBlockDbIO" rdb
   wdb <- initWebBlockHeaderDb testRdb v
   let pdb = newPayloadDb testRdb
-  initializePayloadDb v pdb
+  -- initializePayloadDb v pdb
   initCut <- newMVar $ genesisCut v
   return $! T2 (TestBlockDb wdb pdb initCut) testRdb
 

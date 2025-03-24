@@ -129,7 +129,6 @@ data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
     , _nodeConfigLog :: !LogConfig
     , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
-    , _nodeConfigResetChainDbs :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -141,7 +140,6 @@ defaultChainwebNodeConfiguration = ChainwebNodeConfiguration
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ level
     , _nodeConfigDatabaseDirectory = Nothing
-    , _nodeConfigResetChainDbs = False
     }
   where
     level = L.Info
@@ -157,7 +155,6 @@ instance ToJSON ChainwebNodeConfiguration where
         [ "chainweb" .= _nodeConfigChainweb o
         , "logging" .= _nodeConfigLog o
         , "databaseDirectory" .= _nodeConfigDatabaseDirectory o
-        , "resetChainDatabases" .= _nodeConfigResetChainDbs o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
@@ -165,7 +162,6 @@ instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
         <$< nodeConfigChainweb %.: "chainweb" % o
         <*< nodeConfigLog %.: "logging" % o
         <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
-        <*< nodeConfigResetChainDbs ..: "resetChainDatabases" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
@@ -347,7 +343,7 @@ node conf logger = do
     withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Debug $ "backup config: " <> sshow (_configBackup cwConf)
-        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
+        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir $ \case
             Replayed _ _ -> return ()
             StartedChainweb cw -> do
                 let telemetryEnabled =

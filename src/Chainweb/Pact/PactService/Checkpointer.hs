@@ -21,6 +21,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.Checkpointer
@@ -32,20 +33,18 @@
 -- Checkpointer interaction for Pact service.
 --
 module Chainweb.Pact.PactService.Checkpointer
-    ( fakeNewBlockCtx
+    ( mkFakeNewBlockCtx
     , readFromLatest
     , readFromNthParent
     , readFrom
     , restoreAndSave
     , rewindTo
-    , getBlockCtx
     -- , findLatestValidBlockHeader'
     -- , findLatestValidBlockHeader
     -- , exitOnRewindLimitExceeded
-    , PactBlockM(..)
     , getEarliestBlock
     -- , lookupBlock
-    , lookupBlockByEvalCtx
+    , lookupRankedBlockHash
     , lookupParentBlockHash
     , lookupBlockWithHeight
     , getPayloadsAfter
@@ -55,10 +54,7 @@ module Chainweb.Pact.PactService.Checkpointer
 
 import Control.Lens hiding ((:>), (:<))
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.Reader
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Monoid hiding (Product (..))
 import GHC.Stack
@@ -77,7 +73,6 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import qualified Chainweb.Pact.Backend.Utils as PactDb
 import Chainweb.Pact.Types
-import qualified Chainweb.Pact.Types as Pact
 import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Ranked
@@ -85,12 +80,17 @@ import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards (pact5)
+import Control.Exception.Safe (MonadMask)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
+import Chainweb.Pact.Backend.ChainwebPactDb (lookupRankedBlockHash)
+import Control.Monad.State.Strict
 
 -- readFrom demands to know this context in case it's mining a block.
 -- But it's not really used by /local, or polling, so we fabricate it
 -- for those users.
-fakeNewBlockCtx :: IO NewBlockCtx
-fakeNewBlockCtx = do
+mkFakeNewBlockCtx :: IO NewBlockCtx
+mkFakeNewBlockCtx = do
     fakeCreationTime <- Parent . BlockCreationTime <$> getCurrentTimeIntegral
     return NewBlockCtx
         -- fake
@@ -106,53 +106,57 @@ fakeNewBlockCtx = do
 -- note: this function will never rewind before genesis.
 readFromLatest
     :: Logger logger
-    => NewBlockCtx
-    -> PactBlockM logger tbl a
-    -> PactServiceM logger tbl a
-readFromLatest newBlockCtx doRead = readFromNthParent newBlockCtx 0 doRead >>= \case
-    NoHistory -> error "readFromLatest: failed to grab the latest header, this is a bug in chainweb"
-    Historical a -> return a
+    => logger
+    -> ChainwebVersion
+    -> ChainId
+    -> SQLiteEnv
+    -> NewBlockCtx
+    -> (BlockEnv -> BlockHandle -> IO a)
+    -> IO a
+readFromLatest logger v cid sql newBlockCtx doRead =
+    readFromNthParent logger v cid sql newBlockCtx 0 doRead >>= \case
+        NoHistory -> error "readFromLatest: failed to grab the latest header, this is a bug in chainweb"
+        Historical a -> return a
 
 -- read-only rewind to the nth parent before the latest block.
 -- note: this function will never rewind before genesis.
 readFromNthParent
-    :: forall logger tbl a
-    . Logger logger
-    => NewBlockCtx
+    :: Logger logger
+    => logger
+    -> ChainwebVersion
+    -> ChainId
+    -> SQLiteEnv
+    -> NewBlockCtx
     -> Word
-    -> PactBlockM logger tbl a
-    -> PactServiceM logger tbl (Historical a)
-readFromNthParent newBlockCtx n doRead = do
-    sql <- view psReadWriteSql
-    v <- view chainwebVersion
-    cid <- view chainId
+    -> (BlockEnv -> BlockHandle -> IO a)
+    -> IO (Historical a)
+readFromNthParent logger v cid sql newBlockCtx n doRead = do
     withSavepoint sql ReadFromNSavepoint $ do
-        latest <- _consensusStateLatest <$> getConsensusState
+        latest <- _consensusStateLatest . fromJuste <$> getConsensusState sql
         if genesisHeight v cid + fromIntegral @Word @BlockHeight n < _syncStateHeight latest
         then return NoHistory
         else do
-            maybeNthBlock <- lookupBlockWithHeight
-                (_syncStateHeight latest - fromIntegral @Word @BlockHeight n)
-            case maybeNthBlock of
-                -- this case for shallow nodes without enough history
-                Nothing -> return NoHistory
-                Just nthBlock ->
-                    readFrom newBlockCtx (parentBlockHeight v cid nthBlock) doRead
+            let targetHeight = _syncStateHeight latest - fromIntegral @Word @BlockHeight n
+            lookupBlockWithHeight sql targetHeight >>= \case
+                    -- this case for shallow nodes without enough history
+                    Nothing -> return NoHistory
+                    Just nthBlock ->
+                        readFrom logger v cid sql newBlockCtx (parentBlockHeight v cid nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
 readFrom
     :: Logger logger
-    => NewBlockCtx
+    => logger
+    -> ChainwebVersion
+    -> ChainId
+    -> SQLiteEnv
+    -> NewBlockCtx
     -- ^ you can fake this if you're not making a new block
     -> Parent RankedBlockHash
-    -> PactBlockM logger tbl a
-    -> PactServiceM logger tbl (Historical a)
-readFrom newBlockCtx parent doRead = do
-    sql <- view psReadWriteSql
-    logger <- view psLogger
-    v <- view chainwebVersion
-    cid <- view chainId
+    -> (BlockEnv -> BlockHandle -> IO a)
+    -> IO (Historical a)
+readFrom logger v cid sql newBlockCtx parent doRead = do
     let blockCtx = BlockCtx
             { _bctxParentCreationTime = _newBlockCtxParentCreationTime newBlockCtx
             , _bctxParentHash = _rankedBlockHashHash <$> parent
@@ -161,15 +165,14 @@ readFrom newBlockCtx parent doRead = do
             , _bctxChainwebVersion = v
             , _bctxChainId = cid
             }
-    e <- ask
     liftIO $ withSavepoint sql ReadFromSavepoint $ do
         latestHeader <- _syncStateRankedBlockHash . _consensusStateLatest <$>
-            ChainwebPactDb.throwOnDbError (ChainwebPactDb.getConsensusState sql)
+            ChainwebPactDb.throwOnDbError (fromJuste <$> ChainwebPactDb.getConsensusState sql)
         -- is the parent the latest header, i.e., can we get away without rewinding?
         let parentIsLatestHeader = latestHeader == unwrapParent parent
         let currentHeight = _bctxCurrentBlockHeight blockCtx
         if pact5 v cid currentHeight
-        then PactDb.getEndTxId v cid "doReadFrom" sql parent >>= traverse \startTxId -> do
+        then PactDb.getEndTxId v cid sql parent >>= traverse \startTxId -> do
             let
                 blockHandlerEnv = ChainwebPactDb.BlockHandlerEnv
                     { ChainwebPactDb._blockHandlerDb = sql
@@ -182,25 +185,17 @@ readFrom newBlockCtx parent doRead = do
                     , ChainwebPactDb._blockHandlerAtTip = parentIsLatestHeader
                     }
             let pactDb = ChainwebPactDb.chainwebPactBlockDb blockHandlerEnv
-            fmap fst $
-                runPactServiceM e $
-                    Pact.runPactBlockM blockCtx pactDb (emptyBlockHandle startTxId) doRead
+            let blockEnv = BlockEnv blockCtx pactDb
+            doRead blockEnv (emptyBlockHandle startTxId)
         else error "Pact 4 blocks are not playable anymore"
 
 -- the special case where one doesn't want to extend the chain, just rewind it.
-rewindTo :: Logger logger => RankedBlockHash -> PactServiceM logger tbl ()
-rewindTo ancestor = do
-    sql <- view psReadWriteSql
-    v <- view chainwebVersion
-    cid <- view chainId
-    liftIO $ withSavepoint sql RewindSavePoint $
+rewindTo
+    :: ChainwebVersion -> ChainId -> SQLiteEnv
+    -> RankedBlockHash -> IO ()
+rewindTo v cid sql ancestor = do
+    withSavepoint sql RewindSavePoint $
         void $ PactDb.rewindDbTo v cid sql ancestor
-
-getBlockCtx :: EvaluationCtx p -> PactServiceM logger tbl BlockCtx
-getBlockCtx ec = do
-    cid <- view chainId
-    v <- view chainwebVersion
-    return $! blockCtxOfEvaluationCtx v cid ec
 
 -- TODO: log more?
 -- | Given a list of blocks in ascending order, rewind to the first
@@ -214,50 +209,54 @@ getBlockCtx ec = do
 --   - the first block's parent must be an ancestor of the latest block in the database.
 --   - each subsequent block must be the direct child of the previous block.
 restoreAndSave
-    :: forall logger err q tbl.
-    (Logger logger, Monoid q, HasCallStack)
-    => NonEmpty (ExceptT err (PactBlockM logger tbl) q, EvaluationCtx BlockPayloadHash)
-    -> ExceptT err (PactServiceM logger tbl) q
-restoreAndSave blocks@((_, forkPoint) :| _) = do
-    sql <- view psReadWriteSql
-    e <- ask
+    :: forall logger m q.
+    (Logger logger, MonadIO m, MonadMask m, Semigroup q, HasCallStack)
+    => logger
+    -> ChainwebVersion
+    -> ChainId
+    -> SQLiteEnv
+    -> NonEmpty (BlockCtx, BlockEnv -> StateT BlockHandle m (q, (BlockHash, BlockPayloadHash)))
+    -> m q
+restoreAndSave logger v cid sql blocks = do
     withSavepoint sql RestoreAndSaveSavePoint $ do
         -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
-        txid <- liftIO $ PactDb.rewindDbTo
-            (_chainwebVersion e)
-            (_chainId e)
+        startTxId <- liftIO $ PactDb.rewindDbTo
+            v
+            cid
             sql
-            (unwrapParent $ _evaluationCtxRankedParentHash forkPoint)
-        mapExceptT liftIO $ extend e (mempty, txid) (NEL.toList blocks)
+            (unwrapParent $ _bctxParentRankedBlockHash $ fst $ NE.head blocks)
+
+        (mStart, startTxId') <- executeBlock startTxId (NE.head blocks)
+        extend mStart startTxId' (NE.tail blocks)
+
     where
-    extend e (m, startTxId) = \case
-        (blockAction, evalCtx) : subsequentBlocks -> let
-            !bh = _evaluationCtxCurrentHeight evalCtx
+
+    extend !acc !startTxId (blk:blks) = do
+        (acc', endTxId) <- executeBlock startTxId blk
+        -- compute the accumulator strictly
+        let !acc'' = acc <> acc'
+        extend acc'' endTxId blks
+    extend !acc !_ [] = return acc
+
+    executeBlock startTxId (blockCtx, blockAction) = do
+        let
+            !bh = _bctxCurrentBlockHeight blockCtx
             blockEnv = ChainwebPactDb.BlockHandlerEnv
-                { ChainwebPactDb._blockHandlerDb = _psReadWriteSql e
-                , ChainwebPactDb._blockHandlerLogger = _psLogger e
-                , ChainwebPactDb._blockHandlerVersion = _chainwebVersion e
+                { ChainwebPactDb._blockHandlerDb = sql
+                , ChainwebPactDb._blockHandlerLogger = logger
+                , ChainwebPactDb._blockHandlerVersion = v
                 , ChainwebPactDb._blockHandlerBlockHeight = bh
-                , ChainwebPactDb._blockHandlerChainId = _chainId e
+                , ChainwebPactDb._blockHandlerChainId = cid
                 , ChainwebPactDb._blockHandlerMode = Pact.Transactional
                 , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
                 , ChainwebPactDb._blockHandlerAtTip = True
                 }
             pactDb = ChainwebPactDb.chainwebPactBlockDb blockEnv
-            in if pact5 (_chainwebVersion e) (_chainId e) bh then do
-
-                let blockCtx = blockCtxOfEvaluationCtx (_chainwebVersion e) (_chainId e) evalCtx
-
-                let runBlock = mapExceptT
-                        (\r -> runPactServiceM e $ fmap
-                            (\(eitherR, hndl) -> (,hndl) <$> eitherR)
-                            (Pact.runPactBlockM blockCtx pactDb (emptyBlockHandle startTxId) r)
-                        )
+            in if pact5 v cid bh then do
 
                 -- run the block
-                (m', blockHandle) <- runBlock blockAction
-                -- compute the accumulator early
-                let !m'' = m <> m'
+                ((m, blockInfo), blockHandle) <-
+                    runStateT (blockAction (BlockEnv blockCtx pactDb)) (emptyBlockHandle startTxId)
                 -- TODO PP: also check the child matches the parent height
                 -- case maybeParent of
                 --   Nothing
@@ -269,156 +268,42 @@ restoreAndSave blocks@((_, forkPoint) :| _) = do
                 --         <> sshow (_rankedBlockHashHeight ph) <> ", child height " <> sshow (_rankedBlockHashHeight nextBlock)
                 --   _ -> return ()
                 liftIO $ ChainwebPactDb.commitBlockStateToDatabase
-                    (_psReadWriteSql e)
-                    evalCtx
+                    sql
+                    (Ranked bh blockInfo)
                     blockHandle
 
-                extend e (m'', _blockHandleTxId blockHandle) subsequentBlocks
+                return (m, _blockHandleTxId blockHandle)
 
             else error $
                 "Pact 5 block executed on block height before Pact 5 fork, height: " <> sshow bh
-        [] -> return m
---
--- -------------------------------------------------------------------------- --
--- Incremental rewindTo
 
--- | INTERNAL FUNCTION. DON'T USE UNLESS YOU KNOW WHAT YOU DO.
---
--- Used for large incremental rewinds during pact history replay. Unlike
--- @rewindTo@, this version is not transactional but instead incrementally
--- commits the intermediate evaluation state to the pact database.
---
--- Rewinds the pact state to the given parent header.
---
--- If the rewind is deeper than the optionally provided rewind limit, an
--- exception is raised.
---
--- rewindToIncremental
---     :: forall logger tbl
---     . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
---     => Maybe RewindLimit
---         -- ^ if set, limit rewinds to this delta
---     -> (Parent BlockHeader)
---         -- ^ The parent header which is the rewind target
---     -> PactServiceM logger tbl ()
--- rewindToIncremental rewindLimit (Parent parent) = do
+getEarliestBlock :: SQLiteEnv -> IO (Maybe RankedBlockHash)
+getEarliestBlock sql = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getEarliestBlock sql
 
---     latestHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
+getConsensusState :: SQLiteEnv -> IO (Maybe ConsensusState)
+getConsensusState sql = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getConsensusState sql
 
---     failOnTooLowRequestedHeight latestHeader
---     playFork latestHeader
+setConsensusState :: SQLiteEnv -> ConsensusState -> IO ()
+setConsensusState sql cs = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.setConsensusState sql cs
 
---     where
---     parentHeight = view blockHeight parent
+lookupBlockWithHeight :: SQLiteEnv -> BlockHeight -> IO (Maybe (Ranked (Parent BlockHash)))
+lookupBlockWithHeight sql bh = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockWithHeight sql bh
 
+-- lookupBlockByHash :: SQLiteEnv -> EvaluationCtx p -> IO Bool
+-- lookupBlockByHash sql rpbh = do
+--     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockByHash sql rpbh
 
---     -- TODO: PP
---     -- failOnTooLowRequestedHeight lastHeader = case rewindLimit of
---     --     Just limit
---     --         | let limitHeight = BlockHeight $ _rewindLimit limit
---     --         , parentHeight + 1 + limitHeight < lastHeight -> -- need to stick with addition because Word64
---     --             throwM $ RewindLimitExceeded limit (Just lastHeader) (Just parent)
---     --     _ -> return ()
---     --     where
---     --     lastHeight = view blockHeight lastHeader
+lookupParentBlockHash :: SQLiteEnv -> Parent BlockHash -> IO Bool
+lookupParentBlockHash sql pbh = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupParentBlockHash sql pbh
 
---     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
-
---     playFork :: BlockHeader -> PactServiceM logger tbl ()
---     playFork lastHeader = do
---         bhdb <- asks _psBlockHeaderDb
---         commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
---         cp <- view psCheckpointer
---         payloadDb <- view psPdb
---         let ancestorHeight = view blockHeight commonAncestor
-
---         logger <- view psLogger
-
---         -- 'getBranchIncreasing' expects an 'IO' callback because it
---         -- maintains an 'TreeDB' iterator. 'withPactState' allows us to call
---         -- pact service actions from the callback.
-
---         (_ :> c) <- withPactState $ \runPact ->
---             getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
-
---                 -- fastforwards all blocks in a chunk in a single database
---                 -- transaction.
---                 -- invariant: when playing a chunk, the checkpointer must
---                 -- already be at `cur`.
---                 let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
---                     playChunk heightRef cur blockChunk = runPact $ do
---                         (r, Last header) <- restoreAndSave
---                             (Just $ Parent cur)
---                             $ blockChunk & S.map
---                             (\blockHeader -> do
---                                 payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ view blockHeight blockHeader) (view blockPayloadHash blockHeader) >>= \case
---                                     Nothing -> internalError
---                                         $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
---                                         <> ". BlockPayloadHash: " <> encodeToText (view blockPayloadHash blockHeader)
---                                         <> ". Block: "<> encodeToText (ObjectEncoded blockHeader)
---                                     Just x -> return $ payloadWithOutputsToPayloadData x
---                                 liftIO $ writeIORef heightRef (view blockHeight blockHeader)
---                                 PactBlockM $ Pair
---                                     (void $ Pact4.execBlock blockHeader (CheckablePayload payload))
---                                     (void $ Pact.execExistingBlock blockHeader (CheckablePayload payload))
---                                 return (Last (Just blockHeader), blockHeader)
---                             )
-
---                         return $! fromJuste header :> r
-
---                 -- This stream is guaranteed to at least contain @e@.
---                 (curHdr, remaining) <- fromJuste <$> S.uncons newBlocks
-
---                 -- we have to rewind to the current header to start, for
---                 -- playChunk's invariant to be satisfied
---                 Internal.rewindTo cp
---                     (Just $ Parent curHdr)
-
---                 heightRef <- newIORef (view blockHeight curHdr)
---                 withAsync (heightProgress (view blockHeight curHdr) heightRef (logInfo_ logger)) $ \_ ->
---                     remaining
---                         & S.copy
---                         & S.length_
---                         & S.chunksOf 1000
---                         & foldChunksM (playChunk heightRef) curHdr
-
---         when (c /= 0) $
---             logInfoPact $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
-
-getEarliestBlock :: PactServiceM logger tbl (Maybe RankedBlockHash)
-getEarliestBlock = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getEarliestBlock sql
-
-getConsensusState :: PactServiceM logger tbl ConsensusState
-getConsensusState = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getConsensusState sql
-
-setConsensusState :: ConsensusState -> PactServiceM logger tbl ()
-setConsensusState cs = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.setConsensusState sql cs
-
-lookupBlockWithHeight :: BlockHeight -> PactServiceM logger tbl (Maybe (Ranked (Parent BlockHash)))
-lookupBlockWithHeight bh = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockWithHeight sql bh
-
-lookupBlockByEvalCtx :: EvaluationCtx p -> PactServiceM logger tbl Bool
-lookupBlockByEvalCtx rpbh = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockByEvalCtx sql rpbh
-
-lookupParentBlockHash :: Parent BlockHash -> PactServiceM logger tbl Bool
-lookupParentBlockHash pbh = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupParentBlockHash sql pbh
-
-getPayloadsAfter :: Parent BlockHeight -> PactServiceM logger tbl [Ranked BlockPayloadHash]
-getPayloadsAfter b = do
-    sql <- view psReadWriteSql
-    liftIO $ ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getPayloadsAfter sql b
+getPayloadsAfter :: SQLiteEnv -> Parent BlockHeight -> IO [Ranked BlockPayloadHash]
+getPayloadsAfter sql b = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getPayloadsAfter sql b
 
 -- -------------------------------------------------------------------------- --
 -- Utils

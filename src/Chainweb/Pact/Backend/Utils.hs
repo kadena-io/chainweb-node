@@ -14,6 +14,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
@@ -35,7 +36,6 @@ module Chainweb.Pact.Backend.Utils
   , rewindDbToBlock
   , rewindDbToGenesis
   , getEndTxId
-  , getEndTxId'
     -- * Savepoints
   , withSavepoint
   , beginSavepoint
@@ -50,6 +50,7 @@ module Chainweb.Pact.Backend.Utils
   , convSavepointName
   -- * SQLite runners
   , withSqliteDb
+  , withReadSqliteDb
   , startSqliteDb
   , startReadSqliteDb
   , stopSqliteDb
@@ -58,11 +59,24 @@ module Chainweb.Pact.Backend.Utils
   , closeSQLiteConnection
   , withTempSQLiteConnection
   , withInMemSQLiteConnection
-  -- * SQLite Pragmas
+  -- * SQLite
   , chainwebPragmas
+  , LocatedSQ3Error(..)
+  , execMulti
+  , exec
+  , exec'
+  , exec_
+  , Pragma(..)
+  , runPragmas
+  , qry
+  , qry_
+  , bindParams
+  , SType(..)
+  , RType(..)
+  , throwOnDbError
+  , locateSQ3Error
   ) where
 
-import Control.Exception (evaluate)
 import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.State.Strict
@@ -96,7 +110,6 @@ import Chainweb.Utils
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Parent
 import Database.SQLite3.Direct hiding (open2)
 import GHC.Stack
 import qualified Data.ByteString.Short as SB
@@ -111,6 +124,13 @@ import qualified Data.HashSet as HashSet
 import Data.Text (Text)
 import qualified Pact.Core.Persistence as Pact
 import Control.Monad.Catch (ExitCase(..))
+import Control.Monad.Except
+import Data.Int
+import Control.Lens
+import qualified Pact.JSON.Encode as J
+import Data.Aeson (FromJSON)
+import Chainweb.Ranked
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
@@ -144,13 +164,13 @@ withSavepoint db name action = fmap fst $ generalBracket
         _ -> abortSavepoint db name
     ) $ \_ -> action
 
-beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+beginSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
 beginSavepoint db name =
-  Pact4.exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
+  throwOnDbError $ exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+commitSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
 commitSavepoint db name =
-  Pact4.exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
+  throwOnDbError $ exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 convSavepointName :: SavepointName -> SQ3.Utf8
 convSavepointName = toUtf8 . toText
@@ -165,9 +185,9 @@ convSavepointName = toUtf8 . toText
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+rollbackSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
 rollbackSavepoint db name =
-  Pact4.exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
+  throwOnDbError $ exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @abortSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and removes it from the savepoint stack.
@@ -266,6 +286,17 @@ startReadSqliteDb cid logger dbDir = do
   where
     sqliteFile = dbDir </> chainDbFileName cid
 
+withReadSqliteDb
+  :: Logger logger
+  => ChainId
+  -> logger
+  -> FilePath
+  -> (SQLiteEnv -> IO a)
+  -> IO a
+withReadSqliteDb cid logger dbDir = bracket
+  (startReadSqliteDb cid logger dbDir)
+  stopSqliteDb
+
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
     [ "pact-v1-chain-"
@@ -331,62 +362,62 @@ tbl t@(Utf8 b)
     | B8.elem ']' b = error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
-doLookupSuccessful :: Database -> BlockHeight -> V.Vector SB.ShortByteString -> IO (HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash))
-doLookupSuccessful db curHeight hashes = do
+doLookupSuccessful :: Database -> BlockHeight -> V.Vector SB.ShortByteString -> IO (HashMap.HashMap SB.ShortByteString (T3 BlockHeight BlockPayloadHash BlockHash))
+doLookupSuccessful db curHeight hashes = throwOnDbError $ do
   fmap buildResultMap $ do -- swizzle results of query into a HashMap
       let
         hss = V.toList hashes
         params = BS.intercalate "," (map (const "?") hss)
         qtext = Utf8 $ BS.intercalate " "
-            [ "SELECT blockheight, hash, txhash"
+            [ "SELECT blockheight, payloadhash, hash, txhash"
             , "FROM TransactionIndex"
             , "INNER JOIN BlockHistory USING (blockheight)"
             , "WHERE txhash IN (" <> params <> ")" <> " AND blockheight < ?;"
             ]
         qvals
           -- match query params above. first, hashes
-          = map (\h -> Pact4.SBlob $ SB.fromShort h) hss
+          = map (\h -> SBlob $ SB.fromShort h) hss
           -- then, the block height; we don't want to see txs from the
           -- current block in the db, because they'd show up in pending data
-          ++ [Pact4.SInt $ fromIntegral curHeight]
+          ++ [SInt $ fromIntegral curHeight]
 
-      Pact4.qry db qtext qvals [Pact4.RInt, Pact4.RBlob, Pact4.RBlob] >>= mapM go
+      qry db qtext qvals [RInt, RBlob, RBlob, RBlob] >>= mapM go
   where
     -- NOTE: it's useful to keep the types of 'go' and 'buildResultMap' in sync
     -- for readability but also to ensure the compiler and reader infer the
     -- right result types from the db query.
 
-    buildResultMap :: [T3 SB.ShortByteString BlockHeight BlockHash] -> HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash)
+    buildResultMap :: [T4 SB.ShortByteString BlockHeight BlockPayloadHash BlockHash] -> HashMap.HashMap SB.ShortByteString (T3 BlockHeight BlockPayloadHash BlockHash)
     buildResultMap xs = HashMap.fromList $
-      map (\(T3 txhash blockheight blockhash) -> (txhash, T2 blockheight blockhash)) xs
+      map (\(T4 txhash blockheight payloadhash blockhash) -> (txhash, T3 blockheight payloadhash blockhash)) xs
 
-    go :: [Pact4.SType] -> IO (T3 SB.ShortByteString BlockHeight BlockHash)
-    go (Pact4.SInt blockheight:Pact4.SBlob blockhash:Pact4.SBlob txhash:_) = do
+    go :: [SType] -> ExceptT LocatedSQ3Error IO (T4 SB.ShortByteString BlockHeight BlockPayloadHash BlockHash)
+    go (SInt blockheight:SBlob payloadhash:SBlob blockhash:SBlob txhash:_) = do
         !blockhash' <- either fail return $ runGetEitherS decodeBlockHash blockhash
+        !payloadhash' <- either fail return $ runGetEitherS decodeBlockPayloadHash payloadhash
         let !txhash' = SB.toShort txhash
-        return $! T3 txhash' (fromIntegral blockheight) blockhash'
+        return $! T4 txhash' (fromIntegral blockheight) payloadhash' blockhash'
     go _ = fail "impossible"
 
-getEndTxId :: ChainwebVersion -> ChainId -> Text -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
-getEndTxId v cid msg sql pc
+getEndTxId :: HasCallStack => ChainwebVersion -> ChainId -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
+getEndTxId v cid sql pc
   | isGenesisBlockHeader' v cid (_rankedBlockHashHash <$> pc) =
     return (Historical (Pact.TxId 0))
   | otherwise =
-    getEndTxId' msg sql pc
+    getEndTxId' sql pc
 
-getEndTxId' :: Text -> SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
-getEndTxId' msg sql (Parent rbh) = do
-    r <- Pact4.qry sql
+getEndTxId' :: HasCallStack => SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
+getEndTxId' sql (Parent rbh) = throwOnDbError $ do
+    r <- qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-      [ Pact4.SInt $ fromIntegral $ _rankedBlockHashHeight rbh
-      , Pact4.SBlob $ runPutS (encodeBlockHash $ _rankedBlockHashHash rbh)
+      [ SInt $ fromIntegral $ _rankedBlockHashHeight rbh
+      , SBlob $ runPutS (encodeBlockHash $ _rankedBlockHashHash rbh)
       ]
-      [Pact4.RInt]
+      [RInt]
     case r of
-      [[Pact4.SInt tid]] -> return $ Historical (Pact.TxId (fromIntegral tid))
+      [[SInt tid]] -> return $ Historical (Pact.TxId (fromIntegral tid))
       [] -> return NoHistory
-      _ -> error $ T.unpack msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
-
+      _ -> error $ "getEndTxId: expected single-row int result, got " <> sshow r
 
 -- | Delete any state from the database newer than the input parent header.
 -- Returns the ending txid of the input parent header.
@@ -401,7 +432,7 @@ rewindDbTo v cid db pc
     rewindDbToGenesis db
     return (Pact.TxId 0)
   | otherwise = do
-    !historicalEndingTxId <- getEndTxId v cid "rewindDbToBlock" db (Parent pc)
+    !historicalEndingTxId <- getEndTxId v cid db (Parent pc)
     endingTxId <- case historicalEndingTxId of
       NoHistory ->
         error
@@ -409,96 +440,183 @@ rewindDbTo v cid db pc
           <> sshow pc
       Historical endingTxId ->
         return endingTxId
-    rewindDbToBlock db (_rankedBlockHashHeight <$> Parent pc) endingTxId
+    rewindDbToBlock db (rank pc) endingTxId
     return endingTxId
 
 -- rewind before genesis, delete all user tables and all rows in all tables
 rewindDbToGenesis
   :: SQLiteEnv
   -> IO ()
-rewindDbToGenesis db = do
-    Pact4.exec_ db "DELETE FROM BlockHistory;"
-    Pact4.exec_ db "DELETE FROM [SYS:KeySets];"
-    Pact4.exec_ db "DELETE FROM [SYS:Modules];"
-    Pact4.exec_ db "DELETE FROM [SYS:Namespaces];"
-    Pact4.exec_ db "DELETE FROM [SYS:Pacts];"
-    Pact4.exec_ db "DELETE FROM [SYS:ModuleSources];"
-    tblNames <- Pact4.qry_ db "SELECT tablename FROM VersionedTableCreation;" [Pact4.RText]
+rewindDbToGenesis db = throwOnDbError $ do
+    exec_ db "DELETE FROM BlockHistory;"
+    exec_ db "DELETE FROM [SYS:KeySets];"
+    exec_ db "DELETE FROM [SYS:Modules];"
+    exec_ db "DELETE FROM [SYS:Namespaces];"
+    exec_ db "DELETE FROM [SYS:Pacts];"
+    exec_ db "DELETE FROM [SYS:ModuleSources];"
+    tblNames <- liftIO $ Pact4.qry_ db "SELECT tablename FROM VersionedTableCreation;" [Pact4.RText]
     forM_ tblNames $ \t -> case t of
-      [Pact4.SText tn] -> Pact4.exec_ db ("DROP TABLE [" <> tn <> "];")
+      [Pact4.SText tn] -> exec_ db ("DROP TABLE [" <> tn <> "];")
       _ -> error "Something went wrong when resetting tables."
-    Pact4.exec_ db "DELETE FROM VersionedTableCreation;"
-    Pact4.exec_ db "DELETE FROM VersionedTableMutation;"
-    Pact4.exec_ db "DELETE FROM TransactionIndex;"
+    exec_ db "DELETE FROM VersionedTableCreation;"
+    exec_ db "DELETE FROM VersionedTableMutation;"
+    exec_ db "DELETE FROM TransactionIndex;"
 
 -- | Rewind the database to a particular block, given the end tx id of that
 -- block.
 rewindDbToBlock
   :: Database
-  -> Parent BlockHeight
+  -> BlockHeight
   -> Pact.TxId
   -> IO ()
-rewindDbToBlock db (Parent bh) endingTxId = do
+rewindDbToBlock db bh endingTxId = throwOnDbError $ do
     tableMaintenanceRowsVersionedSystemTables
     droppedtbls <- dropTablesAtRewind
     vacuumTablesAtRewind droppedtbls
     deleteHistory
     clearTxIndex
   where
-    dropTablesAtRewind :: IO (HashSet BS.ByteString)
+    dropTablesAtRewind :: ExceptT LocatedSQ3Error IO (HashSet BS.ByteString)
     dropTablesAtRewind = do
-        toDropTblNames <- Pact4.qry db findTablesToDropStmt
-                          [Pact4.SInt (fromIntegral bh)] [Pact4.RText]
+        toDropTblNames <- qry db findTablesToDropStmt
+                          [SInt (fromIntegral bh)] [RText]
         tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
-            [Pact4.SText tblname@(Utf8 tn)] -> do
-                Pact4.exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
+            [SText tblname@(Utf8 tn)] -> do
+                exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
                 return tn
             _ -> error rewindmsg
-        Pact4.exec' db
+        exec' db
             "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?"
-            [Pact4.SInt (fromIntegral bh)]
+            [SInt (fromIntegral bh)]
         return tbls
     findTablesToDropStmt =
       "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?;"
     rewindmsg =
       "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
 
-    deleteHistory :: IO ()
+    deleteHistory :: ExceptT LocatedSQ3Error IO ()
     deleteHistory =
-        Pact4.exec' db "DELETE FROM BlockHistory WHERE blockheight > ?"
-              [Pact4.SInt (fromIntegral bh)]
+        exec' db "DELETE FROM BlockHistory WHERE blockheight > ?"
+              [SInt (fromIntegral bh)]
 
-    vacuumTablesAtRewind :: HashSet BS.ByteString -> IO ()
+    vacuumTablesAtRewind :: HashSet BS.ByteString -> ExceptT LocatedSQ3Error IO ()
     vacuumTablesAtRewind droppedtbls = do
         let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
-              [Pact4.SText (Utf8 tn)] -> return tn
+              [SText (Utf8 tn)] -> return tn
               _ -> error
                 "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
                 \of the table to possibly vacuum."
-        mutatedTables <- Pact4.qry db
+        mutatedTables <- qry db
             "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?;"
-          [Pact4.SInt (fromIntegral bh)]
-          [Pact4.RText]
+          [SInt (fromIntegral bh)]
+          [RText]
           >>= processMutatedTables
         let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
         forM_ toVacuumTblNames $ \tblname ->
-            Pact4.exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
-                  [Pact4.SInt $! fromIntegral $ Pact._txId endingTxId]
-        Pact4.exec' db "DELETE FROM VersionedTableMutation WHERE blockheight > ?;"
-              [Pact4.SInt (fromIntegral bh)]
+            exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
+                  [SInt $! fromIntegral $ Pact._txId endingTxId]
+        exec' db "DELETE FROM VersionedTableMutation WHERE blockheight > ?;"
+              [SInt (fromIntegral bh)]
 
-    tableMaintenanceRowsVersionedSystemTables :: IO ()
+    tableMaintenanceRowsVersionedSystemTables :: ExceptT LocatedSQ3Error IO ()
     tableMaintenanceRowsVersionedSystemTables = do
-        Pact4.exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
-        Pact4.exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
-        Pact4.exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
-        Pact4.exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
-        Pact4.exec' db "DELETE FROM [SYS:ModuleSources] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:ModuleSources] WHERE txid >= ?" tx
       where
-        tx = [Pact4.SInt $! fromIntegral $ Pact._txId endingTxId]
+        tx = [SInt $! fromIntegral $ Pact._txId endingTxId]
 
     -- | Delete all future transactions from the index
-    clearTxIndex :: IO ()
+    clearTxIndex :: ExceptT LocatedSQ3Error IO ()
     clearTxIndex =
-        Pact4.exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
-              [ Pact4.SInt (fromIntegral bh) ]
+        exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
+              [ SInt (fromIntegral bh) ]
+
+data LocatedSQ3Error = LocatedSQ3Error !CallStack !SQ3.Error
+instance Show LocatedSQ3Error where
+    show (LocatedSQ3Error cs e) =
+        sshow e <> "\n\n" <>
+        prettyCallStack cs
+
+throwOnDbError :: (HasCallStack, MonadThrow m) => ExceptT LocatedSQ3Error m a -> m a
+throwOnDbError act = runExceptT act >>= either (error . sshow) return
+
+locateSQ3Error :: (HasCallStack, Functor m) => m (Either SQ3.Error a) -> ExceptT LocatedSQ3Error m a
+locateSQ3Error = ExceptT . fmap (_Left %~ LocatedSQ3Error callStack)
+
+-- | Statement input types
+data SType = SInt Int64 | SDouble Double | SText SQ3.Utf8 | SBlob BS.ByteString deriving (Eq,Show)
+-- | Result types
+data RType = RInt | RDouble | RText | RBlob deriving (Eq,Show)
+
+bindParams :: HasCallStack => SQ3.Statement -> [SType] -> ExceptT LocatedSQ3Error IO ()
+bindParams stmt as =
+    forM_ (zip as [1..]) $ \(a,i) -> locateSQ3Error $
+        case a of
+            SInt n -> SQ3.bindInt64 stmt i n
+            SDouble n -> SQ3.bindDouble stmt i n
+            SText n -> SQ3.bindText stmt i n
+            SBlob n -> SQ3.bindBlob stmt i n
+
+prepStmt :: HasCallStack => SQ3.Database -> SQ3.Utf8 -> ExceptT LocatedSQ3Error IO SQ3.Statement
+prepStmt c q = do
+    r <- locateSQ3Error $ SQ3.prepare c q
+    case r of
+        Nothing -> error "No SQL statements in prepared statement"
+        Just s -> return s
+
+execMulti :: HasCallStack => Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> ExceptT LocatedSQ3Error IO ()
+execMulti db q rows = bracket (prepStmt db q) (liftIO . SQ3.finalize) $ \stmt -> do
+    forM_ rows $ \row -> do
+        locateSQ3Error $ SQ3.reset stmt
+        liftIO $ SQ3.clearBindings stmt
+        bindParams stmt row
+        locateSQ3Error $ SQ3.step stmt
+
+-- | Prepare/execute query with params
+qry :: HasCallStack => SQ3.Database -> SQ3.Utf8 -> [SType] -> [RType] -> ExceptT LocatedSQ3Error IO [[SType]]
+qry e q as rts = bracket (prepStmt e q) (locateSQ3Error . SQ3.finalize) $ \stmt -> do
+    bindParams stmt as
+    reverse <$> stepStmt stmt rts
+
+-- | Prepare/execute query with no params
+qry_ :: HasCallStack => SQ3.Database -> SQ3.Utf8 -> [RType] -> ExceptT LocatedSQ3Error IO [[SType]]
+qry_ e q rts = bracket (prepStmt e q) (locateSQ3Error . finalize) $ \stmt ->
+  reverse <$> stepStmt stmt rts
+
+stepStmt :: HasCallStack => SQ3.Statement -> [RType] -> ExceptT LocatedSQ3Error IO [[SType]]
+stepStmt stmt rts = do
+    let acc rs SQ3.Done = return rs
+        acc rs SQ3.Row = do
+            as <- lift $ forM (zip rts [0..]) $ \(rt,ci) ->
+                case rt of
+                    RInt -> SInt <$> SQ3.columnInt64 stmt ci
+                    RDouble -> SDouble <$> SQ3.columnDouble stmt ci
+                    RText -> SText <$> SQ3.columnText stmt ci
+                    RBlob -> SBlob <$> SQ3.columnBlob stmt ci
+            sr <- locateSQ3Error $ SQ3.step stmt
+            acc (as:rs) sr
+    sr <- locateSQ3Error $ SQ3.step stmt
+    acc [] sr
+
+-- | Prepare/exec statement with no params
+exec_ :: HasCallStack => SQ3.Database -> SQ3.Utf8 -> ExceptT LocatedSQ3Error IO ()
+exec_ e q = locateSQ3Error $ over _Left fst <$> SQ3.exec e q
+
+-- | Prepare/exec statement with params
+exec' :: HasCallStack => SQ3.Database -> SQ3.Utf8 -> [SType] -> ExceptT LocatedSQ3Error IO ()
+exec' e q as = bracket (prepStmt e q) (locateSQ3Error . SQ3.finalize) $ \stmt -> do
+    bindParams stmt as
+    void $ locateSQ3Error (SQ3.step stmt)
+
+newtype Pragma = Pragma String
+    deriving (Eq,Show)
+    deriving newtype (FromJSON, IsString)
+
+instance J.Encode Pragma where
+  build (Pragma s) = J.string s
+
+runPragmas :: Database -> [Pragma] -> IO ()
+runPragmas c = throwOnDbError . mapM_ (\(Pragma s) -> exec_ c (fromString ("PRAGMA " ++ s)))

@@ -288,7 +288,7 @@ workReady t rbh pld ps' = WorkReady rbh pld ps'
 
 _newPayloadRankedHash :: NewPayload -> RankedBlockHash
 _newPayloadRankedHash p =
-    RankedBlockHash (_newPayloadParentHeight p) (_newPayloadParentHash p)
+    RankedBlockHash (unwrapParent $ _newPayloadParentHeight p) (unwrapParent $ _newPayloadParentHash p)
 
 instance Brief WorkState where
     brief (WorkNotReady rh) = "WorkNotReady" <> ":" <> brief rh

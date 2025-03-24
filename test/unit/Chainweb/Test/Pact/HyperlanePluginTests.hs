@@ -1,6 +1,6 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Chainweb.Test.Pact5.HyperlanePluginTests (tests) where
+module Chainweb.Test.Pact.HyperlanePluginTests (tests) where
 
 import Control.Lens
 import Control.Monad.IO.Class
@@ -17,10 +17,10 @@ import Test.Tasty.HUnit (testCaseSteps)
 
 import Chainweb.Graph
 import Chainweb.Storage.Table.RocksDB (RocksDb)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.CutFixture (advanceAllChains_)
-import Chainweb.Test.Pact5.RemotePactTest hiding (tests)
-import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.CutFixture (advanceAllChains_)
+import Chainweb.Test.Pact.RemotePactTest hiding (tests)
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Utils

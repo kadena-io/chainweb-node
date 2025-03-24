@@ -11,14 +11,15 @@
 {-# language TypeApplications #-}
 
 module Chainweb.Pact.Transaction
-  ( Transaction
-  , PayloadWithText
-  , payloadBytes
-  , payloadObj
-  , payloadCodec
-  , parseCommand
-  , HashableTransaction(..)
-  ) where
+    ( Transaction
+    , PayloadWithText
+    , unsafeMkPayloadWithText
+    , payloadBytes
+    , payloadObj
+    , commandCodec
+    , parseCommand
+    , HashableTransaction(..)
+    ) where
 
 import "aeson" Data.Aeson qualified as Aeson
 import "base" Data.Function
@@ -59,6 +60,12 @@ instance (J.Encode meta, J.Encode code) => J.Encode (PayloadWithText meta code) 
       , "payloadObject" J..= _payloadObj p
       ]
 
+unsafeMkPayloadWithText :: Payload meta code -> ByteString -> PayloadWithText meta code
+unsafeMkPayloadWithText payload bytes = UnsafePayloadWithText
+    { _payloadBytes = SB.toShort bytes
+    , _payloadObj = payload
+    }
+
 payloadBytes :: Getter (PayloadWithText meta code) SB.ShortByteString
 payloadBytes = to _payloadBytes
 {-# inline conlike payloadBytes #-}
@@ -69,9 +76,9 @@ payloadObj = to _payloadObj
 
 -- | A codec for Pact5's (Command PayloadWithText) transactions.
 --
-payloadCodec
+commandCodec
     :: Codec (Command (PayloadWithText PublicMeta ParsedCode))
-payloadCodec = Codec enc dec
+commandCodec = Codec enc dec
     where
     enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of

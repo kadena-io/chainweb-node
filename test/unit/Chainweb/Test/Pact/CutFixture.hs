@@ -25,7 +25,7 @@
 -- multiple chains. Usually, you initialize it with `mkFixture`, insert
 -- transactions into the mempool as desired, and use `advanceAllChains` to
 -- trigger mining on all chains at once.
-module Chainweb.Test.Pact5.CutFixture
+module Chainweb.Test.Pact.CutFixture
     ( Fixture(..)
     , HasFixture(..)
     , mkFixture
@@ -58,12 +58,12 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
-import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
@@ -213,7 +213,7 @@ mine cid miner newBlockStrat pact cutDb c = do
     tryMineForChain miner newBlockStrat pact cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
             $ "Failed to create new cut on chain " <> toText cid <> "."
-            <> "This is a bug in Chainweb.Test.Pact5.CutFixture or one of its users; check that this chain's adjacent chains aren't too far behind."
+            <> "This is a bug in Chainweb.Test.Pact.CutFixture or one of its users; check that this chain's adjacent chains aren't too far behind."
             <> "\nCut: \n"
             <> Text.unlines (cutToTextShort c)
         Right x -> do

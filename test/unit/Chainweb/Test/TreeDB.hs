@@ -235,7 +235,7 @@ entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     pure . isJust $ foldlM g S.empty hs
   where
     g acc h = let acc' = S.insert (view blockHash h) acc
-              in bool Nothing (Just acc') $ isGenesisBlockHeader h || S.member (view blockParent h) acc'
+              in bool Nothing (Just acc') $ isGenesisBlockHeader h || S.member (unwrapParent (view blockParent h)) acc'
 
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0

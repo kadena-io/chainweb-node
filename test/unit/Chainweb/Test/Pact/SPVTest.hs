@@ -19,7 +19,7 @@
 {-# options_ghc -Wwarn #-}
 {-# options_ghc -w #-}
 
-module Chainweb.Test.Pact5.SPVTest
+module Chainweb.Test.Pact.SPVTest
     ( tests
     ) where
 
@@ -48,7 +48,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
 import Chainweb.Miner.Pact (noMiner)
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db (doPact5DbTransaction))
+import Chainweb.Pact.Backend.ChainwebPactDb (Pact5Db (doPact5DbTransaction))
 import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
@@ -62,23 +62,23 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv, BlockInProgress (_blockInProgressTransactions))
 import Chainweb.Pact.Utils (emptyPayload)
-import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
-import Chainweb.Pact4.TransactionExec qualified
-import Chainweb.Pact5.Transaction
-import Chainweb.Pact5.Transaction qualified as Pact5
-import Chainweb.Pact5.TransactionExec
-import Chainweb.Pact5.TransactionExec qualified
-import Chainweb.Pact5.TransactionExec qualified as Pact5
-import Chainweb.Pact5.Types
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.TransactionExec (applyGenesisCmd)
+import Chainweb.Pact.TransactionExec qualified
+import Chainweb.Pact.Transaction
+import Chainweb.Pact.Transaction qualified as Pact5
+import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.TransactionExec qualified
+import Chainweb.Pact.TransactionExec qualified as Pact5
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -128,8 +128,8 @@ import GHC.Stack
 import Hedgehog hiding (Update)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import "pact" Pact.Types.Command qualified as Pact4
-import "pact" Pact.Types.Hash qualified as Pact4
+import "pact" Pact.Types.Command qualified as Pact
+import "pact" Pact.Types.Hash qualified as Pact
 import Numeric.AffineSpace
 import Pact.Core.Builtin
 import Pact.Core.Capabilities
@@ -156,7 +156,7 @@ import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Serialise
 import Pact.Core.StableEncoding (encodeStable)
 import Pact.Core.Verifiers
-import Pact.Types.Gas qualified as Pact4
+import Pact.Types.Gas qualified as Pact
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Streaming.Prelude qualified as Stream

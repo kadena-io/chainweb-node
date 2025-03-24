@@ -16,13 +16,13 @@
 
 {-# options_ghc -fno-warn-gadt-mono-local-binds #-}
 
-module Chainweb.Test.Pact5.PactServiceTest
+module Chainweb.Test.Pact.PactServiceTest
     ( tests
     ) where
 
 import Data.List qualified as List
-import "pact" Pact.Types.Command qualified as Pact4
-import "pact" Pact.Types.Hash qualified as Pact4
+import "pact" Pact.Types.Command qualified as Pact
+import "pact" Pact.Types.Hash qualified as Pact
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
@@ -39,13 +39,13 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
-import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact5.Transaction qualified as Pact5
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.Transaction qualified as Pact5
 import Chainweb.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource)
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.Utils hiding (withTempSQLiteResource)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -78,7 +78,7 @@ import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Names
 import Pact.Core.PactValue
-import Pact.Types.Gas qualified as Pact4
+import Pact.Types.Gas qualified as Pact
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Test.Tasty

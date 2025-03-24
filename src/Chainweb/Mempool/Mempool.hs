@@ -141,7 +141,6 @@ import Data.LogMessage (LogFunctionText)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
-import Chainweb.Parent
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import Chainweb.Time qualified as Time
 import Chainweb.Pact.Transaction qualified as Pact
@@ -317,7 +316,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: forall to. BlockFill -> MempoolPreBlockCheck t to -> BlockHeight -> Parent BlockHash -> IO (Vector to)
+      :: forall to. BlockFill -> MempoolPreBlockCheck t to -> EvaluationCtx () -> IO (Vector to)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -375,7 +374,7 @@ noopMempool = do
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
-    noopGetBlock _ _ _ _ = return V.empty
+    noopGetBlock _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
@@ -385,7 +384,7 @@ noopMempool = do
 pactTransactionConfig
     :: TransactionConfig Pact.Transaction
 pactTransactionConfig = TransactionConfig
-    { txCodec = Pact.payloadCodec
+    { txCodec = Pact.commandCodec
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = view (Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasPrice)

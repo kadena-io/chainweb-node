@@ -54,8 +54,6 @@ module Chainweb.PayloadProvider
 , EncodedPayloadOutputs(..)
 , assertForkInfoInvariants
 , _forkInfoBaseHeight
-, _forkInfoBaseBlockHash
-, _forkInfoBaseRankedBlockHash
 , _forkInfoBaseRankedPayloadHash
 
 -- * New Payload
@@ -521,16 +519,6 @@ _forkInfoBaseHeight fi = case _forkInfoTrace fi of
     [] -> _latestHeight (_forkInfoTargetState fi)
     (h:_) -> unwrapParent $ _evaluationCtxParentHeight h
 
-_forkInfoBaseBlockHash :: ForkInfo -> BlockHash
-_forkInfoBaseBlockHash fi = case _forkInfoTrace fi of
-    [] -> _latestBlockHash (_forkInfoTargetState fi)
-    (h:_) -> unwrapParent $ _evaluationCtxParentHash h
-
-_forkInfoBaseRankedBlockHash :: ForkInfo -> RankedBlockHash
-_forkInfoBaseRankedBlockHash fi = case _forkInfoTrace fi of
-    [] -> _latestRankedBlockHash (_forkInfoTargetState fi)
-    (h:_) -> unwrapParent $ _evaluationCtxRankedParentHash h
-
 _forkInfoBaseRankedPayloadHash :: ForkInfo -> RankedBlockPayloadHash
 _forkInfoBaseRankedPayloadHash fi = RankedBlockPayloadHash
     (_forkInfoBaseHeight fi)
@@ -631,8 +619,8 @@ instance FromJSON EncodedPayloadOutputs where
 data NewPayload = NewPayload
     { _newPayloadChainwebVersion :: !ChainwebVersion
     , _newPayloadChainId :: !ChainId
-    , _newPayloadParentHeight :: !BlockHeight
-    , _newPayloadParentHash :: !BlockHash
+    , _newPayloadParentHeight :: !(Parent BlockHeight)
+    , _newPayloadParentHash :: !(Parent BlockHash)
     , _newPayloadBlockPayloadHash :: !BlockPayloadHash
     , _newPayloadEncodedPayloadData :: !(Maybe EncodedPayloadData)
     , _newPayloadEncodedPayloadOutputs :: !(Maybe EncodedPayloadOutputs)
@@ -700,8 +688,8 @@ instance Hashable NewPayload where
 
 _newPayloadRankedParentHash :: NewPayload -> Parent RankedBlockHash
 _newPayloadRankedParentHash np = Parent $ RankedBlockHash
-    (_newPayloadParentHeight np)
-    (_newPayloadParentHash np)
+    (unwrapParent $ _newPayloadParentHeight np)
+    (unwrapParent $ _newPayloadParentHash np)
 
 instance HasChainwebVersion NewPayload where
     _chainwebVersion = _newPayloadChainwebVersion
