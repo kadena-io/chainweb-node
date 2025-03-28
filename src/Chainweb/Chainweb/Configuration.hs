@@ -252,7 +252,7 @@ defaultServiceApiConfig = ServiceApiConfig
             , Throttle._requestBody100ByteCost = 1
             , Throttle._responseBody100ByteCost = 2
             , Throttle._maxBudget = 50_000
-            , Throttle._freeRate = 50_000
+            , Throttle._tokenBucketRefillPerSecond = 1_000
             , Throttle._throttleExpiry = 30
             }
     }

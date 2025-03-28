@@ -33,7 +33,7 @@ tests = testGroup "Chainweb.Test.Throttle"
             , _requestBody100ByteCost = 0
             , _responseBody100ByteCost = 0
             , _maxBudget = 1
-            , _freeRate = 1
+            , _tokenBucketRefillPerSecond = 1
             , _throttleExpiry = Seconds 20
             }
         $ \req manager -> do
@@ -49,7 +49,7 @@ tests = testGroup "Chainweb.Test.Throttle"
             , _requestBody100ByteCost = 1
             , _responseBody100ByteCost = 0
             , _maxBudget = 2
-            , _freeRate = 1
+            , _tokenBucketRefillPerSecond = 1
             , _throttleExpiry = Seconds 20
             }
         $ \req manager -> do
@@ -63,7 +63,7 @@ tests = testGroup "Chainweb.Test.Throttle"
             , _requestBody100ByteCost = 0
             , _responseBody100ByteCost = 1
             , _maxBudget = 2
-            , _freeRate = 1
+            , _tokenBucketRefillPerSecond = 1
             , _throttleExpiry = Seconds 20
             }
         $ \req manager -> do

@@ -134,7 +134,7 @@ defaultP2pConfiguration = P2pConfiguration
         , Throttle._requestBody100ByteCost = 1
         , Throttle._responseBody100ByteCost = 2
         , Throttle._maxBudget = 35_000
-        , Throttle._freeRate = 35_000
+        , Throttle._tokenBucketRefillPerSecond = 750
         , Throttle._throttleExpiry = 30
         }
     }

@@ -50,7 +50,7 @@ data ThrottleConfig = ThrottleConfig
     , _responseBody100ByteCost :: Int
     , _maxBudget :: Int
     -- TODO: charge for time, per second
-    , _freeRate :: Int
+    , _tokenBucketRefillPerSecond :: Int
     , _throttleExpiry :: Seconds
     } deriving stock (Show, Eq)
 
@@ -62,7 +62,7 @@ instance ToJSON ThrottleConfig where
         , "requestBody100ByteCost" .= _requestBody100ByteCost o
         , "responseBody100ByteCost" .= _responseBody100ByteCost o
         , "maxBudget" .= _maxBudget o
-        , "freeRate" .= _freeRate o
+        , "tokenBucketRefillPerSecond" .= _tokenBucketRefillPerSecond o
         , "throttleExpiry" .= int @Seconds @Int (_throttleExpiry o)
         ]
 
@@ -72,7 +72,7 @@ instance FromJSON (ThrottleConfig -> ThrottleConfig) where
         <*< requestBody100ByteCost ..: "requestBody100ByteCost" % o
         <*< responseBody100ByteCost ..: "responseBody100ByteCost" % o
         <*< maxBudget ..: "maxBudget" % o
-        <*< freeRate ..: "freeRate" % o
+        <*< tokenBucketRefillPerSecond ..: "tokenBucketRefillPerSecond" % o
         <*< throttleExpiry . (iso (int @Seconds @Int) (int @Int @Seconds)) ..: "throttleExpiry" % o
 
 instance FromJSON ThrottleConfig where
@@ -81,7 +81,7 @@ instance FromJSON ThrottleConfig where
         _requestBody100ByteCost <- o .: "requestBody100ByteCost"
         _responseBody100ByteCost <- o .: "responseBody100ByteCost"
         _maxBudget <- o .: "maxBudget"
-        _freeRate <- o .: "freeRate"
+        _tokenBucketRefillPerSecond <- o .: "tokenBucketRefillPerSecond"
         _throttleExpiry <- int @Natural @Seconds <$> o .: "throttleExpiry"
         return ThrottleConfig {..}
 
@@ -94,7 +94,19 @@ hashWithSalt' :: Hashable a => a -> Int -> Int
 hashWithSalt' = flip hashWithSalt
 
 newtype HashableSockAddr = HashableSockAddr SockAddr
-    deriving newtype Eq
+    deriving newtype (Show)
+
+instance Eq HashableSockAddr where
+    HashableSockAddr sockAddr1 == HashableSockAddr sockAddr2 = case (sockAddr1, sockAddr2) of
+        (SockAddrInet _port1 hostAddr1, SockAddrInet _port2 hostAddr2) ->
+            -- constructor port not used deliberately, requests can come from different ports
+            hostAddr1 == hostAddr2
+        (SockAddrInet6 _port1 flowInfo1 hostAddr1 scopeId1, SockAddrInet6 _port2 flowInfo2 hostAddr2 scopeId2) ->
+            flowInfo1 == flowInfo2 && hostAddr1 == hostAddr2 && scopeId1 == scopeId2
+        (SockAddrUnix sock1, SockAddrUnix sock2) ->
+            sock1 == sock2
+        _ -> False
+
 instance Hashable HashableSockAddr where
     hashWithSalt salt (HashableSockAddr sockAddr) = case sockAddr of
         SockAddrInet _port hostAddr ->
@@ -114,7 +126,7 @@ instance Hashable HashableSockAddr where
             . hashWithSalt' sock
             $ salt
 
-debitOrDie :: Hashable k => TokenLimitMap k -> (Text, k) -> Int -> IO ()
+debitOrDie :: (Hashable k) => TokenLimitMap k -> (Text, k) -> Int -> IO ()
 debitOrDie tokenLimitMap (name, k) cost = do
     tryDebit cost k tokenLimitMap >>= \case
         True -> return ()
@@ -149,7 +161,7 @@ throttleMiddleware logfun name ThrottleConfig{..} k =
     limitConfig = defaultLimitConfig
         { maxBucketTokens = _maxBudget
         , initialBucketTokens = _maxBudget
-        , bucketRefillTokensPerSecond = _freeRate
+        , bucketRefillTokensPerSecond = _tokenBucketRefillPerSecond
         }
 
     meterRequest debit request
