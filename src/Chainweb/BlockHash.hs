@@ -280,8 +280,9 @@ convertBlockHashRecordForMining (BlockHashRecord r) =
             , l & _2 .~ BlockHash (unsafeMerkleLogHash blockRecordHash)
             )
         )
-        -- this is required for compatibility; we cannot enlarge the record beyond that
-        $ take (int @Natural @Int $ degree petersonChainGraph)
+        -- this is the degree of the Petersen graph. It is required for compatibility;
+        -- we cannot enlarge the record beyond that
+        $ take 3
         $ sorted
     where
     sorted = L.sortBy (comparing fst) (HM.toList r)
