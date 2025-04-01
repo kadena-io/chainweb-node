@@ -85,15 +85,16 @@
     "hackage": {
       "flake": false,
       "locked": {
-        "lastModified": 1743467264,
-        "narHash": "sha256-E8YPIUAkgf5OHcUjTtLn7NiwMMT2WQRukm5aLJZ4rmA=",
+        "lastModified": 1743467254,
+        "narHash": "sha256-7tYhIrv/2JZCAzr2FEF1n3fZLJqIbyx3teos5gCEw/s=",
         "owner": "input-output-hk",
         "repo": "hackage.nix",
-        "rev": "d28e2748e5a2bf5ae6e51e347d3c4cf726c887c5",
+        "rev": "a2975aad3171ff3a31121a92a7ec027652769c16",
         "type": "github"
       },
       "original": {
         "owner": "input-output-hk",
+        "ref": "for-stackage",
         "repo": "hackage.nix",
         "type": "github"
       }
@@ -317,6 +318,7 @@
       "original": {
         "owner": "kadena-io",
         "repo": "hs-nix-infra",
+        "rev": "b20a03107b870cdff4c16486ada0d674c89f3242",
         "type": "github"
       }
     },
