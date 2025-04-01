@@ -13,7 +13,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Version
 
 v :: ChainwebVersion
-v = instantCpmTestVersion petersonChainGraph
+v = instantCpmTestVersion petersenChainGraph
 
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact4.RewardsTest"

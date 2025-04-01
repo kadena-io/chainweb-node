@@ -117,7 +117,7 @@ nNodes :: Word
 nNodes = 1
 
 v :: ChainwebVersion
-v = instantCpmTestVersion petersonChainGraph
+v = instantCpmTestVersion petersenChainGraph
 
 vNetworkId :: Pact.NetworkId
 vNetworkId = Pact.NetworkId $ getChainwebVersionName $ _versionName v

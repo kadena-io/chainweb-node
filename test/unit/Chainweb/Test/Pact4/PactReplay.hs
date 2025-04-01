@@ -59,7 +59,7 @@ import Data.Either
 import Chainweb.Pact.Backend.Types
 
 testVer :: ChainwebVersion
-testVer = instantCpmTestVersion petersonChainGraph
+testVer = instantCpmTestVersion petersenChainGraph
 
 cid :: ChainId
 cid = someChainId testVer

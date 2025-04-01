@@ -157,7 +157,7 @@ mainnet = ChainwebVersion
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
-        Bottom (minBound, petersonChainGraph)
+        Bottom (minBound, petersenChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110

@@ -240,7 +240,7 @@ devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 instantCPM0 :: Genesis
 instantCPM0 = Genesis
-    { _version = instantCpmTestVersion petersonChainGraph
+    { _version = instantCpmTestVersion petersenChainGraph
     , _tag = "InstantTimedCPM"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just fast0Grants
@@ -257,7 +257,7 @@ instantCPMN = instantCPM0
 
 pact5InstantCPM0 :: Genesis
 pact5InstantCPM0 = Genesis
-    { _version = pact5InstantCpmTestVersion petersonChainGraph
+    { _version = pact5InstantCpmTestVersion petersenChainGraph
     , _tag = "Pact5InstantTimedCPM"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just fast0Grants
@@ -274,7 +274,7 @@ pact5InstantCPMN = pact5InstantCPM0
 
 quirkedPact5InstantCPM0 :: Genesis
 quirkedPact5InstantCPM0 = Genesis
-    { _version = quirkedGasPact5InstantCpmTestVersion petersonChainGraph
+    { _version = quirkedGasPact5InstantCpmTestVersion petersenChainGraph
     , _tag = "QuirkedGasPact5InstantTimedCPM"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just fast0Grants
@@ -291,7 +291,7 @@ quirkedPact5InstantCPMN = quirkedPact5InstantCPM0
 
 fastTimedCPM0 :: Genesis
 fastTimedCPM0 = Genesis
-    { _version = fastForkingCpmTestVersion petersonChainGraph
+    { _version = fastForkingCpmTestVersion petersenChainGraph
     , _tag = "FastTimedCPM"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just fast0Grants

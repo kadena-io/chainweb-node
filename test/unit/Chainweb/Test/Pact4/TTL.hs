@@ -54,7 +54,7 @@ import Data.Either (isRight)
 -- Settings
 
 testVer :: ChainwebVersion
-testVer = instantCpmTestVersion peterson
+testVer = instantCpmTestVersion petersen
 
 defTtl :: Seconds
 defTtl = 60 * 60 * 2 -- 2 hours

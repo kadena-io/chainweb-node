@@ -91,7 +91,7 @@ recapDevnet = ChainwebVersion
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`
-        Bottom (minBound, petersonChainGraph)
+        Bottom (minBound, petersenChainGraph)
 
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120

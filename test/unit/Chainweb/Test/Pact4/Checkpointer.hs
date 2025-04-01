@@ -598,7 +598,7 @@ runRegression pactdb e schemaInit = do
 -- Chainweb Settings
 
 testVer :: ChainwebVersion
-testVer = slowForkingCpmTestVersion peterson
+testVer = slowForkingCpmTestVersion petersen
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0

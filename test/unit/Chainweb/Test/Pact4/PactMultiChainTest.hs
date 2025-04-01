@@ -76,7 +76,7 @@ import Chainweb.WebPactExecutionService
 
 
 testVersion :: ChainwebVersion
-testVersion = slowForkingCpmTestVersion peterson
+testVersion = slowForkingCpmTestVersion petersen
 
 cid :: ChainId
 cid = unsafeChainId 9
@@ -1367,7 +1367,7 @@ checkTransferCreate = do
 
 quirkTest :: RocksDb -> TestTree
 quirkTest rdb = do
-  let v = quirkedGasInstantCpmTestVersion peterson
+  let v = quirkedGasInstantCpmTestVersion petersen
   let mempoolCmdBuilder =
         buildBasic (mkExec' "(+ 1 2)")
   withResourceT (mkTestBlockDb v rdb) $ \bdbIO ->

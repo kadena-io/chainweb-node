@@ -5,7 +5,7 @@
 
 module Main (main) where
 
-import Chainweb.Graph (petersonChainGraph)
+import Chainweb.Graph (petersenChainGraph)
 import Chainweb.Test.TestVersions
 import Chainweb.Utils
 import Chainweb.Version
@@ -43,8 +43,8 @@ pNodes = option auto
 pVersion :: Parser ChainwebVersion
 pVersion = option (findKnownVersion =<< textReader)
   (long "chainweb-version" <> metavar "CHAINWEB_VERSION"
-   <> value (fastForkingCpmTestVersion petersonChainGraph)
-   <> help "Chainweb Version to run the Nodes with (default: timedCPM-peterson)")
+   <> value (fastForkingCpmTestVersion petersenChainGraph)
+   <> help "Chainweb Version to run the Nodes with (default: timedCPM-petersen)")
 
 pConfig :: Parser FilePath
 pConfig = strOption

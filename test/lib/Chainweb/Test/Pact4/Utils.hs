@@ -1050,7 +1050,7 @@ hunitDummyLogger :: (String -> IO ()) -> GenericLogger
 hunitDummyLogger f = genericLogger Error (f . T.unpack)
 
 someTestVersion :: ChainwebVersion
-someTestVersion = instantCpmTestVersion petersonChainGraph
+someTestVersion = instantCpmTestVersion petersenChainGraph
 
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10

@@ -76,7 +76,7 @@ import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Text.Lazy as TL
 
 testVersion :: ChainwebVersion
-testVersion = slowForkingCpmTestVersion petersonChainGraph
+testVersion = slowForkingCpmTestVersion petersenChainGraph
 
 testEventsVersion :: ChainwebVersion
 testEventsVersion = fastForkingCpmTestVersion singletonChainGraph
@@ -348,7 +348,7 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
         set cbRPC (mkExec' se) $
         defaultCmd
 
-    contPactId = "9ylBanSjDGJJ6m0LgokZqb9P66P7JsQRWo9sYxqAjcQ"
+    contPactId = "toj9L2EGOyUUkFQCniHv8qGy8sStXDmaWSpVB3XKEuE"
 
     runStepTwoWithGasPayer = fmap V.singleton $ buildCwCmd "testContinuationGasPayer" testVersion $
       set cbSigners

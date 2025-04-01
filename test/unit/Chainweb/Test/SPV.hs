@@ -98,7 +98,7 @@ tests rdb = testGroup  "SPV tests"
     , properties
     ]
   where
-    version = barebonesTestVersion petersonChainGraph
+    version = barebonesTestVersion petersenChainGraph
 
 
 -- -------------------------------------------------------------------------- --
