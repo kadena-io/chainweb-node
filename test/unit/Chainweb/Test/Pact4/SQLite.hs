@@ -31,7 +31,7 @@ import Data.String
 import Pact.Types.SQLite
 
 import System.IO.Unsafe
-import System.Random (genByteString, getStdRandom)
+import System.Random (uniformByteString, getStdRandom)
 
 import Test.Hash.SHA3
 import Test.Tasty
@@ -251,7 +251,7 @@ withAggTable dbVarIO rowCount chunkSize =
         dbVar <- dbVarIO
         withMVar dbVar $ \db -> do
             input <- getStdRandom $ runState $
-                replicateM rowCount $ state (genByteString chunkSize)
+                replicateM rowCount $ state (uniformByteString chunkSize)
             exec_ db ("CREATE TABLE " <> fromString tbl <> " (bytes BLOB)")
             forM_ input $ \i ->
                 exec' db ("INSERT INTO " <> fromString tbl <> " VALUES(?)") [SBlob i]

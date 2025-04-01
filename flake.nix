@@ -3,11 +3,11 @@
 
   inputs = {
     hackage = {
-      url = "github:input-output-hk/hackage.nix";
+      url = "github:input-output-hk/hackage.nix?ref=for-stackage";
       flake = false;
     };
     hs-nix-infra = {
-      url = "github:kadena-io/hs-nix-infra";
+      url = "github:kadena-io/hs-nix-infra/b20a03107b870cdff4c16486ada0d674c89f3242";
       inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";
