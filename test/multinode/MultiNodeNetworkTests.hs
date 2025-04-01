@@ -32,9 +32,9 @@ loglevel = Warn
 suite :: TestTree
 suite = independentSequentialTestGroup "MultiNodeNetworkTests"
     [ testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
-        withTempRocksDb "multinode-tests-timedconsensus-peterson-twenty-rocks" $ \rdb ->
-        withSystemTempDirectory "multinode-tests-timedconsensus-peterson-twenty-pact" $ \pactDbDir ->
-        Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersonChainGraph twentyChainGraph) 10 30 rdb pactDbDir step
+        withTempRocksDb "multinode-tests-timedconsensus-petersen-twenty-rocks" $ \rdb ->
+        withSystemTempDirectory "multinode-tests-timedconsensus-petersen-twenty-pact" $ \pactDbDir ->
+        Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersenChainGraph twentyChainGraph) 10 30 rdb pactDbDir step
     , testCaseSteps "ConsensusNetwork - FastTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-fasttimedcpm-single-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-fasttimedcpm-single-pact" $ \pactDbDir ->

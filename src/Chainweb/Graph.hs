@@ -77,7 +77,7 @@ module Chainweb.Graph
 , singletonChainGraph
 , pairChainGraph
 , triangleChainGraph
-, petersonChainGraph
+, petersenChainGraph
 , twentyChainGraph
 , hoffmanSingletonChainGraph
 
@@ -339,7 +339,7 @@ data KnownGraph
         -- ^ degree 1, diameter 1, order 2
     | Triangle
         -- ^ degree 2, diameter 1, order 3
-    | Peterson
+    | Petersen
         -- ^ degree 3, diameter 2, order 10
     | Twenty
         --  degree 3, diameter 3, order 20
@@ -362,7 +362,7 @@ instance HasTextRepresentation KnownGraph where
     toText Singleton = "singleton"
     toText Pair = "pair"
     toText Triangle = "triangle"
-    toText Peterson = "peterson"
+    toText Petersen = "petersen"
     toText Twenty = "twenty"
     toText HoffmanSingleton = "hoffman"
     toText D3K4 = "d3k4"
@@ -374,7 +374,7 @@ instance HasTextRepresentation KnownGraph where
     fromText "singleton" = return Singleton
     fromText "pair" = return Pair
     fromText "triangle" = return Triangle
-    fromText "peterson" = return Peterson
+    fromText "petersen" = return Petersen
     fromText "twenty" = return Twenty
     fromText "hoffman" = return HoffmanSingleton
     fromText "d3k4" = return D3K4
@@ -391,7 +391,7 @@ knownGraph :: KnownGraph -> G.DiGraph Int
 knownGraph Singleton = G.singleton
 knownGraph Pair = G.pair
 knownGraph Triangle = G.triangle
-knownGraph Peterson = G.petersonGraph
+knownGraph Petersen = G.petersenGraph
 knownGraph Twenty = G.twentyChainGraph
 knownGraph HoffmanSingleton = G.hoffmanSingleton
 knownGraph D3K4 = G.d3k4
@@ -424,7 +424,7 @@ knownChainGraph :: KnownGraph -> ChainGraph
 knownChainGraph Singleton = singletonChainGraph
 knownChainGraph Pair = pairChainGraph
 knownChainGraph Triangle = triangleChainGraph
-knownChainGraph Peterson = petersonChainGraph
+knownChainGraph Petersen = petersenChainGraph
 knownChainGraph Twenty = twentyChainGraph
 knownChainGraph HoffmanSingleton = hoffmanSingletonChainGraph
 knownChainGraph D3K4 = d3k4ChainGraph
@@ -445,9 +445,9 @@ triangleChainGraph :: ChainGraph
 triangleChainGraph = toChainGraph Triangle
 {-# NOINLINE triangleChainGraph #-}
 
-petersonChainGraph :: ChainGraph
-petersonChainGraph = toChainGraph Peterson
-{-# NOINLINE petersonChainGraph #-}
+petersenChainGraph :: ChainGraph
+petersenChainGraph = toChainGraph Petersen
+{-# NOINLINE petersenChainGraph #-}
 
 twentyChainGraph :: ChainGraph
 twentyChainGraph = toChainGraph Twenty

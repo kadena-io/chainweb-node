@@ -17,7 +17,7 @@
 module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
 import Chainweb.BlockHeader
-import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
+import Chainweb.Graph (singletonChainGraph, petersenChainGraph)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerKeys(..), noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, SomeBlockM(..))
@@ -518,7 +518,7 @@ quirkSpec rdb = readFromAfterGenesis quirkVer rdb $
                 , P.fun _crGas ? P.equals ? Gas 1
                 ]
     where
-    quirkVer = quirkedGasPact5InstantCpmTestVersion peterson
+    quirkVer = quirkedGasPact5InstantCpmTestVersion petersen
 
 applyCmdVerifierSpec :: RocksDb -> IO ()
 applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
@@ -970,7 +970,7 @@ vUpgrades :: ChainwebVersion
 vUpgrades = pact5SlowCpmTestVersion singletonChainGraph
 
 v :: ChainwebVersion
-v = pact5InstantCpmTestVersion petersonChainGraph
+v = pact5InstantCpmTestVersion petersenChainGraph
 
 -- | this utility for reading balances from the pactdb also takes care of
 -- making a transaction for the read to live in
