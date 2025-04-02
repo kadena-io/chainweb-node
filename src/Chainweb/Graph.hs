@@ -348,7 +348,7 @@ data KnownGraph
     | D3K4
         -- ^ degree 3, diameter 4, order 38
     | D4K3
-        -- ^ degree 4, diamteter 3, order 41
+        -- ^ degree 4, diameter 3, order 41
     | D4K4
         -- ^ degree 4, diameter 4, order 98
     | D5K3
