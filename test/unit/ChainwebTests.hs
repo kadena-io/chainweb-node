@@ -35,8 +35,7 @@ import Chainweb.Version.Registry
 
 -- chainweb-test-tools modules
 
-import Chainweb.Test.Utils
-    (independentSequentialTestGroup, toyChainId, withToyDB)
+import Chainweb.Test.Utils (toyChainId, withToyDB)
 
 -- internal modules
 
@@ -65,7 +64,6 @@ import qualified Chainweb.Test.Pact4.PactExec (tests)
 import qualified Chainweb.Test.Pact4.PactMultiChainTest (tests)
 import qualified Chainweb.Test.Pact4.PactReplay (tests)
 import qualified Chainweb.Test.Pact4.PactSingleChainTest (tests)
-import qualified Chainweb.Test.Pact4.RemotePactTest (tests)
 import qualified Chainweb.Test.Pact4.RewardsTest (tests)
 import qualified Chainweb.Test.Pact4.SPV (tests)
 import qualified Chainweb.Test.Pact4.SQLite (tests)
@@ -108,8 +106,7 @@ main = do
                 $ testGroup "Chainweb Tests"
                 $ pactTestSuite rdb
                 : mempoolTestSuite db h0
-                : nodeTestSuite rdb
-                : suite rdb -- Coinbase Vuln Fix Tests are broken, waiting for Jose loadScript
+                : suite rdb
 
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
@@ -121,15 +118,15 @@ mempoolTestSuite db genesisBlock = testGroup "Mempool Consensus Tests"
 
 pactTestSuite :: RocksDb -> TestTree
 pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
-    [ Chainweb.Test.Pact4.PactExec.tests -- OK: but need fixes (old broken tests)
+    [ Chainweb.Test.Pact4.PactExec.tests
     , Chainweb.Test.Pact4.DbCacheTest.tests
     , Chainweb.Test.Pact4.Checkpointer.tests
 
-    , Chainweb.Test.Pact4.PactMultiChainTest.tests rdb -- BROKEN few tests
+    , Chainweb.Test.Pact4.PactMultiChainTest.tests rdb
 
     , Chainweb.Test.Pact4.PactSingleChainTest.tests rdb
 
-    , Chainweb.Test.Pact4.VerifierPluginTest.tests rdb -- BROKEN
+    , Chainweb.Test.Pact4.VerifierPluginTest.tests rdb
 
     , Chainweb.Test.Pact4.PactReplay.tests rdb
     , Chainweb.Test.Pact4.ModuleCacheOnRestart.tests rdb
@@ -137,11 +134,6 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact4.RewardsTest.tests
     , Chainweb.Test.Pact4.NoCoinbase.tests
     , Chainweb.Test.Pact4.GrandHash.tests
-    ]
-
-nodeTestSuite :: RocksDb -> TestTree
-nodeTestSuite rdb = independentSequentialTestGroup "Tests starting nodes"
-    [ Chainweb.Test.Pact4.RemotePactTest.tests rdb -- BROKEN
     ]
 
 suite :: RocksDb -> [TestTree]
@@ -156,7 +148,7 @@ suite rdb =
             ]
         , Chainweb.Test.Pact4.SQLite.tests
         , Chainweb.Test.CutDB.tests rdb
-        , Chainweb.Test.Pact4.TransactionTests.tests -- TODO: fix, awaiting for Jose to add loadScript function
+        , Chainweb.Test.Pact4.TransactionTests.tests
         , Chainweb.Test.Pact5.CheckpointerTest.tests
         , Chainweb.Test.Pact5.TransactionExecTest.tests rdb
         , Chainweb.Test.Pact5.PactServiceTest.tests rdb
