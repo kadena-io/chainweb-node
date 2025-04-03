@@ -64,8 +64,6 @@ import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
 import Data.Aeson hiding (Error)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
@@ -73,9 +71,10 @@ import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Hash.Keccak
 import Data.Kind
 import qualified Data.List as L
-import Data.MerkleLog
+import Data.MerkleLog.V1
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -113,7 +112,6 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
-import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
@@ -131,6 +129,7 @@ import Chainweb.NodeVersion
 import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.PayloadProvider
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
@@ -393,14 +392,15 @@ instance Arbitrary HeaderUpdate where
         <$> (ObjectEncoded <$> arbitrary)
         <*> arbitrary
         <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
 
 instance Arbitrary BlockHashWithHeight where
     arbitrary = BlockHashWithHeight <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary CutHashes
+
+instance Arbitrary EncodedPayloadData where
+    arbitrary = EncodedPayloadData <$> arbitrary
 
 instance Arbitrary CutId where
     arbitrary = do
@@ -530,7 +530,7 @@ arbitraryMerkleProof = do
     (b, hs, bs) <- gen
     idx <- choose (0, hs + bs - 1)
     let result = if idx > (hs - 1)
-            then bodyProof @a b (idx - hs)
+            then bodyProofV1 @a b (idx - hs)
             else mkHeaderProof @a b (fromIntegral idx)
     case result of
         Left !e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryMerkleProof: " <> show e
@@ -551,7 +551,7 @@ arbitraryMerkleBodyProof
 arbitraryMerkleBodyProof = do
     (b, s) <- gen
     !idx <- choose (0, s - 1)
-    case bodyProof b idx of
+    case bodyProofV1 b idx of
         Left !e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryMerkleBodyProof: " <> show e
         Right x -> return x
   where
@@ -586,20 +586,20 @@ mkHeaderProof
     -> Natural
     -> m (MerkleProof a)
 mkHeaderProof b idx = case toLog @a b of
-    mlog@(MerkleLog _ (_ :+: _) _ :: MerkleLog a ChainwebHashTag (h ': t) (MerkleLogBody b)) -> do
+    mlog@(MerkleLog _ (_ :+: _) :: MerkleLog a ChainwebHashTag (h ': t) (MerkleLogBody b)) -> do
         case someN idx of
             -- Index 0
-            SomeSing SZ -> headerProof @(AtIndex 'Z (h ': t)) @a b
+            SomeSing SZ -> headerProofV1 @(AtIndex 'Z (h ': t)) @a b
             -- Index > 0
             SomeSing x@(SS _) -> case x of
                 -- Assert (at runtime) that the index is within bounds
                 (Sing :: Sing n) -> case lt x (headerSizeN mlog) of
                     Just Refl -> case hasHeader @_ @_ @_ @_ @_ @_ @n mlog of
-                        Dict _ -> headerProof @(AtIndex n (h ': t)) @a b
+                        Dict _ -> headerProofV1 @(AtIndex n (h ': t)) @a b
                     Nothing -> error "must not happen"
 
 headerSizeN :: MerkleLog a u t b -> Sing (Length t)
-headerSizeN (MerkleLog _ l _) = go l
+headerSizeN (MerkleLog _ l) = go l
   where
     go :: forall a u t b . MerkleLogEntries a u t b -> Sing (Length t)
     go MerkleLogBody{} = SZ
@@ -658,8 +658,8 @@ hasHeader mlog = case go (sing @N @i) mlog of
             )
             (MerkleLog a u (x' ': t') b)
     go SZ m = Dict m
-    go (SS (n :: Sing n)) m@(MerkleLog r (_ :+: t@(_ :+: _)) b) =
-        case go n (MerkleLog r t b) of
+    go (SS (n :: Sing n)) m@(MerkleLog r (_ :+: t@(_ :+: _))) =
+        case go n (MerkleLog r t) of
 
             -- FIXME: avoid use of unsafeCoerce
             --
@@ -822,16 +822,13 @@ instance Arbitrary CoordinationConfig where
         <$> arbitrary
         <*> arbitrary
         <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
 
 instance Arbitrary NodeMiningConfig where
     arbitrary = NodeMiningConfig
-        <$> arbitrary <*> arbitrary <*> pure (MinerCount 10)
+        <$> arbitrary <*> pure (MinerCount 10)
 
 instance Arbitrary MiningConfig where
-    arbitrary = MiningConfig <$> arbitrary <*> arbitrary
+    arbitrary = MiningConfig <$> arbitrary <*> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb.SPV.EventProof
@@ -904,16 +901,13 @@ instance Arbitrary SpvRequest where
 instance Arbitrary Spv2Request where
     arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
 
-instance Arbitrary (TransactionProof ChainwebMerkleHashAlgorithm) where
-    arbitrary = TransactionProof <$> arbitrary <*> arbitrary
-
 instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
     arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
 
 instance Arbitrary SomePayloadProof where
     arbitrary = oneof
         [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
-        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak_256)
+        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak256)
         ]
 
 -- Equality for SomePayloadProof is only used for testing. Using 'unsafeCoerce'

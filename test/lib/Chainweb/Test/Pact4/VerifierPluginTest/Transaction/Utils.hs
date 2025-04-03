@@ -141,8 +141,7 @@ runCut' :: PactTestM ()
 runCut' = do
   pact <- view menvPact
   bdb <- view menvBdb
-  miner <- view menvMiner
-  liftIO $ runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer miner
+  liftIO $ runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
 
 assertTxGas :: (HasCallStack, MonadIO m) => String -> Gas -> CommandResult Hash -> m ()
 assertTxGas msg g = liftIO . assertEqual msg g . _crGas

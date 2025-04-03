@@ -98,7 +98,6 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.PactState (allChains, getLatestBlockHeight, getLatestPactStateAtDiffable, TableDiffable(..), addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Calc
@@ -185,7 +184,6 @@ multiConfig v n = defaultChainwebConfiguration v
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner
         , _nodeTestMiners = MinerCount n
         }
 
@@ -229,8 +227,8 @@ harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
         modifyMVar_ stateVar $
             sampleConsensusState
                 nid
-                (view (chainwebCutResources . cutsCutDb . cutDbWebBlockHeaderDb) cw)
-                (view (chainwebCutResources . cutsCutDb) cw)
+                (view (chainwebCutResources . cutResCutDb . cutDbWebBlockHeaderDb) cw)
+                (view (chainwebCutResources . cutResCutDb) cw)
         logFunctionText logger Info "shutdown node"
 
 multiNode
@@ -707,7 +705,7 @@ sampleConsensusState
     :: Int
         -- ^ node Id
     -> WebBlockHeaderDb
-    -> CutDb tbl
+    -> CutDb
     -> ConsensusState
     -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do

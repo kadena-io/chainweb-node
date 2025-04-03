@@ -47,6 +47,7 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Pact.Utils
+import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
@@ -174,7 +175,7 @@ barebonesTestVersion g = buildTestVersion $ \v ->
             , _disablePeerValidation = True
             }
         & versionGenesis .~ VersionGenesis
-            { _genesisBlockPayload = AllChains emptyPayload
+            { _genesisBlockPayload = AllChains (_payloadWithOutputsPayloadHash emptyPayload)
             , _genesisBlockTarget = AllChains maxTarget
             , _genesisTime = AllChains $ BlockCreationTime epoch
             }
@@ -208,8 +209,10 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, TN0.payloadBlock) :
-            [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash TN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash TNN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -239,7 +242,10 @@ pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
         , _disablePeerValidation = True
         }
     & versionGenesis .~ VersionGenesis
-        { _genesisBlockPayload = onChains [ (n, emptyPayload) | n <- HS.toList (chainIds v) ]
+        { _genesisBlockPayload = onChains
+            [ (n, _payloadWithOutputsPayloadHash emptyPayload)
+            | n <- HS.toList (chainIds v)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -262,8 +268,10 @@ cpmTestVersion g v = v
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, TN0.payloadBlock) :
-            [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash TN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash TNN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -377,8 +385,10 @@ quirkedGasInstantCpmTestVersion g = buildTestVersion $ \v -> v
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, IN0.payloadBlock) :
-            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash IN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash INN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -399,8 +409,10 @@ quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, QPIN0.payloadBlock) :
-            [(n, QPINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash QPIN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash QPINN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -438,8 +450,10 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, IN0.payloadBlock) :
-            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash IN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash INN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -463,8 +477,10 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, PIN0.payloadBlock) :
-            [(n, PINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash PIN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash PINN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -493,8 +509,10 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
     & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, IN0.payloadBlock) :
-            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash IN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash INN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -521,8 +539,10 @@ instantCpmTransitionTestVersion g = buildTestVersion $ \v -> v
     & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, IN0.payloadBlock) :
-            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash  IN0.payloadBlock) :
+            [ (n, _payloadWithOutputsPayloadHash INN.payloadBlock)
+            | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)
+            ]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }

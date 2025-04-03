@@ -219,7 +219,6 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), chainIds)
 import qualified Chainweb.Version as Version
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
@@ -227,6 +226,8 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Pact.Backend.Types
+import Chainweb.PayloadProvider
+import Chainweb.Version
 
 -- ----------------------------------------------------------------------- --
 -- Keys
@@ -672,21 +673,21 @@ testPactCtxSQLite
   -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf = do
     cp <- initCheckpointerResources defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
-    let rs = readRewards
+    let miner = Nothing
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)
-      <*> pure (mkPactServiceEnv cp rs)
+      <*> pure (mkPactServiceEnv cp miner)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
     cpLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("sub-component", "checkpointer") $ logger
-    mkPactServiceEnv :: Checkpointer logger -> MinerRewards -> PactServiceEnv logger tbl
-    mkPactServiceEnv cp rs = PactServiceEnv
+    mkPactServiceEnv :: Checkpointer logger -> Maybe Miner -> PactServiceEnv logger tbl
+    mkPactServiceEnv cp miner = PactServiceEnv
         { _psMempoolAccess = Nothing
         , _psCheckpointer = cp
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
-        , _psMinerRewards = rs
+        , _psMiner = miner
         , _psReorgLimit = _pactReorgLimit conf
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
         , _psOnFatalError = defaultOnFatalError mempty
@@ -745,6 +746,7 @@ withWebPactExecutionServiceCompaction logger v pactConfig bdb mempools act =
     withDb :: ([SQLiteEnv] -> IO x) -> [SQLiteEnv] -> IO x
     withDb g envs = withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
+    -- -> PactServiceM logger tbl (Historical (ForSomePactVersion BlockInProgress))
     mkTestPactExecutionService :: ()
       => SQLiteEnv
       -> ChainId
@@ -753,8 +755,10 @@ withWebPactExecutionServiceCompaction logger v pactConfig bdb mempools act =
         bhdb <- getBlockHeaderDb c bdb
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig
         return $ PactExecutionService
-          { _pactNewBlock = \_ m fill ph ->
-              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock (mempools ^?! atChain c) m fill ph
+          { _pactNewBlock = \_ fill ph ->
+            evalPactServiceM_ ctx $
+                fmap (newBlockToNewPayload . NewBlockInProgress)
+                    <$> execNewBlock (mempools ^?! atChain c) fill ph
           , _pactContinueBlock = \_ bip ->
               evalPactServiceM_ ctx $ execContinueBlock (mempools ^?! atChain c) bip
           , _pactValidateBlock = \h d ->
@@ -803,8 +807,10 @@ withWebPactExecutionService logger v pactConfig bdb mempools act =
         bhdb <- getBlockHeaderDb c bdb
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig
         return $ PactExecutionService
-          { _pactNewBlock = \_ m fill ph ->
-              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock (mempools ^?! atChain c) m fill ph
+          { _pactNewBlock = \_ fill ph ->
+             evalPactServiceM_ ctx $
+                fmap (newBlockToNewPayload . NewBlockInProgress)
+                    <$> execNewBlock (mempools ^?! atChain c) fill ph
           , _pactContinueBlock = \_ bip ->
               evalPactServiceM_ ctx $ execContinueBlock (mempools ^?! atChain c) bip
           , _pactValidateBlock = \h d ->
@@ -839,13 +845,13 @@ runCut
     -> WebPactExecutionService
     -> GenBlockTime
     -> Noncer
-    -> Miner
     -> IO ()
-runCut v bdb pact genTime noncer miner =
+runCut v bdb pact genTime noncer =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    !newBlock <- throwIfNoHistory =<< _webPactNewBlock pact cid miner NewBlockFill ph
-    let pout = newBlockToPayloadWithOutputs newBlock
+    !newPayload <- throwIfNoHistory =<< _webPactNewBlock pact cid NewBlockFill ph
+    let Just (EncodedPayloadOutputs epout) = _newPayloadEncodedPayloadOutputs newPayload
+    pout <- decodePayloadWithOutputs epout
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.

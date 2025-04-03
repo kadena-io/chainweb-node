@@ -7,6 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Chainweb.CutResources
@@ -22,9 +23,15 @@
 --
 module Chainweb.Chainweb.CutResources
 ( CutResources(..)
+, cutResPeerDb
+, cutResCutDb
+, cutResCutP2pNode
+, cutResHeaderP2pNode
 , withCutResources
 , cutNetworks
 ) where
+
+import Control.Lens.TH
 
 import Prelude hiding (log)
 
@@ -62,6 +69,8 @@ data CutResources = CutResources
     , _cutResHeaderP2pNode :: !P2pNode
         -- ^ P2P Network for fetching block headers on demand via a task queue.
     }
+
+makeLenses ''CutResources
 
 instance HasChainwebVersion CutResources where
     _chainwebVersion = _chainwebVersion . _cutResCutDb

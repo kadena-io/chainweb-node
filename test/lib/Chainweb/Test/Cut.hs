@@ -245,7 +245,7 @@ createNewCut
 createNewCut hdb n t pay i c = do
     extension <- fromMaybeM BadAdjacents $ getCutExtension c i
     work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
-    (h, mc') <- extendCut c pay (solveWork work n t)
+    (h, mc') <- extendCut c (solveWork work n t)
         `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
     c' <- fromMaybeM BadAdjacents mc'
     return $ T2 h c'

@@ -558,7 +558,6 @@ library chainweb-test-utils
         , chainweb-storage >= 0.1
         , chronos >= 1.1
         , containers >= 0.5
-        , crypton >= 0.31
         , crypton-connection >=0.4
         , data-dword >= 0.3
         , deepseq >= 1.4
@@ -566,6 +565,7 @@ library chainweb-test-utils
         , directory >= 1.2
         , exceptions
         , filepath >= 1.4
+        , hashes >=0.2.2.0
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.17

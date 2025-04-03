@@ -151,14 +151,12 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
 import Data.Foldable
-import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
-import qualified Data.Vector as V
 import Data.Word
 
 import qualified Network.Connection as HTTP
@@ -205,7 +203,6 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
-import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Crypto.MerkleLog hiding (header)
@@ -219,10 +216,8 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types(SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
-import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Pact5.Utils (getTestLogLevel)

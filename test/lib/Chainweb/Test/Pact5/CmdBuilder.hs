@@ -35,7 +35,7 @@ import Pact.Core.Gas.Types
 import Control.Exception.Safe
 import Control.Monad.IO.Class
 import Chainweb.Time
-import Chainweb.Version
+import Chainweb.Version hiding (ChainId)
 import qualified Chainweb.ChainId as Chainweb
 import Data.ByteString (ByteString)
 import qualified Chainweb.Pact5.Transaction as Pact5
