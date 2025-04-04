@@ -121,6 +121,7 @@ module Chainweb.BlockHeader.Internal
 , childBlockHeight
 , parentBlockHeight
 , genesisParentBlockHash
+, genesisRankedParentBlockHash
 , genesisBlockHeader
 , genesisBlockHeaders
 , genesisBlockHeadersAtHeight
@@ -651,6 +652,11 @@ genesisParentBlockHash v p = Parent $ BlockHash $ MerkleLogHash
         , encodeMerkleInputNode encodeChainwebVersionCode (_versionCode v)
         , encodeMerkleInputNode encodeChainId (_chainId p)
         ]
+
+genesisRankedParentBlockHash :: HasChainId p => ChainwebVersion -> p -> Parent RankedBlockHash
+genesisRankedParentBlockHash v p = Parent $ RankedBlockHash
+    (genesisHeight v (_chainId p))
+    (unwrapParent $ genesisParentBlockHash v p)
 
 {-# NOINLINE genesisBlockHeaderCache #-}
 genesisBlockHeaderCache :: IORef (HashMap ChainwebVersionCode (HashMap ChainId BlockHeader))

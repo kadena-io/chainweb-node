@@ -103,10 +103,18 @@ module Chainweb.Pact.Types
     , TransactionOutputProofB64(..)
 
     , TxInvalidError(..)
+    , _BuyGasError
+    , _RedeemGasError
+    , _PurchaseGasTxTooBigForGasLimit
+    , _TxInsertError
+    , _TxExceedsBlockGasLimit
     , BlockInvalidError(..)
     , BlockOutputMismatchError(..)
     , BuyGasError(..)
+    , _BuyGasPactError
+    , _BuyGasMultipleGasPayerCaps
     , RedeemGasError(..)
+    , _RedeemGasPactError
 
     , logg_
     , logDebug_
@@ -644,9 +652,13 @@ data BuyGasError
   | BuyGasMultipleGasPayerCaps
   deriving stock (Show, Eq, Generic)
 
+makePrisms ''BuyGasError
+
 data RedeemGasError
   = RedeemGasPactError !(Pact.PactError Pact.Info)
   deriving stock (Show, Eq, Generic)
+
+makePrisms ''RedeemGasError
 
 data TxInvalidError
   = BuyGasError !BuyGasError
@@ -655,6 +667,8 @@ data TxInvalidError
   | TxInsertError !InsertError
   | TxExceedsBlockGasLimit !Int
   deriving stock (Show, Eq, Generic)
+
+makePrisms ''TxInvalidError
 
 data BlockInvalidError
   = BlockInvalidDueToOutputMismatch BlockOutputMismatchError

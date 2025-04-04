@@ -278,9 +278,9 @@ quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
             $ HM.singleton (BlockHeight 1, TxBlockIdx 0) (Pact.Gas 1)
         }
     & versionGenesis .~ VersionGenesis
-        { _genesisBlockPayload = onChains $ [] -- TODO: PP
-            -- (unsafeChainId 0, QPIN0.payloadBlock) :
-            -- [(n, QPINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, _payloadWithOutputsPayloadHash IN0.payloadBlock) :
+            [(n, _payloadWithOutputsPayloadHash INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }

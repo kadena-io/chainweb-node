@@ -82,28 +82,16 @@ main = do
     registerVersion Development
 
     mapConcurrently_ id
-      [ recapDevnet
-      , devnet
+      [ devnet
       -- , fastnet
       , instantnet
       -- , pact5Instantnet
       , quirkedPact5Instantnet
-      , testnet04
       , testnet05
-      , mainnet
-      , genTxModules
-      , genCoinV3Payloads
-      , genCoinV4Payloads
-      , genCoinV5Payloads
-      , genCoinV6Payloads
+      -- , genCoinV6Payloads
       ]
     putStrLn "Done."
   where
-    recapDevnet = mkPayloads
-      [ recapDevelopment0
-      , recapDevelopmentN
-      , recapDevelopmentKAD
-      ]
     devnet = mkPayloads
       [ fastDevelopment0
       , fastDevelopmentN
@@ -150,7 +138,7 @@ writePayload gen payload = do
 --
 mkPayload :: Genesis -> IO Text
 mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
-    printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
+    -- printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
     payloadModules <- for [l..u] $ \cid ->
         genPayloadModule v (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
     -- checks that the modules on each chain are the same
@@ -160,25 +148,6 @@ mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
     -- NB: this is position-sensitive data.
     txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
-
-genCoinV3Payloads :: IO ()
-genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
-
-genCoinV4Payloads :: IO ()
-genCoinV4Payloads = genTxModule "CoinV4"
-  [ fungibleXChainV1
-  , coinContractV4
-  ]
-
-genCoinV5Payloads :: IO ()
-genCoinV5Payloads = genTxModule "CoinV5"
-  [ coinContractV5
-  ]
-
-genCoinV6Payloads :: IO ()
-genCoinV6Payloads = genTxModule "CoinV6"
-  [ coinContractV6
-  ]
 
 ---------------------
 -- Payload Generation
@@ -281,66 +250,3 @@ sep s f = go . toList
 ------------------------------------------------------
 -- Transaction Generation for coin v2 and remediations
 ------------------------------------------------------
-
-genTxModules :: IO ()
-genTxModules = void $ do
-    genDevTxs
-    genMainnetTxs
-    genOtherTxs
-    gen20ChainRemeds
-    putStrLn "Done."
-  where
-    gen tag remeds = genTxModule tag $ upgrades <> remeds
-    genOtherTxs = gen "Other" []
-    genDevTxs = gen "RecapDevelopment"
-      ["pact/coin-contract/remediations/devother/remediations.yaml"]
-
-    genMain :: Int -> IO ()
-    genMain chain = gen ("Mainnet" <> sshow chain)
-      ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
-
-    genMainnetTxs = mapM_ genMain [0..9]
-
-    gen20ChainRemeds = genTxModule "MainnetKAD"
-      ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
-
-    upgrades = [fungibleAssetV2, coinContractV2]
-
-genTxModule :: Text -> [FilePath] -> IO ()
-genTxModule tag txFiles = do
-    putStrLn $ "Generating tx module for " ++ show tag
-    cwTxs <- mkChainwebTxs txFiles
-
-    let encTxs = map quoteTx cwTxs
-        quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode Pact.commandCodec
-        modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
-        fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
-
-    TIO.writeFile (T.unpack fileName) modl
-
-startTxModule :: Text -> [Text]
-startTxModule tag =
-    [ "{-# LANGUAGE OverloadedStrings #-}"
-    , ""
-    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
-    , ""
-    , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
-    , ""
-    , "import Data.Bifunctor (first)"
-    , "import System.IO.Unsafe"
-    , ""
-    , "import qualified Chainweb.Pact.Transaction as Pact"
-    , "import Chainweb.Utils"
-    , ""
-    , "transactions :: [Pact.Transaction]"
-    , "transactions ="
-    , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
-    , "  in unsafePerformIO $ mapM decodeTx ["
-    ]
-
-endTxModule :: [Text]
-endTxModule =
-    [ "    ]"
-    ]

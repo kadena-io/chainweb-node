@@ -86,6 +86,7 @@ module Chainweb.BlockHeader
 , I.childBlockHeight
 , I.parentBlockHeight
 , I.genesisParentBlockHash
+, I.genesisRankedParentBlockHash
 , I.genesisBlockHeader
 , I.genesisBlockHeaders
 , I.genesisBlockHeadersAtHeight

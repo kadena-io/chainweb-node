@@ -166,10 +166,10 @@ readFrom logger v cid sql newBlockCtx parent doRead = do
             , _bctxChainId = cid
             }
     liftIO $ withSavepoint sql ReadFromSavepoint $ do
-        latestHeader <- _syncStateRankedBlockHash . _consensusStateLatest <$>
-            ChainwebPactDb.throwOnDbError (fromJuste <$> ChainwebPactDb.getConsensusState sql)
+        !latestHeader <- maybe (genesisRankedParentBlockHash v cid) (Parent . _syncStateRankedBlockHash . _consensusStateLatest) <$>
+            ChainwebPactDb.throwOnDbError (ChainwebPactDb.getConsensusState sql)
         -- is the parent the latest header, i.e., can we get away without rewinding?
-        let parentIsLatestHeader = latestHeader == unwrapParent parent
+        let parentIsLatestHeader = latestHeader == parent
         let currentHeight = _bctxCurrentBlockHeight blockCtx
         if pact5 v cid currentHeight
         then PactDb.getEndTxId v cid sql parent >>= traverse \startTxId -> do
