@@ -151,7 +151,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
     blockOnChainRef <- newIORef (WorkReady blockOnChain)
 
     -- An update stream is closed after @timeout@ seconds. We add some jitter to
-    -- availablility of streams is uniformily distributed over time and not
+    -- availability of streams is uniformily distributed over time and not
     -- predictable.
     --
     jitter <- randomRIO @Double (0.9, 1.1)
