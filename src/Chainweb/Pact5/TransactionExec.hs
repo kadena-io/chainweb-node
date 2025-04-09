@@ -131,6 +131,7 @@ import qualified Pact.Types.Capability as Pact4
 import qualified Pact.Types.Names as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Core.Errors as Pact5
+import Debug.Trace (trace)
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -471,7 +472,9 @@ applyCoinbase logger db reward txCtx = do
   -- we construct the coinbase term and evaluate it
   freeGasEnv <- mkFreeGasEnv GasLogsDisabled
   let
-    (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
+    (coinbaseTerm, coinbaseData) = mkCoinbaseTermVar mid mks reward (read (show bh)) -- Chain _chainId txCtx, _pdBlockHeight txCtx
+  --logInfoPact $ "(request keys = " <> sshow mks <> ")"
+  trace ("height: " ++ show bh) $ return () -- Debug print height
   eCoinbaseTxResult <-
     evalExecTerm Transactional
       db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
@@ -505,6 +508,7 @@ applyCoinbase logger db reward txCtx = do
 
   where
   parentBlockHash = view blockHash $ _parentHeader $ _tcParentHeader txCtx
+  BlockHeight !bh = succ $ view blockHeight $ _parentHeader $ _tcParentHeader txCtx
   Miner mid mks = _tcMiner txCtx
 
 -- | Apply (forking) upgrade transactions and module cache updates
