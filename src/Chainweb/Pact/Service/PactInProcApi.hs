@@ -159,7 +159,7 @@ pactProcessFork mpc theLogger bHeader = do
         "pactMemPoolAccess - " <> sshow (length reintroTxs) <> " transactions to reintroduce"
     -- No need to run pre-insert check here -- we know these are ok, and
     -- calling the pre-check would block here (it calls back into pact service)
-    mempoolInsert (mpcMempool mpc) UncheckedInsert reintroTxs
+    mempoolInsert (mpcMempool mpc) UncheckedInsert mempty reintroTxs
     mempoolMarkValidated (mpcMempool mpc) validatedTxs
 
   where
