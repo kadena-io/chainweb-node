@@ -111,13 +111,11 @@ jobs:
         store_path: ${{ steps.setup.outputs.cabal-store }}
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
-    - name: Install build dependencies
-      run: cabal build chainweb --only-dependencies
-    - name: Build chainweb library
-      run: cabal build lib:chainweb
+    - name: Build chainweb
+      run: cabal build -j --semaphore chainweb
     - name: Build chainweb applications
       run: |
-        cabal build -j \
+        cabal build -j --semaphore \
           chainweb:bench:bench \
           exe:b64 \
           exe:calculate-release \
@@ -135,7 +133,7 @@ jobs:
           test:multi-node-network-tests \
           test:remote-tests
     - name: Build chainweb-node application
-      run: cabal build -j chainweb-node:exe:chainweb-node
+      run: cabal build -j --semaphore chainweb-node:exe:chainweb-node
     - uses: actions/cache/save@v4
       name: Save dist-newstyle cache
       if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
@@ -171,4 +169,3 @@ jobs:
           exit 1
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
-
