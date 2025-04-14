@@ -83,7 +83,6 @@ main = do
       , pact5Instantnet
       , quirkedPact5Instantnet
       , testnet04
-      , testnet05
       , mainnet
       , genTxModules
       , genCoinV3Payloads
@@ -107,7 +106,6 @@ main = do
     pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
     quirkedPact5Instantnet = mkPayloads [quirkedPact5InstantCPM0, quirkedPact5InstantCPMN]
     testnet04 = mkPayloads [testnet040, testnet04N]
-    testnet05 = mkPayloads [testnet050, testnet05N]
     mainnet = mkPayloads
       [ mainnet0
       , mainnet1
