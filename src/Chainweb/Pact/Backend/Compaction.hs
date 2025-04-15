@@ -37,6 +37,7 @@ module Chainweb.Pact.Backend.Compaction
 import "base" Control.Exception hiding (Handler)
 import "base" Control.Monad (forM, forM_, unless, void, when)
 import "base" Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Trans.Resource (runResourceT)
 import "base" Data.Function ((&))
 import "base" Data.Int (Int64)
 import "base" Data.Maybe (fromMaybe)
@@ -388,10 +389,10 @@ compact cfg = do
         }
   when (not cfg.noPactState) $ do
     forChains_ cfg.concurrent cids $ \cid -> do
-      withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
-        withChainDb cid logger (pactDir cfg.fromDir) $ \_ srcDb -> do
-          withChainDb cid logger (pactDir cfg.toDir) $ \_ targetDb -> do
-            compactPactState logger retainment targetBlockHeight srcDb targetDb
+      withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> runResourceT $ do
+        srcDb <- withChainDb cid logger (pactDir cfg.fromDir)
+        targetDb <- withChainDb cid logger (pactDir cfg.toDir)
+        liftIO $ compactPactState logger retainment targetBlockHeight srcDb targetDb
 
 compactTable :: (Logger logger)
   => logger      -- ^ logger

@@ -80,6 +80,7 @@ module Chainweb.Pact.Backend.Utils
 import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Resource (ResourceT, allocate)
 
 import Data.Bits
 import Data.Foldable
@@ -252,9 +253,8 @@ withSqliteDb
     -> logger
     -> FilePath
     -> Bool
-    -> (SQLiteEnv -> IO a)
-    -> IO a
-withSqliteDb cid logger dbDir resetDb = bracket
+    -> ResourceT IO SQLiteEnv
+withSqliteDb cid logger dbDir resetDb = snd <$> allocate
     (startSqliteDb cid logger dbDir resetDb)
     stopSqliteDb
 

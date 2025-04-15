@@ -21,10 +21,12 @@ import Pact.Core.Repl
 import Pact.Core.Repl.Utils
 import Control.Monad (when)
 import Data.Text qualified as Text
-import Pact.Types.KeySet qualified as Pact
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Map.Strict qualified as Map
+import Pact.Core.Guards
+import qualified Data.Set as Set
+import Pact.Core.Names
 
 -- ---------------------------------------------------------------------- --
 -- Global settings
@@ -85,7 +87,7 @@ injectionTest = do
 badMinerId :: MinerId
 badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
 
-minerKeys0 :: MinerKeys
-minerKeys0 = MinerKeys $ Pact4.mkKeySet
-    ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-    "default"
+minerKeys0 :: MinerGuard
+minerKeys0 = MinerGuard $ GKeyset $ KeySet
+    (Set.singleton (PublicKeyText "f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"))
+    (CustomPredicate (TBN $ BareName "default"))

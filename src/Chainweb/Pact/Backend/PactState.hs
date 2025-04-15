@@ -88,6 +88,7 @@ import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (tbl)
+import Control.Monad.Trans.Resource
 
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables
@@ -129,8 +130,9 @@ getLatestCommonBlockHeight :: (Logger logger)
   -> [ChainId]
   -> IO BlockHeight
 getLatestCommonBlockHeight logger path cids = do
-  fmap minimum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
-    getLatestBlockHeight sqlEnv
+  fmap minimum $ forM cids $ \cid -> runResourceT $ do
+    sqlEnv <- withChainDb cid logger path
+    liftIO $ getLatestBlockHeight sqlEnv
 
 getEarliestCommonBlockHeight :: (Logger logger)
   => logger
@@ -138,8 +140,9 @@ getEarliestCommonBlockHeight :: (Logger logger)
   -> [ChainId]
   -> IO BlockHeight
 getEarliestCommonBlockHeight logger path cids = do
-  fmap maximum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
-    getEarliestBlockHeight sqlEnv
+  fmap maximum $ forM cids $ \cid -> runResourceT $ do
+    sqlEnv <- withChainDb cid logger path
+    liftIO $ getEarliestBlockHeight sqlEnv
 
 -- | Wrapper around 'withSqliteDb' that adds the chainId label to the logger
 --   and sets resetDb to False.
@@ -147,12 +150,11 @@ withChainDb :: (Logger logger)
   => ChainId
   -> logger
   -> FilePath
-  -> (logger -> SQLiteEnv -> IO x)
-  -> IO x
-withChainDb cid logger' path f = do
+  -> ResourceT IO SQLiteEnv
+withChainDb cid logger' path = do
   let logger = addChainIdLabel cid logger'
   let resetDb = False
-  withSqliteDb cid logger path resetDb (f logger)
+  withSqliteDb cid logger path resetDb
 
 -- | Get all Pact table names in the database.
 getPactTableNames :: Database -> Stream (Of Utf8) IO ()

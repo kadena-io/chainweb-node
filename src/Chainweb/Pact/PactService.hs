@@ -28,8 +28,6 @@
 --
 module Chainweb.Pact.PactService
     ( initialPayloadState
-    -- , execNewBlock
-    -- , execContinueBlock
     , syncToFork
     -- , execTransactions
     , execLocal
@@ -42,10 +40,13 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad
+import Control.Monad.Cont (evalContT)
+import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State.Strict
+import Control.Monad.Trans.Resource
 
 import Data.Either
 import Data.Foldable (traverse_)
@@ -98,12 +99,10 @@ import Data.Coerce (coerce)
 import Data.Void
 import Chainweb.Pact.PactService.ExecBlock qualified as Pact
 import qualified Pact.Core.Evaluate as Pact
-import Control.Monad.Except
 import qualified Pact.Core.Errors as Pact
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 import qualified Pact.Core.StableEncoding as Pact
-import Control.Monad.Cont (evalContT)
 import qualified Data.List.NonEmpty as NonEmpty
 import Chainweb.PayloadProvider
 import Chainweb.Storage.Table
@@ -117,7 +116,6 @@ import qualified Data.DList as DList
 import Chainweb.Ranked
 import qualified Chainweb.Pact.Backend.ChainwebPactDb as ChainwebPactDb
 import qualified Pact.Core.ChainData as Pact
-import Control.Monad.State.Strict
 import GHC.Stack (HasCallStack)
 import qualified Data.Pool as Pool
 import qualified Data.List.NonEmpty as NEL
@@ -136,16 +134,20 @@ withPactService
     -> Pool SQLiteEnv
     -> SQLiteEnv
     -> PactServiceConfig
-    -> (ServiceEnv tbl -> IO a)
-    -> IO a
-withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config act = do
+    -> ResourceT IO (ServiceEnv tbl)
+withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config = do
     SomeChainwebVersionT @v _ <- pure $ someChainwebVersionVal ver
     SomeChainIdT @c _ <- pure $ someChainIdVal cid
     let payloadClient = Rest.payloadClient @v @c @'PactProvider
-    payloadStore <- newPayloadStore http (logFunction chainwebLogger) pdb payloadClient
-    miningPayloadVar <- newEmptyTMVarIO
-    ChainwebPactDb.initSchema readWriteSqlenv
-    candidatePdb <- MapTable.emptyTable
+    payloadStore <- liftIO $ newPayloadStore http (logFunction chainwebLogger) pdb payloadClient
+    (_, miningPayloadVar) <- allocate newEmptyTMVarIO
+        (\v -> do
+            refresherThread <- fmap (view _1) <$> atomically (tryReadTMVar v)
+            traverse_ cancel refresherThread
+        )
+
+    liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
+    candidatePdb <- liftIO MapTable.emptyTable
 
     let !pse = ServiceEnv
             { _psVersion = ver
@@ -168,12 +170,7 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             , _psGenesisPayload = _pactGenesisPayload config
             }
 
-    let run = act pse
-    let cancelRefresher = do
-            refresherThread <- fmap (view _1) <$> atomically (tryReadTMVar (_psMiningPayloadVar pse))
-            traverse_ cancel refresherThread
-
-    run `finally` cancelRefresher
+    return pse
 
 initialPayloadState
     :: Logger logger

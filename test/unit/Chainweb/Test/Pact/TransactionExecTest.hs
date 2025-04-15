@@ -17,29 +17,25 @@
 module Chainweb.Test.Pact.TransactionExecTest (tests) where
 
 import Chainweb.BlockHeader
-import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
+import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerGuard(..), noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, mkFakeParentCreationTime)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Types
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb)
+import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb), mkTestBlockDb)
 import Chainweb.Test.Pact.CmdBuilder
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
-import Chainweb.Utils (T2(..))
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Control.Lens hiding (only)
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Decimal
-import Data.Functor.Product
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
@@ -93,7 +89,6 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "applyCmd failure spec" (applyCmdFailureSpec baseRdb)
     , testCase "applyCmd coin.transfer" (applyCmdCoinTransfer baseRdb)
     , testCase "applyCoinbase spec" (applyCoinbaseSpec baseRdb)
-    -- , testCase "test coin upgrade" (testCoinUpgrade baseRdb)
     , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
     , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
     , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
@@ -101,7 +96,6 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
     , testCase "quirk spec" (quirkSpec baseRdb)
     , testCase "test writes to nonexistent tables" (testWritesToNonExistentTables baseRdb)
-    -- , testCase "test CommandResult 5 is valid for 4" (testCommandResult5To4 baseRdb)
     , testCase "test hash-keccak256" (testKeccak256 baseRdb)
     ]
 
@@ -114,17 +108,17 @@ readFromAfterGenesis :: ChainwebVersion -> RocksDb -> (BlockEnv -> BlockHandle -
 readFromAfterGenesis ver rdb act = runResourceT $ do
     sql <- withTempSQLiteResource
     tdb <- mkTestBlockDb ver rdb
+    -- fake ro-sql pool, assuming we're using this single-threaded
+    roSqlPool <- liftIO $ Pool.newPool (Pool.defaultPoolConfig (return sql) (\_ -> return ()) 10 10)
+    logger <- liftIO $ testLogger
+    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (testPactServiceConfig PIN0.payloadBlock)
     liftIO $ do
-        -- fake ro-sql pool, assuming we're using this single-threaded
-        roSqlPool <- Pool.newPool (Pool.defaultPoolConfig (return sql) (\_ -> return ()) 10 10)
-        logger <- testLogger
-        withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (testPactServiceConfig PIN0.payloadBlock) $ \serviceEnv -> do
-            initialPayloadState logger serviceEnv
-            fakeParentCreationTime <- mkFakeParentCreationTime
-            throwIfNoHistory =<<
-                readFrom logger ver cid sql fakeParentCreationTime
-                    (Parent (gh ver cid ^. rankedBlockHash))
-                    act
+        initialPayloadState logger serviceEnv
+        fakeParentCreationTime <- mkFakeParentCreationTime
+        throwIfNoHistory =<<
+            readFrom logger ver cid sql fakeParentCreationTime
+                (Parent (gh ver cid ^. rankedBlockHash))
+                act
 
 buyGasShouldTakeGasTokensFromTheTransactionSender :: RocksDb -> IO ()
 buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
@@ -898,26 +892,6 @@ testKeccak256 rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
                 [ P.fun _crResult ? P.equals ? PactResultOk (PString "DqM-LjT1ckQGQCRMfx9fBGl86XE5vacqZVjYZjwCs4g")
                 , P.fun _crGas ? P.equals ? Gas 75
                 ]
-
-testCommandResult5To4 :: RocksDb -> IO ()
-testCommandResult5To4 rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -> do
-    flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \pactDb _spv -> do
-        cmd <- buildCwCmd v
-            $ set cbRPC (mkExec' "(+ 1 'hello)")
-            $ defaultCmd cid
-
-        logger <- testLogger
-        applyCmd logger Nothing pactDb noMiner (_psBlockCtx blockEnv) (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
-            >>= P.checkAll
-            [ P.match _Right
-                ? P.fun _crResult
-                ? P.match _PactResultErr
-                ? P.succeed
-            , P.match _Right
-                ? P.fun (fmap pactErrorToOnChainError)
-                ? P.fun hashPactTxLogs
-                ? P.forced
-            ]
 
 cid :: ChainId
 cid = unsafeChainId 0

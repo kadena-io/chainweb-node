@@ -47,7 +47,7 @@ import Chainweb.Version
 import Chainweb.Version.Registry
 import P2P.Peer
 
-import Chainweb.Payload (PayloadWithOutputs_(_payloadWithOutputsPayloadHash))
+import Chainweb.Payload (PayloadWithOutputs_(_payloadWithOutputsPayloadHash), PayloadWithOutputs)
 import qualified Pact.Core.Names as Pact
 import qualified Pact.Core.Gas as Pact
 

@@ -21,6 +21,8 @@ import Control.Lens
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 import Data.HashSet(HashSet)
 import Data.String
 import qualified Data.Text as T
@@ -47,12 +49,12 @@ data BackupOptions = BackupOptions
     }
 
 data BackupEnv logger = BackupEnv
-  { _backupRocksDb :: !RocksDb
-  , _backupDir :: !FilePath
-  , _backupPactDbDir :: !FilePath
-  , _backupChainIds :: !(HashSet ChainId)
-  , _backupLogger :: !logger
-  }
+    { _backupRocksDb :: !RocksDb
+    , _backupDir :: !FilePath
+    , _backupPactDbDir :: !FilePath
+    , _backupChainIds :: !(HashSet ChainId)
+    , _backupLogger :: !logger
+    }
 
 data BackupStatus
     = BackupDone | BackupInProgress | BackupFailed
@@ -97,12 +99,12 @@ makeBackup env options = do
         logCr Info "rocksdb checkpoint made"
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
-            forConcurrently_ (_backupChainIds env) $ \cid -> do
-                withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry db
-                        ("VACUUM main INTO ?")
-                        [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
-                        []
+            forConcurrently_ (_backupChainIds env) $ \cid -> runResourceT $ do
+                db <- withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False
+                liftIO $ void $ qry db
+                    ("VACUUM main INTO ?")
+                    [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
+                    []
             logCr Info $ "pact databases backed up"
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)

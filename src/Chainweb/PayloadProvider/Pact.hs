@@ -12,6 +12,7 @@
 module Chainweb.PayloadProvider.Pact
     ( PactPayloadProvider(..)
     , withPactPayloadProvider
+    , pactMemPoolAccess
     ) where
 
 import Control.Concurrent.STM
@@ -21,7 +22,6 @@ import System.LogLevel
 import Control.Lens
 import qualified Network.HTTP.Client as HTTP
 import qualified Data.Vector as V
-import Control.Monad.Reader
 
 import Chainweb.ChainId
 import Chainweb.Counter
@@ -38,6 +38,7 @@ import Chainweb.PayloadProvider
 import Chainweb.Utils
 import Chainweb.Version
 import qualified Data.Pool as Pool
+import Control.Monad.Trans.Resource (ResourceT, allocate)
 
 data PactPayloadProvider logger tbl = PactPayloadProvider logger (ServiceEnv tbl)
 
@@ -102,18 +103,19 @@ withPactPayloadProvider
     -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
-    -> (PactPayloadProvider logger tbl -> IO a)
-    -> IO a
-withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config action =
-    withSqliteDb cid logger pactDbDir False $ \readWriteSqlenv -> do
-        readOnlySqlPool <- Pool.newPool $ Pool.defaultPoolConfig
+    -> ResourceT IO (PactPayloadProvider logger tbl)
+withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config = do
+    readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
+    (_, readOnlySqlPool) <- allocate
+        (Pool.newPool $ Pool.defaultPoolConfig
             (startReadSqliteDb cid logger pactDbDir)
             stopSqliteDb
             10 -- seconds to keep them around unused
             2 -- connections at most
             & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
-        PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
-            (action . PactPayloadProvider logger)
+        )
+        Pool.destroyAllResources
+    PactPayloadProvider logger <$> PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
     where
     mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 

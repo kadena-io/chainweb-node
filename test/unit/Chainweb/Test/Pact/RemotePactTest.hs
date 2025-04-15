@@ -121,7 +121,6 @@ import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebPactExecutionService
 import Chainweb.Version.Mainnet (mainnet)
 
 
