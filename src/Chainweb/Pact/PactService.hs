@@ -121,7 +121,6 @@ import Control.Monad.State.Strict
 import GHC.Stack (HasCallStack)
 import qualified Data.Pool as Pool
 import qualified Data.List.NonEmpty as NEL
-import Chainweb.Pact.PactService.Checkpointer (mkFakeNewBlockCtx)
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact.NoCoinbase as Pact
 
@@ -226,42 +225,6 @@ getMiner serviceEnv = case _psMiner serviceEnv of
     Nothing -> error "Chainweb.Pact.PactService: Mining is disabled, but was invoked. This is a bug in chainweb."
     Just miner -> return miner
 
-revertStateOnFailure :: Monad m => StateT s (ExceptT e m) a -> StateT s m (Either e a)
-revertStateOnFailure s = do
-    StateT $ \old ->
-        runExceptT (runStateT s old) <&> f old
-    where
-        f old = \case
-            Left err -> (Left err, old)
-            Right (success, new) -> (Right success, new)
-
-makeEmptyBlock
-    :: forall logger tbl. (Logger logger)
-    => logger
-    -> ServiceEnv tbl
-    -> BlockEnv
-    -> StateT BlockHandle IO BlockInProgress
-makeEmptyBlock logger serviceEnv blockEnv = do
-    miner <- liftIO $ getMiner serviceEnv
-    let blockGasLimit = _psNewBlockGasLimit serviceEnv
-    coinbaseOutput <- revertStateOnFailure (Pact.runCoinbase logger blockEnv miner) >>= \case
-        Left coinbaseError -> error $ "Error during coinbase: " <> sshow coinbaseError
-        Right coinbaseOutput ->
-            -- pretend that coinbase can throw an error, when we know it can't.
-            -- perhaps we can make the Transactions express this, may not be worth it.
-            return $ coinbaseOutput & Pact.crResult . Pact._PactResultErr %~ absurd
-    hndl <- get
-    return BlockInProgress
-            { _blockInProgressHandle = hndl
-            , _blockInProgressBlockCtx = view psBlockCtx blockEnv
-            , _blockInProgressRemainingGasLimit = blockGasLimit
-            , _blockInProgressTransactions = Transactions
-                { _transactionCoinbase = coinbaseOutput
-                , _transactionPairs = mempty
-                }
-            , _blockInProgressNumber = 0
-            }
-
 -- | only for use in generating genesis blocks in tools.
 --
 execNewGenesisBlock
@@ -273,9 +236,9 @@ execNewGenesisBlock
 execNewGenesisBlock logger serviceEnv newTrans = do
     let v = _chainwebVersion serviceEnv
     let cid = _chainId serviceEnv
-    fakeNewBlockCtx <- mkFakeNewBlockCtx
+    let parentCreationTime = Parent (v ^?! versionGenesis . genesisTime . atChain cid)
     let genesisParent = Parent $ RankedBlockHash (genesisHeight v cid) (unwrapParent $ genesisParentBlockHash v cid)
-    historicalBlock <- Checkpointer.readFrom logger v cid (_psReadWriteSql serviceEnv) fakeNewBlockCtx genesisParent $ \blockEnv startHandle -> do
+    historicalBlock <- Checkpointer.readFrom logger v cid (_psReadWriteSql serviceEnv) parentCreationTime genesisParent $ \blockEnv startHandle -> do
 
         let bipStart = BlockInProgress
                 { _blockInProgressHandle = startHandle
@@ -331,7 +294,6 @@ execReadOnlyReplay logger serviceEnv blocks = do
                 lookupPayloadWithHeight (_payloadStoreTable pdb) (Just $ _evaluationCtxCurrentHeight evalCtx) (_evaluationCtxPayload evalCtx)
             let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
             let isUpgradeBlock = isJust $ v ^? versionUpgrades . atChain cid . ix (_evaluationCtxCurrentHeight evalCtx)
-            newBlockCtx <- Checkpointer.mkFakeNewBlockCtx
             if isPayloadEmpty && not isUpgradeBlock
             then Pool.withResource readSqlPool $ \sql -> do
                 hist <- Checkpointer.readFrom
@@ -339,7 +301,7 @@ execReadOnlyReplay logger serviceEnv blocks = do
                     v
                     cid
                     sql
-                    newBlockCtx
+                    (_evaluationCtxParentCreationTime evalCtx)
                     (_evaluationCtxRankedParentHash evalCtx)
                     (\blockEnv blockHandle ->
                         runExceptT $ flip evalStateT blockHandle $
@@ -373,7 +335,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
     where
 
     doLocal = Pool.withResource (view psReadSqlPool serviceEnv) $ \sql -> do
-        fakeNewBlockCtx <- liftIO $ Checkpointer.mkFakeNewBlockCtx
+        fakeNewBlockCtx <- liftIO Checkpointer.mkFakeParentCreationTime
         Checkpointer.readFromNthParent logger v cid sql fakeNewBlockCtx (fromIntegral rewindDepth) $ \blockEnv blockHandle -> do
             let blockCtx = view psBlockCtx blockEnv
             let requestKey = Pact.cmdToRequestKey cwtx
@@ -456,6 +418,42 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
     timeoutLimit
         | enableLocalTimeout = Just (2 * 1_000_000)
         | otherwise = Nothing
+
+makeEmptyBlock
+    :: forall logger tbl. (Logger logger)
+    => logger
+    -> ServiceEnv tbl
+    -> BlockEnv
+    -> StateT BlockHandle IO BlockInProgress
+makeEmptyBlock logger serviceEnv blockEnv = do
+    miner <- liftIO $ getMiner serviceEnv
+    let blockGasLimit = _psNewBlockGasLimit serviceEnv
+    coinbaseOutput <- revertStateOnFailure (Pact.runCoinbase logger blockEnv miner) >>= \case
+        Left coinbaseError -> error $ "Error during coinbase: " <> sshow coinbaseError
+        Right coinbaseOutput ->
+            -- pretend that coinbase can throw an error, when we know it can't.
+            -- perhaps we can make the Transactions express this, may not be worth it.
+            return $ coinbaseOutput & Pact.crResult . Pact._PactResultErr %~ absurd
+    hndl <- get
+    return BlockInProgress
+            { _blockInProgressHandle = hndl
+            , _blockInProgressBlockCtx = view psBlockCtx blockEnv
+            , _blockInProgressRemainingGasLimit = blockGasLimit
+            , _blockInProgressTransactions = Transactions
+                { _transactionCoinbase = coinbaseOutput
+                , _transactionPairs = mempty
+                }
+            , _blockInProgressNumber = 0
+            }
+    where
+    revertStateOnFailure :: Monad m => StateT s (ExceptT e m) a -> StateT s m (Either e a)
+    revertStateOnFailure s = do
+        StateT $ \old ->
+            runExceptT (runStateT s old) <&> f old
+        where
+            f old = \case
+                Left err -> (Left err, old)
+                Right (success, new) -> (Right success, new)
 
 syncToFork
     :: forall tbl logger
@@ -543,7 +541,7 @@ syncToFork logger serviceEnv hints forkInfo = do
                     -- told to start mining, we produce an empty block
                     -- immediately. then we set up a separate thread
                     -- to add new transactions to the block.
-                    emptyBlock <- Checkpointer.readFromLatest logger v cid sql newBlockCtx $ \blockEnv blockHandle ->
+                    emptyBlock <- Checkpointer.readFromLatest logger v cid sql (_newBlockCtxParentCreationTime newBlockCtx) $ \blockEnv blockHandle ->
                         flip evalStateT blockHandle $ makeEmptyBlock logger serviceEnv blockEnv
                     let payloadVar = view psMiningPayloadVar serviceEnv
 
@@ -555,7 +553,7 @@ syncToFork logger serviceEnv hints forkInfo = do
                     refresherThread <- liftIO $ async (refreshPayloads logger serviceEnv)
 
                     liftIO $
-                        atomically $ writeTMVar payloadVar (refresherThread, newBlockCtx, emptyBlock)
+                        atomically $ writeTMVar payloadVar (refresherThread, emptyBlock)
 
         _ -> return ()
     return newConsensusState
@@ -627,9 +625,9 @@ refreshPayloads logger serviceEnv = do
     -- note that if this is empty, we wait; taking from it is the way to make us stop
     let logOutraced =
             liftIO $ logFunctionText logger Debug $ "Refresher outraced by new block"
-    (_, newBlockCtx, blockInProgress) <- liftIO $ atomically $ readTMVar payloadVar
+    (_, blockInProgress) <- liftIO $ atomically $ readTMVar payloadVar
     maybeRefreshedBlockInProgress <- Pool.withResource (view psReadSqlPool serviceEnv) $ \sql ->
-        Checkpointer.readFrom logger v cid sql newBlockCtx (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress) $ \blockEnv _bh -> do
+        Checkpointer.readFrom logger v cid sql (_bctxParentCreationTime $ _blockInProgressBlockCtx blockInProgress) (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress) $ \blockEnv _bh -> do
         let dbEnv = view psBlockDbEnv blockEnv
         continueBlock logger serviceEnv dbEnv blockInProgress
     case maybeRefreshedBlockInProgress of
@@ -637,12 +635,12 @@ refreshPayloads logger serviceEnv = do
         NoHistory -> logOutraced
         Historical refreshedBlockInProgress -> do
             outraced <- liftIO $ atomically $ do
-                (_, _, latestBlockInProgress) <- readTMVar payloadVar
+                (_, latestBlockInProgress) <- readTMVar payloadVar
                 -- the block has been replaced, this is a possible race
                 if _blockInProgressBlockCtx latestBlockInProgress /= _blockInProgressBlockCtx refreshedBlockInProgress
                 then return True
                 else do
-                    writeTMVar payloadVar . (_3 .~ refreshedBlockInProgress) =<< readTMVar payloadVar
+                    writeTMVar payloadVar . (_2 .~ refreshedBlockInProgress) =<< readTMVar payloadVar
                     return False
             if outraced
             then logOutraced
@@ -691,8 +689,8 @@ execPreInsertCheckReq
 execPreInsertCheckReq logger serviceEnv txs = do
     let requestKeys = V.map Pact.cmdToRequestKey txs
     logFunctionText logger Info $ "(pre-insert check " <> sshow requestKeys <> ")"
-    newBlockCtx <- Checkpointer.mkFakeNewBlockCtx
-    let act sql = Checkpointer.readFromLatest logger v cid sql newBlockCtx $ \blockEnv bh -> do
+    fakeParentCreationTime <- Checkpointer.mkFakeParentCreationTime
+    let act sql = Checkpointer.readFromLatest logger v cid sql fakeParentCreationTime $ \blockEnv bh -> do
             forM txs $ \tx ->
                 fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
                     -- it's safe to use initialBlockHandle here because it's
@@ -746,7 +744,7 @@ execLookupPactTxs logger serviceEnv confDepth txs = do -- pactLabel "execLookupP
     if V.null txs
     then return (Historical mempty)
     else do
-        go =<< liftIO Checkpointer.mkFakeNewBlockCtx
+        go =<< liftIO Checkpointer.mkFakeParentCreationTime
     where
     depth = maybe 0 (fromIntegral . _confirmationDepth) confDepth
     v = _chainwebVersion serviceEnv

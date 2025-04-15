@@ -59,7 +59,7 @@ instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvi
 
     latestPayloadSTM :: Logger logger => PactPayloadProvider logger tbl -> STM NewPayload
     latestPayloadSTM (PactPayloadProvider _logger e) = do
-        (_, _, bip) <- readTMVar (_psMiningPayloadVar e)
+        (_, bip) <- readTMVar (_psMiningPayloadVar e)
         let pwo = toPayloadWithOutputs
                 (fromJuste $ _psMiner e)
                 (_blockInProgressTransactions bip)

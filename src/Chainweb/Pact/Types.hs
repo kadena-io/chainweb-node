@@ -195,7 +195,7 @@ import Control.Concurrent.Async
 import qualified Data.Aeson as A
 
 data Transactions t r = Transactions
-    { _transactionPairs :: !(Vector (t, r))
+    { _transactionPairs :: !(Vector (T2 t r))
     , _transactionCoinbase :: !r
     }
     deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
@@ -526,7 +526,7 @@ data ServiceEnv tbl = ServiceEnv
     -- If unset, defaults to a reasonable value based on the transaction's gas limit.
     , _psMiner :: Maybe Miner
     -- ^ Miner identity for use in newly mined blocks.
-    , _psMiningPayloadVar :: TMVar (Async (), NewBlockCtx, BlockInProgress)
+    , _psMiningPayloadVar :: TMVar (Async (), BlockInProgress)
     -- ^ Latest mining payload produced, and block continuation thread.
     , _psNewBlockGasLimit :: Pact.GasLimit
     -- ^ Block gas limit in newly produced blocks.
@@ -731,12 +731,12 @@ toPayloadWithOutputs
   -> Chainweb.PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let
-        oldSeq :: Vector (Chainweb.Transaction, OffChainCommandResult)
+        oldSeq :: Vector (T2 Chainweb.Transaction OffChainCommandResult)
         oldSeq = _transactionPairs ts
         trans :: Vector Chainweb.Transaction
-        trans = fst <$> oldSeq
+        trans = sfst <$> oldSeq
         transOuts :: Vector Chainweb.TransactionOutput
-        transOuts = Chainweb.TransactionOutput . pactCommandResultToBytes . hashPactTxLogs . snd <$> oldSeq
+        transOuts = Chainweb.TransactionOutput . pactCommandResultToBytes . hashPactTxLogs . ssnd <$> oldSeq
 
         miner :: Chainweb.MinerData
         miner = toMinerData mi

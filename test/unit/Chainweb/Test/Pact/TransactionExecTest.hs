@@ -20,7 +20,7 @@ import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerGuard(..), noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
-import Chainweb.Pact.PactService.Checkpointer (readFrom, mkFakeNewBlockCtx)
+import Chainweb.Pact.PactService.Checkpointer (readFrom, mkFakeParentCreationTime)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction
 import Chainweb.Pact.TransactionExec
@@ -75,7 +75,6 @@ import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
 import Chainweb.Pact.Backend.Types
 import Control.Monad.State.Strict
-import qualified Network.HTTP.Client as HTTP
 import qualified Data.Pool as Pool
 import Chainweb.Parent
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as PIN0
@@ -90,20 +89,20 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "run payload should return an EvalResult related to the input command" (runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb)
     , testCase "applyLocal spec" (applyLocalSpec baseRdb)
     , testCase "applyCmd spec" (applyCmdSpec baseRdb)
-    -- , testCase "applyCmd verifier spec" (applyCmdVerifierSpec baseRdb)
-    -- , testCase "applyCmd failure spec" (applyCmdFailureSpec baseRdb)
-    -- , testCase "applyCmd coin.transfer" (applyCmdCoinTransfer baseRdb)
-    -- , testCase "applyCoinbase spec" (applyCoinbaseSpec baseRdb)
+    , testCase "applyCmd verifier spec" (applyCmdVerifierSpec baseRdb)
+    , testCase "applyCmd failure spec" (applyCmdFailureSpec baseRdb)
+    , testCase "applyCmd coin.transfer" (applyCmdCoinTransfer baseRdb)
+    , testCase "applyCoinbase spec" (applyCoinbaseSpec baseRdb)
     -- , testCase "test coin upgrade" (testCoinUpgrade baseRdb)
-    -- , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
-    -- , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
-    -- , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
-    -- , testCase "event spec" (testEvents baseRdb)
-    -- , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
-    -- , testCase "quirk spec" (quirkSpec baseRdb)
-    -- , testCase "test writes to nonexistent tables" (testWritesToNonExistentTables baseRdb)
+    , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
+    , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
+    , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
+    , testCase "event spec" (testEvents baseRdb)
+    , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
+    , testCase "quirk spec" (quirkSpec baseRdb)
+    , testCase "test writes to nonexistent tables" (testWritesToNonExistentTables baseRdb)
     -- , testCase "test CommandResult 5 is valid for 4" (testCommandResult5To4 baseRdb)
-    -- , testCase "test hash-keccak256" (testKeccak256 baseRdb)
+    , testCase "test hash-keccak256" (testKeccak256 baseRdb)
     ]
 
 -- | Run with the context being that the parent block is the genesis block
@@ -121,9 +120,9 @@ readFromAfterGenesis ver rdb act = runResourceT $ do
         logger <- testLogger
         withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (testPactServiceConfig PIN0.payloadBlock) $ \serviceEnv -> do
             initialPayloadState logger serviceEnv
-            fakeNewBlockCtx <- mkFakeNewBlockCtx
+            fakeParentCreationTime <- mkFakeParentCreationTime
             throwIfNoHistory =<<
-                readFrom logger ver cid sql fakeNewBlockCtx
+                readFrom logger ver cid sql fakeParentCreationTime
                     (Parent (gh ver cid ^. rankedBlockHash))
                     act
 
@@ -736,7 +735,9 @@ applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
         startMinerBal <- readBal pactDb "NoMiner"
 
         logger <- testLogger
-        applyCoinbase logger pactDb 5 (_psBlockCtx blockEnv)
+        -- reward is 23.04523 (first entry in miner_rewards.csv) divided by #chains
+        let expectedMiningReward = 23.04523 / 10
+        applyCoinbase logger pactDb noMiner (_psBlockCtx blockEnv)
             >>= P.match _Right
             ? P.checkAll
                 [ P.fun _crResult ? P.equals ? PactResultOk (PString "Write succeeded")
@@ -750,13 +751,13 @@ applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
                 , P.fun _crEvents ? P.list
                     [ event
                         (P.equals "TRANSFER")
-                        (P.equals [PString "", PString "NoMiner", PDecimal 5.0])
+                        (P.equals [PString "", PString "NoMiner", PDecimal expectedMiningReward])
                         (P.equals coinModuleName)
                     ]
                 ]
         endMinerBal <- readBal pactDb "NoMiner"
         assertEqual "miner balance should include block reward"
-            (Just $ fromMaybe 0 startMinerBal + 5)
+            (Just $ fromMaybe 0 startMinerBal + expectedMiningReward)
             endMinerBal
 
 testEvents :: RocksDb -> IO ()
@@ -914,8 +915,7 @@ testCommandResult5To4 rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle -
                 ? P.succeed
             , P.match _Right
                 ? P.fun (fmap pactErrorToOnChainError)
-                ? P.fun hashPact5TxLogs
-                ? P.fun toPact4CommandResult
+                ? P.fun hashPactTxLogs
                 ? P.forced
             ]
 

@@ -33,7 +33,7 @@
 -- Checkpointer interaction for Pact service.
 --
 module Chainweb.Pact.PactService.Checkpointer
-    ( mkFakeNewBlockCtx
+    ( mkFakeParentCreationTime
     , readFromLatest
     , readFromNthParent
     , readFrom
@@ -89,14 +89,9 @@ import Control.Monad.State.Strict
 -- readFrom demands to know this context in case it's mining a block.
 -- But it's not really used by /local, or polling, so we fabricate it
 -- for those users.
-mkFakeNewBlockCtx :: IO NewBlockCtx
-mkFakeNewBlockCtx = do
-    fakeCreationTime <- Parent . BlockCreationTime <$> getCurrentTimeIntegral
-    return NewBlockCtx
-        -- fake
-        { _newBlockCtxMinerReward = MinerReward 1848
-        , _newBlockCtxParentCreationTime = fakeCreationTime
-        }
+mkFakeParentCreationTime :: IO (Parent BlockCreationTime)
+mkFakeParentCreationTime = do
+    Parent . BlockCreationTime <$> getCurrentTimeIntegral
 
 -- read-only rewind to the latest block.
 -- note: because there is a race between getting the latest header
@@ -110,11 +105,11 @@ readFromLatest
     -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
-    -> NewBlockCtx
+    -> Parent BlockCreationTime
     -> (BlockEnv -> BlockHandle -> IO a)
     -> IO a
-readFromLatest logger v cid sql newBlockCtx doRead =
-    readFromNthParent logger v cid sql newBlockCtx 0 doRead >>= \case
+readFromLatest logger v cid sql parentCreationTime doRead =
+    readFromNthParent logger v cid sql parentCreationTime 0 doRead >>= \case
         NoHistory -> error "readFromLatest: failed to grab the latest header, this is a bug in chainweb"
         Historical a -> return a
 
@@ -126,11 +121,11 @@ readFromNthParent
     -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
-    -> NewBlockCtx
+    -> Parent BlockCreationTime
     -> Word
     -> (BlockEnv -> BlockHandle -> IO a)
     -> IO (Historical a)
-readFromNthParent logger v cid sql newBlockCtx n doRead = do
+readFromNthParent logger v cid sql parentCreationTime n doRead = do
     withSavepoint sql ReadFromNSavepoint $ do
         latest <- _consensusStateLatest . fromJuste <$> getConsensusState sql
         if genesisHeight v cid + fromIntegral @Word @BlockHeight n < _syncStateHeight latest
@@ -141,7 +136,7 @@ readFromNthParent logger v cid sql newBlockCtx n doRead = do
                     -- this case for shallow nodes without enough history
                     Nothing -> return NoHistory
                     Just nthBlock ->
-                        readFrom logger v cid sql newBlockCtx (parentBlockHeight v cid nthBlock) doRead
+                        readFrom logger v cid sql parentCreationTime (parentBlockHeight v cid nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
@@ -151,17 +146,17 @@ readFrom
     -> ChainwebVersion
     -> ChainId
     -> SQLiteEnv
-    -> NewBlockCtx
+    -> Parent BlockCreationTime
     -- ^ you can fake this if you're not making a new block
     -> Parent RankedBlockHash
     -> (BlockEnv -> BlockHandle -> IO a)
     -> IO (Historical a)
-readFrom logger v cid sql newBlockCtx parent doRead = do
+readFrom logger v cid sql parentCreationTime parent doRead = do
     let blockCtx = BlockCtx
-            { _bctxParentCreationTime = _newBlockCtxParentCreationTime newBlockCtx
+            { _bctxParentCreationTime = parentCreationTime
             , _bctxParentHash = _rankedBlockHashHash <$> parent
             , _bctxParentHeight = _rankedBlockHashHeight <$> parent
-            , _bctxMinerReward = _newBlockCtxMinerReward newBlockCtx
+            , _bctxMinerReward = blockMinerReward v (childBlockHeight v cid parent)
             , _bctxChainwebVersion = v
             , _bctxChainId = cid
             }

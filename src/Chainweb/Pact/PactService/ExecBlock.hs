@@ -145,7 +145,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
 
     let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
     let startTxsRequestKeys =
-          foldMap' (S.singleton . pactRequestKeyToTransactionHash . view Pact.crReqKey . snd) startTxs
+          foldMap' (S.singleton . pactRequestKeyToTransactionHash . view Pact.crReqKey . ssnd) startTxs
     let initState = BlockFill
           { _bfTxHashes = startTxsRequestKeys
           , _bfGasLimit = _blockInProgressRemainingGasLimit blockInProgress
@@ -162,7 +162,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
     liftIO $ mpaBadlistTx mpAccess
       (V.fromList $ fmap pactRequestKeyToTransactionHash $ concat invalids)
 
-    liftIO $ logFunctionText logger Debug $ "Order of completed transactions: " <> sshow (map (Pact.unRequestKey . Pact._crReqKey . snd) $ concat $ reverse valids)
+    liftIO $ logFunctionText logger Debug $ "Order of completed transactions: " <> sshow (map (Pact.unRequestKey . Pact._crReqKey . ssnd) $ concat $ reverse valids)
     let !blockInProgress' = blockInProgress
           & blockInProgressHandle .~
             finalBlockHandle
@@ -171,7 +171,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
           & blockInProgressRemainingGasLimit .~
             finalGasLimit
 
-    liftIO $ logFunctionText logger Debug $ "Final block transaction order: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+    liftIO $ logFunctionText logger Debug $ "Final block transaction order: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
     return blockInProgress'
   return blockInProgress'
@@ -203,8 +203,10 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
             execNewTransactions prevRemainingGas txTimeLimit newTxs
 
           liftIO $ do
-            logFunctionText logger Debug $ "Refill: included request keys: " <> sshow @[Hash] (fmap (Pact.unRequestKey . Pact._crReqKey . snd) newCompletedTransactions)
-            logFunctionText logger Debug $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap Pact.unRequestKey newInvalidTransactions)
+            logFunctionText logger Debug $ "Refill: included request keys: "
+              <> sshow @[Hash] (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) newCompletedTransactions)
+            logFunctionText logger Debug $ "Refill: badlisted request keys: "
+              <> sshow @[Hash] (fmap Pact.unRequestKey newInvalidTransactions)
 
           let newBlockFillState = BlockFill
                 { _bfCount = succ prevFillCount
@@ -271,7 +273,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
                   logFunctionText logger Debug "applyCmdInBlock buy gas succeeded"
                   ((as, timedOut), s'') <- runStateT rest s'
                   let !txBytes = commandToBytes tx
-                  return ((Right (txBytes, a):as, timedOut), s'')
+                  return ((Right (T2 txBytes a):as, timedOut), s'')
               )
               (return ([], False))
               (zip [0..] (V.toList txs))
@@ -289,7 +291,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
     let blockCtx = _psBlockCtx blockEnv
     liftIO $ mpaGetBlock mpAccess blockFillState validate (evaluationCtxOfBlockCtx blockCtx)
 
-type CompletedTransactions = [(Chainweb.Transaction, Pact.OffChainCommandResult)]
+type CompletedTransactions = [T2 Chainweb.Transaction Pact.OffChainCommandResult]
 type InvalidTransactions = [Pact.RequestKey]
 
 -- Apply a Pact command in the current block.
@@ -501,12 +503,6 @@ pact5TransactionsFromPayload plData = do
     toCWTransaction bs =
       evaluate (force (codecDecode commandCodec $ _transactionBytes bs))
 
--- introduce a new state temporarily for an inner action
-weaveStatesFst :: Monad m => StateT (s1, s2) m a -> s2 -> StateT s1 m (a, s2)
-weaveStatesFst act s2 = StateT $ \s1 -> do
-  (a, (s1', s2')) <- runStateT act (s1, s2)
-  return ((a, s2'), s1')
-
 execExistingBlock
   :: (CanReadablePayloadCas tbl, Logger logger)
   => logger
@@ -541,7 +537,7 @@ execExistingBlock logger serviceEnv blockEnv payload = do
   (V.fromList -> results, _finalBlockGasLimit) <- flip weaveStatesFst blockGasLimit $
     -- flip runStateT (postCoinbaseBlockHandle, blockGasLimit) $
       forM (zip [0..] (V.toList txs)) $ \(txIdxInBlock, tx) ->
-        (tx,) <$>
+        T2 tx <$>
           (mapStateT (mapExceptT (liftIO . fmap (over _Left BlockInvalidDueToInvalidTxAtRuntime))) $
             applyCmdInBlock logger serviceEnv blockEnv miner (TxBlockIdx txIdxInBlock) tx)
   -- incorporate the final state of the transactions into the block state
@@ -551,6 +547,13 @@ execExistingBlock logger serviceEnv blockEnv payload = do
   pwo <- liftEither . over _Left BlockInvalidDueToOutputMismatch $
     validateHashes blockCtx payload miner (Transactions results coinbaseResult)
   return (totalGasUsed, pwo, txs)
+  where
+  -- introduce a new state, s2, temporarily for an inner action
+  weaveStatesFst :: Monad m => StateT (s1, s2) m a -> s2 -> StateT s1 m (a, s2)
+  weaveStatesFst act s2 = StateT $ \s1 -> do
+    (a, (s1', s2')) <- runStateT act (s1, s2)
+    return ((a, s2'), s1')
+
 
 -- | Check that the two payloads agree. If we have access to the outputs, we
 -- check those too.
