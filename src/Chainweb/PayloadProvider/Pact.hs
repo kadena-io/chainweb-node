@@ -39,6 +39,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import qualified Data.Pool as Pool
 import Control.Monad.Trans.Resource (ResourceT, allocate)
+import Chainweb.Core.Brief
 
 data PactPayloadProvider logger tbl = PactPayloadProvider logger (ServiceEnv tbl)
 
@@ -139,8 +140,8 @@ pactMemPoolGetBlock
             -> EvaluationCtx ()
             -> IO (Vector to))
 pactMemPoolGetBlock mp theLogger bf validate ctx = do
-    logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
-        <> "height = " <> sshow (_evaluationCtxCurrentHeight ctx) <> ", hash = " <> sshow (_evaluationCtxParentHash ctx)
+    logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for parent "
+        <> brief (_evaluationCtxRankedParentHash ctx)
     mempoolGetBlock mp bf validate ctx
     where
     logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints

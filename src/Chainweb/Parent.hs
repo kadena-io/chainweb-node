@@ -25,6 +25,9 @@ import Chainweb.Version
 newtype Parent h = Parent { unwrapParent :: h }
     deriving stock (Show, Functor, Foldable, Traversable, Eq, Ord, Generic)
     deriving newtype (NFData, ToJSON, FromJSON, Hashable, LeftTorsor)
+instance Applicative Parent where
+    pure = Parent
+    Parent f <*> Parent a = Parent (f a)
 
 instance HasChainId h => HasChainId (Parent h) where
     _chainId = _chainId . unwrapParent

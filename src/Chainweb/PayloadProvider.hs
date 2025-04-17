@@ -495,7 +495,7 @@ data ForkInfo = ForkInfo
         -- It may be more intuitive and convenient to store the trace in reverse
         -- order.
         --
-    , _forkInfoBasePayloadHash :: !BlockPayloadHash
+    , _forkInfoBasePayloadHash :: !(Parent BlockPayloadHash)
         -- ^ The payload hash of the parent block of the first entry in the
         -- fork info trace. If the fork info trace is empty, this is the payload
         -- hash of the latest block in the consensus state.
@@ -516,20 +516,20 @@ data ForkInfo = ForkInfo
     }
     deriving (Show, Eq, Ord)
 
-_forkInfoBaseHeight :: ForkInfo -> BlockHeight
+_forkInfoBaseHeight :: ForkInfo -> Parent BlockHeight
 _forkInfoBaseHeight fi = case _forkInfoTrace fi of
-    [] -> _latestHeight (_forkInfoTargetState fi)
-    (h:_) -> unwrapParent $ _evaluationCtxParentHeight h
+    [] -> Parent $ _latestHeight (_forkInfoTargetState fi)
+    (h:_) -> _evaluationCtxParentHeight h
 
-_forkInfoBaseRankedPayloadHash :: ForkInfo -> RankedBlockPayloadHash
+_forkInfoBaseRankedPayloadHash :: ForkInfo -> Parent RankedBlockPayloadHash
 _forkInfoBaseRankedPayloadHash fi = RankedBlockPayloadHash
-    (_forkInfoBaseHeight fi)
-    (_forkInfoBasePayloadHash fi)
+    <$> _forkInfoBaseHeight fi
+    <*> _forkInfoBasePayloadHash fi
 
 assertForkInfoInvariants :: MonadThrow m => ForkInfo -> m ()
 assertForkInfoInvariants forkInfo = do
     when (null (_forkInfoTrace forkInfo)) $
-        unless (trgPayloadHash forkInfo == _forkInfoBasePayloadHash forkInfo) $
+        unless (trgPayloadHash forkInfo == unwrapParent (_forkInfoBasePayloadHash forkInfo)) $
             throwM $ InvalidForkInfo
                 "The base payload hash must match the target payload hash, when the fork info trace is empty"
 

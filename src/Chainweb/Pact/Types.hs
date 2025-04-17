@@ -167,7 +167,7 @@ import Chainweb.BlockPayloadHash
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-import Chainweb.Miner.Pact (Miner, toMinerData)
+import Chainweb.Miner.Pact (Miner, toMinerData, noMiner)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Transaction qualified as Pact
@@ -457,7 +457,7 @@ testPactServiceConfig genesisPayload = PactServiceConfig
       , _pactFullHistoryRequired = False
       , _pactEnableLocalTimeout = False
       , _pactTxTimeLimit = Nothing
-      , _pactMiner = Nothing
+      , _pactMiner = Just noMiner
       , _pactGenesisPayload = genesisPayload
       }
 

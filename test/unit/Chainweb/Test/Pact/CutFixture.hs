@@ -55,8 +55,6 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService.Pact4.ExecBlock ()
-import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
@@ -71,7 +69,6 @@ import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements, only)
 import Control.Monad

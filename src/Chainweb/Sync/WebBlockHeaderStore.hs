@@ -333,7 +333,7 @@ forkInfoForHeader wdb hdr pldData
         state <- consensusState wdb hdr
         return $ ForkInfo
             { _forkInfoTrace = []
-            , _forkInfoBasePayloadHash = _latestPayloadHash state
+            , _forkInfoBasePayloadHash = Parent $ _latestPayloadHash state
             , _forkInfoTargetState = state
             , _forkInfoNewBlockCtx = Just nbctx
             }
@@ -349,7 +349,7 @@ forkInfoForHeader wdb hdr pldData
         state <- consensusState wdb hdr
         return $ ForkInfo
             { _forkInfoTrace = [consensusPayload <$ blockHeaderToEvaluationCtx phdr]
-            , _forkInfoBasePayloadHash = view blockPayloadHash (unwrapParent phdr)
+            , _forkInfoBasePayloadHash = view blockPayloadHash <$> phdr
             , _forkInfoTargetState = state
             , _forkInfoNewBlockCtx = Just nbctx
             }

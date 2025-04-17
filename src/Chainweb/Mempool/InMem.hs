@@ -631,7 +631,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate evalCtx =
         err s = error $
                 mconcat [ "Error decoding tx (\""
                         , s
-                        , "\"): tx was: "
+                        , "\"): did you disable checks and insert an invalid transaction? tx was: "
                         , T.unpack (T.decodeUtf8 tx)
                         ]
     getSize = txGasLimit txcfg

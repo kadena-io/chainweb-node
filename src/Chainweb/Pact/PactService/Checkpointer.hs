@@ -45,7 +45,7 @@ module Chainweb.Pact.PactService.Checkpointer
     , getEarliestBlock
     -- , lookupBlock
     , lookupRankedBlockHash
-    , lookupParentBlockHash
+    , lookupBlockHash
     , lookupBlockWithHeight
     , getPayloadsAfter
     , getConsensusState
@@ -85,6 +85,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Chainweb.Pact.Backend.ChainwebPactDb (lookupRankedBlockHash)
 import Control.Monad.State.Strict
+import System.LogLevel
 
 -- readFrom demands to know this context in case it's mining a block.
 -- But it's not really used by /local, or polling, so we fabricate it
@@ -100,7 +101,7 @@ mkFakeParentCreationTime = do
 -- we just keep grabbing the new "latest header" until we succeed.
 -- note: this function will never rewind before genesis.
 readFromLatest
-    :: Logger logger
+    :: (HasCallStack, Logger logger)
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -116,7 +117,7 @@ readFromLatest logger v cid sql parentCreationTime doRead =
 -- read-only rewind to the nth parent before the latest block.
 -- note: this function will never rewind before genesis.
 readFromNthParent
-    :: Logger logger
+    :: (HasCallStack, Logger logger)
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -127,21 +128,28 @@ readFromNthParent
     -> IO (Historical a)
 readFromNthParent logger v cid sql parentCreationTime n doRead = do
     withSavepoint sql ReadFromNSavepoint $ do
-        latest <- _consensusStateLatest . fromJuste <$> getConsensusState sql
-        if genesisHeight v cid + fromIntegral @Word @BlockHeight n < _syncStateHeight latest
-        then return NoHistory
+        latest <-
+            _consensusStateLatest . fromMaybe (error "readFromNthParent is illegal to call before genesis")
+            <$> getConsensusState sql
+        if genesisHeight v cid + fromIntegral @Word @BlockHeight n > _syncStateHeight latest
+        then do
+            logFunctionText logger Warn $ "readFromNthParent asked to rewind beyond genesis, to "
+                <> sshow (int (_syncStateHeight latest) - int n :: Integer)
+            return NoHistory
         else do
             let targetHeight = _syncStateHeight latest - fromIntegral @Word @BlockHeight n
             lookupBlockWithHeight sql targetHeight >>= \case
                     -- this case for shallow nodes without enough history
-                    Nothing -> return NoHistory
+                    Nothing -> do
+                        logFunctionText logger Warn "readFromNthParent asked to rewind beyond known blocks"
+                        return NoHistory
                     Just nthBlock ->
-                        readFrom logger v cid sql parentCreationTime (parentBlockHeight v cid nthBlock) doRead
+                        readFrom logger v cid sql parentCreationTime (Parent nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
 readFrom
-    :: Logger logger
+    :: (HasCallStack, Logger logger)
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -284,17 +292,13 @@ setConsensusState :: SQLiteEnv -> ConsensusState -> IO ()
 setConsensusState sql cs = do
     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.setConsensusState sql cs
 
-lookupBlockWithHeight :: SQLiteEnv -> BlockHeight -> IO (Maybe (Ranked (Parent BlockHash)))
+lookupBlockWithHeight :: HasCallStack => SQLiteEnv -> BlockHeight -> IO (Maybe (Ranked BlockHash))
 lookupBlockWithHeight sql bh = do
     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockWithHeight sql bh
 
--- lookupBlockByHash :: SQLiteEnv -> EvaluationCtx p -> IO Bool
--- lookupBlockByHash sql rpbh = do
---     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockByHash sql rpbh
-
-lookupParentBlockHash :: SQLiteEnv -> Parent BlockHash -> IO Bool
-lookupParentBlockHash sql pbh = do
-    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupParentBlockHash sql pbh
+lookupBlockHash :: HasCallStack => SQLiteEnv -> BlockHash -> IO Bool
+lookupBlockHash sql pbh = do
+    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockHash sql pbh
 
 getPayloadsAfter :: SQLiteEnv -> Parent BlockHeight -> IO [Ranked BlockPayloadHash]
 getPayloadsAfter sql b = do

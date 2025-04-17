@@ -139,6 +139,7 @@ module Chainweb.Version
     , indexByForkHeights
     , latestBehaviorAt
     , onAllChains
+    , onAllChainsM
     , domainAddr2PeerInfo
 
     -- * Internal. Don't use. Exported only for testing
@@ -799,10 +800,13 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
         , versionGraphs . to ruleHead . _1
         ]
 
+onAllChains :: ChainwebVersion -> (ChainId -> a) -> ChainMap a
+onAllChains v f = runIdentity $ onAllChainsM v (Identity . f)
+
 -- | Easy construction of a `ChainMap` with entries for every chain
 -- in a `ChainwebVersion`.
-onAllChains :: Applicative m => ChainwebVersion -> (ChainId -> m a) -> m (ChainMap a)
-onAllChains v f = OnChains <$>
+onAllChainsM :: Applicative m => ChainwebVersion -> (ChainId -> m a) -> m (ChainMap a)
+onAllChainsM v f = OnChains <$>
     HM.traverseWithKey
         (\cid () -> f cid)
         (HS.toMap (chainIds v))

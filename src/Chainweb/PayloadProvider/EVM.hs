@@ -1078,7 +1078,7 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
         -- network.
         --
         let rankedBaseHash = _forkInfoBaseRankedPayloadHash forkInfo
-        tableLookup p rankedBaseHash >>= \case
+        tableLookup p (unwrapParent rankedBaseHash) >>= \case
 
             -- If we don't know that base, there's nothing we can do
             Nothing -> do
