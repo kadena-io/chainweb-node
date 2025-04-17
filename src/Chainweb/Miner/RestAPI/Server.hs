@@ -45,7 +45,7 @@ import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM
 
-import Data.Binary.Builder (fromByteString)
+import Data.Binary.Builder qualified as BB (fromByteString)
 import Data.Proxy (Proxy(..))
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
@@ -239,11 +239,11 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
             Just WorkOutdated -> do
                 logFunctionText logger Debug $
                     "sent work outdated event to miner on chain " <> toText cid
-                return $ ServerEvent (Just $ fromByteString "New Cut") Nothing []
+                return $ ServerEvent (Just $ BB.fromByteString "New Cut") Nothing []
             Just WorkRefreshed -> do
                 logFunctionText logger Debug $
                     "sent work outdated event to miner on chain " <> toText cid
-                return $ ServerEvent (Just $ fromByteString "Refreshed Block") Nothing []
+                return $ ServerEvent (Just $ BB.fromByteString "Refreshed Block") Nothing []
         where
         logger = addLabel ("chain", toText cid) (_coordLogger mr)
 

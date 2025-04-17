@@ -111,7 +111,8 @@ import Data.ByteString.Short qualified as BS
 import Data.ByteString.Short qualified as SBS
 import Data.Function
 import Data.Hashable (Hashable(..))
-import Data.MerkleLog
+import Data.MerkleLog.Common
+import Data.MerkleLog.V1 qualified as V1
 import Data.Ratio ((%))
 import Data.Text qualified as T
 import Data.Void
@@ -390,15 +391,18 @@ headerProof
     => a ~ ChainwebMerkleHashAlgorithm
     => HasHeader a ChainwebHashTag c (MkLogType a ChainwebHashTag Header)
     => Header
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 headerProof = MerkleLog.headerProof @c
 {-# INLINE headerProof #-}
 
 -- | Runs a header proof. Returns the BlockPayloadHash of the EVM execution
 -- header for which inclusion is proven.
 --
-runHeaderProof :: MerkleProof ChainwebMerkleHashAlgorithm -> BlockPayloadHash
-runHeaderProof = BlockPayloadHash . MerkleLogHash . runMerkleProof
+runHeaderProof
+    :: MonadThrow m
+    => V1.MerkleProof ChainwebMerkleHashAlgorithm
+    -> m BlockPayloadHash
+runHeaderProof p = BlockPayloadHash . MerkleLogHash <$> V1.runMerkleProof p
 {-# INLINE runHeaderProof #-}
 
 -- -------------------------------------------------------------------------- --

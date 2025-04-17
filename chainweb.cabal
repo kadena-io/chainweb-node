@@ -177,7 +177,6 @@ library
         , Chainweb.Chainweb.MempoolSyncClient
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
-        , Chainweb.Chainweb.PruneChainDatabase
         , Chainweb.Core.Brief
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
@@ -246,6 +245,7 @@ library
         , Chainweb.PayloadProvider.P2P.RestAPI
         , Chainweb.PayloadProvider.P2P.RestAPI.Client
         , Chainweb.PayloadProvider.P2P.RestAPI.Server
+        -- , Chainweb.PayloadProvider.SPV
         , Chainweb.PowHash
         , Chainweb.Ranked
         , Chainweb.RestAPI
@@ -378,7 +378,6 @@ library
         , crypton-x509 >=1.7
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
-        , cuckoo >= 0.3
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.2.3
@@ -394,6 +393,7 @@ library
         , ghc-compact >= 0.1
         , growable-vector >= 0.1
         , hashable >= 1.4
+        , hashes >=0.2.2.0
         , heaps >= 0.3
         , hourglass >=0.2
         , http2 >= 5.2.1
@@ -524,7 +524,6 @@ library chainweb-test-utils
         , chainweb-storage >= 0.1
         , chronos >= 1.1
         , containers >= 0.5
-        , crypton >= 0.31
         , crypton-connection >=0.4
         , data-dword >= 0.3
         , deepseq >= 1.4
@@ -532,6 +531,7 @@ library chainweb-test-utils
         , directory >= 1.2
         , exceptions
         , filepath >= 1.4
+        , hashes >=0.2.2.0
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.17

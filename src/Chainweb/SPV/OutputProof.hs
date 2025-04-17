@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.SPV.OutputProof
@@ -36,11 +37,10 @@ import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
 import qualified Data.List.NonEmpty as N
-import Data.MerkleLog hiding (Expected, Actual)
+import Data.MerkleLog.V1 qualified as V1
 import qualified Data.Vector as V
+import Data.Hash.Keccak (Keccak256)
 
 import GHC.Stack
 
@@ -117,11 +117,11 @@ outputMerkleProofByIdx
     => PayloadWithOutputs_ h
     -> Int
         -- ^ The index of the transaction in the block
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 outputMerkleProofByIdx p txIdx = do
     -- Create proof from outputs tree and payload tree
     let (!subj, pos, t) = bodyTree outs txIdx
-    merkleProof_ subj
+    V1.merkleTreeProof_ subj
         $ (pos, t) N.:| [headerTree_ @(BlockOutputsHash_ a) payload]
   where
 
@@ -151,7 +151,7 @@ outputMerkleProof
     => PayloadWithOutputs_ h
     -> RequestKey
         -- ^ The index of the transaction in the block
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 outputMerkleProof p = findTxIdx p >=> outputMerkleProofByIdx p
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
@@ -190,7 +190,7 @@ createOutputProofKeccak256
     :: PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createOutputProofKeccak256 = createOutputProof_
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
@@ -258,7 +258,7 @@ createOutputProofDbKeccak256
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createOutputProofDbKeccak256 = createOutputProofDb_
 
 -- -------------------------------------------------------------------------- --

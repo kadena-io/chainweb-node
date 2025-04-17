@@ -179,7 +179,7 @@ import Data.Hashable
 import Data.IORef
 import Data.Kind
 import Data.Memory.Endian qualified as BA
-import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
+import Data.MerkleLog.Root
 import Data.Text qualified as T
 import Data.Word
 import GHC.Generics (Generic)
@@ -647,7 +647,7 @@ parentBlockHeight v cid (Ranked height parentHash)
 --
 genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> Parent BlockHash
 genesisParentBlockHash v p = Parent $ BlockHash $ MerkleLogHash
-    $ merkleRoot $ merkleTree @ChainwebMerkleHashAlgorithm
+    $ merkleRoot @ChainwebMerkleHashAlgorithm
         [ InputNode "CHAINWEB_GENESIS"
         , encodeMerkleInputNode encodeChainwebVersionCode (_versionCode v)
         , encodeMerkleInputNode encodeChainId (_chainId p)

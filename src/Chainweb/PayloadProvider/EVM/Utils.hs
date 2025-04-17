@@ -54,7 +54,7 @@ import Data.Hashable (Hashable)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.Read qualified as T
-import Ethereum.Misc
+import Ethereum.Misc qualified as E
 import Ethereum.RLP (RLP, get, getRlp)
 import Ethereum.Receipt
 import Ethereum.Transaction (Wei (..))
@@ -75,11 +75,11 @@ fromHexQuanity (HexQuantity a) = a
 fromHexBytes :: HexBytes a -> a
 fromHexBytes (HexBytes a) = a
 
-nullHash :: Keccak256Hash
-nullHash = Keccak256Hash $ replicateN 32
+nullHash :: E.Keccak256Hash
+nullHash = E.Keccak256Hash $ E.replicateN 32
 
-nullBlockHash :: BlockHash
-nullBlockHash = BlockHash nullHash
+nullBlockHash :: E.BlockHash
+nullBlockHash = E.BlockHash nullHash
 
 deriving instance Functor HexQuantity
 deriving instance Functor HexBytes
@@ -96,11 +96,11 @@ instance HasTextRepresentation (HexQuantity Natural) where
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
-instance HasTextRepresentation BlockNumber where
-    toText (BlockNumber a) = toText (HexQuantity a)
+instance HasTextRepresentation E.BlockNumber where
+    toText (E.BlockNumber a) = toText (HexQuantity a)
     fromText t = do
         HexQuantity n <- fromText t
-        return $ BlockNumber n
+        return $ E.BlockNumber n
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
@@ -118,31 +118,31 @@ instance HasTextRepresentation (HexBytes BS.ShortByteString) where
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
-instance KnownNat n => HasTextRepresentation (HexBytes (BytesN n)) where
-    toText = toText . fmap bytes
+instance KnownNat n => HasTextRepresentation (HexBytes (E.BytesN n)) where
+    toText = toText . fmap E.bytes
     fromText t = do
         HexBytes bs <- fromText t
-        case bytesN bs of
+        case E.bytesN bs of
             Right x -> return (HexBytes x)
             Left e -> throwM $ TextFormatException $ sshow e
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
-instance HasTextRepresentation Keccak256Hash where
-    toText = toText . HexBytes . bytes
-    fromText = fmap (Keccak256Hash . fromHexBytes) . fromText
+instance HasTextRepresentation E.Keccak256Hash where
+    toText = toText . HexBytes . E.bytes
+    fromText = fmap (E.Keccak256Hash . fromHexBytes) . fromText
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
-instance HasTextRepresentation BlockHash where
-    toText = toText . HexBytes . bytes
-    fromText = fmap BlockHash . fromText
+instance HasTextRepresentation E.BlockHash where
+    toText = toText . HexBytes . E.bytes
+    fromText = fmap E.BlockHash . fromText
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
-instance HasTextRepresentation Address where
-    toText = toText . HexBytes . bytes
-    fromText = fmap (Address . fromHexBytes) . fromText
+instance HasTextRepresentation E.Address where
+    toText = toText . HexBytes . E.bytes
+    fromText = fmap (E.Address . fromHexBytes) . fromText
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
@@ -154,14 +154,14 @@ dropN
     . KnownNat m
     => KnownNat n
     => n <= m
-    => BytesN m
-    -> BytesN n
-dropN b = unsafeBytesN @n (BS.drop (int d) (_getBytesN b))
+    => E.BytesN m
+    -> E.BytesN n
+dropN b = E.unsafeBytesN @n (BS.drop (int d) (E._getBytesN b))
   where
     d = natVal_ @m - natVal_ @n
 
 -- TODO: move to ethereum package
-deriving newtype instance Bytes LogData
+deriving newtype instance E.Bytes LogData
 
 -- -------------------------------------------------------------------------- --
 -- RLP Encoding Tools
@@ -186,8 +186,8 @@ instance ToJSON (HexBytes Chainweb.BlockHash) where
 
 instance FromJSON (HexBytes Chainweb.BlockHash) where
     parseJSON v = HexBytes <$> do
-        HexBytes b <- parseJSON @(HexBytes (BytesN 32)) v
-        case runGetS Chainweb.decodeBlockHash (bytes b) of
+        HexBytes b <- parseJSON @(HexBytes (E.BytesN 32)) v
+        case runGetS Chainweb.decodeBlockHash (E.bytes b) of
             Right x -> return x
             Left e -> fail (sshow e)
     {-# INLINE parseJSON #-}
@@ -202,24 +202,24 @@ newtype ChainId = ChainId { _chainId :: Natural }
 -- -------------------------------------------------------------------------- --
 -- Address 32
 
-newtype Address32 = Address32 (BytesN 32)
+newtype Address32 = Address32 (E.BytesN 32)
     deriving (Show, Eq, Ord)
-    deriving newtype (RLP, Bytes, Storable)
-    deriving (FromJSON, ToJSON) via (HexBytes (BytesN 32))
+    deriving newtype (RLP, E.Bytes, Storable)
+    deriving (FromJSON, ToJSON) via (HexBytes (E.BytesN 32))
 
 instance HasTextRepresentation Address32 where
-    toText = toText . HexBytes . bytes
+    toText = toText . HexBytes . E.bytes
     fromText = fmap (Address32 . fromHexBytes) . fromText
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
 toAddress32
-    :: Address
+    :: E.Address
     -> Address32
-toAddress32 (Address b) = Address32 (appendN zeroN b)
+toAddress32 (E.Address b) = Address32 (E.appendN zeroN b)
 
-zeroN :: KnownNat n => BytesN n
-zeroN = replicateN 0
+zeroN :: KnownNat n => E.BytesN n
+zeroN = E.replicateN 0
 
 -- -------------------------------------------------------------------------- --
 -- Randao
@@ -229,16 +229,16 @@ zeroN = replicateN 0
 --
 -- 32 bytes [cf. yellow paper 4.4.3 (44)]
 --
-newtype Randao = Randao (BytesN 32)
+newtype Randao = Randao (E.BytesN 32)
     deriving (Show, Eq, Ord)
-    deriving newtype (RLP, Bytes, Storable, Hashable)
-    deriving ToJSON via (HexBytes (BytesN 32))
-    deriving FromJSON via (HexBytes (BytesN 32))
+    deriving newtype (RLP, E.Bytes, Storable, Hashable)
+    deriving ToJSON via (HexBytes (E.BytesN 32))
+    deriving FromJSON via (HexBytes (E.BytesN 32))
 
 newtype BlockValue = BlockValue { _blockValue :: Wei }
     deriving (Show, Eq)
     deriving newtype (RLP)
-    deriving (ToJSON, FromJSON) via (HexQuantity Word256)
+    deriving (ToJSON, FromJSON) via (HexQuantity E.Word256)
 
 _blockValueStu :: BlockValue -> Stu
 _blockValueStu (BlockValue (Wei v)) = Stu (int v)
@@ -256,7 +256,7 @@ data DefaultBlockParameter
     | DefaultBlockPending
     | DefaultBlockSafe
     | DefaultBlockFinalized
-    | DefaultBlockNumber !BlockNumber
+    | DefaultBlockNumber !E.BlockNumber
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON) via (JsonTextRepresentation "DefaultBlockParameter" DefaultBlockParameter)
 
@@ -266,7 +266,7 @@ instance HasTextRepresentation DefaultBlockParameter where
     toText DefaultBlockPending = "pending"
     toText DefaultBlockSafe = "safe"
     toText DefaultBlockFinalized = "finalized"
-    toText (DefaultBlockNumber (BlockNumber n)) = toText (HexQuantity n)
+    toText (DefaultBlockNumber (E.BlockNumber n)) = toText (HexQuantity n)
     {-# INLINE toText #-}
 
     fromText t = case t of
@@ -275,6 +275,6 @@ instance HasTextRepresentation DefaultBlockParameter where
         "pending" -> return DefaultBlockPending
         "safe" -> return DefaultBlockSafe
         "finalized" -> return DefaultBlockFinalized
-        x -> DefaultBlockNumber . BlockNumber . fromHexQuanity <$> fromText x
+        x -> DefaultBlockNumber . E.BlockNumber . fromHexQuanity <$> fromText x
     {-# INLINE fromText #-}
 

@@ -43,12 +43,7 @@ module Chainweb.Chainweb.Configuration
 , defaultThrottlingConfig
 
 -- * Cut Configuration
-, ChainDatabaseGcConfig(..)
-, chainDatabaseGcToText
-, chainDatabaseGcFromText
-
 , CutConfig(..)
-, cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
 , cutFastForwardBlockHeightLimit
@@ -114,7 +109,6 @@ import Chainweb.Version.Registry
 import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Except
 import Control.Monad.Writer
 import Data.Aeson.Key qualified as K
@@ -359,48 +353,8 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
 -- -------------------------------------------------------------------------- --
 -- Cut Configuration
 
-data ChainDatabaseGcConfig
-    = GcNone
-    | GcHeaders
-    | GcHeadersChecked
-    | GcFull
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
-
-chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
-chainDatabaseGcToText GcNone = "none"
-chainDatabaseGcToText GcHeaders = "headers"
-chainDatabaseGcToText GcHeadersChecked = "headers-checked"
-chainDatabaseGcToText GcFull = "full"
-
-chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
-chainDatabaseGcFromText t = case T.toCaseFold t of
-    "none" -> return GcNone
-    "headers" -> return GcHeaders
-    "headers-checked" -> return GcHeadersChecked
-    "full" -> return GcFull
-    x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
-
-instance HasTextRepresentation ChainDatabaseGcConfig where
-    toText = chainDatabaseGcToText
-    fromText = chainDatabaseGcFromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
-
-instance ToJSON ChainDatabaseGcConfig where
-    toJSON = toJSON . chainDatabaseGcToText
-    {-# INLINE toJSON #-}
-
-instance FromJSON ChainDatabaseGcConfig where
-    parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
-      where
-        legacy = withBool "ChainDatabaseGcConfig" $ \case
-            True -> return GcHeaders
-            False -> return GcNone
-    {-# INLINE parseJSON #-}
-
 data CutConfig = CutConfig
-    { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
-    , _cutFetchTimeout :: !Int
+    { _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
     , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
@@ -409,37 +363,27 @@ makeLenses ''CutConfig
 
 instance ToJSON CutConfig where
     toJSON o = object
-        [ "pruneChainDatabase" .= _cutPruneChainDatabase o
-        , "fetchTimeout" .= _cutFetchTimeout o
+        [ "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
         , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
-        <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
-        <*< cutFetchTimeout ..: "fetchTimeout" % o
+        <$< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
         <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
-    { _cutPruneChainDatabase = GcNone
-    , _cutFetchTimeout = 3_000_000
+    { _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
     , _cutFastForwardBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
 pCutConfig = id
-    <$< cutPruneChainDatabase .:: textOption
-        % long "prune-chain-database"
-        <> help
-            ( "How to prune the chain database on startup."
-            <> " This can take several hours."
-            )
-        <> metavar "none|headers|headers-checked|full"
-    <*< cutFetchTimeout .:: option auto
+    <$< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
     <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto

@@ -12,6 +12,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.SPV.EventProof
@@ -104,17 +106,15 @@ import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
 import Data.Aeson
-import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Foldable
+import Data.Hash.Keccak (Keccak256)
 import Data.Hashable
-import Data.MerkleLog hiding (Actual, Expected)
+import qualified Data.MerkleLog.V1 as V1
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -410,27 +410,20 @@ type BlockEventsHash = BlockEventsHash_ ChainwebMerkleHashAlgorithm
 newtype BlockEventsHash_ a = BlockEventsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockEventsHashTag
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (BlockEventsHash_ a) where
     toText (BlockEventsHash h) = toText h
     fromText t = BlockEventsHash <$> fromText t
 
-encodeBlockEventsHash :: BlockEventsHash_ a -> Put
+encodeBlockEventsHash :: MerkleHashAlgorithm  a => BlockEventsHash_ a -> Put
 encodeBlockEventsHash (BlockEventsHash w) = encodeMerkleLogHash w
 
 decodeBlockEventsHash
     :: MerkleHashAlgorithm a
     => Get (BlockEventsHash_ a)
 decodeBlockEventsHash = BlockEventsHash <$!> decodeMerkleLogHash
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockEventsHash_ a) where
-    type Tag (BlockEventsHash_ a) = 'BlockEventsHashTag
-    toMerkleNode = encodeMerkleTreeNode
-    fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
 
 -- -------------------------------------------------------------------------- --
 -- Output Events
@@ -531,7 +524,7 @@ eventsMerkleProof
     => PayloadWithOutputs_ h
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 eventsMerkleProof p reqKey = do
     events <- getBlockEvents @_ @a p
 
@@ -542,7 +535,7 @@ eventsMerkleProof p reqKey = do
 
     -- Create proof from outputs tree and payload tree
     let (!subj, !pos, !t) = bodyTree events i
-    merkleProof subj pos t
+    V1.merkleTreeProof subj pos t
 
 createEventsProof_
     :: forall a
@@ -569,7 +562,7 @@ createEventsProofKeccak256
     :: PayloadWithOutputs
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createEventsProofKeccak256 = createEventsProof_
 
 -- -------------------------------------------------------------------------- --
@@ -631,7 +624,7 @@ createEventsProofDbKeccak256
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createEventsProofDbKeccak256 = createEventsProofDb_
 
 -- -------------------------------------------------------------------------- --

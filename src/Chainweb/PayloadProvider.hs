@@ -76,6 +76,8 @@ module Chainweb.PayloadProvider
 , withPayloadProvider
 
 -- * SPV
+, PayloadSpvException(..)
+, renderPayloadSpvException
 , TransactionIndex(..)
 , EventIndex(..)
 , XEventId(..)
@@ -869,6 +871,50 @@ payloadStream p = do
 -- -------------------------------------------------------------------------- --
 -- SPV
 
+-- | SPV Exceptions
+--
+data PayloadSpvException
+    = InvalidBlockHeight XEventId
+        -- ^ The chain has not yet produced a block a the requested height.
+    | InvalidTransactionIndex XEventId
+        -- ^ A transaction with that index can not be found in the block
+    | InvalidEventIndex XEventId
+        -- ^ An event with that index can not be found in the transaction
+    | UnsupportedEventType XEventId
+        -- ^ The event type is not supported by the protocol
+    | InvalidEvent XEventId T.Text
+        -- ^ The event is invalid for some reason
+    | ProofPending XEventId BlockHeight
+        -- ^ The proof is not yet available on the target chain, which currently
+        -- is at the given block height.
+    deriving (Show, Eq)
+
+instance Exception PayloadSpvException where
+    displayException = T.unpack . renderPayloadSpvException
+
+renderPayloadSpvException :: PayloadSpvException -> T.Text
+renderPayloadSpvException (InvalidBlockHeight e) =
+    "The chain has not yet produced a block a the requested height. "
+    <> encodeToText e
+renderPayloadSpvException (InvalidTransactionIndex e) =
+    "A transaction with that index can not be found in the block. "
+    <> encodeToText e
+renderPayloadSpvException (InvalidEventIndex e) =
+    "An event with that index can not be found in the transaction. "
+    <> encodeToText e
+renderPayloadSpvException (UnsupportedEventType e) =
+    "The event type is not supported by the protocol. "
+    <> encodeToText e
+renderPayloadSpvException (InvalidEvent e msg) =
+    "The event is invalid. "
+    <> encodeToText e
+    <> ". " <> msg
+renderPayloadSpvException (ProofPending e curHeight) =
+    "The proof is not yet available on the target chain. "
+    <> encodeToText e
+    <> ". Current target chain height: "
+    <> sshow curHeight
+
 newtype TransactionIndex = TransactionIndex Natural
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral)
@@ -896,6 +942,13 @@ data XEventId = XEventId
     , _xEventEventIndex :: !EventIndex
     }
     deriving (Show, Eq, Generic)
+
+instance ToJSON XEventId where
+    toJSON o = object
+        [ "height" .= _xEventBlockHeight o
+        , "transactionIndex" .= _xEventTransactionIndex o
+        , "eventIndex" .= _xEventEventIndex o
+        ]
 
 -- | Preliminary Type for SPV Event Proofs.
 --

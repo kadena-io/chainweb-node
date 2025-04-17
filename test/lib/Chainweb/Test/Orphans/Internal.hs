@@ -64,8 +64,6 @@ import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
 import Data.Aeson hiding (Error)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
@@ -73,9 +71,10 @@ import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Hash.Keccak
 import Data.Kind
 import qualified Data.List as L
-import Data.MerkleLog
+import Data.MerkleLog.V1
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -114,7 +113,6 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
-import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
@@ -132,6 +130,7 @@ import Chainweb.NodeVersion
 import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.PayloadProvider
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
@@ -406,6 +405,9 @@ instance Arbitrary BlockHashWithHeight where
 -- -------------------------------------------------------------------------- --
 -- Arbitrary CutHashes
 
+instance Arbitrary EncodedPayloadData where
+    arbitrary = EncodedPayloadData <$> arbitrary
+
 instance Arbitrary CutId where
     arbitrary = do
         bs <- arbitraryBytes 32
@@ -590,7 +592,7 @@ mkHeaderProof
     -> Natural
     -> m (MerkleProof a)
 mkHeaderProof b idx = case toLog @a b of
-    mlog@(MerkleLog _ (_ :+: _) _ :: MerkleLog a ChainwebHashTag (h ': t) (MerkleLogBody b)) -> do
+    mlog@(MerkleLog _ (_ :+: _) :: MerkleLog a ChainwebHashTag (h ': t) (MerkleLogBody b)) -> do
         case someN idx of
             -- Index 0
             SomeSing SZ -> headerProof @(AtIndex 'Z (h ': t)) @a b
@@ -603,7 +605,7 @@ mkHeaderProof b idx = case toLog @a b of
                     Nothing -> error "must not happen"
 
 headerSizeN :: MerkleLog a u t b -> Sing (Length t)
-headerSizeN (MerkleLog _ l _) = go l
+headerSizeN (MerkleLog _ l) = go l
   where
     go :: forall a u t b . MerkleLogEntries a u t b -> Sing (Length t)
     go MerkleLogBody{} = SZ
@@ -662,8 +664,8 @@ hasHeader mlog = case go (sing @N @i) mlog of
             )
             (MerkleLog a u (x' ': t') b)
     go SZ m = Dict m
-    go (SS (n :: Sing n)) m@(MerkleLog r (_ :+: t@(_ :+: _)) b) =
-        case go n (MerkleLog r t b) of
+    go (SS (n :: Sing n)) m@(MerkleLog r (_ :+: t@(_ :+: _))) =
+        case go n (MerkleLog r t) of
 
             -- FIXME: avoid use of unsafeCoerce
             --
@@ -793,14 +795,6 @@ instance Arbitrary ChainId where
 instance Arbitrary Fork where
     arbitrary = elements [minBound..maxBound]
 
-instance Arbitrary ChainDatabaseGcConfig where
-    arbitrary = elements
-        [ GcNone
-        , GcHeaders
-        , GcHeadersChecked
-        , GcFull
-        ]
-
 instance Arbitrary a => Arbitrary (EnableConfig a) where
     arbitrary = EnableConfig <$> arbitrary <*> arbitrary
 
@@ -918,16 +912,13 @@ instance Arbitrary SpvRequest where
 instance Arbitrary Spv2Request where
     arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
 
-instance Arbitrary (TransactionProof ChainwebMerkleHashAlgorithm) where
-    arbitrary = TransactionProof <$> arbitrary <*> arbitrary
-
 instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
     arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
 
 instance Arbitrary SomePayloadProof where
     arbitrary = oneof
         [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
-        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak_256)
+        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak256)
         ]
 
 -- Equality for SomePayloadProof is only used for testing. Using 'unsafeCoerce'

@@ -100,7 +100,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Set as S
 import qualified Data.Text as T
-import Data.Tuple
+import qualified Data.Tuple as Tuple
 
 import GHC.Generics
 import GHC.Stack
@@ -302,7 +302,7 @@ loggFun :: P2pNode -> LogFunction
 loggFun = _p2pNodeLogFunction
 
 nodeRandom :: R.Random a => P2pNode -> (R.StdGen -> (a, R.StdGen)) -> IO a
-nodeRandom node r = atomicModifyIORef' (_p2pNodeRng node) $ swap . r
+nodeRandom node r = atomicModifyIORef' (_p2pNodeRng node) $ Tuple.swap . r
 {-# INLINE nodeRandom #-}
 
 nodeRandomR :: R.Random a => P2pNode -> (a, a) -> IO a
@@ -533,7 +533,7 @@ findNextPeer node = do
     -- random circular shift of a set
     let shift :: Int -> [a] -> [a]
         shift i = uncurry (++)
-            . swap
+            . Tuple.swap
             . splitAt i
 
     let shiftR :: [a] -> IO [a]

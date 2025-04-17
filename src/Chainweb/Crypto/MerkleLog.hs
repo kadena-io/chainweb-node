@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -117,6 +118,7 @@ module Chainweb.Crypto.MerkleLog
 
 -- * Merkle Log
 , MerkleLog(..)
+, _merkleLogTree
 , HasMerkleLog(..)
 , MkLogType
 , merkleLog
@@ -160,26 +162,25 @@ module Chainweb.Crypto.MerkleLog
 
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
-import qualified Data.ByteArray as BA
-import qualified Data.ByteString as B
+import Data.Array.Byte
+import Data.ByteString qualified as B
+import Data.ByteString.Builder qualified as BB
+import Data.ByteString.Short qualified as BS
 import Data.Coerce
 import Data.Foldable
 import Data.Kind
-import Data.Memory.Endian
-import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Expected, Actual)
+import Data.MerkleLog.V1 qualified as V1
 import Data.Proxy
-import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.Text qualified as T
+import Data.Vector qualified as V
 import Data.Word
+import Data.Hash.SHA2
+import Data.Hash.Keccak
 
 import Foreign.Storable
 
 import GHC.TypeNats
-
-import System.IO.Unsafe
 
 -- internal modules
 
@@ -211,23 +212,16 @@ expectedTreeNodeException = MerkleLogWrongNodeTypeException
 -- -------------------------------------------------------------------------- --
 -- Internal Utils
 
-fromWordBE :: forall w b . BA.ByteArray b => ByteSwap w => w -> b
-fromWordBE w = BA.allocAndFreeze (sizeOf (undefined :: w)) $ \ptr -> poke ptr (BA.toBE w)
-
-unsafeToWordBE :: BA.ByteSwap w => BA.ByteArrayAccess b => b -> w
-unsafeToWordBE bytes = BA.fromBE . unsafeDupablePerformIO $ BA.withByteArray bytes peek
-
 toWordBE
-    :: forall w b m
+    :: forall w m
     . MonadThrow m
-    => BA.ByteSwap w
-    => BA.ByteArrayAccess b
-    => b
+    => ByteSwap w
+    => Storable w
+    => B.ByteString
     -> m w
-toWordBE bytes
-    | BA.length bytes < sizeOf (undefined :: w) = throwM
-        $ MerkleLogDecodeException "failed to parse Word from bytes: not enough bytes"
-    | otherwise = return $! unsafeToWordBE bytes
+toWordBE bs = case peekByteString bs of
+    Left e -> throwM $ MerkleLogDecodeException e
+    Right x -> return x
 
 -- -------------------------------------------------------------------------- --
 -- $inputs
@@ -288,16 +282,14 @@ tagVal = fromIntegral $ natVal (Proxy @(MerkleTagVal u t))
 -- -------------------------------------------------------------------------- --
 -- Hash Algorithms
 
-type MerkleHashAlgorithm = HashAlgorithm
-
 class MerkleHashAlgorithmName a where
     merkleHashAlgorithmName :: T.Text
 
-instance MerkleHashAlgorithmName SHA512t_256 where
+instance MerkleHashAlgorithmName Sha2_512_256 where
     merkleHashAlgorithmName = "SHA512t_256"
     {-# INLINE merkleHashAlgorithmName #-}
 
-instance MerkleHashAlgorithmName Keccak_256 where
+instance MerkleHashAlgorithmName Keccak256 where
     merkleHashAlgorithmName = "Keccak_256"
     {-# INLINE merkleHashAlgorithmName #-}
 
@@ -322,17 +314,17 @@ class (MerkleHashAlgorithm a, InUniverse u (Tag b)) => IsMerkleLogEntry a u b | 
 
     toMerkleNode
         :: b
-        -> MerkleNodeType a B.ByteString
+        -> MerkleNodeType a
 
     fromMerkleNode
-        :: MerkleNodeType a B.ByteString
+        :: MerkleNodeType a
         -> Either SomeException b
 
 fromMerkleNodeM
     :: forall a u b m
     . MonadThrow m
     => IsMerkleLogEntry a u b
-    => MerkleNodeType a B.ByteString
+    => MerkleNodeType a
     -> m b
 fromMerkleNodeM = either throwM return . fromMerkleNode @a
 {-# INLINE fromMerkleNodeM #-}
@@ -420,14 +412,17 @@ data MerkleLog a u (h :: [Type]) (b :: Type) = MerkleLog
         -- Note: For creating proofs this isn't needed. Should we make this
         -- lazy, too? For large entries it may be somewhat costly to pull it
         -- from the store.
-
-    , _merkleLogTree :: {- Lazy -} MerkleTree a
-        -- ^ The merkle tree for the entries of the log. It is required to
-        -- compute the root and for creating a merkle proofs.
-        --
-        -- For some types, computing the merkle tree can be expensive. Therefore
-        -- it is instantiated lazily and only forced if actually required.
     }
+
+_merkleLogTree
+    :: forall a u h b
+    . MerkleHashAlgorithm a
+    => MerkleLog a u h b
+    -> V1.MerkleTree a
+_merkleLogTree = V1.merkleTree
+    . toList
+    . mapLogEntries (toMerkleNodeTagged @a)
+    . _merkleLogEntries
 
 -- | Class of types which can be represented as a Merkle tree log.
 --
@@ -459,10 +454,9 @@ class (MerkleUniverse u, MerkleHashAlgorithm a) => HasMerkleLog a u b | b -> u w
 type MkLogType a u b = MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b)
 
 -- | Create a 'MerkleLog' from a 'MerkleRoot' and a sequence of 'MerkleLogEntry's.
--- The '_merkleLogTree' fields is instantiated lazily.
 --
 merkleLog
-    :: forall a u h b
+    :: forall (a :: Type) u h b
     . MerkleHashAlgorithm a
     => MerkleRoot a
     -> MerkleLogEntries a u h b
@@ -470,22 +464,19 @@ merkleLog
 merkleLog root entries = MerkleLog
     { _merkleLogRoot = root
     , _merkleLogEntries = entries
-    , _merkleLogTree = {- Lazy -} merkleTree
-        $ toList
-        $ mapLogEntries (toMerkleNodeTagged @a) entries
     }
 
--- | /Internal:/ Create a representation Merkle nodes that are tagged with the
--- respedtive type from the Merkle universe.
+-- | /Internal:/ Create a representation of Merkle nodes that are tagged with the
+-- respective type from the Merkle universe.
 --
 toMerkleNodeTagged
     :: forall a u b
     . IsMerkleLogEntry a u b
     => b
-    -> MerkleNodeType a B.ByteString
+    -> MerkleNodeType a
 toMerkleNodeTagged b = case toMerkleNode @a @u @b b of
-    InputNode bytes -> InputNode @a @B.ByteString
-        $ fromWordBE @Word16 tag <> bytes
+    InputNode bs -> InputNode @a
+        $ buildByteString $ BB.word16BE tag <> BB.byteString bs
     TreeNode r -> TreeNode @a r
   where
     tag :: Word16
@@ -498,17 +489,19 @@ fromMerkleNodeTagged
     :: forall a u b m
     . MonadThrow m
     => IsMerkleLogEntry a u b
-    => MerkleNodeType a B.ByteString
+    => MerkleNodeType a
     -> m b
-fromMerkleNodeTagged (InputNode bytes) = do
-    w16 <- toWordBE @Word16 bytes
+fromMerkleNodeTagged (InputNode bs) = do
+    w16 <- toWordBE @Word16 bs
     if w16 /= tag
         then throwM
             $ MerkleLogWrongTagException (Expected (sshow tag)) (Actual (sshow w16))
-        else fromMerkleNodeM @a $ InputNode (B.drop 2 bytes)
+        else fromMerkleNodeM @a $ InputNode (B.drop 2 bs)
   where
     tag = tagVal @u @(Tag b)
 fromMerkleNodeTagged r = fromMerkleNodeM @a r
+
+
 
 -- | 'IsMerkleLog' values often include a hash of the value itself, which
 -- represents cyclic dependency of a value on itself. This function allows to
@@ -522,12 +515,12 @@ newMerkleLog
     => MerkleLogEntries a u h b
     -> MerkleLog a u h b
 newMerkleLog entries = MerkleLog
-    { _merkleLogRoot = merkleRoot tree
+    { _merkleLogRoot = merkleRoot
+        $ toList
+        $ mapLogEntries (toMerkleNodeTagged @a)
+        $ entries
     , _merkleLogEntries = entries
-    , _merkleLogTree = tree
     }
-  where
-    tree = merkleTree $ toList $ mapLogEntries (toMerkleNodeTagged @a) entries
 
 -- | /Internal:/ Get (first) header entry of given type from a Merkle log.
 --
@@ -543,9 +536,9 @@ class Index c (Hdr b) ~ i => HasHeader_ a u c b i | i b -> c where
 
 instance HasHeader_ a u c (MerkleLog a u (c ': t) s) 'Z where
     type Hdr (MerkleLog a u (c ': t) s) = (c ': t)
-    header (MerkleLog _ (c :+: _) _) = c
+    header (MerkleLog _ (c :+: _)) = c
     headerPos = 0
-    headerDict (MerkleLog _ (c :+: _) _) = Dict c
+    headerDict (MerkleLog _ (c :+: _)) = Dict c
 
 -- TODO:
 --
@@ -558,9 +551,9 @@ instance
     => HasHeader_ a u c (MerkleLog a u (x ': t) s) ('S i)
   where
     type Hdr (MerkleLog a u (x ': t) s) = (x ': t)
-    header (MerkleLog x (_ :+: t) y) = header @a @u (MerkleLog @a x t y)
+    header (MerkleLog x (_ :+: t)) = header @a @u (MerkleLog @a x t)
     headerPos = succ $ headerPos @a @u @c @(MerkleLog a u t s)
-    headerDict (MerkleLog x (_ :+: t) y) = headerDict @a @u (MerkleLog @a x t y)
+    headerDict (MerkleLog x (_ :+: t)) = headerDict @a @u (MerkleLog @a x t)
 
 type HasHeader a u c b = HasHeader_ a u c b (Index c (Hdr b))
 
@@ -593,7 +586,7 @@ computeMerkleLogRoot
     . HasMerkleLog a u b
     => b
     -> MerkleRoot a
-computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @a
+computeMerkleLogRoot = _merkleLogRoot . toLog @a
 {-# INLINE computeMerkleLogRoot #-}
 
 -- -------------------------------------------------------------------------- --
@@ -618,8 +611,8 @@ headerProof
     => HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
-    -> m (MerkleProof a)
-headerProof = uncurry3 merkleProof . headerTree @c @a
+    -> m (V1.MerkleProof a)
+headerProof = uncurry3 (V1.merkleTreeProof @a) . headerTree @c @a
 {-# INLINE headerProof #-}
 
 -- | Create the parameters for creating nested inclusion proofs with the
@@ -633,7 +626,7 @@ headerTree
     . HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
-    -> (MerkleNodeType a B.ByteString, Int, MerkleTree a)
+    -> (MerkleNodeType a, Int, V1.MerkleTree a)
 headerTree b = (node, p, _merkleLogTree @a mlog)
   where
     mlog = toLog @a b
@@ -652,7 +645,7 @@ headerTree_
     . HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
-    -> (Int, MerkleTree a)
+    -> (Int, V1.MerkleTree a)
 headerTree_ b = (p, _merkleLogTree @a mlog)
   where
     mlog = toLog @a b
@@ -672,8 +665,8 @@ bodyProof
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> m (MerkleProof a)
-bodyProof b = uncurry3 merkleProof . bodyTree @a b
+    -> m (V1.MerkleProof a)
+bodyProof b = uncurry3 V1.merkleTreeProof . bodyTree @a b
 {-# INLINE bodyProof #-}
 
 -- | Create the parameters for creating nested inclusion proofs with the
@@ -688,7 +681,7 @@ bodyTree
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> (MerkleNodeType a B.ByteString, Int, MerkleTree a)
+    -> (MerkleNodeType a, Int, V1.MerkleTree a)
 bodyTree b i = (node, i_, _merkleLogTree @a mlog)
   where
     mlog = toLog @a b
@@ -707,7 +700,7 @@ bodyTree_
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> (Int, MerkleTree a)
+    -> (Int, V1.MerkleTree a)
 bodyTree_ b i = (i_, _merkleLogTree @a mlog)
   where
     mlog = toLog @a b
@@ -719,11 +712,11 @@ proofSubject
     :: forall a u b m
     . MonadThrow m
     => IsMerkleLogEntry a u b
-    => MerkleProof a
+    => V1.MerkleProof a
     -> m b
 proofSubject p = fromMerkleNodeTagged @a subj
   where
-    MerkleProofSubject subj = _merkleProofSubject p
+    V1.MerkleProofSubject subj = V1._merkleProofSubject p
 {-# INLINE proofSubject #-}
 
 -- -------------------------------------------------------------------------- --
@@ -732,43 +725,43 @@ proofSubject p = fromMerkleNodeTagged @a subj
 encodeMerkleInputNode
     :: (b -> Put)
     -> b
-    -> MerkleNodeType a B.ByteString
+    -> MerkleNodeType a
 encodeMerkleInputNode encode = InputNode . runPutS . encode
 
 decodeMerkleInputNode
     :: MonadThrow m
     => Get b
-    -> MerkleNodeType a B.ByteString
+    -> MerkleNodeType a
     -> m b
-decodeMerkleInputNode decode (InputNode bytes) = runGetS decode bytes
+decodeMerkleInputNode decode (InputNode bs) = runGetS decode bs
 decodeMerkleInputNode _ (TreeNode _) = throwM expectedInputNodeException
 
-encodeMerkleTreeNode :: Coercible a (MerkleRoot alg) => a -> MerkleNodeType alg x
+encodeMerkleTreeNode :: Coercible a (MerkleRoot alg) => a -> MerkleNodeType alg
 encodeMerkleTreeNode = TreeNode . coerce
 
 decodeMerkleTreeNode
     :: MonadThrow m
     => Coercible (MerkleRoot alg) a
-    => MerkleNodeType alg x
+    => MerkleNodeType alg
     -> m a
-decodeMerkleTreeNode (TreeNode bytes) = return $! coerce bytes
+decodeMerkleTreeNode (TreeNode bs) = return $! coerce bs
 decodeMerkleTreeNode (InputNode _) = throwM expectedTreeNodeException
 
 -- -------------------------------------------------------------------------- --
 -- Support for Deriving Via
 
--- | Support for deriving IsMerkleLogEntry for types that are an instance of
--- 'BA.ByteArray' via the @DerivingVia@ extension.
+-- | Support for deriving IsMerkleLogEntry for types that are Coercible with
+-- 'ByteArray' via the @DerivingVia@ extension.
 --
 newtype ByteArrayMerkleLogEntry u (t :: u) b = ByteArrayMerkleLogEntry b
 
 instance
-    (MerkleHashAlgorithm a, InUniverse u t, BA.ByteArray b)
+    (MerkleHashAlgorithm a, InUniverse u t, Coercible ByteArray b)
     => IsMerkleLogEntry a u (ByteArrayMerkleLogEntry u (t :: u) b)
   where
     type Tag (ByteArrayMerkleLogEntry u t b) = t
-    toMerkleNode (ByteArrayMerkleLogEntry b) = InputNode $ BA.convert b
-    fromMerkleNode (InputNode x) = return $! ByteArrayMerkleLogEntry $! BA.convert x
+    toMerkleNode (ByteArrayMerkleLogEntry b) = InputNode (BS.fromShort $ coerce b)
+    fromMerkleNode (InputNode x) = return $! ByteArrayMerkleLogEntry (fromByteString x)
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
@@ -816,7 +809,7 @@ instance
     (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word16BeMerkleLogEntry (t :: u))
   where
     type Tag (Word16BeMerkleLogEntry t) = t
-    toMerkleNode = InputNode . fromWordBE . _getWord16BeLogEntry
+    toMerkleNode = InputNode . buildByteString . BB.word16BE . _getWord16BeLogEntry
     fromMerkleNode (InputNode x) = Word16BeMerkleLogEntry <$> toWordBE x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
@@ -832,7 +825,7 @@ instance
     (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word32BeMerkleLogEntry (t :: u))
   where
     type Tag (Word32BeMerkleLogEntry t) = t
-    toMerkleNode = InputNode . fromWordBE . _getWord32BeLogEntry
+    toMerkleNode = InputNode . buildByteString . BB.word32BE . _getWord32BeLogEntry
     fromMerkleNode (InputNode x) = Word32BeMerkleLogEntry <$> toWordBE x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
@@ -848,7 +841,7 @@ instance
     (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word64BeMerkleLogEntry (t :: u))
   where
     type Tag (Word64BeMerkleLogEntry t) = t
-    toMerkleNode = InputNode . fromWordBE . _getWord64BeLogEntry
+    toMerkleNode = InputNode . buildByteString . BB.word64BE . _getWord64BeLogEntry
     fromMerkleNode (InputNode x) = Word64BeMerkleLogEntry <$> toWordBE x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
