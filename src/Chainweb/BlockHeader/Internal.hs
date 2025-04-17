@@ -101,7 +101,6 @@ module Chainweb.BlockHeader.Internal
 , rankedBlockHash
 , _rankedBlockPayloadHash
 , rankedBlockPayloadHash
-, encodeAsWorkHeader
 , encodeBlockHeader
 , encodeBlockHeaderWithoutHash
 , decodeBlockHeader
@@ -846,13 +845,6 @@ encodeBlockHeaderWithoutHash b = do
     encodeEpochStartTime (_blockEpochStart b)
     encodeNonce (_blockNonce b)
 
-encodeAsWorkHeader :: BlockHeader -> Put
-encodeAsWorkHeader b = do
-    encodeBlockHeaderWithoutHash $
-        if hashedAdjacentRecord (_chainwebVersion b) (_chainId b) (_blockHeight b)
-        then b & blockAdjacentHashes %~ convertBlockHashRecordForMining
-        else b
-
 encodeBlockHeader :: BlockHeader -> Put
 encodeBlockHeader b = do
     encodeBlockHeaderWithoutHash b
@@ -975,7 +967,7 @@ computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 --
 _blockPow :: BlockHeader -> PowHash
 _blockPow h = cryptoHash @Blake2s_256
-    $ runPutS $ encodeAsWorkHeader h
+    $ runPutS $ encodeBlockHeaderWithoutHash h
 
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
@@ -1213,3 +1205,4 @@ _rankedBlockPayloadHash h = RankedBlockPayloadHash
 rankedBlockPayloadHash :: Getter BlockHeader RankedBlockPayloadHash
 rankedBlockPayloadHash = to _rankedBlockPayloadHash
 {-# INLINE rankedBlockPayloadHash #-}
+

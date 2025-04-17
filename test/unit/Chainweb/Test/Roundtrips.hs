@@ -67,7 +67,7 @@ import Chainweb.RestAPI.NodeInfo
 import Chainweb.SPV
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..), arbitraryBlockHeaderVersion)
+import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..))
 import Chainweb.Test.SPV.EventProof hiding (tests)
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -83,7 +83,6 @@ import P2P.Peer
 import P2P.Test.Orphans ()
 
 import Utils.Logging
-import Control.Lens (view)
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests
@@ -205,9 +204,10 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "SolvedWork"
         $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
 
-    , testProperty "WorkHeader"
-        $ forAll arbitrary $ \v -> forAll (arbitraryBlockHeaderVersion v) $ \bh ->
-            prop_encodeDecode (decodeWorkHeader v (view blockHeight bh)) encodeWorkHeader (workOnHeader bh)
+    -- FIXME: decoding depends on version and block height (which is something
+    -- that we should fix)
+    -- , testProperty "WorkHeader"
+    --    $ prop_encodeDecode decodeWorkHeader encodeWorkHeader
 
     -- TODO Fix this!
     -- The following doesn't hold:

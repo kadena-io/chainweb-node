@@ -70,7 +70,6 @@ module Chainweb.BlockHeader
 , I._rankedBlockPayloadHash
 , I._blockAdjacentChainIds
 , I.blockAdjacentChainIds
-, I.encodeAsWorkHeader
 , I.encodeBlockHeader
 , I.encodeBlockHeaderWithoutHash
 , I.decodeBlockHeader

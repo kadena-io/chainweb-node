@@ -20,7 +20,6 @@ module Chainweb.Test.TestVersions
     , pact5CheckpointerTestVersion
     , pact5SlowCpmTestVersion
     , instantCpmTransitionTestVersion
-    , testVersions
     ) where
 
 import Control.Lens hiding (elements)
@@ -314,7 +313,6 @@ slowForks = tabulateHashMap \case
     Pact5Fork -> AllChains ForkNever
     Chainweb228Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 145)
     Chainweb229Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 150)
-    HashedAdjacentRecord -> AllChains $ ForkAtBlockHeight (BlockHeight 150)
     Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 155)
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
@@ -354,7 +352,6 @@ fastForks = tabulateHashMap $ \case
     Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 46
     Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 48
     Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 50
-    HashedAdjacentRecord -> AllChains $ ForkAtBlockHeight $ BlockHeight 50
     Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 54
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.

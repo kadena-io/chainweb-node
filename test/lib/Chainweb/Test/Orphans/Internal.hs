@@ -428,11 +428,11 @@ instance Arbitrary WorkHeader where
         return $ WorkHeader
             { _workHeaderChainId = _chainId hdr
             , _workHeaderTarget = view blockTarget hdr
-            , _workHeaderBytes = BS.toShort $ runPutS $ encodeAsWorkHeader hdr
+            , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
             }
 
 instance Arbitrary SolvedWork where
-    arbitrary = makeSolvedWork <$> arbitrary
+    arbitrary = SolvedWork <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Payload over arbitrary bytesstrings

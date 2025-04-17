@@ -65,7 +65,6 @@ module Chainweb.Version.Guards
     , oldTargetGuard
     , skipFeatureFlagValidationGuard
     , oldDaGuard
-    , hashedAdjacentRecord
     ) where
 
 import Chainweb.BlockHeight
@@ -295,8 +294,6 @@ maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
 maxBlockGasLimit v bh = snd $ ruleZipperHere $ snd
     $ ruleSeek (\h _ -> bh >= h) (_versionMaxBlockGasLimit v)
 
-hashedAdjacentRecord :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-hashedAdjacentRecord = checkFork atOrAfter HashedAdjacentRecord
 
 -- | Different versions of Chainweb allow different PPKSchemes.
 --

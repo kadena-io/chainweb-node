@@ -265,14 +265,14 @@ withMiningCoordination logger conf cdb inner
     -- sufficient to mine a block this constant must be changed in order to
     -- recover.
     --
-    f :: Time Micros -> T4 a b c (Time Micros) -> Bool
-    f ago (T4 _ _ _ added) = added > ago
+    f :: Time Micros -> T3 a b (Time Micros) -> Bool
+    f ago (T3 _ _ added) = added > ago
 
     avgTxs :: MiningState -> Int
     avgTxs (MiningState ms) = summed `div` max 1 (M.size ms)
       where
         summed :: Int
-        summed = M.foldl' (\acc (T4 _ _ ps _) -> acc + g ps) 0 ms
+        summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
 
         g :: PayloadWithOutputs -> Int
         g = V.length . _payloadWithOutputsTransactions
