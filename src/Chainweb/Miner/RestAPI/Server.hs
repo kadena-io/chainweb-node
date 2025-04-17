@@ -110,7 +110,7 @@ solvedHandler mr (HeaderBytes bytes) = do
             result <- liftIO $ catches (Right () <$ solve mr solved)
                 [ E.Handler $ \NoAsscociatedPayload ->
                     return $ Left $ setErrText "No associated Payload" err404
-                , E.Handler $ \(InvalidSolvedHeader msg) ->
+                , E.Handler $ \(InvalidSolvedHeader _ msg) ->
                     return $ Left $ setErrText ("Invalid solved work: " <> msg) err400
                 ]
             case result of
