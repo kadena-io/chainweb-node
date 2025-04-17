@@ -6,7 +6,6 @@ upgrade to this version before that date. The 2.29 feature upgrade will
 occur at block height 5785923 which is estimated to be mined at **2025-05-01T00:00:00Z**.
 
 ### Changes
-- Start hashing adjacent hash records in work headers. This will allow expansions to the chain graph without breaking miner hardware. [`3e5b9c4`](https://github.com/kadena-io/chainweb-node/commit/3e5b9c422d635827caecc22ea0bf64785cc5bf7d)
 - Require new version of `random` package. [`2810d79`](https://github.com/kadena-io/chainweb-node/commit/2810d79dc6f4123b2a1d6097582e642fa5668768)
 
 ## 2.28 (2025-03-03)
