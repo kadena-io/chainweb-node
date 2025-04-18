@@ -97,19 +97,18 @@ jobs:
             fi
           echo "UBUNTU_VERSION=$VERSION_OS" >> $GITHUB_OUTPUT
 
-  chainweb-node-dockerhub:
-    uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml@master
-    needs: release_vars
-    with:
-      SHORT_SHA: ${{ needs.release_vars.outputs.SHORT_REVISION }}
-      VERSION_NEW: ${{ needs.release_vars.outputs.VERSION_NEW }}
-      GHC_VERSION: ${{ needs.release_vars.outputs.GHC_VERSION }}
-    secrets: inherit
+  # chainweb-node-dockerhub:
+  #   uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml@master
+  #   needs: release_vars
+  #   with:
+  #     SHORT_SHA: ${{ needs.release_vars.outputs.SHORT_REVISION }}
+  #     VERSION_NEW: ${{ needs.release_vars.outputs.VERSION_NEW }}
+  #     GHC_VERSION: ${{ needs.release_vars.outputs.GHC_VERSION }}
+  #   secrets: inherit
 
   release_repo:
     needs:
       - release_vars
-      - chainweb-node-dockerhub
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ needs.release_vars.outputs.IMAGE }}
@@ -137,6 +136,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PAT }}
+
       - name: retag ghcr docker images
         continue-on-error: false
         run: |
@@ -145,15 +150,18 @@ jobs:
           docker tag $IMAGE ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
           docker tag $IMAGE ghcr.io/kadena-io/chainweb-node/ubuntu:latest
           docker tag $IMAGE ghcr.io/kadena-io/chainweb-node:latest
+          docker tag $IMAGE kadena/chainweb-node:latest
+          docker tag $IMAGE kadena/chainweb-node:$VERSION_NEW
 
           docker image ls
 
           docker image push --all-tags ghcr.io/kadena-io/chainweb-node/ubuntu
           docker image push --all-tags ghcr.io/kadena-io/chainweb-node
+          docker image push --all-tags kadena/chainweb-node
 
           digest1=$(docker inspect $IMAGE --format '{{ .RepoDigests }}')
           digest2=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW --format '{{ .RepoDigests }}')
-          digest3=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:latest --format '{{ .RepoDigests }}')
+          digest3=$(docker inspect kadena/chainweb-node:latest --format '{{ .RepoDigests }}')
           if [[ "$digest1" != "$digest2" || "$digest2" != "$digest3" ]]; then
             echo "GHCR_DIGEST=GHCR digests do not compare correctly" >> $GITHUB_ENV
             exit 1
