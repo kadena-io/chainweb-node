@@ -106,7 +106,7 @@ import Pact.Types.ChainId qualified as Pact
 
 import Chainweb.ChainId
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
-import Chainweb.Graph (petersonChainGraph, singletonChainGraph, twentyChainGraph)
+import Chainweb.Graph (petersenChainGraph, singletonChainGraph, twentyChainGraph)
 import Chainweb.Mempool.Mempool (TransactionHash (..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.Server
@@ -232,7 +232,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
 
 crosschainTest :: RocksDb -> Step -> IO ()
 crosschainTest baseRdb step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let v = pact5InstantCpmTestVersion petersenChainGraph
     fx <- mkFixture v baseRdb
 
     let srcChain = unsafeChainId 0
@@ -273,7 +273,7 @@ crosschainTest baseRdb step = runResourceT $ do
             ? P.equals "SPV target not reachable: target chain not reachable. Chainweb instance is too young"
 
         step "waiting"
-        replicateM_ (int $ diameter petersonChainGraph) $ advanceAllChains_ fx
+        replicateM_ (int $ diameter petersenChainGraph) $ advanceAllChains_ fx
         TransactionOutputProofB64 spvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
         let contMsg = ContMsg
                 { _cmPactId = _peDefPactId cont
@@ -503,7 +503,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
 
         ]
     where
-    v = pact5InstantCpmTestVersion petersonChainGraph
+    v = pact5InstantCpmTestVersion petersenChainGraph
     wrongV = pact5InstantCpmTestVersion twentyChainGraph
 
     cid = unsafeChainId 0
@@ -520,7 +520,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
 
 caplistTest :: RocksDb -> Step -> IO ()
 caplistTest baseRdb step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let v = pact5InstantCpmTestVersion petersenChainGraph
     fx <- mkFixture v baseRdb
 
     let cid = unsafeChainId 0
@@ -579,7 +579,7 @@ allocation02KeyPair' =
 
 allocationTest :: RocksDb -> (String -> IO ()) -> IO ()
 allocationTest rdb step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let v = pact5InstantCpmTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
 
@@ -685,7 +685,7 @@ allocationTest rdb step = runResourceT $ do
 
 gasPurchaseFailureMessages :: RocksDb -> Step -> IO ()
 gasPurchaseFailureMessages rdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let v = pact5InstantCpmTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
 
@@ -751,7 +751,7 @@ gasPurchaseFailureMessages rdb _step = runResourceT $ do
 
 transitionOccurs :: RocksDb -> Step -> IO ()
 transitionOccurs rdb _step = runResourceT $ do
-    let v = instantCpmTransitionTestVersion petersonChainGraph
+    let v = instantCpmTransitionTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
 
@@ -768,7 +768,7 @@ transitionOccurs rdb _step = runResourceT $ do
 --   This is mostly the same as 'spvTest', except it waits for the transition.
 transitionCrosschain :: RocksDb -> Step -> IO ()
 transitionCrosschain rdb step = runResourceT $ do
-    let v = instantCpmTransitionTestVersion petersonChainGraph
+    let v = instantCpmTransitionTestVersion petersenChainGraph
     let srcChain = unsafeChainId 0
     let targetChain = unsafeChainId 9
     fx <- mkFixture v rdb
@@ -848,7 +848,7 @@ transitionCrosschain rdb step = runResourceT $ do
 -- by the pact service.
 webAuthnSignatureTest :: RocksDb -> Step -> IO ()
 webAuthnSignatureTest rdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let v = pact5InstantCpmTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
     liftIO $ do
@@ -863,7 +863,7 @@ webAuthnSignatureTest rdb _step = runResourceT $ do
 
 localTests :: RocksDb -> TestTree
 localTests baseRdb = let
-    v = pact5InstantCpmTestVersion petersonChainGraph
+    v = pact5InstantCpmTestVersion petersenChainGraph
     cid = unsafeChainId 0
     in testGroup "tests for local"
         [ testCase "ordinary txs" $ runResourceT $ do

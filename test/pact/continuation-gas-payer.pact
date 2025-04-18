@@ -22,7 +22,7 @@
     (enforce (= false (at "cont-has-proof" (read-msg))) "Not inside a cross-chain tx")
     (enforce (= 1 (at "cont-step" (read-msg))) "Inside 2nd step of continuation")
     (enforce (= {} (at "cont-user-data" (read-msg))) "Inside a continuation w/o user data")
-    (enforce (= "9ylBanSjDGJJ6m0LgokZqb9P66P7JsQRWo9sYxqAjcQ"
+    (enforce (= "toj9L2EGOyUUkFQCniHv8qGy8sStXDmaWSpVB3XKEuE"
                 (at "cont-pact-id" (read-msg))) "Inside a particular continuation")
     (compose-capability (ALLOW_GAS))
   )

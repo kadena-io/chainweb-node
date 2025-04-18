@@ -77,7 +77,7 @@ module Chainweb.Graph
 , singletonChainGraph
 , pairChainGraph
 , triangleChainGraph
-, petersonChainGraph
+, petersenChainGraph
 , twentyChainGraph
 , hoffmanSingletonChainGraph
 
@@ -332,7 +332,29 @@ checkAdjacentChainIds g cid expectedAdj = do
 
 -- | Graphs which have known, specific, intended meaning for Chainweb.
 --
-data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingleton
+data KnownGraph
+    = Singleton
+        -- ^ degree 0, diameter 0, order 1
+    | Pair
+        -- ^ degree 1, diameter 1, order 2
+    | Triangle
+        -- ^ degree 2, diameter 1, order 3
+    | Petersen
+        -- ^ degree 3, diameter 2, order 10
+    | Twenty
+        --  degree 3, diameter 3, order 20
+    | HoffmanSingleton
+        -- ^ degree 7, diameter 2, order 50
+    | D3K4
+        -- ^ degree 3, diameter 4, order 38
+    | D4K3
+        -- ^ degree 4, diameter 3, order 41
+    | D4K4
+        -- ^ degree 4, diameter 4, order 98
+    | D5K3
+        -- ^ degree 5, diameter 3, order  72
+    | D5K4
+        -- ^ degree 5, diameter 4, order  212
     deriving (Generic, Enum, Bounded)
     deriving anyclass (NFData)
 
@@ -340,16 +362,26 @@ instance HasTextRepresentation KnownGraph where
     toText Singleton = "singleton"
     toText Pair = "pair"
     toText Triangle = "triangle"
-    toText Peterson = "peterson"
+    toText Petersen = "petersen"
     toText Twenty = "twenty"
     toText HoffmanSingleton = "hoffman"
+    toText D3K4 = "d3k4"
+    toText D4K3 = "d4k3"
+    toText D4K4 = "d4k4"
+    toText D5K3 = "d5k3"
+    toText D5K4 = "d5k4"
 
     fromText "singleton" = return Singleton
     fromText "pair" = return Pair
     fromText "triangle" = return Triangle
-    fromText "peterson" = return Peterson
+    fromText "petersen" = return Petersen
     fromText "twenty" = return Twenty
     fromText "hoffman" = return HoffmanSingleton
+    fromText "d3k4" = return D3K4
+    fromText "d4k3" = return D4K3
+    fromText "d4k4" = return D4K4
+    fromText "d5k3" = return D5K3
+    fromText "d5k4" = return D5K4
     fromText x = throwM $ TextFormatException $ "unknown KnownGraph: " <> x
 
     {-# INLINE toText #-}
@@ -359,9 +391,14 @@ knownGraph :: KnownGraph -> G.DiGraph Int
 knownGraph Singleton = G.singleton
 knownGraph Pair = G.pair
 knownGraph Triangle = G.triangle
-knownGraph Peterson = G.petersonGraph
+knownGraph Petersen = G.petersenGraph
 knownGraph Twenty = G.twentyChainGraph
 knownGraph HoffmanSingleton = G.hoffmanSingleton
+knownGraph D3K4 = G.d3k4
+knownGraph D4K3 = G.d4k3
+knownGraph D4K4 = G.d4k4
+knownGraph D5K3 = G.d5k3
+knownGraph D5K4 = G.d5k4
 
 -- -------------------------------------------------------------------------- --
 -- Memoized Known Chain Graphs
@@ -387,9 +424,14 @@ knownChainGraph :: KnownGraph -> ChainGraph
 knownChainGraph Singleton = singletonChainGraph
 knownChainGraph Pair = pairChainGraph
 knownChainGraph Triangle = triangleChainGraph
-knownChainGraph Peterson = petersonChainGraph
+knownChainGraph Petersen = petersenChainGraph
 knownChainGraph Twenty = twentyChainGraph
 knownChainGraph HoffmanSingleton = hoffmanSingletonChainGraph
+knownChainGraph D3K4 = d3k4ChainGraph
+knownChainGraph D4K3 = d4k3ChainGraph
+knownChainGraph D4K4 = d4k4ChainGraph
+knownChainGraph D5K3 = d5k3ChainGraph
+knownChainGraph D5K4 = d5k4ChainGraph
 
 singletonChainGraph :: ChainGraph
 singletonChainGraph = toChainGraph Singleton
@@ -403,9 +445,9 @@ triangleChainGraph :: ChainGraph
 triangleChainGraph = toChainGraph Triangle
 {-# NOINLINE triangleChainGraph #-}
 
-petersonChainGraph :: ChainGraph
-petersonChainGraph = toChainGraph Peterson
-{-# NOINLINE petersonChainGraph #-}
+petersenChainGraph :: ChainGraph
+petersenChainGraph = toChainGraph Petersen
+{-# NOINLINE petersenChainGraph #-}
 
 twentyChainGraph :: ChainGraph
 twentyChainGraph = toChainGraph Twenty
@@ -414,3 +456,24 @@ twentyChainGraph = toChainGraph Twenty
 hoffmanSingletonChainGraph :: ChainGraph
 hoffmanSingletonChainGraph = toChainGraph HoffmanSingleton
 {-# NOINLINE hoffmanSingletonChainGraph #-}
+
+d3k4ChainGraph :: ChainGraph
+d3k4ChainGraph = toChainGraph D3K4
+{-# NOINLINE d3k4ChainGraph #-}
+
+d4k3ChainGraph :: ChainGraph
+d4k3ChainGraph = toChainGraph D4K3
+{-# NOINLINE d4k3ChainGraph #-}
+
+d4k4ChainGraph :: ChainGraph
+d4k4ChainGraph = toChainGraph D4K4
+{-# NOINLINE d4k4ChainGraph #-}
+
+d5k3ChainGraph :: ChainGraph
+d5k3ChainGraph = toChainGraph D5K3
+{-# NOINLINE d5k3ChainGraph #-}
+
+d5k4ChainGraph :: ChainGraph
+d5k4ChainGraph = toChainGraph D5K4
+{-# NOINLINE d5k4ChainGraph #-}
+

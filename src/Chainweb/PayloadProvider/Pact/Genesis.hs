@@ -14,7 +14,6 @@ module Chainweb.PayloadProvider.Pact.Genesis
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
-import Chainweb.Version.Testnet05
 import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Payload
@@ -35,8 +34,6 @@ import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.Development1to19Payload as DNN
 import qualified Chainweb.BlockHeader.Genesis.Testnet040Payload as T04N0
 import qualified Chainweb.BlockHeader.Genesis.Testnet041to19Payload as T04NN
-import qualified Chainweb.BlockHeader.Genesis.Testnet050Payload as T05N0
-import qualified Chainweb.BlockHeader.Genesis.Testnet051to19Payload as T05NN
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload as RDN0
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDNN
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
@@ -60,10 +57,6 @@ genesisPayload Mainnet01 = OnChains $ HM.fromList $ concat
 genesisPayload Testnet04 = OnChains $ HM.fromList $ concat
     [ [(unsafeChainId 0, T04N0.payloadBlock)]
     , [(unsafeChainId i, T04NN.payloadBlock) | i <- [1..19]]
-    ]
-genesisPayload Testnet05 = OnChains $ HM.fromList $ concat
-    [ [(unsafeChainId 0, T05N0.payloadBlock)]
-    , [(unsafeChainId i, T05NN.payloadBlock) | i <- [1..19]]
     ]
 genesisPayload Development = OnChains $ HM.fromList $ concat
     [ [(unsafeChainId 0, DN0.payloadBlock)]

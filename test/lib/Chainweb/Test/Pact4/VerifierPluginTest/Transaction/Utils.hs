@@ -50,7 +50,7 @@ import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 import Chainweb.Pact.Types (MemPoolAccess, mpaGetBlock)
 
 testVersion :: ChainwebVersion
-testVersion = slowForkingCpmTestVersion peterson
+testVersion = slowForkingCpmTestVersion petersen
 
 cid :: ChainId
 cid = unsafeChainId 9

@@ -70,7 +70,7 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     , prop_fail_validate
     , prop_da_validate
     , prop_legacy_da_validate
-    , prop_featureFlag (barebonesTestVersion petersonChainGraph) 10
+    , prop_featureFlag (barebonesTestVersion petersenChainGraph) 10
     , testProperty "validate arbitrary test header" prop_validateArbitrary
     , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
     , testProperty "validate arbitrary test header for testnet04" $ prop_validateArbitrary Testnet04

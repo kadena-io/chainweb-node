@@ -632,12 +632,12 @@ prop_blockCountAtChainHeight g0 g1 = T.counterexample (show v)
 properties_misc :: [(String, T.Property)]
 properties_misc =
     [
-        ( "prop_blockCountAtChainHeight peterson twenty"
-        , T.property $ prop_blockCountAtChainHeight petersonChainGraph twentyChainGraph
+        ( "prop_blockCountAtChainHeight petersen twenty"
+        , T.property $ prop_blockCountAtChainHeight petersenChainGraph twentyChainGraph
         )
     ,
-        ( "prop_blockCountAtChainheight peterson peterson"
-        , T.property $ prop_blockCountAtChainHeight petersonChainGraph petersonChainGraph
+        ( "prop_blockCountAtChainheight petersen petersen"
+        , T.property $ prop_blockCountAtChainHeight petersenChainGraph petersenChainGraph
         )
     ,
         ( "prop_blockCountAtChainHeight pair twenty"

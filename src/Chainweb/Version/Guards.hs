@@ -50,6 +50,7 @@ module Chainweb.Version.Guards
     , chainweb226Pact
     , chainweb228Pact
     , chainweb229Pact
+    , chainweb230Pact
     , pact5
     , pact44NewTrans
     , maxBlockGasLimit
@@ -272,6 +273,9 @@ chainweb228Pact = checkFork atOrAfter Chainweb228Pact
 
 chainweb229Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb229Pact = checkFork atOrAfter Chainweb229Pact
+
+chainweb230Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb230Pact = checkFork atOrAfter Chainweb230Pact
 
 pact5Serialiser :: ChainwebVersion -> ChainId -> BlockHeight -> Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo
 pact5Serialiser v cid bh

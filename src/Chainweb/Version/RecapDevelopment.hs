@@ -68,12 +68,13 @@ recapDevnet = ChainwebVersion
         Pact5Fork -> AllChains $ ForkAtGenesis
         Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 10
         Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
 
     , _versionUpgrades = onChains []
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`
-        Bottom (minBound, petersonChainGraph)
+        Bottom (minBound, petersenChainGraph)
 
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120

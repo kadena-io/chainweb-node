@@ -65,7 +65,7 @@ module Chainweb.Test.Utils
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
-, peterson
+, petersen
 , testBlockHeaderDbs
 , linearBlockHeaderDbs
 , starBlockHeaderDbs
@@ -516,8 +516,8 @@ getArbitrary seed = unGen arbitrary (mkQCGen 0) seed
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
 
-peterson :: ChainGraph
-peterson = petersonChainGraph
+petersen :: ChainGraph
+petersen = petersenChainGraph
 
 singleton :: ChainGraph
 singleton = singletonChainGraph
