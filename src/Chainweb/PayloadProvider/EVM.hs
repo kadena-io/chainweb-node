@@ -57,6 +57,7 @@ import Chainweb.ChainId
 import Chainweb.Core.Brief
 import Chainweb.Logger
 import Chainweb.MinerReward
+import Chainweb.Parent
 import Chainweb.PayloadProvider hiding (TransactionIndex)
 import Chainweb.PayloadProvider.EVM.EngineAPI
 import Chainweb.PayloadProvider.EVM.EthRpcAPI
@@ -472,7 +473,7 @@ withEvmPayloadProvider
     -> v
     -> c
     -> RocksDb
-    -> HTTP.Manager
+    -> Maybe HTTP.Manager
         -- ^ P2P Network manager. This is supposed to be shared among all P2P
         -- network clients.
         --
@@ -796,7 +797,7 @@ mkPayloadAttributes ph parentTimestamp addr nctx = PayloadAttributesV3
     -- I guess, for now this fine -- better than something that looks random.
     randao = Utils.Randao (Ethereum.encodeLeN 0)
 
-    et = EVM.timestamp parentTimestamp (_newBlockCtxParentCreationTime nctx)
+    et = EVM.timestamp parentTimestamp (unwrapParent $ _newBlockCtxParentCreationTime nctx)
 
 -- -------------------------------------------------------------------------- --
 -- Await New Payload
@@ -941,8 +942,8 @@ awaitNewPayload p = do
                     { _newPayloadTxCount = int $ length (_executionPayloadV1Transactions v1)
                     , _newPayloadSize = int $ sum $ (BS.length . _transactionBytes)
                             <$> (_executionPayloadV1Transactions v1)
-                    , _newPayloadParentHeight = _syncStateHeight sstate
-                    , _newPayloadParentHash = _syncStateBlockHash sstate
+                    , _newPayloadParentHeight = Parent $ _syncStateHeight sstate
+                    , _newPayloadParentHash = Parent $ _syncStateBlockHash sstate
                     , _newPayloadBlockPayloadHash = EVM._hdrPayloadHash pld
                     , _newPayloadOutputSize = 0
                     , _newPayloadNumber = n
@@ -1118,9 +1119,9 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
 
                     let unknowns = fst <$> unknowns'
 
-                    lf Debug $ "unkown blocks in context: " <> sshow (length unknowns)
+                    lf Debug $ "unknown blocks in context: " <> sshow (length unknowns)
 
-                    -- fetch all unkown payloads
+                    -- fetch all unknown payloads
                     --
                     -- FIXME do the right thing here. Ideally, fetch all
                     -- unknowns in batches without redundant local lookups. Then
@@ -1134,7 +1135,7 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                         validatePayload p pld ctx
                         return (_evaluationCtxRankedPayloadHash ctx, pld)
 
-                    lf Debug $ "fetched payloads for unkowns: " <> sshow (length plds)
+                    lf Debug $ "fetched payloads for unknowns: " <> sshow (length plds)
 
                     updateEvm p trgState pctx plds
 
@@ -1200,14 +1201,14 @@ getPayloadForContext
     :: Logger logger
     => EvmPayloadProvider logger
     -> Maybe Hints
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> IO Payload
 getPayloadForContext p h ctx = do
-    mapM_ insertPayloadData (_evaluationCtxPayloadData ctx)
+    mapM_ insertPayloadData (_consensusPayloadData $ _evaluationCtxPayload ctx)
     pld <- getPayload
         (_evmPayloadStore p)
         (_evmCandidatePayloads p)
-        (Priority $ negate $ int $ _evaluationCtxParentHeight ctx)
+        (Priority $ negate $ int $ _evaluationCtxCurrentHeight ctx)
         (_hintsOrigin <$> h)
         (_evaluationCtxRankedPayloadHash ctx)
     tableInsert (_evmCandidatePayloads p) rh pld
@@ -1231,7 +1232,7 @@ getPayloadForContext p h ctx = do
 validatePayload
     :: EvmPayloadProvider logger
     -> Payload
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> IO ()
 validatePayload p pld ctx = return ()
 
@@ -1514,4 +1515,3 @@ getFinalHash
     -> ConsensusState
     -> IO EVM.BlockHash
 getFinalHash p = fmap (view EVM.hdrHash) . getFinalHdr p
-

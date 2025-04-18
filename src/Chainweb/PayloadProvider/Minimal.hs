@@ -82,23 +82,6 @@ module Chainweb.PayloadProvider.Minimal
 , newMinimalPayloadProvider
 ) where
 
-import Chainweb.BlockHeight
-import Chainweb.BlockPayloadHash
-import Chainweb.Logger
-import Chainweb.MinerReward
-import Chainweb.PayloadProvider
-import Chainweb.PayloadProvider.Minimal.Payload
-import Chainweb.PayloadProvider.Minimal.PayloadDB qualified as PDB
-import Chainweb.PayloadProvider.P2P
-import Chainweb.PayloadProvider.P2P qualified as Rest
-import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
-import Chainweb.Ranked
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.Map
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Utils
-import Chainweb.Utils.Serialization
-import Chainweb.Version
 import Configuration.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -117,6 +100,26 @@ import Numeric.Natural
 import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
+
+import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockPayloadHash
+import Chainweb.Logger
+import Chainweb.MinerReward
+import Chainweb.Parent
+import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.Minimal.Payload
+import Chainweb.PayloadProvider.Minimal.PayloadDB qualified as PDB
+import Chainweb.PayloadProvider.P2P
+import Chainweb.PayloadProvider.P2P qualified as Rest
+import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
+import Chainweb.Ranked
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.Map
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Utils
+import Chainweb.Utils.Serialization
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 
@@ -213,7 +216,7 @@ newMinimalPayloadProvider
     -> v
     -> c
     -> RocksDb
-    -> HTTP.Manager
+    -> Maybe HTTP.Manager
     -> MinimalProviderConfig
     -> IO MinimalPayloadProvider
 newMinimalPayloadProvider logger v c rdb mgr conf
@@ -298,7 +301,7 @@ validatePayload
     . MonadThrow m
     => MinimalPayloadProvider
     -> Payload
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> m ()
 validatePayload p pld ctx = do
     checkEq PayloadInvalidChainwebVersion
@@ -308,15 +311,15 @@ validatePayload p pld ctx = do
         (_chainId p)
         (_chainId pld)
     checkEq PayloadInvalidHeight
-        (_evaluationCtxParentHeight ctx + 1)
+        (_evaluationCtxCurrentHeight ctx)
         (view payloadBlockHeight pld)
     checkEq PayloadInvalidMinerReward
         (_evaluationCtxMinerReward ctx)
         (view payloadMinerReward pld)
     checkEq PayloadInvalidHash
-        (_evaluationCtxPayloadHash ctx)
+        (_consensusPayloadHash $ _evaluationCtxPayload ctx)
         (view payloadHash pld)
-    case _evaluationCtxPayloadData ctx of
+    case _consensusPayloadData $ _evaluationCtxPayload ctx of
         Nothing -> return ()
         Just x -> checkEq PayloadInvalidPayloadData x (encodedPayloadData pld)
   where
@@ -354,14 +357,14 @@ instance PayloadProvider MinimalPayloadProvider where
 getPayloadForContext
     :: MinimalPayloadProvider
     -> Maybe Hints
-    -> EvaluationCtx
+    -> EvaluationCtx ConsensusPayload
     -> IO Payload
 getPayloadForContext p h ctx = do
-    insertPayloadData (_evaluationCtxPayloadData ctx)
+    insertPayloadData (_consensusPayloadData $ _evaluationCtxPayload ctx)
     pld <- Rest.getPayload
         (_minimalPayloadStore p)
         (_minimalCandidatePayloads p)
-        (Priority $ negate $ int $ _evaluationCtxParentHeight ctx)
+        (Priority $ negate $ int $ unwrapParent $ _evaluationCtxParentHeight ctx)
         (_hintsOrigin <$> h)
         (_evaluationCtxRankedPayloadHash ctx)
     casInsert (_minimalCandidatePayloads p) pld
@@ -448,8 +451,8 @@ makeNewPayload
 makeNewPayload p latest ctx = NewPayload
     { _newPayloadChainwebVersion = _chainwebVersion p
     , _newPayloadChainId = _chainId p
-    , _newPayloadParentHeight = _syncStateHeight latest
-    , _newPayloadParentHash = _syncStateBlockHash latest
+    , _newPayloadParentHeight = Parent $ _syncStateHeight latest
+    , _newPayloadParentHash = Parent $ _syncStateBlockHash latest
     , _newPayloadBlockPayloadHash = view payloadHash pld
     , _newPayloadEncodedPayloadData = Just epld
     , _newPayloadEncodedPayloadOutputs = Nothing
@@ -521,4 +524,3 @@ pruneCandidates p s = deleteLt (_minimalCandidatePayloads p) lrh
   where
     lrh = latestRankedBlockPayloadHash s
     h = _rankedHeight lrh
-

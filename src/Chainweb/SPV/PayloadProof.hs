@@ -52,7 +52,7 @@ import Data.Text qualified as T
 
 import GHC.Generics
 
-import Pact.Types.Command
+import Pact.Core.Command.Types
 
 -- internal modules
 
@@ -216,4 +216,3 @@ runPayloadProof p = do
     (_payloadProofRootType p, root,) <$> proofSubject blob
   where
     blob = _payloadProofBlob p
-

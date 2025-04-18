@@ -28,6 +28,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.PayloadProvider
+import Chainweb.Parent
 import Chainweb.Ranked
 import Chainweb.Utils
 import Control.Lens
@@ -63,6 +64,9 @@ instance Brief a => Brief (Maybe a) where
 instance Brief a => Brief [a] where
     brief l = "[" <> (T.intercalate "," $ brief <$> l) <> "]"
 
+instance Brief a => Brief (Parent a) where
+    brief = brief . unwrapParent
+
 -- -------------------------------------------------------------------------- --
 -- Core Chainweb Types
 
@@ -76,7 +80,7 @@ instance Brief ChainId where brief = toText
 instance Brief BlockHash where brief = toTextShort
 instance Brief BlockPayloadHash where brief = toTextShort
 instance Brief BlockHeader where brief = brief . view blockHash
-instance Brief ParentHeader where brief = brief . _parentHeader
+instance Brief (Parent BlockHeader) where brief = brief . unwrapParent
 
 instance Brief BlockHashWithHeight where
     brief a = brief (_bhwhHeight a) <> ":" <> brief (_bhwhHash a)
@@ -96,7 +100,18 @@ instance Brief NewPayload where
         <> ":" <> brief (_newPayloadRankedParentHash np)
 
 instance Brief SyncState where
-    brief = briefJson
+    brief ss = T.intercalate ":"
+        [ brief (_syncStateHeight ss)
+        , brief (_syncStateBlockHash ss)
+        , brief (_syncStateBlockPayloadHash ss)
+        ]
+
+instance Brief ConsensusState where
+    brief cs =
+        "{ \"latest\": \"" <> brief (_consensusStateLatest cs)
+        <> "\", \"safe\": \"" <> brief (_consensusStateSafe cs)
+        <> "\", \"final\": \"" <> brief (_consensusStateFinal cs)
+        <> "\" }"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -114,4 +129,3 @@ briefValue (Object o) = Object (briefValue <$> o)
 briefValue (Array a) = Array (briefValue <$> a)
 briefValue (String t) = String (toTextShort t)
 briefValue n = n
-

@@ -43,6 +43,7 @@ module Chainweb.RestAPI.Utils
   Reassoc
 , setErrText
 , setErrJSON
+, setErrJSONPact
 
 -- * API Version
 , Version
@@ -139,6 +140,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import qualified Pact.JSON.Encode as J
 
 -- -------------------------------------------------------------------------- --
 -- Servant Utils
@@ -171,6 +173,12 @@ setErrText m e = e
 setErrJSON :: ToJSON a => a -> ServerError -> ServerError
 setErrJSON m e = e
     { errBody = encode m
+    , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
+    }
+
+setErrJSONPact :: J.Encode a => a -> ServerError -> ServerError
+setErrJSONPact m e = e
+    { errBody = J.encode m
     , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
     }
 
@@ -569,4 +577,3 @@ instance HasClient m api => HasClient m (Traced s api) where
     type Client m (Traced s api) = Client m api
     clientWithRoute pm _ r = clientWithRoute pm (Proxy @api) r
     hoistClientMonad pm _ f c = hoistClientMonad pm (Proxy @api) f c
-

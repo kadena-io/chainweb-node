@@ -63,6 +63,7 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Graph
+import Chainweb.Parent
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -166,9 +167,9 @@ lookupWebBlockHeaderDb wdb c h = do
 blockAdjacentParentHeaders
     :: WebBlockHeaderDb
     -> BlockHeader
-    -> IO (HM.HashMap ChainId BlockHeader)
+    -> IO (HM.HashMap ChainId (Parent BlockHeader))
 blockAdjacentParentHeaders db h
-    = itraverse (lookupWebBlockHeaderDb db)
+    = itraverse (traverse . lookupWebBlockHeaderDb db)
     $ _getBlockHashRecord
     $ view blockAdjacentHashes h
 
@@ -176,19 +177,19 @@ lookupAdjacentParentHeader
     :: WebBlockHeaderDb
     -> BlockHeader
     -> ChainId
-    -> IO BlockHeader
+    -> IO (Parent BlockHeader)
 lookupAdjacentParentHeader db h cid = do
     checkWebChainId (db, view blockHeight h) h
     let ph = h ^?! (blockAdjacentHashes . ix cid)
-    lookupWebBlockHeaderDb db cid ph
+    traverse (lookupWebBlockHeaderDb db cid) ph
 
 lookupParentHeader
     :: WebBlockHeaderDb
     -> BlockHeader
-    -> IO BlockHeader
+    -> IO (Parent BlockHeader)
 lookupParentHeader db h = do
     checkWebChainId (db, view blockHeight h) h
-    lookupWebBlockHeaderDb db (_chainId h) (view blockParent h)
+    traverse (lookupWebBlockHeaderDb db (_chainId h)) (view blockParent h)
 
 -- -------------------------------------------------------------------------- --
 -- Insertion

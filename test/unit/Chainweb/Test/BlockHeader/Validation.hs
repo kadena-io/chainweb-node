@@ -213,7 +213,7 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockHash .~ nullBlockHash
       , [IncorrectHash]
       )
-    , ( hdr & testHeaderHdr . blockCreationTime .~ (view blockCreationTime . _parentHeader $ _testHeaderParent hdr)
+    , ( hdr & testHeaderHdr . blockCreationTime .~ (view blockCreationTime . unwrapParent $ _testHeaderParent hdr)
       , [IncorrectHash, IncorrectPow, CreatedBeforeParent]
       )
     , ( hdr & testHeaderHdr . blockHash %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)

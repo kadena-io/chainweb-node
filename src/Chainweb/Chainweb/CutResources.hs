@@ -31,6 +31,7 @@ module Chainweb.Chainweb.CutResources
 , cutNetworks
 ) where
 
+import Control.Lens
 import Control.Lens.TH
 
 import Prelude hiding (log)
@@ -132,4 +133,3 @@ cutNetworks cuts =
     [ p2pRunNode (_cutResCutP2pNode cuts)
     , p2pRunNode (_cutResHeaderP2pNode cuts)
     ]
-

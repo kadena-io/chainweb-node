@@ -23,22 +23,23 @@ import qualified Data.Set as Set
 
 import Ethereum.Misc hiding (Word256)
 
-import Pact.Types.Runtime
-import Pact.Types.PactValue
-import Pact.Types.Capability
+import Pact.Core.Capabilities
+import Pact.Core.Errors (VerifierError(..))
+import Pact.Core.Gas
+import Pact.Core.PactValue
+import Pact.Core.Signer
 
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils.Serialization (putRawByteString, runPutS, putWord32be)
 
 import Chainweb.VerifierPlugin
 import Chainweb.Utils (decodeB64UrlNoPaddingText, sshow)
-import Pact.Core.Errors (VerifierError(..))
 
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \_ proof caps gasRef -> do
   -- extract capability values
   (capLocation, capSigner, capMailboxAddress) <- case Set.toList caps of
-    [cap] -> case _scArgs cap of
+    [SigCapability cap] -> case _ctArgs cap of
       [location, sig, mailbox] -> return (location, sig, mailbox)
       _ -> throwError $ VerifierError "Incorrect number of capability arguments. Expected: storageLocation, signer."
     _ -> throwError $ VerifierError "Expected one capability."
@@ -46,18 +47,18 @@ plugin = VerifierPlugin $ \_ proof caps gasRef -> do
   -- extract proof object values
   (storageLocationText, signatureBase64, mailboxAddressText) <- case proof of
     (PList values)
-      | [PLiteral (LString loc), PLiteral (LString sig), PLiteral (LString mailbox)] <- V.toList values
+      | [PString loc, PString sig, PString mailbox] <- V.toList values
       -> pure (loc, sig, mailbox)
     _ -> throwError $ VerifierError "Expected a proof data as a list"
 
   -- validate storage location
-  let storageLocationPactValue = PLiteral $ LString storageLocationText
+  let storageLocationPactValue = PString storageLocationText
   unless (storageLocationPactValue == capLocation) $
     throwError $ VerifierError $
       "Incorrect storageLocation. Expected: " <> sshow storageLocationPactValue <> " but got " <> sshow capLocation
 
   -- validate mailbox address
-  let mailboxAddressPactValue = PLiteral $ LString mailboxAddressText
+  let mailboxAddressPactValue = PString mailboxAddressText
   unless (mailboxAddressPactValue == capMailboxAddress) $
     throwError $ VerifierError $
       "Incorrect mailbox address. Expected: " <> sshow mailboxAddressPactValue <> " but got " <> sshow capMailboxAddress
@@ -83,12 +84,12 @@ plugin = VerifierPlugin $ \_ proof caps gasRef -> do
           putRawByteString $ Text.encodeUtf8 storageLocationText
 
   signatureBinary <- do
-    chargeGas gasRef 5
+    chargeGas gasRef (Gas 5)
     sig <- decodeB64UrlNoPaddingText signatureBase64
     return sig
 
-  address <- chargeGas gasRef 16250 >> recoverAddress announcementDigest signatureBinary
-  let addressPactValue = PLiteral . LString . encodeHex <$> address
+  address <- chargeGas gasRef (Gas 16250) >> recoverAddress announcementDigest signatureBinary
+  let addressPactValue = PString . encodeHex <$> address
 
   case addressPactValue of
     Just addressPactValue' ->

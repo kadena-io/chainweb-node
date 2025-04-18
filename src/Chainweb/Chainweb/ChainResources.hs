@@ -238,7 +238,7 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs 
             -- provider.
 
             let config = _payloadProviderConfigMinimal configs
-            p <- newMinimalPayloadProvider logger v c rdb mgr config
+            p <- newMinimalPayloadProvider logger v c rdb (Just mgr) config
             let pdb = view minimalPayloadDb p
             let queue = view minimalPayloadQueue p
             p2pRes <- payloadP2pResources @v' @c' @'MinimalProvider
@@ -264,7 +264,7 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs 
             -- and answering API requests.
             -- It also starts to awaiting and devlivering new payloads if mining
             -- is enabled.
-            withEvmPayloadProvider logger v c rdb mgr config $ \p -> do
+            withEvmPayloadProvider logger v c rdb (Just mgr) config $ \p -> do
                 let pdb = view evmPayloadDb p
                 let queue = view evmPayloadQueue p
                 p2pRes <- payloadP2pResources @v' @c' @('EvmProvider n)

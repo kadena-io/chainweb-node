@@ -37,6 +37,7 @@ module Chainweb.Pact.Backend.Compaction
 import "base" Control.Exception hiding (Handler)
 import "base" Control.Monad (forM, forM_, unless, void, when)
 import "base" Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Trans.Resource (runResourceT)
 import "base" Data.Function ((&))
 import "base" Data.Int (Int64)
 import "base" Data.Maybe (fromMaybe)
@@ -54,8 +55,6 @@ import "lens" Control.Lens (set, over, (^.), _3, view)
 import "loglevel" System.LogLevel qualified as LL
 import "monad-control" Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import "optparse-applicative" Options.Applicative qualified as O
-import "pact" Pact.Types.SQLite (SType(..), RType(..))
-import "pact" Pact.Types.SQLite qualified as Pact
 import "rocksdb-haskell-kadena" Database.RocksDB.Types (Options(..), Compression(..))
 import "streaming" Streaming qualified as S
 import "streaming" Streaming.Prelude qualified as S
@@ -72,11 +71,11 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Cut.CutHashes (cutIdToText)
 import Chainweb.CutDB (cutHashesTable)
 import Chainweb.Logger (Logger, l2l, setComponent, logFunctionText)
-import Chainweb.Pact4.Backend.ChainwebPactDb ()
+import Chainweb.Pact.Backend.ChainwebPactDb ()
 import Chainweb.Pact.Backend.PactState
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookupPayloadWithHeight)
+import Chainweb.Payload.PayloadStore (addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText)
@@ -224,7 +223,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   -- Note that we can't apply pragmas to the src
   -- because we can't guarantee it's not being accessed
   -- by another process.
-  Pact.runPragmas targetDb fastBulkInsertPragmas
+  runPragmas targetDb fastBulkInsertPragmas
 
   -- Create checkpointer tables on the target
   createCheckpointerTables targetDb logger
@@ -234,7 +233,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   do
     log LL.Info "Compacting BlockHistory"
     activeRow <- getBlockHistoryRowAt logger srcDb targetBlockHeight
-    Pact.exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
+    throwOnDbError $ exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
 
   -- Compact VersionedTableMutation
   -- This is extremely fast and low residency
@@ -243,7 +242,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
     activeRows <- getVersionedTableMutationRowsAt logger srcDb targetBlockHeight
     Lite.withStatement targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" $ \stmt -> do
       forM_ activeRows $ \row -> do
-        Pact.bindParams stmt row
+        throwOnDbError $ bindParams stmt row
         void $ stepThenReset stmt
 
   -- Copy over VersionedTableCreation. Read-only rewind needs to know
@@ -256,7 +255,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
     throwSqlError $ qryStream srcDb wholeTableQuery [] [RText, RInt] $ \tblRows -> do
       Lite.withStatement targetDb "INSERT INTO VersionedTableCreation VALUES (?1, ?2)" $ \stmt -> do
         flip S.mapM_ tblRows $ \row -> do
-          Pact.bindParams stmt row
+          throwOnDbError $ bindParams stmt row
           void $ stepThenReset stmt
 
   -- Copy over TransactionIndex.
@@ -270,7 +269,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   -- Maybe consider
   -- https://tableplus.com/blog/2018/07/sqlite-how-to-copy-table-to-another-database.html
   do
-    (qry, args) <-
+    (query, args) <-
       if rt.keepFullTransactionIndex
       then do
         log LL.Info "Copying over entire TransactionIndex table. This could take a while"
@@ -281,7 +280,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
         let wholeTableQuery = "SELECT txhash, blockheight FROM TransactionIndex WHERE blockheight >= ?1 ORDER BY blockheight"
         pure (wholeTableQuery, [SInt (int (targetBlockHeight - blockHeightKeepDepth))])
 
-    throwSqlError $ qryStream srcDb qry args [RBlob, RInt] $ \tblRows -> do
+    throwSqlError $ qryStream srcDb query args [RBlob, RInt] $ \tblRows -> do
       Lite.withStatement targetDb "INSERT INTO TransactionIndex VALUES (?1, ?2)" $ \stmt -> do
         -- I experimented a bunch with chunk sizes, to keep transactions
         -- small. As far as I can tell, there isn't really much
@@ -291,14 +290,14 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
         S.chunksOf 10_000 tblRows
           & S.mapsM_ (\chunk -> do
               inTx targetDb $ flip S.mapM_ chunk $ \row -> do
-                Pact.bindParams stmt row
+                throwOnDbError $ bindParams stmt row
                 void (stepThenReset stmt)
             )
 
     -- Vacuuming after copying over all of the TransactionIndex data,
     -- but before creating its indices, makes a big differences in
     -- memory residency (~0.5G), at the expense of speed (~20s increase)
-    Pact.exec_ targetDb "VACUUM;"
+    throwOnDbError $ exec_ targetDb "VACUUM;"
 
   -- Create the checkpointer table indices after bulk-inserting into them
   -- This is faster than creating the indices before
@@ -390,10 +389,10 @@ compact cfg = do
         }
   when (not cfg.noPactState) $ do
     forChains_ cfg.concurrent cids $ \cid -> do
-      withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
-        withChainDb cid logger (pactDir cfg.fromDir) $ \_ srcDb -> do
-          withChainDb cid logger (pactDir cfg.toDir) $ \_ targetDb -> do
-            compactPactState logger retainment targetBlockHeight srcDb targetDb
+      withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> runResourceT $ do
+        srcDb <- withChainDb cid logger (pactDir cfg.fromDir)
+        targetDb <- withChainDb cid logger (pactDir cfg.toDir)
+        liftIO $ compactPactState logger retainment targetBlockHeight srcDb targetDb
 
 compactTable :: (Logger logger)
   => logger      -- ^ logger
@@ -426,7 +425,7 @@ compactTable logger srcDb targetDb tblname endingTxId = do
 
   -- Create a temporary index on 'rowkey' for a user table, so that upserts work correctly.
   inTx targetDb $ do
-    Pact.exec_ targetDb $ mconcat
+    throwOnDbError $ exec_ targetDb $ mconcat
       [ "CREATE UNIQUE INDEX IF NOT EXISTS ", tbl (tblnameUtf8 <> "_rowkey_unique_ix_TEMP"), " ON "
       , tbl tblnameUtf8, " (rowkey)"
       ]
@@ -466,7 +465,7 @@ compactTable logger srcDb targetDb tblname endingTxId = do
             inTx targetDb $ flip S.mapM_ chunk $ \row -> do
               case row of
                 [SText _, SInt _, SBlob _] -> do
-                  Pact.bindParams upsertRow row
+                  throwOnDbError $ bindParams upsertRow row
                   void $ stepThenReset upsertRow
                 _badRowShape -> do
                   exitLog logger "Encountered invalid row shape while compacting"
@@ -476,7 +475,7 @@ compactTable logger srcDb targetDb tblname endingTxId = do
   -- If we were to keep this index around, the node would not be able to operate, since
   -- we need to update new rows for the same rowkey.
   inTx targetDb $ do
-    Pact.exec_ targetDb $ mconcat
+    throwOnDbError $ exec_ targetDb $ mconcat
       [ "DROP INDEX IF EXISTS ", tbl (tblnameUtf8 <> "_rowkey_unique_ix_TEMP")
       ]
 
@@ -496,7 +495,7 @@ createCheckpointerTables db logger = do
   let log = logFunctionText logger LL.Info
 
   log "Creating Checkpointer table BlockHistory"
-  inTx db $ Pact.exec_ db $ mconcat
+  inTx db $ throwOnDbError $ exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS BlockHistory "
     , "(blockheight UNSIGNED BIGINT NOT NULL"
     , ", hash BLOB NOT NULL"
@@ -505,7 +504,7 @@ createCheckpointerTables db logger = do
     ]
 
   log "Creating Checkpointer table VersionedTableCreation"
-  inTx db $ Pact.exec_ db $ mconcat
+  inTx db $ throwOnDbError $ exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS VersionedTableCreation "
     , "(tablename TEXT NOT NULL"
     , ", createBlockheight UNSIGNED BIGINT NOT NULL"
@@ -513,7 +512,7 @@ createCheckpointerTables db logger = do
     ]
 
   log "Creating Checkpointer table VersionedTableMutation"
-  inTx db $ Pact.exec_ db $ mconcat
+  inTx db $ throwOnDbError $ exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS VersionedTableMutation "
     , "(tablename TEXT NOT NULL"
     , ", blockheight UNSIGNED BIGINT NOT NULL"
@@ -521,7 +520,7 @@ createCheckpointerTables db logger = do
     ]
 
   log "Creating Checkpointer table TransactionIndex"
-  inTx db $ Pact.exec_ db $ mconcat
+  inTx db $ throwOnDbError $ exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS TransactionIndex "
     , "(txhash BLOB NOT NULL"
     , ", blockheight UNSIGNED BIGINT NOT NULL"
@@ -532,7 +531,7 @@ createCheckpointerTables db logger = do
   -- Ideally in the future this can be removed.
   forM_ ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"] $ \tblname -> do
     log $ "Deleting from table " <> fromUtf8 tblname
-    Pact.exec_ db $ "DELETE FROM " <> tbl tblname
+    throwOnDbError $ exec_ db $ "DELETE FROM " <> tbl tblname
 
 -- | Create all the indexes for the checkpointer tables.
 createCheckpointerIndexes :: (Logger logger) => Database -> logger -> IO ()
@@ -540,27 +539,27 @@ createCheckpointerIndexes db logger = do
   let log = logFunctionText logger LL.Info
 
   log "Creating BlockHistory index"
-  inTx db $ Pact.exec_ db
+  inTx db $ throwOnDbError $ exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS BlockHistory_blockheight_unique_ix ON BlockHistory (blockheight)"
 
   log "Creating VersionedTableCreation index"
-  inTx db $ Pact.exec_ db
+  inTx db $ throwOnDbError $ exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS VersionedTableCreation_createBlockheight_tablename_unique_ix ON VersionedTableCreation (createBlockheight, tablename)"
 
   log "Creating VersionedTableMutation index"
-  inTx db $ Pact.exec_ db
+  inTx db $ throwOnDbError $ exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS VersionedTableMutation_blockheight_tablename_unique_ix ON VersionedTableMutation (blockheight, tablename)"
 
   log "Creating TransactionIndex indexes"
-  inTx db $ Pact.exec_ db
+  inTx db $ throwOnDbError $ exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS TransactionIndex_txhash_unique_ix ON TransactionIndex (txhash)"
-  inTx db $ Pact.exec_ db
+  inTx db $ throwOnDbError $ exec_ db
     "CREATE INDEX IF NOT EXISTS TransactionIndex_blockheight_ix ON TransactionIndex (blockheight)"
 
 -- | Create a single user table
 createUserTable :: Database -> Utf8 -> IO ()
 createUserTable db tblname = do
-  Pact.exec_ db $ mconcat
+  throwOnDbError $ exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS ", tbl tblname, " "
     , "(rowid INTEGER PRIMARY KEY AUTOINCREMENT"
     , ", rowkey TEXT" -- This should be NOT NULL; we need to make a follow-up PR to chainweb-node to update this here and the checkpointer schema
@@ -571,17 +570,17 @@ createUserTable db tblname = do
 
   -- We have to delete from the table because of the way the test harnesses work.
   -- Ideally in the future this can be removed.
-  Pact.exec_ db $ "DELETE FROM " <> tbl tblname
+  throwOnDbError $ exec_ db $ "DELETE FROM " <> tbl tblname
 
 -- | Create the indexes for a single user table
 createUserTableIndex :: Database -> Utf8 -> IO ()
 createUserTableIndex db tblname = do
   inTx db $ do
-    Pact.exec_ db $ mconcat
+    throwOnDbError $ exec_ db $ mconcat
       [ "CREATE UNIQUE INDEX IF NOT EXISTS ", tbl (tblname <> "_rowkey_txid_unique_ix"), " ON "
       , tbl tblname, " (rowkey, txid)"
       ]
-    Pact.exec_ db $ mconcat
+    throwOnDbError $ exec_ db $ mconcat
       [ "CREATE INDEX IF NOT EXISTS ", tbl (tblname <> "_txid_ix"), " ON "
       , tbl tblname, " (txid DESC)"
       ]
@@ -593,7 +592,7 @@ getBlockHistoryRowAt :: (Logger logger)
   -> BlockHeight
   -> IO [SType]
 getBlockHistoryRowAt logger db target = do
-  r <- Pact.qry db "SELECT blockheight, hash, endingtxid FROM BlockHistory WHERE blockheight = ?1" [SInt (int target)] [RInt, RBlob, RInt]
+  r <- throwOnDbError $ qry db "SELECT blockheight, hash, endingtxid FROM BlockHistory WHERE blockheight = ?1" [SInt (int target)] [RInt, RBlob, RInt]
   case r of
     [row@[SInt bh, SBlob _hash, SInt _endingTxId]] -> do
       unless (target == int bh) $ do
@@ -609,7 +608,7 @@ getVersionedTableMutationRowsAt :: (Logger logger)
   -> BlockHeight
   -> IO [[SType]]
 getVersionedTableMutationRowsAt logger db target = do
-  r <- Pact.qry db "SELECT tablename, blockheight FROM VersionedTableMutation WHERE blockheight = ?1" [SInt (int target)] [RText, RInt]
+  r <- throwOnDbError $ qry db "SELECT tablename, blockheight FROM VersionedTableMutation WHERE blockheight = ?1" [SInt (int target)] [RText, RInt]
   forM r $ \case
     row@[SText _, SInt bh] -> do
       unless (target == int bh) $ do
@@ -689,8 +688,8 @@ throwSqlError ioe = do
 inTx :: Database -> IO a -> IO a
 inTx db io = do
   bracket_
-    (Pact.exec_ db "BEGIN;")
-    (Pact.exec_ db "COMMIT;")
+    (throwOnDbError $ exec_ db "BEGIN;")
+    (throwOnDbError $ exec_ db "COMMIT;")
     io
 
 pactDir :: FilePath -> FilePath
@@ -731,10 +730,8 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
   let srcPayloads = newPayloadDb srcDb
   let targetPayloads = newPayloadDb targetDb
 
-  -- The target payload db has to be initialised.
+  -- The target payload db has to be initialised. TODO PP: does it?
   log LL.Info "Initializing payload db"
-  initializePayloadDb cwVersion targetPayloads
-
   srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
   targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion
   forM_ cids $ \cid -> do

@@ -35,12 +35,11 @@ module Chainweb.Sync.WebBlockHeaderStore
 
 -- *
 , WebBlockPayloadStore(..)
-, newEmptyWebPayloadStore
+-- , newEmptyWebPayloadStore
 , newWebPayloadStore
 
 -- * Utils
 , memoInsert
-, PactExecutionService(..)
 ) where
 
 import Chainweb.BlockHash
@@ -63,7 +62,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils (diameterAt)
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
@@ -82,6 +80,7 @@ import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
 import Utils.Logging.Trace
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -132,9 +131,6 @@ data WebBlockPayloadStore tbl = WebBlockPayloadStore
         -- ^ LogFunction
     , _webBlockPayloadStoreMgr :: !HTTP.Manager
         -- ^ Manager object for making HTTP requests
-    , _webBlockPayloadStorePact :: !WebPactExecutionService
-        -- ^ handle to the pact execution service for validating transactions
-        -- and computing outputs.
     }
 
 -- -------------------------------------------------------------------------- --
@@ -343,13 +339,17 @@ forkInfoForHeader wdb hdr pldData
             }
 
     | otherwise = do
-        phdr <- ParentHeader <$> lookupParentHeader wdb hdr
+        phdr <- lookupParentHeader wdb hdr
+        let consensusPayload = ConsensusPayload
+                { _consensusPayloadHash = pld
+                , _consensusPayloadData = pldData
+                }
 
         -- TargetState
         state <- consensusState wdb hdr
         return $ ForkInfo
-            { _forkInfoTrace = [blockHeaderToEvaluationCtx phdr pld pldData]
-            , _forkInfoBasePayloadHash = view blockPayloadHash (_parentHeader phdr)
+            { _forkInfoTrace = [consensusPayload <$ blockHeaderToEvaluationCtx phdr]
+            , _forkInfoBasePayloadHash = view blockPayloadHash (unwrapParent phdr)
             , _forkInfoTargetState = state
             , _forkInfoNewBlockCtx = Just nbctx
             }
@@ -358,7 +358,7 @@ forkInfoForHeader wdb hdr pldData
 
     nbctx = NewBlockCtx
         { _newBlockCtxMinerReward = blockMinerReward v (height + 1)
-        , _newBlockCtxParentCreationTime = view blockCreationTime hdr
+        , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
         }
     height = view blockHeight hdr
     v = _chainwebVersion hdr
@@ -454,7 +454,7 @@ getBlockHeaderInternal
         let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash v p
             queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
                 logg Debug $ taskMsg k
-                    $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
+                    $ "getBlockHeaderInternal.getPrerequisiteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
                 getBlockHeaderInternal
                     headerStore
@@ -464,7 +464,7 @@ getBlockHeaderInternal
                     localPayload
                     priority
                     maybeOrigin'
-                    p
+                    (unwrapParent <$> p)
 
             -- Perform inductive (involving the parent) validations on the block
             -- header. There's another complete pass of block header validations
@@ -472,7 +472,7 @@ getBlockHeaderInternal
             --
             queryParent p = Concurrently $ void $ do
                 logg Debug $ taskMsg k
-                    $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
+                    $ "getBlockHeaderInternal.getPrerequisiteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
                 void $ getBlockHeaderInternal
                     headerStore
@@ -482,7 +482,7 @@ getBlockHeaderInternal
                     localPayload
                     priority
                     maybeOrigin'
-                    p
+                    (unwrapParent <$> p)
                 chainDb <- getWebBlockHeaderDb wdb header
                 validateInductiveChainM (tableLookup chainDb) header
 
@@ -666,29 +666,16 @@ newWebBlockHeaderStore mgr wdb logfun = do
     queue <- newEmptyPQueue
     return $! WebBlockHeaderStore wdb m queue logfun mgr
 
-newEmptyWebPayloadStore
-    :: CanPayloadCas tbl
-    => ChainwebVersion
-    -> HTTP.Manager
-    -> WebPactExecutionService
-    -> LogFunction
-    -> PayloadDb tbl
-    -> IO (WebBlockPayloadStore tbl)
-newEmptyWebPayloadStore v mgr pact logfun payloadDb = do
-    initializePayloadDb v payloadDb
-    newWebPayloadStore mgr pact payloadDb logfun
-
 newWebPayloadStore
     :: HTTP.Manager
-    -> WebPactExecutionService
     -> PayloadDb tbl
     -> LogFunction
     -> IO (WebBlockPayloadStore tbl)
-newWebPayloadStore mgr pact payloadDb logfun = do
+newWebPayloadStore mgr payloadDb logfun = do
     payloadTaskQueue <- newEmptyPQueue
     payloadMemo <- new
     return $! WebBlockPayloadStore
-        payloadDb payloadMemo payloadTaskQueue logfun mgr pact
+        payloadDb payloadMemo payloadTaskQueue logfun mgr
 
 getBlockHeader
     :: BlockHeaderCas candidateHeaderCas

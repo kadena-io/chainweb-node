@@ -801,4 +801,3 @@ hdrHash = to _hdrHash
 
 hdrPayloadHash :: Getter Header BlockPayloadHash
 hdrPayloadHash = to _hdrPayloadHash
-

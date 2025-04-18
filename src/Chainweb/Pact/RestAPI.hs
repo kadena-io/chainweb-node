@@ -22,16 +22,14 @@ module Chainweb.Pact.RestAPI
 , pactApi
 
 -- ** Pact APIs for Individual commands
-, PactLocalApi
+, ApiLocal
 , pactLocalApi
-, PactListenApi
+, ApiListen
 , pactListenApi
-, PactSendApi
+, ApiSend
 , pactSendApi
-, PactLocalWithQueryApi
-, pactLocalWithQueryApi
-, PactPollWithQueryApi
-, pactPollWithQueryApi
+, ApiPoll
+, pactPollApi
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -56,8 +54,6 @@ module Chainweb.Pact.RestAPI
 
 import Data.Text (Text)
 
-import qualified Pact.Types.Command as Pact
-import qualified Pact.Server.API as Pact4
 import Pact.Utils.Servant
 
 import Servant
@@ -71,7 +67,8 @@ import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
-import qualified Pact.Core.Command.Server as Pact5
+import qualified Pact.Core.Command.Server as Pact
+import qualified Pact.Core.Command.Types as Pact
 
 -- -------------------------------------------------------------------------- --
 -- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
@@ -81,11 +78,12 @@ type PactApi_
     = "pact"
     :> "api"
     :> "v1"
-    :> ( Pact4.ApiSend
-       :<|> PactPollWithQueryApi_
-       :<|> ApiListen
-       :<|> PactLocalWithQueryApi_
-       )
+    :>
+        ( ApiSend
+        :<|> ApiPoll
+        :<|> ApiListen
+        :<|> ApiLocal
+        )
 
 type PactApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_
@@ -106,31 +104,17 @@ type PactV1ApiEndpoint (v :: ChainwebVersionT) (c :: ChainIdT) api
     :> "v1"
     :> api
 
-type PactLocalApi v c = PactV1ApiEndpoint v c Pact4.ApiLocal
-type PactSendApi v c = PactV1ApiEndpoint v c Pact4.ApiSend
-type PactListenApi v c = PactV1ApiEndpoint v c ApiListen
+type ApiPoll
+    = "poll"
+    :> QueryParam "confirmationDepth" ConfirmationDepth
+    :> ReqBody '[PactJson] Pact.PollRequest
+    :> Post '[PactJson] Pact.PollResponse
 
-type ApiListen = ("listen" :> ReqBody '[PactJson] Pact5.ListenRequest :> Post '[PactJson] Pact5.ListenResponse)
+type ApiSend = "send" :> ReqBody '[PactJson] Pact.SendRequest :> Post '[PactJson] Pact.SendResponse
 
-pactLocalApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactLocalApi v c)
-pactLocalApi = Proxy
+type ApiListen = "listen" :> ReqBody '[PactJson] Pact.ListenRequest :> Post '[PactJson] Pact.ListenResponse
 
-pactSendApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactSendApi v c)
-pactSendApi = Proxy
-
-pactListenApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactListenApi v c)
-pactListenApi = Proxy
-
--- -------------------------------------------------------------------------- --
--- POST Queries for Pact Local Pre-flight
-
-type PactLocalWithQueryApi_
+type ApiLocal
     = "local"
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
@@ -138,28 +122,25 @@ type PactLocalWithQueryApi_
     :> ReqBody '[PactJson] (Pact.Command Text)
     :> Post '[PactJson] LocalResult
 
-type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
+pactLocalApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactV1ApiEndpoint v c ApiLocal)
+pactLocalApi = Proxy
 
-pactLocalWithQueryApi
+pactSendApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactV1ApiEndpoint v c ApiSend)
+pactSendApi = Proxy
+
+pactListenApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactV1ApiEndpoint v c ApiListen)
+pactListenApi = Proxy
+
+pactPollApi
   :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-  . Proxy (PactLocalWithQueryApi v c)
-pactLocalWithQueryApi = Proxy
-
--- -------------------------------------------------------------------------- --
--- POST Queries for Pact Poll
-
-type PactPollWithQueryApi_
-    = "poll"
-    :> QueryParam "confirmationDepth" ConfirmationDepth
-    :> ReqBody '[PactJson] Pact5.PollRequest
-    :> Post '[PactJson] Pact5.PollResponse
-
-type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
-
-pactPollWithQueryApi
-  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-  . Proxy (PactPollWithQueryApi v c)
-pactPollWithQueryApi = Proxy
+  . Proxy (PactV1ApiEndpoint v c ApiPoll)
+pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof
@@ -221,9 +202,9 @@ ethSpvApi = Proxy
 
 type PactServiceApi v c
     = PactApi v c
-    :<|> PactSpvApi v c
-    :<|> EthSpvApi v c
-    :<|> PactSpv2Api v c
+    -- :<|> PactSpvApi v c
+    -- :<|> EthSpvApi v c
+    -- :<|> PactSpv2Api v c
 
 pactServiceApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

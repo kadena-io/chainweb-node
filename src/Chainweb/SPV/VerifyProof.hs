@@ -1,5 +1,7 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.SPV.VerifyProof
@@ -11,7 +13,7 @@
 -- Verification of Merkle proofs in the Chainweb Merkle tree.
 --
 module Chainweb.SPV.VerifyProof
-( verifyTransactionOutputProofAt
+( runTransactionOutputProof
 ) where
 
 import Control.Monad.Catch
@@ -21,35 +23,18 @@ import Data.MerkleLog.V1 qualified as V1
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeaderDB
-import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
 import Chainweb.SPV
-import Chainweb.TreeDB
-import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
 
--- | Verifies the proof for the given block hash. The result confirms that the
--- subject of the proof occurs in the history of the target chain before the
--- given block hash.
+-- | Runs a transaction Proof. Returns the block hash on the target chain for
+-- which inclusion is proven.
 --
--- Throws 'TreeDbKeyNotFound' if the given block hash isn't found in the given
--- BlockHeaderDb.
---
--- Note that the target chain argument in the proof is ignored.
---
--- NOTE: Used by Pact-4 and Pact-5 on-chain SPV support!
---
-verifyTransactionOutputProofAt
-    :: BlockHeaderDb
-    -> TransactionOutputProof ChainwebMerkleHashAlgorithm
-    -> BlockHash
-    -> IO TransactionOutput
-verifyTransactionOutputProofAt bdb (TransactionOutputProof _ p) ctx = do
-    h <- BlockHash . MerkleLogHash <$> V1.runMerkleProof p
-    unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
-    proofSubject p
+runTransactionOutputProof
+    :: MonadThrow m
+    => TransactionOutputProof ChainwebMerkleHashAlgorithm
+    -> m BlockHash
+runTransactionOutputProof (TransactionOutputProof _ p)
+    = BlockHash . MerkleLogHash <$> V1.runMerkleProof p

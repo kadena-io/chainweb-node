@@ -31,12 +31,6 @@ module Chainweb.Test.Utils
 , unsafeHeadOf
 
 , TestPact5CommandResult
-, toPact4RequestKey
-, toPact5RequestKey
-, toPact4Command
-, toPact4CommandResult
-, toPact5CommandResult
-, pact4Poll
 
 -- * Test RocksDb
 , testRocksDb
@@ -218,9 +212,10 @@ import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.Types(SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
+import Chainweb.Parent
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Pact5.Utils (getTestLogLevel)
+import Chainweb.Test.Pact.Utils (getTestLogLevel)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
 import Chainweb.Test.Utils.BlockHeader
@@ -246,14 +241,9 @@ import P2P.Peer
 import Chainweb.Test.Utils.APIValidation
 import Data.Semigroup
 import qualified Pact.Core.Command.Types as Pact5
-import qualified Data.Aeson as Aeson
 import qualified Pact.Core.Errors as Pact5
-import qualified Pact.Types.Command as Pact4
 import qualified Pact.Core.Hash as Pact5
-import qualified Pact.Types.Hash as Pact4
-import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.API as Pact4
-import qualified Pact.Core.Command.Server as Pact5
+import qualified Pact.Core.Gas as Pact
 
 -- -------------------------------------------------------------------------- --
 
@@ -406,7 +396,7 @@ genesisBlockHeaderForChain v i
 insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
 insertN n g db = traverse_ (unsafeInsertBlockHeaderDb db) bhs
   where
-    bhs = take n $ testBlockHeaders $ ParentHeader g
+    bhs = take n $ testBlockHeaders $ Parent g
 
 -- | Payload hashes are generated using 'testBlockPayloadFromParent_', which
 -- includes the nonce. They payloads can be recovered using
@@ -417,7 +407,7 @@ insertN_ s n g db = do
     traverse_ (unsafeInsertBlockHeaderDb db) bhs
     return bhs
   where
-    bhs = take (int n) $ testBlockHeadersWithNonce s $ ParentHeader g
+    bhs = take (int n) $ testBlockHeadersWithNonce s $ Parent g
 
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
@@ -502,19 +492,19 @@ header p = do
         . newMerkleLog
         $ mkFeatureFlags
             :+: t'
-            :+: view blockHash p
+            :+: Parent (view blockHash p)
             :+: target
-            :+: casKey (testBlockPayloadFromParent (ParentHeader p))
+            :+: casKey (testBlockPayloadFromParent (Parent p))
             :+: _chainId p
             :+: BlockWeight (targetToDifficulty target) + view blockWeight p
             :+: succ (view blockHeight p)
             :+: _versionCode v
-            :+: epochStart (ParentHeader p) mempty t'
+            :+: epochStart (Parent p) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = view blockCreationTime p
-    target = powTarget (ParentHeader p) mempty t'
+    target = powTarget (Parent p) mempty t'
     v = _chainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
@@ -549,7 +539,7 @@ linearBlockHeaderDbs n dbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (unsafeInsertBlockHeaderDb db) . take (int n) . testBlockHeaders $ ParentHeader gbh0
+        traverse_ (unsafeInsertBlockHeaderDb db) . take (int n) . testBlockHeaders $ Parent gbh0
 
 starBlockHeaderDbs
     :: Natural
@@ -561,7 +551,7 @@ starBlockHeaderDbs n dbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
+        traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ Parent gbh0) [0 .. (int n-1)]
 
     newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
 
@@ -1043,7 +1033,7 @@ node
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
 node rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
-    withChainweb conf logger rdb pactDbDir backupDir False $ \case
+    withChainweb conf logger rdb pactDbDir backupDir $ \case
         StartedChainweb cw -> do
             -- If this is the bootstrap node we extract the port number and publish via an MVar.
             when (nid == 0) $ do
@@ -1110,7 +1100,7 @@ config ver n = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMining . miningInNode) miner
     & set configReintroTxs True
-    & set configBlockGasLimit 1_000_000
+    & set configBlockGasLimit (Pact.GasLimit $ Pact.Gas 1_000_000)
     & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
@@ -1174,34 +1164,3 @@ unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
 unsafeHeadOf l s = s ^?! l
 
 type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash Pact5.PactOnChainError
-
-toPact4RequestKey :: Pact5.RequestKey -> Pact4.RequestKey
-toPact4RequestKey = \case
-    Pact5.RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
-
-toPact5RequestKey :: Pact4.RequestKey -> Pact5.RequestKey
-toPact5RequestKey = \case
-    Pact4.RequestKey (Pact4.Hash bytes) -> Pact5.RequestKey (Pact5.Hash bytes)
-
-toPact4Command :: Pact5.Command T.Text -> Pact4.Command T.Text
-toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
-    Left err -> error $ "toPact4Command: decode failed: " ++ err
-    Right cmd5 -> cmd5
-
-toPact4CommandResult :: ()
-    => TestPact5CommandResult
-    -> Pact4.CommandResult Pact4.Hash
-toPact4CommandResult cr5 =
-    case Aeson.eitherDecodeStrictText (J.encodeText cr5) of
-        Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
-        Right cr4 -> cr4
-
-toPact5CommandResult :: ()
-    => Pact4.CommandResult Pact4.Hash
-    -> TestPact5CommandResult
-toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
-    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
-    Right cr5 -> cr5
-
-pact4Poll :: Pact4.Poll -> Pact5.PollRequest
-pact4Poll (Pact4.Poll rks) = Pact5.PollRequest $ toPact5RequestKey <$> rks

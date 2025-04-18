@@ -72,13 +72,13 @@ import qualified Chainweb.Test.Pact4.SQLite (tests)
 import qualified Chainweb.Test.Pact4.TTL (tests)
 import qualified Chainweb.Test.Pact4.TransactionTests (tests)
 import qualified Chainweb.Test.Pact4.VerifierPluginTest (tests)
-import qualified Chainweb.Test.Pact5.CheckpointerTest
-import qualified Chainweb.Test.Pact5.HyperlanePluginTests
-import qualified Chainweb.Test.Pact5.PactServiceTest
-import qualified Chainweb.Test.Pact5.RemotePactTest
-import qualified Chainweb.Test.Pact5.SPVTest
-import qualified Chainweb.Test.Pact5.TransactionExecTest
-import qualified Chainweb.Test.Pact5.TransactionTests
+import qualified Chainweb.Test.Pact.CheckpointerTest
+import qualified Chainweb.Test.Pact.HyperlanePluginTests
+import qualified Chainweb.Test.Pact.PactServiceTest
+import qualified Chainweb.Test.Pact.RemotePactTest
+import qualified Chainweb.Test.Pact.SPVTest
+import qualified Chainweb.Test.Pact.TransactionExecTest
+import qualified Chainweb.Test.Pact.TransactionTests
 import qualified Chainweb.Test.RestAPI (tests)
 import qualified Chainweb.Test.Roundtrips (tests)
 import qualified Chainweb.Test.SPV (tests)
@@ -157,13 +157,13 @@ suite rdb =
         , Chainweb.Test.Pact4.SQLite.tests
         , Chainweb.Test.CutDB.tests rdb
         , Chainweb.Test.Pact4.TransactionTests.tests -- TODO: fix, awaiting for Jose to add loadScript function
-        , Chainweb.Test.Pact5.CheckpointerTest.tests
-        , Chainweb.Test.Pact5.TransactionExecTest.tests rdb
-        , Chainweb.Test.Pact5.PactServiceTest.tests rdb
-        , Chainweb.Test.Pact5.SPVTest.tests rdb
-        , Chainweb.Test.Pact5.RemotePactTest.tests rdb
-        , Chainweb.Test.Pact5.HyperlanePluginTests.tests rdb
-        , Chainweb.Test.Pact5.TransactionTests.tests
+        , Chainweb.Test.Pact.CheckpointerTest.tests
+        , Chainweb.Test.Pact.TransactionExecTest.tests rdb
+        , Chainweb.Test.Pact.PactServiceTest.tests rdb
+        , Chainweb.Test.Pact.SPVTest.tests rdb
+        , Chainweb.Test.Pact.RemotePactTest.tests rdb
+        , Chainweb.Test.Pact.HyperlanePluginTests.tests rdb
+        , Chainweb.Test.Pact.TransactionTests.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb
         , testGroup "SPV"

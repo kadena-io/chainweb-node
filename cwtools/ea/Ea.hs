@@ -34,9 +34,9 @@ import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
-import Chainweb.Pact.Utils (toTxCreationTime)
-import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact4.Validations (defaultMaxTTL)
+import Chainweb.Pact.Utils (toTxCreationTime, emptyPayload)
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
@@ -52,8 +52,10 @@ import Control.Lens
 import Data.Aeson qualified as Aeson
 import Data.Foldable
 import Data.Functor
+import Data.Pool qualified as Pool
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
@@ -61,12 +63,16 @@ import Data.Traversable
 import Data.Vector qualified as V
 import Ea.Genesis
 import GHC.Exts(the)
-import Pact.ApiReq
-import Pact.Types.ChainMeta
-import Pact.Types.Command hiding (Payload)
 import System.LogLevel
 import System.IO.Temp
 import Text.Printf
+import Pact.Core.Command.Types
+import Pact.Core.Command.Client
+import Pact.Core.ChainData
+import qualified Pact.Core.Command.Types as Pact
+import qualified Chainweb.ChainId as Chainweb
+import qualified Pact.JSON.Encode as J
+import Pact.Core.StableEncoding
 
 ---
 
@@ -76,35 +82,23 @@ main = do
     registerVersion Development
 
     mapConcurrently_ id
-      [ recapDevnet
-      , devnet
-      , fastnet
+      [ devnet
+      -- , fastnet
       , instantnet
-      , pact5Instantnet
+      -- , pact5Instantnet
       , quirkedPact5Instantnet
-      , testnet04
       , testnet05
-      , mainnet
-      , genTxModules
-      , genCoinV3Payloads
-      , genCoinV4Payloads
-      , genCoinV5Payloads
-      , genCoinV6Payloads
+      -- , genCoinV6Payloads
       ]
     putStrLn "Done."
   where
-    recapDevnet = mkPayloads
-      [ recapDevelopment0
-      , recapDevelopmentN
-      , recapDevelopmentKAD
-      ]
     devnet = mkPayloads
       [ fastDevelopment0
       , fastDevelopmentN
       ]
-    fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    -- fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
-    pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
+    -- pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
     quirkedPact5Instantnet = mkPayloads [quirkedPact5InstantCPM0, quirkedPact5InstantCPMN]
     testnet04 = mkPayloads [testnet040, testnet04N]
     testnet05 = mkPayloads [testnet050, testnet05N]
@@ -144,7 +138,7 @@ writePayload gen payload = do
 --
 mkPayload :: Genesis -> IO Text
 mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
-    printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
+    -- printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
     payloadModules <- for [l..u] $ \cid ->
         genPayloadModule v (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
     -- checks that the modules on each chain are the same
@@ -155,57 +149,37 @@ mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
     txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
 
-genCoinV3Payloads :: IO ()
-genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
-
-genCoinV4Payloads :: IO ()
-genCoinV4Payloads = genTxModule "CoinV4"
-  [ fungibleXChainV1
-  , coinContractV4
-  ]
-
-genCoinV5Payloads :: IO ()
-genCoinV5Payloads = genTxModule "CoinV5"
-  [ coinContractV5
-  ]
-
-genCoinV6Payloads :: IO ()
-genCoinV6Payloads = genTxModule "CoinV6"
-  [ coinContractV6
-  ]
-
 ---------------------
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.UnparsedTransaction] -> IO Text
-genPayloadModule v tag cid cwTxs =
-    withTempRocksDb "chainweb-ea" $ \rocks ->
-    withBlockHeaderDb rocks v cid $ \bhdb -> do
-        let logger = genericLogger Warn TIO.putStrLn
-        pdb <- newPayloadDb
-        withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
-            T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                withPactService v cid logger Nothing bhdb pdb env testPactServiceConfig $
-                    execNewGenesisBlock noMiner (V.fromList cwTxs)
-            return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
+genPayloadModule :: ChainwebVersion -> Text -> Chainweb.ChainId -> [Pact.Transaction] -> IO Text
+genPayloadModule v tag cid cwTxs = do
+    let logger = genericLogger Warn TIO.putStrLn
+    pdb <- newPayloadDb
+    withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
+        payloadWO <- withSqliteDb cid logger pactDbDir False $ \readWriteSql -> do
+            roPool <- Pool.newPool $ Pool.defaultPoolConfig (startReadSqliteDb cid logger pactDbDir) stopSqliteDb 10 10
+            withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql (testPactServiceConfig emptyPayload) $ \serviceEnv ->
+                execNewGenesisBlock logger serviceEnv (V.fromList cwTxs)
+        return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [Pact4.UnparsedTransaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact.Transaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [Pact4.UnparsedTransaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact.Transaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
-        let parsedCmd =
-              traverse Aeson.eitherDecodeStrictText cmd
-        case parsedCmd of
-          Left err -> error err
-          Right unparsedTx -> do
-            let t = toTxCreationTime (Time (TimeSpan 0))
-            return $! Pact4.mkPayloadWithTextOldUnparsed <$> (unparsedTx & setTxTime t & setTTL defaultMaxTTL)
-  where
-    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
-    setTTL = set (cmdPayload . pMeta . pmTTL)
+        let parsedTx = either (error . sshow) (cmdPayload . pMeta %~ _stableEncoding) $ Pact.unsafeParseCommand (T.encodeUtf8 <$> cmd)
+        -- TODO: why is this always the tx creation time? different versions
+        -- have different block creation times
+        let epochCreationTime = toTxCreationTime (Time (TimeSpan 0))
+        let tx' = parsedTx
+              & set (cmdPayload . pMeta . pmCreationTime) epochCreationTime
+              & set (cmdPayload . pMeta . pmTTL) (TTLSeconds defaultMaxTTLSeconds)
+        return $! Pact.unsafeMkPayloadWithText
+          (tx' ^. cmdPayload)
+          (J.encodeStrict $ (tx' ^. cmdPayload) & pMeta %~ StableEncoding & fmap _pcCode) <$ parsedTx
 
 mkTx :: FilePath -> IO (Command Text)
 mkTx yamlFile = snd <$> mkApiReq yamlFile
@@ -276,66 +250,3 @@ sep s f = go . toList
 ------------------------------------------------------
 -- Transaction Generation for coin v2 and remediations
 ------------------------------------------------------
-
-genTxModules :: IO ()
-genTxModules = void $ do
-    genDevTxs
-    genMainnetTxs
-    genOtherTxs
-    gen20ChainRemeds
-    putStrLn "Done."
-  where
-    gen tag remeds = genTxModule tag $ upgrades <> remeds
-    genOtherTxs = gen "Other" []
-    genDevTxs = gen "RecapDevelopment"
-      ["pact/coin-contract/remediations/devother/remediations.yaml"]
-
-    genMain :: Int -> IO ()
-    genMain chain = gen ("Mainnet" <> sshow chain)
-      ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
-
-    genMainnetTxs = mapM_ genMain [0..9]
-
-    gen20ChainRemeds = genTxModule "MainnetKAD"
-      ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
-
-    upgrades = [fungibleAssetV2, coinContractV2]
-
-genTxModule :: Text -> [FilePath] -> IO ()
-genTxModule tag txFiles = do
-    putStrLn $ "Generating tx module for " ++ show tag
-    cwTxs <- mkChainwebTxs txFiles
-
-    let encTxs = map quoteTx cwTxs
-        quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode Pact4.rawCommandCodec
-        modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
-        fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
-
-    TIO.writeFile (T.unpack fileName) modl
-
-startTxModule :: Text -> [Text]
-startTxModule tag =
-    [ "{-# LANGUAGE OverloadedStrings #-}"
-    , ""
-    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
-    , ""
-    , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
-    , ""
-    , "import Data.Bifunctor (first)"
-    , "import System.IO.Unsafe"
-    , ""
-    , "import qualified Chainweb.Pact4.Transaction as Pact4"
-    , "import Chainweb.Utils"
-    , ""
-    , "transactions :: [Pact4.Transaction]"
-    , "transactions ="
-    , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact4.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
-    , "  in unsafePerformIO $ mapM decodeTx ["
-    ]
-
-endTxModule :: [Text]
-endTxModule =
-    [ "    ]"
-    ]

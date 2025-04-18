@@ -105,6 +105,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -126,7 +127,7 @@ data CutExtension = CutExtension
         --
         -- This is overly restrictive, since the same cut extension can be
         -- valid for more than one cut. It's fine for now.
-    , _cutExtensionParent' :: !ParentHeader
+    , _cutExtensionParent' :: !(Parent BlockHeader)
         -- ^ The header onto which the new block is created. It is expected
         -- that this header is contained in the cut.
     , _cutExtensionAdjacentHashes' :: !BlockHashRecord
@@ -145,12 +146,12 @@ cutExtensionCut = cutExtensionCut'
 
 -- | The header onto which the new block is created.
 --
-_cutExtensionParent :: CutExtension -> ParentHeader
+_cutExtensionParent :: CutExtension -> Parent BlockHeader
 _cutExtensionParent = _cutExtensionParent'
 
 -- | The header onto which the new block is created.
 --
-cutExtensionParent :: Lens' CutExtension ParentHeader
+cutExtensionParent :: Lens' CutExtension (Parent BlockHeader)
 cutExtensionParent = cutExtensionParent'
 
 _cutExtensionAdjacentHashes :: CutExtension -> BlockHashRecord
@@ -211,7 +212,7 @@ getCutExtension c cid = do
 
     return CutExtension
         { _cutExtensionCut' = c
-        , _cutExtensionParent' = ParentHeader p
+        , _cutExtensionParent' = Parent p
         , _cutExtensionAdjacentHashes' = as
         }
   where
@@ -230,7 +231,7 @@ getCutExtension c cid = do
 
     -- | Try to get all adjacent hashes dependencies for the given graph.
     --
-    newAdjHashes :: ChainGraph -> Maybe (HM.HashMap ChainId BlockHash)
+    newAdjHashes :: ChainGraph -> Maybe (HM.HashMap ChainId (Parent BlockHash))
     newAdjHashes g =
         imapM (\xcid _ -> hashForChain xcid)
         $ HS.toMap -- converts to Map Foo ()
@@ -248,7 +249,7 @@ getCutExtension c cid = do
             <> sshow acid
             <> ".\n Cut: " <> sshow c
 
-    tryAdj :: BlockHeader -> Maybe BlockHash
+    tryAdj :: BlockHeader -> Maybe (Parent BlockHash)
     tryAdj b
 
         -- When the block is behind, we can move ahead
@@ -258,7 +259,7 @@ getCutExtension c cid = do
         | view blockHeight b + 1 == parentHeight = Nothing -- chain is blocked
 
         -- If this is not a graph transition cut we can move ahead
-        | view blockHeight b == parentHeight = Just $! view blockHash b
+        | view blockHeight b == parentHeight = Just $! Parent $ view blockHash b
 
         -- The cut is invalid
         | view blockHeight b > targetHeight = error $ T.unpack
@@ -368,7 +369,7 @@ getAdjacentParentHeaders
     => Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> CutExtension
-    -> m (HM.HashMap ChainId ParentHeader)
+    -> m (HM.HashMap ChainId (Parent BlockHeader))
 getAdjacentParentHeaders hdb extension
     = itraverse select
     . _getBlockHashRecord
@@ -376,10 +377,10 @@ getAdjacentParentHeaders hdb extension
   where
     c = _cutExtensionCut extension
 
-    select cid h = case c ^? ixg cid of
-        Just ch -> ParentHeader <$> if view blockHash ch == h
-            then pure ch
-            else hdb (ChainValue cid h)
+    select cid (Parent h) = case c ^? ixg cid of
+        Just ch -> if view blockHash ch == h
+            then pure (Parent ch)
+            else Parent <$> hdb (ChainValue cid h)
 
         Nothing -> error $ T.unpack
             $ "Chainweb.Cut.Create.getAdjacentParentHeaders: inconsistent cut extension detected"
@@ -390,9 +391,9 @@ getAdjacentParentHeaders hdb extension
 --
 
 data WorkParents = WorkParents
-    { _workParent' :: !ParentHeader
+    { _workParent' :: !(Parent BlockHeader)
         -- ^ The header onto which the new block is created.
-    , _workAdjacentParents' :: !(HM.HashMap ChainId ParentHeader)
+    , _workAdjacentParents' :: !(HM.HashMap ChainId (Parent BlockHeader))
         -- ^ The adjacent hashes for the new block. These must be at the same
         -- height as the parent and must be have a pairwise valid braiding among
         -- each other and with the parent.
@@ -402,15 +403,15 @@ data WorkParents = WorkParents
     }
     deriving (Show, Eq, Generic)
 
-_workParent :: WorkParents -> ParentHeader
+_workParent :: WorkParents -> Parent BlockHeader
 _workParent = _workParent'
 
-workParent :: Getter WorkParents ParentHeader
+workParent :: Getter WorkParents (Parent BlockHeader)
 workParent = to _workParent
 
 _workParentsAdjacentHashes :: WorkParents -> BlockHashRecord
 _workParentsAdjacentHashes = BlockHashRecord
-    . fmap (view parentHeaderHash)
+    . fmap (fmap (view blockHash))
     . _workAdjacentParents'
 
 workParentsAdjacentHashes :: Getter WorkParents BlockHashRecord

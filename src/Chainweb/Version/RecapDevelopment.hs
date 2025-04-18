@@ -7,7 +7,6 @@
 
 module Chainweb.Version.RecapDevelopment(recapDevnet, pattern RecapDevelopment) where
 
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
@@ -20,13 +19,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import Pact.Types.Verifier
-
-import qualified Chainweb.Pact.Transactions.RecapDevelopmentTransactions as RecapDevnet
-import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
-import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
-import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
-import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
+import Pact.Core.Names
 
 to20ChainsHeight :: BlockHeight
 to20ChainsHeight = 60
@@ -41,50 +34,42 @@ recapDevnet = ChainwebVersion
     , _versionName = ChainwebVersionName "recap-development"
 
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        Vuln797Fix -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        CoinV2 -> onChains $ [(unsafeChainId 0, ForkAtBlockHeight $ BlockHeight 3)] <> [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 4) | i <- [1..19]]
-        PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        OldTargetGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        OldDAGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 13
-        PactEvents -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
-        SPVBridge -> AllChains $ ForkAtBlockHeight $ BlockHeight 50
-        Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 80
-        EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 100
-        Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
-        CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 110
-        Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 95
-        Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 115
-        Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 165
-        Pact44NewTrans -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 215
-        Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 470
-        Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 500
-        Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 550
-        Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 560
-        Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 580
-        Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 590
-        Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 600
-        Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 610
-        Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 620
-        Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 630
-        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 640
-        Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 650
-        Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 660
+        SlowEpoch -> AllChains ForkAtGenesis
+        Vuln797Fix -> AllChains ForkAtGenesis
+        CoinV2 -> AllChains ForkAtGenesis
+        PactBackCompat_v16 -> AllChains ForkAtGenesis
+        SkipTxTimingValidation -> AllChains ForkAtGenesis
+        OldTargetGuard -> AllChains ForkAtGenesis
+        SkipFeatureFlagValidation -> AllChains ForkAtGenesis
+        ModuleNameFix -> AllChains ForkAtGenesis
+        ModuleNameFix2 -> AllChains ForkAtGenesis
+        OldDAGuard -> AllChains ForkAtGenesis
+        PactEvents -> AllChains ForkAtGenesis
+        SPVBridge -> AllChains ForkAtGenesis
+        Pact4Coin3 -> AllChains ForkAtGenesis
+        EnforceKeysetFormats -> AllChains ForkAtGenesis
+        Pact42 -> AllChains ForkAtGenesis
+        CheckTxHash -> AllChains ForkAtGenesis
+        Chainweb213Pact -> AllChains ForkAtGenesis
+        Chainweb214Pact -> AllChains ForkAtGenesis
+        Chainweb215Pact -> AllChains ForkAtGenesis
+        Pact44NewTrans -> AllChains ForkAtGenesis
+        Chainweb216Pact -> AllChains ForkAtGenesis
+        Chainweb217Pact -> AllChains ForkAtGenesis
+        Chainweb218Pact -> AllChains ForkAtGenesis
+        Chainweb219Pact -> AllChains ForkAtGenesis
+        Chainweb220Pact -> AllChains ForkAtGenesis
+        Chainweb221Pact -> AllChains ForkAtGenesis
+        Chainweb222Pact -> AllChains ForkAtGenesis
+        Chainweb223Pact -> AllChains ForkAtGenesis
+        Chainweb224Pact -> AllChains ForkAtGenesis
+        Chainweb225Pact -> AllChains ForkAtGenesis
+        Chainweb226Pact -> AllChains ForkAtGenesis
+        Pact5Fork -> AllChains $ ForkAtGenesis
+        Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 10
+        Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
 
-    , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
-        [ indexByForkHeights recapDevnet
-            [ (CoinV2, onChains [(unsafeChainId i, pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
-            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
-            ]
-        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (pact4Upgrade MNKAD.transactions))]
-        ]
+    , _versionUpgrades = onChains []
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`

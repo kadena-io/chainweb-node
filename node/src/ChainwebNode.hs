@@ -94,7 +94,6 @@ import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 -- import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
-import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -130,7 +129,6 @@ data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
     , _nodeConfigLog :: !LogConfig
     , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
-    , _nodeConfigResetChainDbs :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -142,7 +140,6 @@ defaultChainwebNodeConfiguration = ChainwebNodeConfiguration
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ level
     , _nodeConfigDatabaseDirectory = Nothing
-    , _nodeConfigResetChainDbs = False
     }
   where
     level = L.Info
@@ -158,7 +155,6 @@ instance ToJSON ChainwebNodeConfiguration where
         [ "chainweb" .= _nodeConfigChainweb o
         , "logging" .= _nodeConfigLog o
         , "databaseDirectory" .= _nodeConfigDatabaseDirectory o
-        , "resetChainDatabases" .= _nodeConfigResetChainDbs o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
@@ -166,7 +162,6 @@ instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
         <$< nodeConfigChainweb %.: "chainweb" % o
         <*< nodeConfigLog %.: "logging" % o
         <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
-        <*< nodeConfigResetChainDbs ..: "resetChainDatabases" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
@@ -346,7 +341,7 @@ node conf logger = do
     withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Debug $ "backup config: " <> sshow (_configBackup cwConf)
-        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
+        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir $ \case
             Replayed _ _ -> return ()
             StartedChainweb cw -> do
                 let telemetryEnabled =
@@ -423,8 +418,6 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ mkTelemetryLogger @DbCacheStats mgr teleLogConfig
     dbStatsBackend <- managed
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
-    pactQueueStatsBackend <- managed
-        $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
     p2pNodeStatsBackend <- managed
         $ mkTelemetryLogger @P2pNodeStats mgr teleLogConfig
     topLevelStatusBackend <- managed
@@ -452,7 +445,6 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
                     , logHandler blockUpdateBackend
                     , logHandler dbCacheBackend
                     , logHandler dbStatsBackend
-                    , logHandler pactQueueStatsBackend
                     , logHandler p2pNodeStatsBackend
                     , logHandler topLevelStatusBackend
                     ]

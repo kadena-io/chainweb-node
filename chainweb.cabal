@@ -96,6 +96,7 @@ common debugging-flags
 
 common warning-flags
     ghc-options:
+        -Wwarn
         -Wall
         -Wcompat
         -Wpartial-fields
@@ -193,7 +194,6 @@ library
         , Chainweb.Logger
         , Chainweb.Logging.Config
         , Chainweb.Logging.Miner
-        , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.CurrentTxs
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.InMem.ValidatingConfig
@@ -217,6 +217,7 @@ library
         , Chainweb.MinerReward
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
+        , Chainweb.Parent
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
@@ -239,6 +240,7 @@ library
         , Chainweb.PayloadProvider.Minimal
         , Chainweb.PayloadProvider.Minimal.Payload
         , Chainweb.PayloadProvider.Minimal.PayloadDB
+        , Chainweb.PayloadProvider.Pact
         , Chainweb.PayloadProvider.Pact.Genesis
         , Chainweb.PayloadProvider.P2P
         , Chainweb.PayloadProvider.P2P.RestAPI
@@ -267,8 +269,7 @@ library
         , Chainweb.SPV.RestAPI.Client
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Time
-        , Chainweb.Pact4.Transaction
-        , Chainweb.Pact5.Transaction
+        , Chainweb.Pact.Transaction
         , Chainweb.TreeDB
         , Chainweb.Utils
         , Chainweb.Utils.Paging
@@ -281,7 +282,6 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Binary
         , Chainweb.VerifierPlugin.Hyperlane.Message
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
-        , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
@@ -294,7 +294,6 @@ library
         , Chainweb.Version.Testnet05
         , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
-        , Chainweb.WebPactExecutionService
 
         , Data.IVar
         , Data.LogMessage
@@ -318,8 +317,7 @@ library
         , P2P.TaskQueue
 
         -- pact
-        , Chainweb.Pact4.Backend.ChainwebPactDb
-        , Chainweb.Pact5.Backend.ChainwebPactDb
+        , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.PactState
@@ -338,49 +336,18 @@ library
         , Chainweb.Pact.Conversion
         , Chainweb.Pact.PactService
         , Chainweb.Pact.PactService.Checkpointer
-        , Chainweb.Pact.PactService.Checkpointer.Internal
-        , Chainweb.Pact.PactService.Pact4.ExecBlock
-        , Chainweb.Pact.PactService.Pact5.ExecBlock
+        , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Client
         , Chainweb.Pact.RestAPI.EthSpv
         , Chainweb.Pact.RestAPI.SPV
         , Chainweb.Pact.RestAPI.Server
-        , Chainweb.Pact4.SPV
-        , Chainweb.Pact5.SPV
-        , Chainweb.Pact.Service.BlockValidation
-        , Chainweb.Pact.Service.PactInProcApi
-        , Chainweb.Pact.Service.PactQueue
-        , Chainweb.Pact4.ModuleCache
-        , Chainweb.Pact4.NoCoinbase
-        , Chainweb.Pact4.Templates
-        , Chainweb.Pact4.TransactionExec
-        , Chainweb.Pact4.Types
-        , Chainweb.Pact4.Validations
-        , Chainweb.Pact5.NoCoinbase
-        , Chainweb.Pact5.Templates
-        , Chainweb.Pact5.TransactionExec
-        , Chainweb.Pact5.Types
-        , Chainweb.Pact5.Validations
-        , Chainweb.Pact.Transactions.FungibleV2Transactions
-        , Chainweb.Pact.Transactions.CoinV3Transactions
-        , Chainweb.Pact.Transactions.CoinV4Transactions
-        , Chainweb.Pact.Transactions.CoinV5Transactions
-        , Chainweb.Pact.Transactions.CoinV6Transactions
-        , Chainweb.Pact.Transactions.Mainnet0Transactions
-        , Chainweb.Pact.Transactions.Mainnet1Transactions
-        , Chainweb.Pact.Transactions.Mainnet2Transactions
-        , Chainweb.Pact.Transactions.Mainnet3Transactions
-        , Chainweb.Pact.Transactions.Mainnet4Transactions
-        , Chainweb.Pact.Transactions.Mainnet5Transactions
-        , Chainweb.Pact.Transactions.Mainnet6Transactions
-        , Chainweb.Pact.Transactions.Mainnet7Transactions
-        , Chainweb.Pact.Transactions.Mainnet8Transactions
-        , Chainweb.Pact.Transactions.Mainnet9Transactions
-        , Chainweb.Pact.Transactions.MainnetKADTransactions
-        , Chainweb.Pact.Transactions.OtherTransactions
-        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
+        , Chainweb.Pact.SPV
+        , Chainweb.Pact.NoCoinbase
+        , Chainweb.Pact.Templates
+        , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
+        , Chainweb.Pact.Validations
         , Chainweb.Pact.Utils
 
         -- utils
@@ -405,6 +372,7 @@ library
         , chainweb-storage >= 0.1
         , chronos >= 1.1
         , clock >= 0.7
+        , comonad
         , configuration-tools >= 0.6
         , containers >= 0.5
         , crypton >= 0.31
@@ -423,6 +391,7 @@ library
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
+        , free
         , ghc-compact >= 0.1
         , growable-vector >= 0.1
         , hashable >= 1.4
@@ -458,6 +427,8 @@ library
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
+        , resourcet >= 1.3
+        , resource-pool >= 0.4
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -482,6 +453,7 @@ library
         , unliftio >= 0.2
         , unordered-containers >= 0.2.20
         , uuid >= 1.3.15
+        , validation
         , vector >= 0.12.2
         , vector-algorithms >= 0.7
         , wai >= 3.2.2.1
@@ -519,14 +491,8 @@ library chainweb-test-utils
         Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Pact4.Utils
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.After225
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.Before225
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
-        Chainweb.Test.Pact4.VerifierPluginTest.Unit
-        Chainweb.Test.Pact5.CmdBuilder
-        Chainweb.Test.Pact5.Utils
+        Chainweb.Test.Pact.CmdBuilder
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.RestAPI.Utils
         Chainweb.Test.TestVersions
@@ -582,7 +548,7 @@ library chainweb-test-utils
         , pact-time:numeric >=0.3.0.1
         , pact-tng >=5.0
         , pact-tng:pact-request-api >=5.0
-        , property-matchers ^>= 0.4
+        , property-matchers ^>= 0.7
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resourcet >= 1.3
@@ -757,30 +723,14 @@ test-suite chainweb-tests
         Chainweb.Test.MinerReward
         Chainweb.Test.Mining
         Chainweb.Test.Misc
-        Chainweb.Test.Pact4.Checkpointer
-        Chainweb.Test.Pact4.DbCacheTest
-        Chainweb.Test.Pact4.GrandHash
-        Chainweb.Test.Pact4.ModuleCacheOnRestart
-        Chainweb.Test.Pact4.NoCoinbase
-        Chainweb.Test.Pact4.PactExec
-        Chainweb.Test.Pact4.PactMultiChainTest
-        Chainweb.Test.Pact4.PactReplay
-        Chainweb.Test.Pact4.PactSingleChainTest
-        Chainweb.Test.Pact4.RemotePactTest
-        Chainweb.Test.Pact4.RewardsTest
-        Chainweb.Test.Pact4.SPV
-        Chainweb.Test.Pact4.SQLite
-        Chainweb.Test.Pact4.TTL
-        Chainweb.Test.Pact4.TransactionTests
-        Chainweb.Test.Pact4.VerifierPluginTest
-        Chainweb.Test.Pact5.CheckpointerTest
-        Chainweb.Test.Pact5.CutFixture
-        Chainweb.Test.Pact5.HyperlanePluginTests
-        Chainweb.Test.Pact5.PactServiceTest
-        Chainweb.Test.Pact5.RemotePactTest
-        Chainweb.Test.Pact5.SPVTest
-        Chainweb.Test.Pact5.TransactionExecTest
-        Chainweb.Test.Pact5.TransactionTests
+        Chainweb.Test.Pact.CheckpointerTest
+        Chainweb.Test.Pact.CutFixture
+        Chainweb.Test.Pact.HyperlanePluginTests
+        Chainweb.Test.Pact.PactServiceTest
+        Chainweb.Test.Pact.RemotePactTest
+        Chainweb.Test.Pact.SPVTest
+        Chainweb.Test.Pact.TransactionExecTest
+        Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -848,7 +798,7 @@ test-suite chainweb-tests
         , pact-tng:pact-repl
         , patience >= 0.3
         , prettyprinter
-        , property-matchers ^>= 0.4
+        , property-matchers ^>= 0.7
         , pretty-show
         , quickcheck-instances >= 0.3
         , random >= 1.2
@@ -1016,7 +966,7 @@ benchmark bench
         , pact
         , pact-tng
         , pact-tng:pact-request-api
-        , property-matchers
+        , property-matchers ^>= 0.7
         , random >= 1.2
         , safe-exceptions
         , streaming
@@ -1025,4 +975,3 @@ benchmark bench
         , unordered-containers
         , vector >= 0.12.2
         , yaml >= 0.11
-        , property-matchers ^>= 0.4

@@ -67,7 +67,7 @@ module Chainweb.Chainweb
 , NowServing(..)
 
 -- ** Mempool integration
-, Mempool.pact4TransactionConfig
+, Mempool.pactTransactionConfig
 , validatingMempoolConfig
 
 , withChainweb
@@ -112,7 +112,7 @@ import Data.LogMessage (LogFunctionText)
 import Data.Maybe
 import Data.Text qualified as T
 
-import GHC.Generics
+import GHC.Generics hiding (to)
 
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP2.Client qualified as HTTP2
@@ -149,10 +149,9 @@ import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.OpenAPIValidation qualified as OpenAPIValidation
-import Chainweb.Pact.Backend.Types(IntraBlockPersistence(..))
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Types (PactServiceConfig(..))
-import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.PayloadProvider
@@ -169,6 +168,8 @@ import Chainweb.WebBlockHeaderDB
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
+import qualified Pact.Core.Gas as Pact
+import qualified Chainweb.PayloadProvider.Pact.Genesis as Pact
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -211,10 +212,9 @@ withChainweb
     -> RocksDb
     -> FilePath
     -> FilePath
-    -> Bool
     -> (StartedChainweb logger -> IO ())
     -> IO ()
-withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
+withChainweb c logger rocksDb pactDbDir backupDir inner =
     withPeerResources v (_configP2p confWithBootstraps) logger $ \logger' peerRes ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
             let conf' = confWithBootstraps
@@ -228,7 +228,6 @@ withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
                 rocksDb
                 pactDbDir
                 backupDir
-                resetDb
                 inner
   where
     serviceApiPort = _serviceApiConfigPort $ _configServiceApi c
@@ -275,10 +274,9 @@ withChainwebInternal
     -> RocksDb
     -> FilePath
     -> FilePath
-    -> Bool
     -> (StartedChainweb logger -> IO ())
     -> IO ()
-withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir resetDb inner = do
+withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir inner = do
     logFunctionJson logger Info InitializingChainResources
     txFailuresCounter <- newCounter @"txFailures"
     let monitorTxFailuresCounter =
@@ -296,7 +294,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
 
                 -- FIXME: shouldn't this be done in a configuration validation?
                 -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-                let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
+                let maxGasLimit = Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit v maxBound
                 case maxGasLimit of
                     Just maxGasLimit'
                         | _configBlockGasLimit conf > maxGasLimit' ->
@@ -314,7 +312,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                     rocksDb
                     (_peerResManager peerRes)
                     pactDbDir
-                    (pactConfig maxGasLimit)
+                    (pactConfig cid maxGasLimit)
                     (_peerResConfig peerRes)
                     myInfo
                     peerDb
@@ -355,27 +353,22 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
     p2pConfig :: P2pConfiguration
     p2pConfig = _peerResConfig peerRes
 
-    pactConfig maxGasLimit = PactServiceConfig
+    pactConfig chain maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
       , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
       , _pactQueueSize = _configPactQueueSize conf
-      , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       , _pactUnlimitedInitialRewind =
           isJust (_cutDbParamsInitialHeightLimit cutDbParams) ||
           isJust (_cutDbParamsInitialCutFile cutDbParams)
       , _pactNewBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
-      , _pactModuleCacheLimit = _configModuleCacheLimit conf
       , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
       , _pactFullHistoryRequired = _configFullHistoricPactState conf
-      , _pactPersistIntraBlockWrites =
-          if _configFullHistoricPactState conf
-          then PersistIntraBlockWrites
-          else DoNotPersistIntraBlockWrites
       , _pactTxTimeLimit = Nothing
       -- FIXME
       , _pactMiner = Nothing
+      , _pactGenesisPayload = Pact.genesisPayload v ^?! atChain chain
       }
 
     -- FIXME: make this configurable
@@ -747,7 +740,7 @@ runChainweb cw nowServing = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend Pact4.UnparsedTransaction)]
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend Pact.Transaction)]
     -- mempoolsToServe = proj _chainResMempool
     mempoolsToServe = []
 
@@ -797,7 +790,7 @@ runChainweb cw nowServing = do
             logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
                 roll clientClosedConnectionsCounter
 
-    chainwebServerDbs :: ChainwebServerDbs Pact4.UnparsedTransaction
+    chainwebServerDbs :: ChainwebServerDbs Pact.Transaction
     chainwebServerDbs = ChainwebServerDbs
         { _chainwebServerCutDb = Just cutDb
         , _chainwebServerBlockHeaderDbs = chainDbsToServe
@@ -945,4 +938,3 @@ runChainweb cw nowServing = do
             -- return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
             logg Warn "Overwriting mempool p2p sync client configuration. It is currently not supported"
             return []
-

@@ -93,6 +93,7 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Parent
 import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -123,6 +124,13 @@ instance MerkleHashAlgorithm a => Show (BlockHash_ a) where
 instance Hashable (BlockHash_ a) where
     hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
+
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (Parent (BlockHash_ a)) where
+    type Tag (Parent (BlockHash_ a)) = 'BlockHashTag
+    toMerkleNode = encodeMerkleTreeNode
+    fromMerkleNode = decodeMerkleTreeNode
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 encodeBlockHash :: MerkleHashAlgorithm a => BlockHash_ a -> Put
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
@@ -184,7 +192,7 @@ instance MerkleHashAlgorithm a => HasTextRepresentation (BlockHash_ a) where
 
 -- TODO(greg): BlockHashRecord should be a sorted vector
 newtype BlockHashRecord = BlockHashRecord
-    { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
+    { _getBlockHashRecord :: HM.HashMap ChainId (Parent BlockHash) }
     deriving stock (Show, Eq, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (ToJSON, FromJSON)
@@ -192,24 +200,24 @@ newtype BlockHashRecord = BlockHashRecord
 makeLenses ''BlockHashRecord
 
 type instance Index BlockHashRecord = ChainId
-type instance IxValue BlockHashRecord = BlockHash
+type instance IxValue BlockHashRecord = Parent BlockHash
 
 instance Ixed BlockHashRecord where
     ix i = getBlockHashRecord . ix i
 
 instance IxedGet BlockHashRecord
 
-instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
+instance Each BlockHashRecord BlockHashRecord (Parent BlockHash) (Parent BlockHash) where
     each f = fmap BlockHashRecord . each f . _getBlockHashRecord
 
 encodeBlockHashRecord :: BlockHashRecord -> Put
 encodeBlockHashRecord (BlockHashRecord r) = do
     putWord16le (int $ length r)
-    traverse_ (bimapM_ encodeChainId encodeBlockHash) $ L.sort $ HM.toList r
+    traverse_ (bimapM_ encodeChainId (encodeBlockHash . unwrapParent)) $ L.sort $ HM.toList r
 
 decodeBlockHashWithChainId
-    :: Get (ChainId, BlockHash)
-decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
+    :: Get (ChainId, Parent BlockHash)
+decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> (Parent <$> decodeBlockHash)
 
 decodeBlockHashRecord :: Get BlockHashRecord
 decodeBlockHashRecord = do
@@ -220,10 +228,10 @@ decodeBlockHashRecord = do
 decodeBlockHashWithChainIdChecked
     :: HasChainId p
     => Expected p
-    -> Get (ChainId, BlockHash)
+    -> Get (ChainId, Parent BlockHash)
 decodeBlockHashWithChainIdChecked p = (,)
     <$!> decodeChainIdChecked p
-    <*> decodeBlockHash
+    <*> (Parent <$> decodeBlockHash)
 
 -- to use this wrap the runGet into some MonadThrow.
 --
@@ -237,7 +245,7 @@ decodeBlockHashRecordChecked ps = do
     hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
     return $! BlockHashRecord $! HM.fromList hashes
 
-blockHashRecordToVector :: BlockHashRecord -> V.Vector BlockHash
+blockHashRecordToVector :: BlockHashRecord -> V.Vector (Parent BlockHash)
 blockHashRecordToVector = V.fromList . fmap snd . L.sort . HM.toList . _getBlockHashRecord
 
 blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
@@ -252,7 +260,7 @@ blockHashRecordFromVector
     => HasChainId c
     => g
     -> c
-    -> V.Vector BlockHash
+    -> V.Vector (Parent BlockHash)
     -> BlockHashRecord
 blockHashRecordFromVector g cid = BlockHashRecord
     . HM.fromList
@@ -274,4 +282,3 @@ encodeRankedBlockHash = encodeRanked encodeBlockHash
 
 decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = decodeRanked decodeBlockHash
-

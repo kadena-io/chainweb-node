@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider
@@ -24,7 +25,8 @@ module Chainweb.PayloadProvider
 -- * SyncState
 , SyncState(..)
 , syncStateOfBlockHeader
-, syncStateRankedBlockPayloadHash
+, _syncStateRankedBlockPayloadHash
+, _syncStateRankedBlockHash
 
 -- * ConsensusState
 , ConsensusState(..)
@@ -40,7 +42,10 @@ module Chainweb.PayloadProvider
 
 -- * Evaluation Context
 , EvaluationCtx(..)
+, ConsensusPayload(..)
+, _evaluationCtxCurrentHeight
 , _evaluationCtxRankedPayloadHash
+, _evaluationCtxRankedParentHash
 
 -- * Fork Info
 , ForkInfo(..)
@@ -49,7 +54,6 @@ module Chainweb.PayloadProvider
 , EncodedPayloadOutputs(..)
 , assertForkInfoInvariants
 , _forkInfoBaseHeight
-, _forkInfoBaseBlockHash
 , _forkInfoBaseRankedPayloadHash
 
 -- * New Payload
@@ -83,6 +87,7 @@ module Chainweb.PayloadProvider
 
 -- ** Consensus State Accessors
 , _latestBlockHash
+, _latestRankedBlockHash
 , _latestPayloadHash
 , _latestHeight
 , _safeBlockHash
@@ -99,8 +104,10 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.MinerReward
+import Chainweb.Parent
 import Chainweb.Utils
 import Chainweb.Version
+
 import Control.Concurrent.STM
 import Control.DeepSeq (NFData)
 import Control.Lens hiding ((.=))
@@ -162,9 +169,13 @@ syncStateOfBlockHeader hdr = SyncState
     , _syncStateBlockPayloadHash = view blockPayloadHash hdr
     }
 
-syncStateRankedBlockPayloadHash :: SyncState -> RankedBlockPayloadHash
-syncStateRankedBlockPayloadHash s = RankedBlockPayloadHash
+_syncStateRankedBlockPayloadHash :: SyncState -> RankedBlockPayloadHash
+_syncStateRankedBlockPayloadHash s = RankedBlockPayloadHash
     (_syncStateHeight s) (_syncStateBlockPayloadHash s)
+
+_syncStateRankedBlockHash :: SyncState -> RankedBlockHash
+_syncStateRankedBlockHash s = RankedBlockHash
+    (_syncStateHeight s) (_syncStateBlockHash s)
 
 syncStateProperties :: forall e kv . KeyValue e kv => SyncState -> [kv]
 syncStateProperties a =
@@ -226,15 +237,15 @@ genesisConsensusState v c = ConsensusState
 
 latestRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
 latestRankedBlockPayloadHash =
-    syncStateRankedBlockPayloadHash . _consensusStateLatest
+    _syncStateRankedBlockPayloadHash . _consensusStateLatest
 
 safeRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
 safeRankedBlockPayloadHash =
-    syncStateRankedBlockPayloadHash . _consensusStateSafe
+    _syncStateRankedBlockPayloadHash . _consensusStateSafe
 
 finalRankedBlockPayloadHash :: ConsensusState -> RankedBlockPayloadHash
 finalRankedBlockPayloadHash =
-    syncStateRankedBlockPayloadHash . _consensusStateFinal
+    _syncStateRankedBlockPayloadHash . _consensusStateFinal
 
 consensusStateProperties :: forall e kv . KeyValue e kv => ConsensusState -> [kv]
 consensusStateProperties a =
@@ -273,13 +284,13 @@ instance ToJSON ConsensusState where
 -- Binary format: The concatenation of the binary serialization of the
 -- individual fields in the order as they appear in the data type definition.
 --
-data EvaluationCtx = EvaluationCtx
-    { _evaluationCtxParentCreationTime :: !BlockCreationTime
+data EvaluationCtx p = EvaluationCtx
+    { _evaluationCtxParentCreationTime :: !(Parent BlockCreationTime)
         -- ^ Creation time of the parent block. If transactions in the block
         -- have a notion of "current" time, they should use this value.
-    , _evaluationCtxParentHash :: !BlockHash
+    , _evaluationCtxParentHash :: !(Parent BlockHash)
         -- ^ Block hash of the parent block.
-    , _evaluationCtxParentHeight :: !BlockHeight
+    , _evaluationCtxParentHeight :: !(Parent BlockHeight)
         -- ^ Block height of the parent block.
     , _evaluationCtxMinerReward :: !MinerReward
         -- ^ The miner reward that is assigned to the miner of the block. Miner
@@ -295,44 +306,53 @@ data EvaluationCtx = EvaluationCtx
         -- Internally, encoding and unit is provider specific. For Pact it is a
         -- Kda value for the EVM provider it is in Stu. Also the recipient and
         -- the mechanism how it is credited is provider specific.
-    , _evaluationCtxPayloadHash :: !BlockPayloadHash
-        -- ^ Payload hash of the block that is validated. This is used as a
-        -- checksum for the payload validation. For the last block of a ForkInfo
-        -- structure this value must match the respective value in the target
-        -- sync state.
-        --
-        -- The BlockPayloadHash is first computed when the respective payload is
-        -- created for mining and before it is included in a block.
-    , _evaluationCtxPayloadData :: !(Maybe EncodedPayloadData)
-        -- ^ Optional external payload data. This may be
-        -- the complete, self contained block payload or it may just contain
-        -- complementary data that aids with the validation.
-        --
-        -- The main purpose of this field is to allow consensus to gossip around
-        -- payload data along with new cuts in the P2P network, which allows for
-        -- more efficient synchronization and a reduction of block propagation
-        -- latencies.
+    , _evaluationCtxPayload :: !p
+    --     -- ^ Payload hash of the block that is validated. This is used as a
+    --     -- checksum for the payload validation. For the last block of a ForkInfo
+    --     -- structure this value must match the respective value in the target
+    --     -- sync state.
+    --     --
+    --     -- The BlockPayloadHash is first computed when the respective payload is
+    --     -- created for mining and before it is included in a block.
+    -- , _evaluationCtxPayloadData :: !(Maybe EncodedPayloadData)
+    --     -- ^ Optional external payload data. This may be
+    --     -- the complete, self contained block payload or it may just contain
+    --     -- complementary data that aids with the validation.
+    --     --
+    --     -- The main purpose of this field is to allow consensus to gossip around
+    --     -- payload data along with new cuts in the P2P network, which allows for
+    --     -- more efficient synchronization and a reduction of block propagation
+    --     -- latencies.
     }
-    deriving (Show, Eq, Ord)
+    deriving (Functor, Show, Eq, Ord)
+
+_evaluationCtxCurrentHeight :: EvaluationCtx p -> BlockHeight
+_evaluationCtxCurrentHeight = succ . unwrapParent . _evaluationCtxParentHeight
 
 _evaluationCtxRankedPayloadHash
-    :: EvaluationCtx
+    :: EvaluationCtx ConsensusPayload
     -> RankedBlockPayloadHash
 _evaluationCtxRankedPayloadHash ctx = RankedBlockPayloadHash
-    (_evaluationCtxParentHeight ctx + 1)
-    (_evaluationCtxPayloadHash ctx)
+    (_evaluationCtxCurrentHeight ctx)
+    (_consensusPayloadHash $ _evaluationCtxPayload ctx)
 
-evaluationCtxProperties :: forall e kv . KeyValue e kv => EvaluationCtx -> [kv]
+_evaluationCtxRankedParentHash
+    :: EvaluationCtx p
+    -> Parent RankedBlockHash
+_evaluationCtxRankedParentHash ctx = Parent $ RankedBlockHash
+    (unwrapParent $ _evaluationCtxParentHeight ctx)
+    (unwrapParent $ _evaluationCtxParentHash ctx)
+
+evaluationCtxProperties :: forall e kv p . (KeyValue e kv, ToJSON p) => EvaluationCtx p -> [kv]
 evaluationCtxProperties a =
     [ "parentCreationTime" .= _evaluationCtxParentCreationTime a
     , "parentBlockHash" .= _evaluationCtxParentHash a
     , "parentHeight" .= _evaluationCtxParentHeight a
     , "minerReward" .= _evaluationCtxMinerReward a
-    , "payloadHash" .= _evaluationCtxPayloadHash a
-    , "payloadData" .= _evaluationCtxPayloadData a
+    , "payload" .= _evaluationCtxPayload a
     ]
 
-instance ToJSON EvaluationCtx where
+instance ToJSON p => ToJSON (EvaluationCtx p) where
     toEncoding = pairs . mconcat . evaluationCtxProperties
     toJSON = object . evaluationCtxProperties
     {-# INLINE toEncoding #-}
@@ -358,7 +378,7 @@ instance ToJSON EvaluationCtx where
 data NewBlockCtx = NewBlockCtx
     { _newBlockCtxMinerReward :: !MinerReward
         -- ^ the miner reward for the new block.
-    , _newBlockCtxParentCreationTime :: !BlockCreationTime
+    , _newBlockCtxParentCreationTime :: !(Parent BlockCreationTime)
         -- ^ the creation time of the block on which the new is created.
     }
     deriving (Show, Eq, Ord)
@@ -366,21 +386,18 @@ data NewBlockCtx = NewBlockCtx
 -- | Get the evaluation context for given parent header and block payload hash
 --
 blockHeaderToEvaluationCtx
-    :: ParentHeader
-    -> BlockPayloadHash
-    -> Maybe EncodedPayloadData
-    -> EvaluationCtx
-blockHeaderToEvaluationCtx (ParentHeader ph) pld pldData = EvaluationCtx
-    { _evaluationCtxParentCreationTime = view blockCreationTime ph
-    , _evaluationCtxParentHash = view blockHash ph
+    :: Parent BlockHeader
+    -> EvaluationCtx ()
+blockHeaderToEvaluationCtx (Parent ph) = EvaluationCtx
+    { _evaluationCtxParentCreationTime = Parent $ view blockCreationTime ph
+    , _evaluationCtxParentHash = Parent $ view blockHash ph
     , _evaluationCtxParentHeight = parentHeight
     , _evaluationCtxMinerReward = blockMinerReward v height
-    , _evaluationCtxPayloadHash = pld
-    , _evaluationCtxPayloadData = pldData
+    , _evaluationCtxPayload = ()
     }
   where
-    parentHeight = view blockHeight ph
-    height = parentHeight + 1
+    parentHeight = Parent $ view blockHeight ph
+    height = unwrapParent parentHeight + 1
     v = _chainwebVersion ph
 
 newBlockCtxProperties :: forall e kv . KeyValue e kv => NewBlockCtx -> [kv]
@@ -394,6 +411,25 @@ instance ToJSON NewBlockCtx where
     toJSON = object . newBlockCtxProperties
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
+
+data ConsensusPayload = ConsensusPayload
+    { _consensusPayloadHash :: !BlockPayloadHash
+    , _consensusPayloadData :: !(Maybe EncodedPayloadData)
+    }
+    deriving (Show, Eq, Ord)
+
+consensusPayloadProperties :: forall e kv . KeyValue e kv => ConsensusPayload -> [kv]
+consensusPayloadProperties a =
+    [ "hash" .= _consensusPayloadHash a
+    , "data" .= _consensusPayloadData a
+    ]
+
+instance ToJSON ConsensusPayload where
+    toEncoding = pairs . mconcat . consensusPayloadProperties
+    toJSON = object . consensusPayloadProperties
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- ForkInfo
@@ -429,7 +465,7 @@ instance ToJSON NewBlockCtx where
 -- payload provider.
 --
 data ForkInfo = ForkInfo
-    { _forkInfoTrace :: ![EvaluationCtx]
+    { _forkInfoTrace :: ![EvaluationCtx ConsensusPayload]
         -- ^ The payload evaluation contexts for a consecutive sequence of
         -- blocks.  The first entry determines the fork point which must be
         -- known to the payload provider (although it is not necessary that the
@@ -483,12 +519,7 @@ data ForkInfo = ForkInfo
 _forkInfoBaseHeight :: ForkInfo -> BlockHeight
 _forkInfoBaseHeight fi = case _forkInfoTrace fi of
     [] -> _latestHeight (_forkInfoTargetState fi)
-    (h:_) -> _evaluationCtxParentHeight h
-
-_forkInfoBaseBlockHash :: ForkInfo -> BlockHash
-_forkInfoBaseBlockHash fi = case _forkInfoTrace fi of
-    [] -> _latestBlockHash (_forkInfoTargetState fi)
-    (h:_) -> _evaluationCtxParentHash h
+    (h:_) -> unwrapParent $ _evaluationCtxParentHeight h
 
 _forkInfoBaseRankedPayloadHash :: ForkInfo -> RankedBlockPayloadHash
 _forkInfoBaseRankedPayloadHash fi = RankedBlockPayloadHash
@@ -590,8 +621,8 @@ instance FromJSON EncodedPayloadOutputs where
 data NewPayload = NewPayload
     { _newPayloadChainwebVersion :: !ChainwebVersion
     , _newPayloadChainId :: !ChainId
-    , _newPayloadParentHeight :: !BlockHeight
-    , _newPayloadParentHash :: !BlockHash
+    , _newPayloadParentHeight :: !(Parent BlockHeight)
+    , _newPayloadParentHash :: !(Parent BlockHash)
     , _newPayloadBlockPayloadHash :: !BlockPayloadHash
     , _newPayloadEncodedPayloadData :: !(Maybe EncodedPayloadData)
     , _newPayloadEncodedPayloadOutputs :: !(Maybe EncodedPayloadOutputs)
@@ -657,10 +688,10 @@ instance Hashable NewPayload where
     hashWithSalt s = hashWithSalt s . _newPayloadBlockPayloadHash
     {-# INLINE hashWithSalt #-}
 
-_newPayloadRankedParentHash :: NewPayload -> RankedBlockHash
-_newPayloadRankedParentHash np = RankedBlockHash
-    (_newPayloadParentHeight np)
-    (_newPayloadParentHash np)
+_newPayloadRankedParentHash :: NewPayload -> Parent RankedBlockHash
+_newPayloadRankedParentHash np = Parent $ RankedBlockHash
+    (unwrapParent $ _newPayloadParentHeight np)
+    (unwrapParent $ _newPayloadParentHash np)
 
 instance HasChainwebVersion NewPayload where
     _chainwebVersion = _newPayloadChainwebVersion
@@ -972,6 +1003,9 @@ withPayloadProvider (PayloadProviders ps) c f = case HM.lookup cid ps of
 _latestBlockHash :: ConsensusState -> BlockHash
 _latestBlockHash = _syncStateBlockHash . _consensusStateLatest
 
+_latestRankedBlockHash :: ConsensusState -> RankedBlockHash
+_latestRankedBlockHash = _syncStateRankedBlockHash . _consensusStateLatest
+
 _latestPayloadHash :: ConsensusState -> BlockPayloadHash
 _latestPayloadHash = _syncStateBlockPayloadHash . _consensusStateLatest
 
@@ -1014,4 +1048,3 @@ genesisState v c = ConsensusState
         , _syncStateBlockPayloadHash = view blockPayloadHash hdr
         }
     hdr = genesisBlockHeader (_chainwebVersion v) c
-

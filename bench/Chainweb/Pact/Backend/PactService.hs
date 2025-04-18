@@ -39,12 +39,12 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
-import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb(..), addTestBlockDb, getCutTestBlockDb, setCutTestBlockDb, getParentTestBlockDb, mkTestBlockDbIO)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource)
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.Utils hiding (withTempSQLiteResource)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -73,7 +73,7 @@ import Pact.Core.Capabilities
 import Pact.Core.Gas.Types
 import Pact.Core.Names
 import Pact.Core.PactValue
-import Pact.Types.Gas qualified as Pact4
+import Pact.Types.Gas qualified as Pact
 import PropertyMatchers qualified as P
 import Test.Tasty.HUnit (assertEqual)
 import Text.Printf (printf)

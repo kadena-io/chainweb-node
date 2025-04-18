@@ -57,8 +57,10 @@ import Data.Traversable (for)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
-
-import Pact.Parse
+import Numeric.AffineSpace
+import Data.ByteString (ByteString)
+import Data.Either (partitionEithers)
+import Control.Lens
 
 import Prelude hiding (init, lookup, pred)
 
@@ -67,23 +69,17 @@ import System.Random
 
 -- internal imports
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact4.Validations (defaultMaxTTL, defaultMaxCoinDecimalPlaces)
+import Chainweb.Pact.Validations (defaultMaxTTLSeconds, defaultMaxCoinDecimalPlaces)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
 
-import qualified Pact.Types.ChainMeta as P
-
-import Numeric.AffineSpace
-import Data.ByteString (ByteString)
-import Data.Either (partitionEithers)
-import Control.Lens
+import Pact.Core.Gas
+import Chainweb.PayloadProvider (EvaluationCtx)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -274,8 +270,7 @@ addToBadListInMem lock txs = withMVarMasked lock $ \mdata -> do
     let !pnd' = foldl' (flip HashMap.delete) pnd txs
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
-    let P.TTLSeconds (ParsedInteger mt) = defaultMaxTTL
-    let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
+    let !endTime = add (secondsToTimeSpan $ fromIntegral defaultMaxTTLSeconds) now
     let !bad' = foldl' (\h tx -> HashMap.insert tx endTime h) bad txs
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'
@@ -444,7 +439,7 @@ validateOne cfg badmap curTxIdx now t h =
     gasPriceRoundingCheck =
         ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
       where
-        f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= defaultMaxCoinDecimalPlaces
+        f (GasPrice d) = decimalPlaces d <= defaultMaxCoinDecimalPlaces
         msg = T.unwords
             [ "This transaction's gas price:"
             , sshow (txGasPrice txcfg t)
@@ -570,11 +565,10 @@ getBlockInMem
     -> MVar (InMemoryMempoolData t)
     -> BlockFill
     -> MempoolPreBlockCheck t to
-    -> BlockHeight
-    -> BlockHash
+    -> EvaluationCtx ()
     -> IO (Vector to)
-getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight phash = do
-    logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
+getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate evalCtx = do
+    -- logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,evalCtx)
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
 
@@ -653,7 +647,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
                   BadMap)
     validateBatch !psq0 !badmap q = do
         let txs = V.map (snd . snd) q
-        oks1 <- txValidate bheight phash txs
+        oks1 <- txValidate evalCtx txs
         let oks2 = V.map sizeOK txs
         let !oks = V.zipWith (\ok1 ok2 -> ok1 <* ok2) oks1 oks2
         let (bad1, good) =
@@ -692,27 +686,27 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         -> [(TransactionHash, (SB.ShortByteString, t))]
         -> Int
         -> [(TransactionHash, (SB.ShortByteString, t))]
-    getBatch !pendingTxs !sz !soFar !inARow
+    getBatch !pendingTxs !(GasLimit (Gas sz)) !soFar !inARow
         -- we'll keep looking for transactions until we hit maxInARow that are
         -- too large
       | V.null pendingTxs = soFar
-      | inARow >= maxInARow || sz <= 0 = soFar
+      | inARow >= maxInARow || sz == 0 = soFar
       | otherwise = do
             let (T2 (h, pe) !pendingTxs') = unconsV pendingTxs
             let !txbytes = _inmemPeBytes pe
             let !tx = decodeTx txbytes
-            let !txSz = getSize tx
+            let !(GasLimit (Gas txSz)) = getSize tx
             if txSz <= sz
-            then getBatch pendingTxs' (sz - txSz) ((h,(txbytes, tx)):soFar) 0
-            else getBatch pendingTxs' sz soFar (inARow + 1)
+            then getBatch pendingTxs' (GasLimit (Gas (sz - txSz))) ((h,(txbytes, tx)):soFar) 0
+            else getBatch pendingTxs' (GasLimit (Gas sz)) soFar (inARow + 1)
 
     go :: PendingMap
       -> BadMap
       -> GasLimit
       -> [[(TransactionHash, (SB.ShortByteString, t, to))]]
       -> IO (T3 PendingMap BadMap (Vector (TransactionHash, (SB.ShortByteString, t, to))))
-    go !psq !badmap !remainingGas !soFar = do
-        nb <- nextBatch psq remainingGas
+    go !psq !badmap !(GasLimit remainingGas) !soFar = do
+        nb <- nextBatch psq (GasLimit remainingGas)
         if null nb
           then do
             logFunctionText logg Debug "getBlockInMem: Batch empty"
@@ -720,8 +714,11 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
           else do
             logFunctionText logg Debug "validating batch..."
             T3 good psq' badmap' <- validateBatch psq badmap $! V.fromList nb
-            let !newGas = foldl' (\s (_, (_, t, _)) -> s + getSize t) 0 good
-            go psq' badmap' (remainingGas - newGas) (good : soFar)
+            let !newGas = foldl'
+                  (\s (_, (_, t, _)) -> s - view (_GasLimit . to _gas) (getSize t))
+                  (_gas remainingGas)
+                  good
+            go psq' badmap' (GasLimit $ Gas newGas) (good : soFar)
 
 
 ------------------------------------------------------------------------------

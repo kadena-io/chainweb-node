@@ -40,6 +40,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainValue
+import Chainweb.Parent
 import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
@@ -66,8 +67,8 @@ testPayload n = newPayloadWithOutputs
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayload'.
 --
-testBlockPayloadFromParent :: ParentHeader -> PayloadWithOutputs
-testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
+testBlockPayloadFromParent :: Parent BlockHeader -> PayloadWithOutputs
+testBlockPayloadFromParent (Parent b) = testPayload $ B8.intercalate ","
     [ sshow (_chainwebVersion b)
     , sshow (view blockHeight b + 1)
     ]
@@ -91,8 +92,8 @@ testBlockPayload b = testPayload $ B8.intercalate ","
 -- that are created with 'testBlockPayload_', assuming that the same nonce is
 -- used.
 --
-testBlockPayloadFromParent_ :: Nonce -> ParentHeader -> PayloadWithOutputs
-testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ","
+testBlockPayloadFromParent_ :: Nonce -> Parent BlockHeader -> PayloadWithOutputs
+testBlockPayloadFromParent_ n (Parent b) = testPayload $ B8.intercalate ","
     [ sshow (_chainwebVersion b)
     , sshow (view blockHeight b + 1)
     , sshow n
@@ -120,23 +121,23 @@ testGetNewAdjacentParentHeaders
     => ChainwebVersion
     -> (ChainValue BlockHash -> m BlockHeader)
     -> BlockHashRecord
-    -> m (HM.HashMap ChainId (Either BlockHash ParentHeader))
+    -> m (HM.HashMap ChainId (Either (Parent BlockHash) (Parent BlockHeader)))
 testGetNewAdjacentParentHeaders v hdb = itraverse select . _getBlockHashRecord
   where
     select cid h
-        | h == genesisParentBlockHash v cid = pure $ Left h
-        | otherwise = Right . ParentHeader <$> hdb (ChainValue cid h)
+        | h == genesisParentBlockHash v cid = pure $ Left $ h
+        | otherwise = Right . Parent <$> hdb (ChainValue cid (unwrapParent h))
 
 testBlockHeader
-    :: HM.HashMap ChainId ParentHeader
+    :: HM.HashMap ChainId (Parent BlockHeader)
         -- ^ Adjacent parent hashes
     -> Nonce
         -- ^ Randomness to affect the block hash. It is also included into
         -- the payload
-    -> ParentHeader
+    -> Parent BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader adj nonce p@(ParentHeader b) =
+testBlockHeader adj nonce p@(Parent b) =
     newBlockHeader adj payload nonce (BlockCreationTime $ add second t) p
   where
     payload = _payloadWithOutputsPayloadHash $ testBlockPayloadFromParent_ nonce p
@@ -147,17 +148,17 @@ testBlockHeader adj nonce p@(ParentHeader b) =
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeaders :: ParentHeader -> [BlockHeader]
-testBlockHeaders (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
+testBlockHeaders :: Parent BlockHeader -> [BlockHeader]
+testBlockHeaders (Parent p) = L.unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader mempty (view blockNonce b) $ ParentHeader b
+    f b = testBlockHeader mempty (view blockNonce b) $ Parent b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
-testBlockHeadersWithNonce n (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
+testBlockHeadersWithNonce :: Nonce -> Parent BlockHeader -> [BlockHeader]
+testBlockHeadersWithNonce n (Parent p) = L.unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader mempty n $ ParentHeader b
+    f b = testBlockHeader mempty n $ Parent b

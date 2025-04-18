@@ -73,6 +73,7 @@ import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config
 import Chainweb.Miner.PayloadCache
+import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Storage.Table
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -155,7 +156,7 @@ awaitPayloadsNext
 awaitPayloadsNext caches c prevs = msum (awaitChain <$> HM.toList xs)
   where
     xs = HM.intersectionWith (,) caches rhs
-    rhs = _rankedBlockHash <$> _cutHeaders c
+    rhs = Parent . _rankedBlockHash <$> _cutHeaders c
 
     awaitChain (ChainId cid, (ca, rh)) = do
         x <- awaitLatestSTM ca rh
@@ -230,58 +231,58 @@ awaitPayloadsNext caches c prevs = msum (awaitChain <$> HM.toList xs)
 -- @
 --
 data WorkState
-  = WorkNotReady !RankedBlockHash
+  = WorkNotReady !(Parent RankedBlockHash)
     -- ^ Chain is blocked and no payload has yet been produced
 
-  | WorkStale !RankedBlockHash !WorkParents
+  | WorkStale !(Parent RankedBlockHash) !WorkParents
     -- ^ The chain is unblocked but no payload has produced yet.
     --
     -- Invariant: The work parents must match the ranked block hash.
 
-  | WorkBlocked !RankedBlockHash !NewPayload
+  | WorkBlocked !(Parent RankedBlockHash) !NewPayload
     -- ^ A payload is ready but the chain is still blocked
     --
     -- Invariant: The payload must match the ranked block hash.
 
-  | WorkReady !RankedBlockHash !NewPayload !WorkParents !WorkHeader
+  | WorkReady !(Parent RankedBlockHash) !NewPayload !WorkParents !WorkHeader
     -- ^ The chain is ready for mining
     --
     -- Invariant: The payload, parents, work header must match the ranked block
     -- hash.
 
-  | WorkSolved !RankedBlockHash !NewPayload !WorkParents
+  | WorkSolved !(Parent RankedBlockHash) !NewPayload !WorkParents
     -- ^ A block with this parent has already been solved and submitted to the
     --   cut pipeline - we don't want to mine it again. So we wait until the
     --   current cut is updated with a new parent header for this chain.
 
   deriving stock (Show, Eq, Generic)
 
-_workRankedHash :: WorkState -> RankedBlockHash
+_workRankedHash :: WorkState -> Parent RankedBlockHash
 _workRankedHash (WorkNotReady rh) = rh
 _workRankedHash (WorkStale rh _) = rh
 _workRankedHash (WorkBlocked rh _) = rh
 _workRankedHash (WorkReady rh _ _ _) = rh
 _workRankedHash (WorkSolved rh _ _) = rh
 
-_workStateHash :: WorkState -> BlockHash
-_workStateHash = _rankedBlockHashHash . _workRankedHash
+_workStateHash :: WorkState -> Parent BlockHash
+_workStateHash = fmap _rankedBlockHashHash . _workRankedHash
 
-_workStateHeight :: WorkState -> BlockHeight
-_workStateHeight = _rankedBlockHashHeight . _workRankedHash
+_workStateHeight :: WorkState -> Parent BlockHeight
+_workStateHeight = fmap _rankedBlockHashHeight . _workRankedHash
 
 workReady
     :: BlockCreationTime
-    -> RankedBlockHash
+    -> Parent RankedBlockHash
     -> NewPayload
     -> WorkParents
     -> WorkState
-workReady t rh pld ps' = WorkReady rh pld ps'
+workReady t rbh pld ps' = WorkReady rbh pld ps'
     $ newWork t ps'
     $ _newPayloadBlockPayloadHash pld
 
 _newPayloadRankedHash :: NewPayload -> RankedBlockHash
 _newPayloadRankedHash p =
-    RankedBlockHash (_newPayloadParentHeight p) (_newPayloadParentHash p)
+    RankedBlockHash (unwrapParent $ _newPayloadParentHeight p) (unwrapParent $ _newPayloadParentHash p)
 
 instance Brief WorkState where
     brief (WorkNotReady rh) = "WorkNotReady" <> ":" <> brief rh
@@ -296,7 +297,7 @@ instance Brief WorkState where
 -- | Called on headers event
 --
 onHeader
-    :: RankedBlockHash
+    :: Parent RankedBlockHash
     -> WorkState
     -> Maybe WorkState
 onHeader rh cur
@@ -318,7 +319,7 @@ onParents
 onParents t (Just ps) cur | psRankedHash /= _workRankedHash cur =
     onHeader psRankedHash cur >>= onParents t (Just ps)
   where
-    psRankedHash = _rankedParentHash $ _workParent ps
+    psRankedHash = _rankedBlockHash <$> _workParent ps
 onParents _ (Just ps') (WorkNotReady rh) = Just $ WorkStale rh ps'
 onParents t (Just ps') (WorkBlocked rh pld) = Just $ workReady t rh pld ps'
 onParents _ (Just ps') (WorkStale rh ps)
@@ -367,11 +368,12 @@ onSolved
 onSolved (SolvedWork hdr) (WorkSolved rh _ ps)
     -- If we solved this header in this cut before we do not change the work
     -- state, even if the payload differs.
-    | _rankedBlockHash hdr == rh
+    -- TODO: this might be wrong. `hdr` is the newly made work header, but `rh` looks to be the parent header of that.
+    | view blockParent hdr == fmap _rankedBlockHashHash rh
     && view blockAdjacentHashes hdr /= _workParentsAdjacentHashes ps = Nothing
 onSolved (SolvedWork hdr) (WorkReady rh pld ps _)
     -- If work is currently ready for this header in this cut, we mark it solved.
-    | _rankedBlockHash hdr == rh
+    | view blockParent hdr == fmap _rankedBlockHashHash rh
     && view blockAdjacentHashes hdr /= _workParentsAdjacentHashes ps =
         Just $ WorkSolved rh pld ps
     -- otherwise do not change the state.
@@ -410,6 +412,7 @@ newMiningState c = do
     states <- forM cids $ \cid -> do
         var <- newTVarIO
             $ WorkNotReady
+            $ Parent
             $ _rankedBlockHash
             $ fromMaybe (genesisBlockHeader v cid) (HM.lookup cid (_cutMap c))
         return (cid, var)
@@ -896,7 +899,7 @@ solve mr solved@(SolvedWork hdr) =
     cdb = _coordCutDb mr
     caches = _coordPayloadCache mr
     cache = caches HM.! cid
-    cacheKey = RankedBlockHash (view blockHeight hdr - 1) (view blockParent hdr)
+    cacheKey = Parent $ RankedBlockHash (view blockHeight hdr - 1) (unwrapParent $ view blockParent hdr)
 
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
@@ -926,4 +929,3 @@ logMinedBlock lf bh np = do
 
 publish :: CutDb -> CutHashes -> IO ()
 publish cdb ch = addCutHashes cdb ch
-

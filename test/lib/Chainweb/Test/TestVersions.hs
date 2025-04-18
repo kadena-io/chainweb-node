@@ -9,17 +9,14 @@
 
 module Chainweb.Test.TestVersions
     ( barebonesTestVersion
-    , fastForkingCpmTestVersion
-    , noBridgeCpmTestVersion
-    , slowForkingCpmTestVersion
+    -- , fastForkingCpmTestVersion
+    -- , noBridgeCpmTestVersion
+    -- , slowForkingCpmTestVersion
     , quirkedGasInstantCpmTestVersion
     , quirkedGasPact5InstantCpmTestVersion
     , timedConsensusVersion
     , instantCpmTestVersion
-    , pact5InstantCpmTestVersion
-    , pact5CheckpointerTestVersion
-    , pact5SlowCpmTestVersion
-    , instantCpmTransitionTestVersion
+    , checkpointerTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -28,10 +25,13 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as List
 import qualified Data.Set as Set
+
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload as TNN
+
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
+
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload as PIN0
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload as PINN
 import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
@@ -55,17 +55,9 @@ import Chainweb.Version
 import Chainweb.Version.Registry
 import P2P.Peer
 
-import qualified Pact.Types.Gas as P
-import Chainweb.Test.Pact5.Utils (pactTxFrom4To5)
-
-import Pact.Types.Verifier
-
-import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
-import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
-import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
-import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
-import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
-import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
+import Chainweb.Payload (PayloadWithOutputs_(_payloadWithOutputsPayloadHash), PayloadWithOutputs)
+import qualified Pact.Core.Names as Pact
+import qualified Pact.Core.Gas as Pact
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -104,18 +96,18 @@ buildTestVersion f =
 -- result in runtime errors from `Chainweb.Version.Registry`.
 testVersions :: [ChainwebVersionName]
 testVersions = _versionName <$> concat
-    [   [ fastForkingCpmTestVersion (knownChainGraph g)
+    -- [   [ fastForkingCpmTestVersion (knownChainGraph g)
+    --     | g :: KnownGraph <- [minBound..maxBound]
+    --     ]
+    -- ,   [ slowForkingCpmTestVersion (knownChainGraph g)
+    --     | g :: KnownGraph <- [minBound..maxBound]
+    --     ]
+    [   [ barebonesTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
-    ,   [ slowForkingCpmTestVersion (knownChainGraph g)
-        | g :: KnownGraph <- [minBound..maxBound]
-        ]
-    ,   [ barebonesTestVersion (knownChainGraph g)
-        | g :: KnownGraph <- [minBound..maxBound]
-        ]
-    ,   [ noBridgeCpmTestVersion (knownChainGraph g)
-        | g :: KnownGraph <- [minBound..maxBound]
-        ]
+    -- ,   [ noBridgeCpmTestVersion (knownChainGraph g)
+    --     | g :: KnownGraph <- [minBound..maxBound]
+    --     ]
     ,   [ timedConsensusVersion (knownChainGraph g1) (knownChainGraph g2)
         | g1 :: KnownGraph <- [minBound..maxBound]
         , g2 :: KnownGraph <- [minBound..maxBound]
@@ -129,16 +121,10 @@ testVersions = _versionName <$> concat
     ,   [ instantCpmTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
-    ,   [ pact5InstantCpmTestVersion (knownChainGraph g)
-        | g :: KnownGraph <- [minBound..maxBound]
-        ]
-    ,   [ pact5CheckpointerTestVersion (knownChainGraph g)
-        | g :: KnownGraph <- [minBound..maxBound]
-        ]
-    ,   [ pact5SlowCpmTestVersion (knownChainGraph g)
-        | g :: KnownGraph <- [minBound..maxBound]
-        ]
-    ,   [ instantCpmTransitionTestVersion (knownChainGraph g)
+    -- ,   [ pact5InstantCpmTestVersion (knownChainGraph g)
+    --     | g :: KnownGraph <- [minBound..maxBound]
+    --     ]
+    ,   [ checkpointerTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
     ]
@@ -218,8 +204,8 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         }
 
 -- | A test version without Pact or PoW.
-pact5CheckpointerTestVersion :: ChainGraph -> ChainwebVersion
-pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
+checkpointerTestVersion :: ChainGraph -> ChainwebVersion
+checkpointerTestVersion g1 = buildTestVersion $ \v -> v
     & testVersionTemplate
     & versionName .~ ChainwebVersionName ("pact5-checkpointertest-" <> toText g1)
     & versionBlockDelay .~ BlockDelay 1_000_000
@@ -249,6 +235,7 @@ pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
+    & versionPayloadProviderTypes .~ AllChains PactProvider
 
 -- | A family of versions each with Pact enabled and PoW disabled.
 cpmTestVersion :: ChainGraph -> VersionBuilder
@@ -266,109 +253,8 @@ cpmTestVersion g v = v
         { _disableMempoolSync = False
         , _disablePeerValidation = True
         }
-    & versionGenesis .~ VersionGenesis
-        { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, _payloadWithOutputsPayloadHash TN0.payloadBlock) :
-            [ (n, _payloadWithOutputsPayloadHash TNN.payloadBlock)
-            | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)
-            ]
-        , _genesisBlockTarget = AllChains maxTarget
-        , _genesisTime = AllChains $ BlockCreationTime epoch
-        }
-    & versionUpgrades .~ chainZip HM.union
-        (indexByForkHeights v
-            [ (CoinV2, AllChains (pact4Upgrade Other.transactions))
-            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
-            , (Chainweb223Pact, AllChains (pact4Upgrade CoinV6.transactions))
-            ])
-        (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (Pact4Upgrade MNKAD.transactions False))])
-
-slowForks :: HashMap Fork (ChainMap ForkHeight)
-slowForks = tabulateHashMap \case
-    SlowEpoch -> AllChains ForkAtGenesis
-    OldTargetGuard -> AllChains ForkAtGenesis
-    SkipFeatureFlagValidation -> AllChains ForkAtGenesis
-    OldDAGuard -> AllChains ForkAtGenesis
-    Vuln797Fix -> AllChains ForkAtGenesis
-    PactBackCompat_v16 -> AllChains ForkAtGenesis
-    SPVBridge -> AllChains ForkAtGenesis
-    Pact44NewTrans -> AllChains ForkAtGenesis
-    CoinV2 -> AllChains $ ForkAtBlockHeight (BlockHeight 1)
-    SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
-    ModuleNameFix -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
-    ModuleNameFix2 -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
-    Pact42 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
-    CheckTxHash -> AllChains $ ForkAtBlockHeight (BlockHeight 7)
-    EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
-    PactEvents -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
-    Pact4Coin3 -> AllChains $ ForkAtBlockHeight (BlockHeight 20)
-    Chainweb213Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 26)
-    Chainweb214Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 30)
-    Chainweb215Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 35)
-    Chainweb216Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 53)
-    Chainweb217Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 55)
-    Chainweb218Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 60)
-    Chainweb219Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 71)
-    Chainweb220Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 85)
-    Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
-    Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
-    Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
-    Chainweb224Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 125)
-    Chainweb225Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 130)
-    Chainweb226Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 135)
-    Pact5Fork -> AllChains ForkNever
-    Chainweb228Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 145)
-    Chainweb229Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 150)
-
--- | A set of fork heights which are relatively fast, but not fast enough to break anything.
-fastForks :: HashMap Fork (ChainMap ForkHeight)
-fastForks = tabulateHashMap $ \case
-    SlowEpoch -> AllChains ForkAtGenesis
-    OldTargetGuard -> AllChains ForkAtGenesis
-    SkipFeatureFlagValidation -> AllChains ForkAtGenesis
-    OldDAGuard -> AllChains ForkAtGenesis
-    Vuln797Fix -> AllChains ForkAtGenesis
-    PactBackCompat_v16 -> AllChains ForkAtGenesis
-    SPVBridge -> AllChains ForkAtGenesis
-    EnforceKeysetFormats -> AllChains ForkAtGenesis
-    CheckTxHash -> AllChains ForkAtGenesis
-    Pact44NewTrans -> AllChains ForkAtGenesis
-    Chainweb213Pact -> AllChains ForkAtGenesis
-    PactEvents -> AllChains ForkAtGenesis
-    CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-    ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-    ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-    Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 4
-    Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5
-    Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 10
-    Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 11
-    Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
-    Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
-    Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 27
-    Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
-    Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
-    Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
-    Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
-    Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
-    Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 42
-    Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 44
-    Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 46
-    Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 48
-    Chainweb229Pact -> AllChains ForkNever
-
--- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.
-slowForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
-slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
-    & cpmTestVersion g
-    & versionName .~ ChainwebVersionName ("slowfork-CPM-" <> toText g)
-    & versionForks .~ slowForks
-    & versionVerifierPluginNames .~ AllChains
-        (Bottom (minBound, Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]))
-    & versionQuirks .~ noQuirks
+    & versionUpgrades .~ AllChains mempty
+    & versionPayloadProviderTypes .~ AllChains PactProvider
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled,
 -- and with a gas fee quirk.
@@ -377,11 +263,10 @@ quirkedGasInstantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("quirked-instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        Pact5Fork -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis)
     & versionQuirks .~ VersionQuirks
         { _quirkGasFees = onChain (unsafeChainId 0)
-            $ HM.singleton (BlockHeight 2, TxBlockIdx 0) (P.Gas 1)
+            $ HM.singleton (BlockHeight 2, TxBlockIdx 0) (Pact.Gas 1)
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
@@ -405,7 +290,7 @@ quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         _ -> AllChains ForkAtGenesis)
     & versionQuirks .~ VersionQuirks
         { _quirkGasFees = onChain (unsafeChainId 0)
-            $ HM.singleton (BlockHeight 1, TxBlockIdx 0) (P.Gas 1)
+            $ HM.singleton (BlockHeight 1, TxBlockIdx 0) (Pact.Gas 1)
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
@@ -419,23 +304,6 @@ quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionUpgrades .~ AllChains mempty
     & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
 
--- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
-fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
-fastForkingCpmTestVersion g = buildTestVersion $ \v -> v
-    & cpmTestVersion g
-    & versionName .~ ChainwebVersionName ("fastfork-CPM-" <> toText g)
-    & versionForks .~ fastForks
-    & versionQuirks .~ noQuirks
-
--- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled
--- but with no SPV bridge.
-noBridgeCpmTestVersion :: ChainGraph -> ChainwebVersion
-noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
-    & cpmTestVersion g
-    & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
-    & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
-    & versionQuirks .~ noQuirks
-
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
 -- at genesis EXCEPT Pact 5.
 instantCpmTestVersion :: ChainGraph -> ChainwebVersion
@@ -443,8 +311,6 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        -- pact 5 is off
-        Pact5Fork -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
@@ -461,7 +327,7 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionVerifierPluginNames .~ AllChains
         (Bottom
             ( minBound
-            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            , Set.fromList $ map Pact.VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
             )
         )
 
@@ -488,7 +354,7 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionVerifierPluginNames .~ AllChains
         (Bottom
             ( minBound
-            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            , Set.fromList $ map Pact.VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
             )
         )
 
@@ -516,13 +382,13 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
-    & versionUpgrades .~ indexByForkHeights v
-        [ (Pact5Fork, AllChains (Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
-        ]
+    -- & versionUpgrades .~ indexByForkHeights v
+    --     [ (Pact5Fork, AllChains (Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
+    --     ]
     & versionVerifierPluginNames .~ AllChains
         (Bottom
             ( minBound
-            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            , Set.fromList $ map Pact.VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
             )
         )
 
@@ -550,6 +416,6 @@ instantCpmTransitionTestVersion g = buildTestVersion $ \v -> v
     & versionVerifierPluginNames .~ AllChains
         (Bottom
             ( minBound
-            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            , Set.fromList $ map Pact.VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
             )
         )

@@ -43,6 +43,9 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
+import Chainweb.Parent
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -297,7 +300,7 @@ createPayloadProof_ getPrefix headerDb tcid scid txHeight txIx trgHeader = do
 
     -- 3. BlockHeader Chain Proof
     --
-    let chainTrees = headerTree_ @BlockHash <$> chain
+    let chainTrees = headerTree_ @(Parent BlockHash) <$> chain
 
     -- 4. Cross Chain Proof
     --
@@ -334,7 +337,7 @@ crumbsOnChain db trgHeader srcHeight
     go cur acc
         | srcHeight == view blockHeight cur = return $! (cur N.:| acc)
         | otherwise = do
-            p <- lookupParentHeader db cur
+            Parent p <- lookupParentHeader db cur
             go p (cur : acc)
 
 -- | Create a path of bread crumbs from the source chain id to the target header
@@ -362,7 +365,7 @@ crumbsToChain db srcCid trgHeader
        -> IO (BlockHeader, [(Int, BlockHeader)])
     go !cur [] !acc = return (cur, acc)
     go !cur ((!h):t) !acc = do
-        adjpHdr <- lookupAdjacentParentHeader db cur h
+        Parent adjpHdr <- lookupAdjacentParentHeader db cur h
         unless (view blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."

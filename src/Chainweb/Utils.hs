@@ -1377,7 +1377,7 @@ thd (_,_,c) = c
 -- Strict Tuple
 
 data T2 a b = T2 !a !b
-    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+    deriving (Show, Eq, Ord, Generic, NFData, Functor, Foldable, Traversable)
 
 instance (Semigroup a, Semigroup b) => Semigroup (T2 a b) where
     T2 a b <> T2 a' b' = T2 (a <> a') (b <> b')

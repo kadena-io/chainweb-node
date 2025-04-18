@@ -19,7 +19,7 @@
 module Chainweb.Miner.Pact
 ( -- * Data
   MinerId(..)
-, MinerKeys(..)
+, MinerGuard(..)
 , Miner(..)
   -- * Combinators
 , toMinerData
@@ -49,7 +49,12 @@ import Chainweb.Payload
 import Chainweb.Utils
 
 import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.KeySet as Pact4
+import qualified Pact.Core.Guards as Pact
+import qualified Pact.Core.Names as Pact
+import qualified Pact.Core.PactValue as Pact
+import qualified Pact.Core.StableEncoding as Pact
+import Control.Applicative ((<|>))
+import qualified Data.Set as Set
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
@@ -61,10 +66,10 @@ newtype MinerId = MinerId { _minerId :: Text }
     deriving stock (Eq, Ord, Generic)
     deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable, J.Encode)
 
--- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
--- from user keysets.
+-- | `MinerGuard` is a thin wrapper around a Pact `Guard` to differentiate it
+-- from user-level guards.
 --
-newtype MinerKeys = MinerKeys Pact4.KeySet
+newtype MinerGuard = MinerGuard (Pact.Guard Pact.QualifiedName Pact.PactValue)
     deriving stock (Eq, Ord, Generic)
     deriving newtype (Show, NFData)
 
@@ -73,7 +78,7 @@ newtype MinerKeys = MinerKeys Pact4.KeySet
 --
 data Miner = Miner
     { _minerMinerId :: !MinerId
-    , _minerMinerKeys :: !MinerKeys
+    , _minerMinerGuard :: !MinerGuard
     }
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
@@ -85,17 +90,29 @@ data Miner = Miner
 -- the Genesis Payloads. If these change, the payloads become unreadable!
 --
 instance J.Encode Miner where
-    build (Miner (MinerId m) (MinerKeys ks)) = J.object
+    build (Miner (MinerId m) (MinerGuard (Pact.GKeyset ks))) = J.object
         [ "account" J..= m
-        , "predicate" J..= Pact4._ksPredFun ks
-        , "public-keys" J..= J.Array (Pact4._ksKeys ks)
+        , "predicate" J..= Pact.StableEncoding (Pact._ksPredFun ks)
+        , "public-keys" J..= J.Array (Pact.StableEncoding <$> Set.toList (Pact._ksKeys ks))
+        ]
+    build (Miner (MinerId m) (MinerGuard g)) = J.object
+        [ "account" J..= m
+        , "guard" J..= Pact.StableEncoding g
         ]
     {-# INLINE build #-}
 
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner
         <$> (MinerId <$> o .: "account")
-        <*> (MinerKeys <$> (Pact4.KeySet <$> o .: "public-keys" <*> o .: "predicate"))
+        <*>
+        (
+        MinerGuard . Pact.GKeyset <$>
+          (Pact.KeySet <$>
+            (Set.fromList . fmap Pact._stableEncoding <$> o .: "public-keys") <*>
+            (Pact._stableEncoding <$> o .: "predicate"))
+        <|>
+        MinerGuard . Pact._stableEncoding <$> o .: "guard"
+        )
 
 -- | A lens into the miner id of a miner.
 --
@@ -105,8 +122,8 @@ minerId = lens (\(Miner i _) -> i) (\(Miner _ k) b -> Miner b k)
 
 -- | A lens into the miner keys of a miner.
 --
-minerKeys :: Lens' Miner MinerKeys
-minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
+minerKeys :: Lens' Miner MinerGuard
+minerKeys = lens (\(Miner _ g) -> g) (\(Miner i _) b -> Miner i b)
 {-# INLINE minerKeys #-}
 
 -- | Keyset taken from cp examples in Pact
@@ -114,17 +131,19 @@ minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
 --
 defaultMiner :: Miner
 defaultMiner = Miner (MinerId "miner")
-    $ MinerKeys
-    $ Pact4.mkKeySet
-      ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-      "keys-all"
+    $ MinerGuard
+    $ Pact.GKeyset
+    $ Pact.KeySet
+      (Set.fromList [Pact.PublicKeyText "f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"])
+      Pact.KeysAll
 
 {-# NOINLINE defaultMiner #-}
 
 -- | A trivial Miner.
 --
 noMiner :: Miner
-noMiner = Miner (MinerId "NoMiner") (MinerKeys $ Pact4.mkKeySet [] "<")
+noMiner = Miner (MinerId "NoMiner")
+  (MinerGuard $ Pact.GKeyset $ Pact.KeySet mempty (Pact.CustomPredicate (Pact.TBN (Pact.BareName "<"))))
 {-# NOINLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
@@ -138,4 +157,3 @@ toMinerData = MinerData . J.encodeStrict
 fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
-

@@ -124,10 +124,8 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Pact.Types.Command
-import Pact.Types.PactValue
-import Pact.Types.Pretty
-import Pact.Types.Runtime hiding (fromText)
+import Pact.Core.Command.Types
+import Pact.Core.PactValue
 
 -- internal modules
 
@@ -145,6 +143,12 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Chainweb.Storage.Table
+import Pact.Core.Names
+import Pact.Core.Capabilities
+import Pact.Core.Hash
+import Pact.Core.ModRefs
+import Pact.Core.Errors
+import Pact.Core.Pretty (renderCompactText)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Encoding Exceptions
@@ -266,15 +270,15 @@ int256Hex x@(Int256 i)
 -- -------------------------------------------------------------------------- --
 -- Pact Event Encoding
 
-encodePactEvent :: PactEvent -> Put
+encodePactEvent :: PactEvent PactValue -> Put
 encodePactEvent e = do
-    encodeString $ _eventName e
-    encodeModuleName $ _eventModule e
-    encodeHash $ _mhHash $ _eventModuleHash e
-    encodeArray (_eventParams e) encodeParam
+    encodeString $ _peName e
+    encodeModuleName $ _peModule e
+    encodeHash $ _mhHash $ _peModuleHash e
+    encodeArray (_peArgs e) encodeParam
 
 encodeModuleName :: ModuleName -> Put
-encodeModuleName = encodeString . asString
+encodeModuleName = encodeString . renderModuleName
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- input bytestring is too long.
@@ -305,8 +309,7 @@ encodeHash :: Hash -> Put
 encodeHash = encodeBytes . BS.fromShort . unHash
 
 encodeModRef :: ModRef -> Put
-encodeModRef n@(ModRef _ (Just _) _) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
-encodeModRef n@(ModRef _  _ (Info (Just _))) = throw $ UnsupportedModRefWithInfo (renderCompactText n)
+encodeModRef n@(ModRef _ s) | not (null s) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
 encodeModRef n = encodeString $ renderCompactText n
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
@@ -322,9 +325,9 @@ encodeArray a f
     | otherwise = putWord32le (int $ length a) >> traverse_ f a
 
 encodeParam :: PactValue -> Put
-encodeParam (PLiteral (LString t)) = putWord8 0x0 >> encodeString t
-encodeParam (PLiteral (LInteger i)) = putWord8 0x1 >> encodeInteger i
-encodeParam (PLiteral (LDecimal i)) = putWord8 0x2 >> encodeDecimal i
+encodeParam (PString t) = putWord8 0x0 >> encodeString t
+encodeParam (PInteger i) = putWord8 0x1 >> encodeInteger i
+encodeParam (PDecimal i) = putWord8 0x2 >> encodeDecimal i
 encodeParam (PModRef n) = putWord8 0x3 >> encodeModRef n
 encodeParam e = throw $ UnsupportedPactValueException e
 
@@ -337,18 +340,17 @@ expect c = label "expect" $ do
     unless (c == c') $
         fail $ "decodeOutputEvents: failed to decode, expected " <> show c <> " but got " <> show c'
 
-decodePactEvent :: Get PactEvent
+decodePactEvent :: Get (PactEvent PactValue)
 decodePactEvent = label "decodeEvent" $ do
     name <- decodeString
     m <- decodeModuleName
     mh <- ModuleHash <$> decodeHash
     params <- decodeArray decodeParam
     return $ PactEvent
-        { _eventModule = m
-        , _eventName = name
-        , _eventModuleHash = mh
-        , _eventParams = params
-        }
+        name
+        params
+        m
+        mh
 
 decodeArray :: Get a -> Get [a]
 decodeArray f = label "decodeArray" $ do
@@ -380,23 +382,22 @@ decodeDecimal = label "decodeDecimal" $ integerToDecimal <$> decodeInteger
 
 decodeParam :: Get PactValue
 decodeParam = label "decodeParam" $ getWord8 >>= \case
-    0x0 -> label "LString" $ PLiteral . LString <$> decodeString
-    0x1 -> label "LInteger" $ PLiteral . LInteger <$> decodeInteger
-    0x2 -> label "LDecimal" $ PLiteral . LDecimal <$> decodeDecimal
+    0x0 -> label "LString" $ PString <$> decodeString
+    0x1 -> label "LInteger" $ PInteger <$> decodeInteger
+    0x2 -> label "LDecimal" $ PDecimal <$> decodeDecimal
     0x3 -> label "PModRef" $ PModRef <$> decodeModRef
     e -> fail $ "decodeParam: unexpected parameter with type tag " <> show e
 
 decodeModuleName :: Get ModuleName
 decodeModuleName = label "decodeModuleName" $
     decodeString >>= \t -> case parseModuleName t of
-        Left e -> fail e
-        Right m -> return m
+        Nothing -> fail "invalid module name"
+        Just m -> return m
 
 decodeModRef :: Get ModRef
 decodeModRef = label "ModRef" $ ModRef
     <$> decodeModuleName
-    <*> pure Nothing
-    <*> pure (Info Nothing)
+    <*> pure mempty
 
 -- -------------------------------------------------------------------------- --
 -- Block Events Hash
@@ -437,7 +438,7 @@ decodeBlockEventsHash = BlockEventsHash <$!> decodeMerkleLogHash
 --
 data OutputEvents = OutputEvents
     { _outputEventsRequestKey :: !RequestKey
-    , _outputEventsEvents :: !(V.Vector PactEvent)
+    , _outputEventsEvents :: !(V.Vector (PactEvent PactValue))
     }
     deriving (Show, Eq, Generic)
 
@@ -510,7 +511,7 @@ getBlockEvents
     -> m (BlockEvents_ b)
 getBlockEvents p = fmap blockEvents $
     forM (_payloadWithOutputsTransactions p) $ \(_, o) -> do
-        r <- decodeStrictOrThrow @_ @(CommandResult Hash) $ _transactionOutputBytes o
+        r <- decodeStrictOrThrow @_ @(CommandResult Hash PactOnChainError) $ _transactionOutputBytes o
         return $ OutputEvents (_crReqKey r) (V.fromList (_crEvents r))
 
 -- -------------------------------------------------------------------------- --

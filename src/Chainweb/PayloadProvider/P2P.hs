@@ -100,7 +100,7 @@ data PayloadStore tbl a = PayloadStore
         -- payload type parameter, both here as well as in the HTTP client)
     , _payloadStoreLogFunction :: !LogFunction
         -- ^ LogFunction
-    , _payloadStoreMgr :: !HTTP.Manager
+    , _payloadStoreMgr :: !(Maybe HTTP.Manager)
         -- ^ Manager object for making HTTP requests
     , _payloadStoreGetPayloadClient :: !(RankedBlockPayloadHash -> ClientM a)
         -- ^ HTTP client for querying payloads (provided by the PayloadProvider)
@@ -162,8 +162,8 @@ instance
 -- probably be passed as a parameter.
 --
 newPayloadStore
-    :: Table tbl RankedBlockPayloadHash a
-    => HTTP.Manager
+    :: ReadableTable tbl RankedBlockPayloadHash a
+    => Maybe HTTP.Manager
         -- ^ Manager for P2P networking. This manager should be shared by all
         -- P2P networks.
     -> LogFunction
@@ -193,7 +193,7 @@ newPayloadStore mgr logfun payloadDb cli = do
 --
 getPayloadSimple
     :: forall a tbl
-    . Table tbl RankedBlockPayloadHash a
+    . ReadableTable tbl RankedBlockPayloadHash a
     => CasKeyType a ~ RankedBlockPayloadHash
     => PayloadStore tbl a
     -> RankedBlockPayloadHash
@@ -211,7 +211,7 @@ getPayloadSimple s r = do
 --
 getPayload
     :: forall a tbl candidateTbl
-    . Table tbl RankedBlockPayloadHash a
+    . ReadableTable tbl RankedBlockPayloadHash a
     => Table candidateTbl RankedBlockPayloadHash a
     => PayloadStore tbl a
     -> candidateTbl
@@ -236,7 +236,7 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
                         awaitTask t
                     Just !x -> return x
   where
-    mgr = _payloadStoreMgr s
+    maybeMgr = _payloadStoreMgr s
     tbl = _payloadStoreTable s
     memoMap = _payloadStoreMemo s
     queue = _payloadStoreQueue s
@@ -264,18 +264,22 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
     pullOrigin k Nothing = do
         logfun Debug $ taskMsg k "no origin"
         return Nothing
-    pullOrigin k (Just origin) = do
-        let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
-        logfun Debug $ taskMsg k "lookup origin"
-        !r <- trace traceLogfun (traceLabel "pullOrigin") (rankedHashJson k) 0
-            $ runClientM (_payloadStoreGetPayloadClient s k) originEnv
-        case r of
-            (Right !x) -> do
-                logfun Debug $ taskMsg k "received from origin"
-                return $ Just x
-            Left (e :: ClientError) -> do
-                logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
-                return Nothing
+    pullOrigin k (Just origin)
+        | Nothing <- maybeMgr = do
+            logfun Debug $ taskMsg k "no origin"
+            return Nothing
+        | Just mgr <- maybeMgr = do
+            let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
+            logfun Debug $ taskMsg k "lookup origin"
+            !r <- trace traceLogfun (traceLabel "pullOrigin") (rankedHashJson k) 0
+                $ runClientM (_payloadStoreGetPayloadClient s k) originEnv
+            case r of
+                (Right !x) -> do
+                    logfun Debug $ taskMsg k "received from origin"
+                    return $ Just x
+                Left (e :: ClientError) -> do
+                    logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
+                    return Nothing
 
     -- | Query a block payload via the task queue
     --
@@ -292,4 +296,3 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
             Left (e :: ClientError) -> do
                 logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
                 throwM e
-

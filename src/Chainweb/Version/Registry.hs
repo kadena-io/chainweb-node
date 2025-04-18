@@ -109,11 +109,7 @@ validateVersion v = do
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors
     where
-    -- TODO: this is an annoying type sig, can we use NoMonoLocalBinds and disable the warning
-    -- about matching on GADTs?
-    isUpgradeEmpty :: PactUpgrade -> Bool
-    isUpgradeEmpty Pact4Upgrade{_pact4UpgradeTransactions = upg} = null upg
-    isUpgradeEmpty Pact5Upgrade{_pact5UpgradeTransactions = upg} = null upg
+    isUpgradeEmpty PactUpgrade{_pactUpgradeTransactions = upg} = null upg
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion

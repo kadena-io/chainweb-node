@@ -61,7 +61,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
-import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact
 import qualified Pact.Types.Command as Pact
 
 testVer :: ChainwebVersion

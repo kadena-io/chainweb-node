@@ -6,6 +6,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Miner.Config
@@ -41,6 +42,7 @@ import Control.Lens (lens, view)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.Writer (tell)
+import Data.Set qualified as Set
 
 import GHC.Generics (Generic)
 
@@ -48,14 +50,15 @@ import Numeric.Natural (Natural)
 
 import Options.Applicative
 
-import qualified Pact.JSON.Encode as J
-import Pact.Types.Term (mkKeySet, PublicKeyText(..))
+import Pact.JSON.Encode qualified as J
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), MinerId(..), minerId)
+import Pact.Core.Guards qualified as Pact
+
+import Chainweb.Miner.Pact (Miner(..), MinerGuard(..), MinerId(..), minerId)
 import Chainweb.Time
-import Chainweb.Utils (hostArch, sshow)
+import Chainweb.Utils (hostArch, sshow, textOption)
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
@@ -151,7 +154,7 @@ defaultMining = MiningConfig
     }
 
 invalidMiner :: Miner
-invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
+invalidMiner = Miner "" . MinerGuard $ Pact.GKeyset (Pact.KeySet mempty Pact.KeysAll)
 
 -- -------------------------------------------------------------------------- --
 -- Mining Coordination Config
@@ -214,9 +217,9 @@ pMiner :: String -> Parser Miner
 pMiner prefix = pkToMiner <$> pPk
   where
     pkToMiner pk = Miner
-        (MinerId $ "k:" <> _pubKey pk)
-        (MinerKeys $ mkKeySet [pk] "keys-all")
-    pPk = strOption
+        (MinerId $ "k:" <> Pact._pubKey pk)
+        (MinerGuard $ Pact.GKeyset $ Pact.KeySet (Set.singleton pk) Pact.KeysAll)
+    pPk = Pact.PublicKeyText <$> textOption
         % long (prefix <> "mining-public-key")
         <> help "public key of a miner in hex decimal encoding. The account name is the public key prefix by 'k:'. (This option can be provided multiple times.)"
 
@@ -257,4 +260,3 @@ defaultNodeMining = NodeMiningConfig
     { _nodeMiningEnabled = False
     , _nodeTestMiners = MinerCount 10
     }
-

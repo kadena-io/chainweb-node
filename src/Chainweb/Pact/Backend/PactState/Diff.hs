@@ -50,6 +50,7 @@ import Options.Applicative
 import Streaming.Prelude (Stream, Of)
 import System.Exit (exitFailure)
 import System.LogLevel (LogLevel(..))
+import Control.Monad.Trans.Resource (runResourceT)
 
 data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
@@ -90,30 +91,31 @@ main = do
       sqliteFileExists2 <- doesPactDbExist cid cfg.secondDbDir
 
       if | not sqliteFileExists1 -> do
-             logText Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
+              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
          | not sqliteFileExists2 -> do
-             logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
-         | otherwise -> do
-             withChainDb cid logger cfg.firstDbDir $ \_ db1 -> do
-               withChainDb cid logger cfg.secondDbDir $ \_ db2 -> do
-                 logText Info "[Starting diff]"
-                 let getPactState db = getLatestPactStateAtDiffable db cfg.target
-                 let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
-                     diff = diffLatestPactState (getPactState db1) (getPactState db2)
-                 isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
-                   logText Info $ "[Starting table " <> tblName <> "]"
-                   d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-                     logFunctionJson logger Warn $ rowKeyDiffExistsToObject d
-                     pure Difference
-                   logText Info $ "[Finished table " <> tblName <> "]"
-                   pure d
+              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
+         | otherwise -> runResourceT $ do
+            db1 <- withChainDb cid logger cfg.firstDbDir
+            db2 <- withChainDb cid logger cfg.secondDbDir
+            liftIO $ do
+              logText Info "[Starting diff]"
+              let getPactState db = getLatestPactStateAtDiffable db cfg.target
+              let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+                  diff = diffLatestPactState (getPactState db1) (getPactState db2)
+              isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
+                logText Info $ "[Starting table " <> tblName <> "]"
+                d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
+                  logFunctionJson logger Warn $ rowKeyDiffExistsToObject d
+                  pure Difference
+                logText Info $ "[Finished table " <> tblName <> "]"
+                pure d
 
-                 logText Info $ case isDifferent of
-                   Difference -> "[Non-empty diff]"
-                   NoDifference -> "[Empty diff]"
-                 logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
+              logText Info $ case isDifferent of
+                Difference -> "[Non-empty diff]"
+                NoDifference -> "[Empty diff]"
+              logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
 
-                 atomicModifyIORef' isDifferentRef $ \m -> (M.insert cid isDifferent m, ())
+              atomicModifyIORef' isDifferentRef $ \m -> (M.insert cid isDifferent m, ())
 
   isDifferent <- readIORef isDifferentRef
   case M.foldMapWithKey (\_ d -> d) isDifferent of
