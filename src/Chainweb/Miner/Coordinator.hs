@@ -64,11 +64,11 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
+import Chainweb.Core.Brief
 import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Core.Brief
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config
@@ -79,35 +79,28 @@ import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-
 import Control.Applicative
+import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically, STM, retry)
 import Control.Concurrent.STM.TVar
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
+import Data.Hashable
 import Data.LogMessage (JsonLog(..), LogFunction, LogFunctionText)
 import Data.Map.Strict qualified as M
 import Data.Maybe
 import Data.Text qualified as T
-
+import Data.Vector qualified as V
 import GHC.Generics (Generic)
 import GHC.Stack
-
 import Numeric.Natural
-
 import Streaming.Prelude qualified as S
-
 import System.LogLevel (LogLevel(..))
 import System.Random (randomRIO)
-import Chainweb.Ranked
-import Control.Concurrent.Async
-import qualified Data.Vector as V
-import Data.Hashable
 
 -- -------------------------------------------------------------------------- --
 -- Utils

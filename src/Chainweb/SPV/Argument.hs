@@ -1,43 +1,35 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
--- Module: Chainweb.PayloadProvider.SPV
+-- Module: Chainweb.SPV.Argument
 -- Copyright: Copyright © 2025 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
-module Chainweb.PayloadProvider.SPV
+module Chainweb.SPV.Argument
 ( Argument(..)
+, argumentClaim
 , SomeArgument(..)
 , runArg
 , compose
+, validateTrieProof
 ) where
 
 import Chainweb.BlockHash
@@ -230,10 +222,10 @@ data Argument (claim :: Type) (root :: Type) where
         , Coercible root (MerkleRoot ChainwebMerkleHashAlgorithm)
         )
         => ML.MerkleProof ChainwebMerkleHashAlgorithm
-        -> Argument E.ReceiptsRoot root
+        -> Argument EVM.ReceiptsRoot root
     EthReceiptArgument
         :: E.Proof
-        -> Argument EVM.Receipt E.ReceiptsRoot
+        -> Argument EVM.Receipt EVM.ReceiptsRoot
 
     -- Composed Arguments (used when the underlying proofs can't be composed)
     ComposeArgument
@@ -269,14 +261,12 @@ deriving instance (Show claim, Show root) => Show (Argument claim root)
 
 argumentClaim :: MonadThrow m => Argument claim root -> m claim
 argumentClaim (Trivial r) = return r
-argumentClaim (PactLegacyProof p) = fromMerkleNodeM
-    $ V1._getMerkleProofSubject
-    $ V1._merkleProofSubject p
-argumentClaim (HeaderArgument p) = fromMerkleNodeM $ ML._merkleProofClaim p
-argumentClaim (ParentHeaderArgument p) = fromMerkleNodeM $ ML._merkleProofClaim p
-argumentClaim (BlockPayloadHashArgument p) = fromMerkleNodeM $ ML._merkleProofClaim p
-argumentClaim (PactOutputArgument p) = fromMerkleNodeM $ ML._merkleProofClaim p
-argumentClaim (EthHeaderArgument p) = fromMerkleNodeM $ ML._merkleProofClaim p
+argumentClaim (PactLegacyProof p) = proofSubject p
+argumentClaim (HeaderArgument p) = proofClaim p
+argumentClaim (ParentHeaderArgument p) = proofClaim p
+argumentClaim (BlockPayloadHashArgument p) = proofClaim p
+argumentClaim (PactOutputArgument p) = proofClaim p
+argumentClaim (EthHeaderArgument p) = proofClaim p
 argumentClaim (EthReceiptArgument p) = case E._proofValue p of
     Nothing -> throwM $ VerificationException "Invalid Receipt proof: missing claim"
     Just r -> case E.get E.getRlp r of
@@ -538,7 +528,7 @@ runArg (EthReceiptArgument evidence) = do
     -- root are receipts. However, we must make sure that the root has the
     -- correct type, which is done either when checked against an oracle or when
     -- it is used as claim in another proof.
-    r <- E.ReceiptsRoot <$> validateTrieProof evidence
+    r <- EVM.ReceiptsRoot <$> validateTrieProof evidence
     return r
 runArg (EthHeaderArgument evidence) = do
     return $ coerce $ ML.runProof evidence
@@ -573,41 +563,6 @@ validateTrieProof p = case E.validateProof p of
 
 -- -------------------------------------------------------------------------- --
 -- ATTIC
-
--- tests
-
--- Pact Output Proof script:
---
--- import Chainweb.PayloadProvider.Pact.Genesis
--- import Chainweb.Version.Mainnet01
--- import Chainweb.Utils
--- import Chainweb.Crypto.MerkleLog
--- import Chainweb.MerkleUniverse
--- import Chainweb.Payload
--- import Chainweb.BlockHeader
--- import Data.MerkleLog qualified as ML
--- import Control.Lens
--- script :: IO ()
--- script = do
---     let plds = Chainweb.PayloadProvider.Pact.Genesis.genesisPayload Mainnet01
---     pld0 <- preview (ixg $ unsafeChainId 0) plds
---     let (_, outs) = payloadWithOutputsToBlockObjects pld0
---     p0 <- bodyProofV2 @ChainwebMerkleHashAlgorithm  outs 0
---     let bpld0 = payloadDataToBlockPayload (payloadWithOutputsToPayloadData pld0)
---     x <- headerProofV2 @BlockOutputsHash @ChainwebMerkleHashAlgorithm bpld0
---     p <- ML.composeProofs p0 x
---     ML.runProof p
---     let poarg = PactOutputArgument @BlockPayloadHash p
---     runArg poarg
---
---     let gh = genesisBlockHeader Mainnet01 (unsafeChainId 0)
---     hp <- headerProofV2 @BlockPayloadHash @ChainwebMerkleHashAlgorithm gh
---     ML.runProof hp
---     let harg = BlockPayloadHashArgument hp
---     runArg harg
---
---     arg <- compose poarg harg
---     runArg arg
 
 -- -------------------------------------------------------------------------- --
 -- | Pact Output Proof

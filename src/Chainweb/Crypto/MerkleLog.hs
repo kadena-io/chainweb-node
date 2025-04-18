@@ -16,6 +16,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 
 -- |
 -- Module: Chainweb.Crypto.MerkleLog
@@ -115,6 +116,7 @@ module Chainweb.Crypto.MerkleLog
 , mapLogEntries
 , entriesHeaderSize
 , entriesBody
+, fromMerkleNodeM
 
 -- * Merkle Log
 , MerkleLog(..)
@@ -131,13 +133,16 @@ module Chainweb.Crypto.MerkleLog
 , computeMerkleLogRoot
 
 -- * Merkle Log Proofs
-, headerProof
+, headerProofV1
+, headerProofV2
 , headerTree
 , headerTree_
-, bodyProof
+, bodyProofV1
+, bodyProofV2
 , bodyTree
 , bodyTree_
 , proofSubject
+, proofClaim
 
 -- * Utils for Defining Instances
 , decodeMerkleInputNode
@@ -147,12 +152,7 @@ module Chainweb.Crypto.MerkleLog
 , encodeMerkleTreeNode
 
 -- ** IsMerkleLogEntry instance for use with @deriving via@
-, ByteArrayMerkleLogEntry(..)
 , MerkleRootLogEntry(..)
-, Word8MerkleLogEntry(..)
-, Word16BeMerkleLogEntry(..)
-, Word32BeMerkleLogEntry(..)
-, Word64BeMerkleLogEntry(..)
 
 -- * Exceptions
 , MerkleLogException(..)
@@ -162,10 +162,8 @@ module Chainweb.Crypto.MerkleLog
 
 import Control.Monad.Catch
 
-import Data.Array.Byte
 import Data.ByteString qualified as B
 import Data.ByteString.Builder qualified as BB
-import Data.ByteString.Short qualified as BS
 import Data.Coerce
 import Data.Foldable
 import Data.Kind
@@ -221,7 +219,7 @@ toWordBE
     -> m w
 toWordBE bs = case peekByteString bs of
     Left e -> throwM $ MerkleLogDecodeException e
-    Right x -> return x
+    Right x -> return $ be x
 
 -- -------------------------------------------------------------------------- --
 -- $inputs
@@ -271,7 +269,7 @@ toWordBE bs = case peekByteString bs of
 -- universe a type-level 'Nat' that represents a 'Word16' value.
 --
 class MerkleUniverse k where
-    type MerkleTagVal k (a :: k) :: Nat
+    type MerkleTagVal k (a :: k) = (g :: Nat) | g -> a
 
 -- | Term level representation of the 'MerkleTagVal' of a type in a Merkle
 -- universe.
@@ -310,6 +308,12 @@ type InUniverse u (t :: u) = (MerkleUniverse u, KnownNat (MerkleTagVal u t))
 -- root of a nested Merkle tree or corresponds to an input node.
 --
 class (MerkleHashAlgorithm a, InUniverse u (Tag b)) => IsMerkleLogEntry a u b | b -> u where
+
+    -- | Morralay, this type family is injective. Please, see the comment on
+    -- the ChainwebHashTag type for details.
+    --
+    -- We don't enforce this here to keep the type machinary simple.
+    --
     type Tag b :: u
 
     toMerkleNode
@@ -337,7 +341,7 @@ fromMerkleNodeM = either throwM return . fromMerkleNode @a
 -- * a fixed size polymorphic list of header values and
 -- * a monomorphic sequence of body values.
 --
--- Both the header and the body may possibly be empty. The type of the former is
+    -- Both the header and the body may possibly be empty. The type of the former is
 -- represented by an empty type-level list, while the latter is represented by
 -- 'Void'.
 --
@@ -419,8 +423,14 @@ _merkleLogTree
     . MerkleHashAlgorithm a
     => MerkleLog a u h b
     -> V1.MerkleTree a
-_merkleLogTree = V1.merkleTree
-    . toList
+_merkleLogTree = V1.merkleTree . _merkleLogLeafs
+
+_merkleLogLeafs
+    :: forall a u h b
+    . MerkleHashAlgorithm a
+    => MerkleLog a u h b
+    -> [MerkleNodeType a]
+_merkleLogLeafs = toList
     . mapLogEntries (toMerkleNodeTagged @a)
     . _merkleLogEntries
 
@@ -500,8 +510,6 @@ fromMerkleNodeTagged (InputNode bs) = do
   where
     tag = tagVal @u @(Tag b)
 fromMerkleNodeTagged r = fromMerkleNodeM @a r
-
-
 
 -- | 'IsMerkleLog' values often include a hash of the value itself, which
 -- represents cyclic dependency of a value on itself. This function allows to
@@ -605,15 +613,27 @@ computeMerkleLogRoot = _merkleLogRoot . toLog @a
 -- should use that instead. Another option would be to use two separate trees,
 -- but, again, our current use case wouldn't justify the overhead.
 --
-headerProof
+headerProofV1
     :: forall c a u b m
     . MonadThrow m
     => HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
     -> m (V1.MerkleProof a)
-headerProof = uncurry3 (V1.merkleTreeProof @a) . headerTree @c @a
-{-# INLINE headerProof #-}
+headerProofV1 = uncurry3 (V1.merkleTreeProof @a) . headerTree @c @a
+{-# INLINE headerProofV1 #-}
+
+headerProofV2
+    :: forall c a u b m
+    . MonadThrow m
+    => HasHeader a u c (MkLogType a u b)
+    => HasMerkleLog a u b
+    => b
+    -> m (MerkleProof a)
+headerProofV2 b = merkleProof @a p (_merkleLogLeafs @a (toLog @a b))
+  where
+    p = headerPos @a @u @c @(MkLogType a u b)
+{-# INLINE headerProofV2 #-}
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -658,7 +678,7 @@ headerTree_ b = (p, _merkleLogTree @a mlog)
 -- should either make sure that it is memoized or provide a version that takes a
 -- 'MerkleLog' value.
 --
-bodyProof
+bodyProofV1
     :: forall a u b m
     . MonadThrow m
     => HasMerkleLog a u b
@@ -666,8 +686,22 @@ bodyProof
     -> Int
         -- ^ the index in the body of the log
     -> m (V1.MerkleProof a)
-bodyProof b = uncurry3 V1.merkleTreeProof . bodyTree @a b
-{-# INLINE bodyProof #-}
+bodyProofV1 b = uncurry3 V1.merkleTreeProof . bodyTree @a b
+{-# INLINE bodyProofV1 #-}
+
+bodyProofV2
+    :: forall a u b m
+    . MonadThrow m
+    => HasMerkleLog a u b
+    => b
+    -> Int
+        -- ^ the index in the body of the log
+    -> m (MerkleProof a)
+bodyProofV2 b i = merkleProof @a p (_merkleLogLeafs @a mlog)
+  where
+    mlog = (toLog @a b)
+    p = i + headerSize mlog
+{-# INLINE bodyProofV2 #-}
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -706,7 +740,7 @@ bodyTree_ b i = (i_, _merkleLogTree @a mlog)
     mlog = toLog @a b
     i_ = i + headerSize mlog
 
--- | Extract the proof subject from a 'MerkleProof' value.
+-- | Extract the proof subject from a 'V1.MerkleProof' value.
 --
 proofSubject
     :: forall a u b m
@@ -718,6 +752,17 @@ proofSubject p = fromMerkleNodeTagged @a subj
   where
     V1.MerkleProofSubject subj = V1._merkleProofSubject p
 {-# INLINE proofSubject #-}
+
+-- | Extract the proof claim from a 'MerkleProof' value.
+--
+proofClaim
+    :: forall a u b m
+    . MonadThrow m
+    => IsMerkleLogEntry a u b
+    => MerkleProof a
+    -> m b
+proofClaim = fromMerkleNodeTagged @a . _merkleProofClaim
+{-# INLINE proofClaim #-}
 
 -- -------------------------------------------------------------------------- --
 -- Tools Defining Instances
@@ -750,22 +795,6 @@ decodeMerkleTreeNode (InputNode _) = throwM expectedTreeNodeException
 -- -------------------------------------------------------------------------- --
 -- Support for Deriving Via
 
--- | Support for deriving IsMerkleLogEntry for types that are Coercible with
--- 'ByteArray' via the @DerivingVia@ extension.
---
-newtype ByteArrayMerkleLogEntry u (t :: u) b = ByteArrayMerkleLogEntry b
-
-instance
-    (MerkleHashAlgorithm a, InUniverse u t, Coercible ByteArray b)
-    => IsMerkleLogEntry a u (ByteArrayMerkleLogEntry u (t :: u) b)
-  where
-    type Tag (ByteArrayMerkleLogEntry u t b) = t
-    toMerkleNode (ByteArrayMerkleLogEntry b) = InputNode (BS.fromShort $ coerce b)
-    fromMerkleNode (InputNode x) = return $! ByteArrayMerkleLogEntry (fromByteString x)
-    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'MerkleRoot' via the @DerivingVia@ extension.
 --
@@ -779,70 +808,3 @@ instance (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Merkle
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
--- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
--- 'Word8' via the @DerivingVia@ extension.
---
-newtype Word8MerkleLogEntry (t :: u) = Word8MerkleLogEntry { _getWord8LogEntry :: Word8 }
-
-instance
-    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word8MerkleLogEntry (t :: u))
-  where
-    type Tag (Word8MerkleLogEntry t) = t
-    toMerkleNode = InputNode . B.singleton . _getWord8LogEntry
-    fromMerkleNode (InputNode x) = case B.uncons x of
-        Nothing -> throwM
-            $ MerkleLogDecodeException "failed to deserialize Word8 from empty ByteString"
-        Just (!c,"") -> return $! Word8MerkleLogEntry c
-        Just _ -> throwM
-            $ MerkleLogDecodeException "failed to deserialize Word8. Pending bytes in input"
-    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
--- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
--- 'Word16' via the @DerivingVia@ extension.
---
-newtype Word16BeMerkleLogEntry (t :: u) = Word16BeMerkleLogEntry
-    { _getWord16BeLogEntry :: Word16 }
-
-instance
-    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word16BeMerkleLogEntry (t :: u))
-  where
-    type Tag (Word16BeMerkleLogEntry t) = t
-    toMerkleNode = InputNode . buildByteString . BB.word16BE . _getWord16BeLogEntry
-    fromMerkleNode (InputNode x) = Word16BeMerkleLogEntry <$> toWordBE x
-    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
--- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
--- 'Word32' via the @DerivingVia@ extension.
---
-newtype Word32BeMerkleLogEntry (t :: u) = Word32BeMerkleLogEntry
-    { _getWord32BeLogEntry :: Word32 }
-
-instance
-    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word32BeMerkleLogEntry (t :: u))
-  where
-    type Tag (Word32BeMerkleLogEntry t) = t
-    toMerkleNode = InputNode . buildByteString . BB.word32BE . _getWord32BeLogEntry
-    fromMerkleNode (InputNode x) = Word32BeMerkleLogEntry <$> toWordBE x
-    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
--- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
--- 'Word64' via the @DerivingVia@ extension.
---
-newtype Word64BeMerkleLogEntry (t :: u) = Word64BeMerkleLogEntry
-    { _getWord64BeLogEntry :: Word64 }
-
-instance
-    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word64BeMerkleLogEntry (t :: u))
-  where
-    type Tag (Word64BeMerkleLogEntry t) = t
-    toMerkleNode = InputNode . buildByteString . BB.word64BE . _getWord64BeLogEntry
-    fromMerkleNode (InputNode x) = Word64BeMerkleLogEntry <$> toWordBE x
-    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}

@@ -1596,7 +1596,7 @@ peekByteString
     => B.ByteString
     -> Either T.Text w
 peekByteString bs
-    | l < s = Left $ "toWordBe: size of input bytestring to small"
+    | l < s = Left $ "peekByteString: size of input bytestring to small"
         <> ". Expected: " <> sshow s
         <> ". Actual: " <> sshow l
     | otherwise = Right $ unsafeDupablePerformIO $

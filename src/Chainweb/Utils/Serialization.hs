@@ -192,7 +192,6 @@ class WordEncoding w where
     encodeWordBe :: w -> Put
     decodeWordBe :: Get w
 
-
 instance WordEncoding Word8 where
     encodeWordLe = putWord8
     decodeWordLe = getWord8

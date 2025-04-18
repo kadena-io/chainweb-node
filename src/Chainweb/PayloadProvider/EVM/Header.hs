@@ -1,4 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -9,6 +11,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -18,9 +21,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE NumericUnderscores #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -93,10 +93,10 @@ import Chainweb.BlockCreationTime qualified as Chainweb
 import Chainweb.BlockHash qualified as Chainweb
 import Chainweb.BlockHeight qualified as Chainweb
 import Chainweb.BlockPayloadHash
-import Chainweb.Crypto.MerkleLog hiding (headerProof)
-import Chainweb.Crypto.MerkleLog qualified as MerkleLog
+import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.PayloadProvider.EVM.Receipt (Receipt)
 import Chainweb.PayloadProvider.EVM.Utils
 import Chainweb.Storage.Table
 import Chainweb.Time
@@ -111,8 +111,8 @@ import Data.ByteString.Short qualified as BS
 import Data.ByteString.Short qualified as SBS
 import Data.Function
 import Data.Hashable (Hashable(..))
+import Data.MerkleLog qualified as V2
 import Data.MerkleLog.Common
-import Data.MerkleLog.V1 qualified as V1
 import Data.Ratio ((%))
 import Data.Text qualified as T
 import Data.Void
@@ -391,18 +391,15 @@ headerProof
     => a ~ ChainwebMerkleHashAlgorithm
     => HasHeader a ChainwebHashTag c (MkLogType a ChainwebHashTag Header)
     => Header
-    -> m (V1.MerkleProof a)
-headerProof = MerkleLog.headerProof @c
+    -> m (V2.MerkleProof a)
+headerProof = headerProofV2 @c
 {-# INLINE headerProof #-}
 
 -- | Runs a header proof. Returns the BlockPayloadHash of the EVM execution
 -- header for which inclusion is proven.
 --
-runHeaderProof
-    :: MonadThrow m
-    => V1.MerkleProof ChainwebMerkleHashAlgorithm
-    -> m BlockPayloadHash
-runHeaderProof p = BlockPayloadHash . MerkleLogHash <$> V1.runMerkleProof p
+runHeaderProof :: V2.MerkleProof ChainwebMerkleHashAlgorithm -> BlockPayloadHash
+runHeaderProof = BlockPayloadHash . MerkleLogHash . V2.runProof
 {-# INLINE runHeaderProof #-}
 
 -- -------------------------------------------------------------------------- --
@@ -496,8 +493,8 @@ instance FromJSON Header where
             <*> o .: "blobGasUsed"
             <*> o .: "excessBlobGas"
             <*> o .: "parentBeaconBlockRoot"
-            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrHash")
-            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrPayloadHash")
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrHash JSON during deserialization")
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrPayloadHash JSON during deserialization")
         return hdr
             { _hdrHash = computeBlockHash hdr
             , _hdrPayloadHash = computeBlockPayloadHash hdr
@@ -565,8 +562,8 @@ instance RLP Header where
             <*> getRlp -- blob gas used
             <*> getRlp -- excess blob gas
             <*> getRlp -- parent beacon block root
-            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrHash")
-            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrPayloadHash")
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrHash during RLP deserialization")
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrPayloadHash during RLP deserialization")
         return hdr
             { _hdrHash = computeBlockHash hdr
             , _hdrPayloadHash = computeBlockPayloadHash hdr
@@ -577,21 +574,6 @@ instance RLP Header where
 
 -- -------------------------------------------------------------------------- --
 -- MerkleLog Entries
-
-newtype RlpMerkleLogEntry (tag :: ChainwebHashTag) t = RlpMerkleLogEntry t
-    deriving newtype RLP
-instance
-    ( KnownNat (MerkleTagVal ChainwebHashTag tag)
-    , MerkleHashAlgorithm a
-    , RLP t
-    )
-    => IsMerkleLogEntry a ChainwebHashTag (RlpMerkleLogEntry tag t) where
-    type Tag (RlpMerkleLogEntry tag t) = tag
-    toMerkleNode = InputNode . putRlpByteString
-    fromMerkleNode (InputNode bs) = case get getRlp bs of
-        Left e -> throwM $ MerkleLogDecodeException (T.pack e)
-        Right x -> Right x
-    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
 
 deriving via (RlpMerkleLogEntry 'EthParentHashTag ParentHash)
     instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ParentHash
@@ -607,9 +589,6 @@ deriving via (RlpMerkleLogEntry 'EthStateRootTag StateRoot)
 
 deriving via (RlpMerkleLogEntry 'EthTransactionsRootTag TransactionsRoot)
     instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag TransactionsRoot
-
-deriving via (RlpMerkleLogEntry 'EthReceiptsRootTag ReceiptsRoot)
-    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ReceiptsRoot
 
 deriving via (RlpMerkleLogEntry 'EthBloomTag Bloom)
     instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Bloom
@@ -734,8 +713,8 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
             , _hdrBlobGasUsed = hBlobGasUsed
             , _hdrExcessBlobGas = hExcessBlobGas
             , _hdrParentBeaconBlockRoot = hParentBeaconBlockRoot
-            , _hdrHash = error "Chainweb.PayloadProvider.EVM.Header: _hdrHash"
-            , _hdrPayloadHash = error "Chainweb.PayloadProvider.EVM.Header: _hdrPayloadHash"
+            , _hdrHash  = error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrHash during MerkleLog deserialization"
+            , _hdrPayloadHash = error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrPayloadHash during MerkleLog deserialization"
             }
         ( hParentHash
             :+: hOmmersHash

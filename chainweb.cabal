@@ -232,6 +232,7 @@ library
         , Chainweb.PayloadProvider.EVM.Header
         , Chainweb.PayloadProvider.EVM.HeaderDB
         , Chainweb.PayloadProvider.EVM.JsonRPC
+        , Chainweb.PayloadProvider.EVM.Receipt
         , Chainweb.PayloadProvider.EVM.SPV
         , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PayloadProvider.Initialization
@@ -243,7 +244,7 @@ library
         , Chainweb.PayloadProvider.P2P.RestAPI
         , Chainweb.PayloadProvider.P2P.RestAPI.Client
         , Chainweb.PayloadProvider.P2P.RestAPI.Server
-        -- , Chainweb.PayloadProvider.SPV
+        , Chainweb.PayloadProvider.SPV
         , Chainweb.PowHash
         , Chainweb.Ranked
         , Chainweb.RestAPI
@@ -255,6 +256,7 @@ library
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.SPV
+        , Chainweb.SPV.Argument
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.EventProof
         , Chainweb.SPV.OutputProof
@@ -613,6 +615,106 @@ library chainweb-test-utils
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+
+-- Temporary for payload provider development.
+-- Merge with unit tests as soon as those are fixed.
+test-suite payload-provider-tests
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -Wno-x-partial -Wno-unrecognised-warning-flags
+    type: exitcode-stdio-1.0
+    hs-source-dirs: test/payload-provider
+    main-is: PayloadProviderTests.hs
+    other-modules:
+        Test.Chainweb.SPV.Argument
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
+        , aeson >= 2.2
+        , base >= 4.12 && < 5
+        , bytestring >= 0.10.12
+        , chainweb-storage >= 0.1
+        , ethereum
+        , hashes >=0.2.2.0
+        , lens >= 4.17
+        , merkle-log >=0.2
+        , raw-strings-qq >=1.1
+        , tasty >= 1.0
+        , tasty-hunit >= 0.9
+        , tasty-json >= 0.1
+        , text >=2.0
+        , vector >= 0.12.2
+
+        -- , tasty-json >= 0.1
+        -- , tasty-quickcheck >= 0.9
+        -- , Decimal >= 0.4.2
+        -- , QuickCheck >= 2.14
+        -- , async >= 2.2
+        -- , base >= 4.12 && < 5
+        -- , base16-bytestring >= 1.0
+        -- , base64-bytestring-kadena == 0.1
+        -- , byteslice >= 0.2.12
+        -- , bytesmith >= 0.3.10
+        -- , cassava >= 0.5.1
+        -- , containers >= 0.5
+        -- , crypton >= 0.31
+        -- , crypton-connection >=0.4
+        -- , data-dword >= 0.3
+        -- , data-ordlist >= 0.4.7
+        -- , deepseq >= 1.4
+        -- , direct-sqlite >= 2.3.27
+        -- , exceptions
+        -- , ghc-compact >= 0.1
+        -- , hashable >= 1.3
+        -- , hedgehog >= 1.4
+        -- , http-client >= 0.5
+        -- , http-client-tls >=0.3
+        -- , http-types >= 0.12
+        -- , lens-aeson >= 1.2.2
+        -- , loglevel >= 0.1
+        -- , memory >=0.14
+        -- , mtl >= 2.3
+        -- , network >= 3.1.2
+        -- , pact
+        -- , pact-json >= 0.1
+        -- , pact-time:numeric >=0.3.0.1
+        -- , pact-tng
+        -- , pact-tng:pact-request-api
+        -- , pact-tng:test-utils
+        -- , pact-tng:pact-repl
+        -- , patience >= 0.3
+        -- , prettyprinter
+        -- , property-matchers ^>= 0.4
+        -- , pretty-show
+        -- , quickcheck-instances >= 0.3
+        -- , random >= 1.2
+        -- , resource-pool >= 0.4
+        -- , resourcet >= 1.3
+        -- , safe-exceptions >= 0.1
+        -- , scheduler >= 1.4
+        -- , servant-client >= 0.18.2
+        -- , sha-validation >=0.1
+        -- , statistics >= 0.15
+        -- , stm
+        -- , streaming >= 0.2.2
+        -- , strict-concurrency >= 0.2
+        -- , tasty >= 1.0
+        -- , tasty-hedgehog >= 1.4.0.2
+        -- , tasty-hunit >= 0.9
+        -- , tasty-quickcheck >= 0.9
+        -- , time >= 1.12.2
+        -- , tls >=2.1.4
+        -- , transformers >= 0.5
+        -- , unordered-containers >= 0.2.20
+        -- , wai >= 3.2
+        -- , warp >= 3.3.6
+        -- , warp-tls >= 3.4
+        -- , yaml >= 0.11
 
 -- Chainweb Unit tests
 --

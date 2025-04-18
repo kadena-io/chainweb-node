@@ -15,6 +15,10 @@
 {-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM.Utils
@@ -39,6 +43,9 @@ module Chainweb.PayloadProvider.EVM.Utils
 , nullBlockHash
 , decodeRlpM
 , dropN
+
+-- * Merkle Log Entries for EVM Types
+, RlpMerkleLogEntry(..)
 ) where
 
 import Chainweb.BlockHash qualified as Chainweb
@@ -55,7 +62,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.Read qualified as T
 import Ethereum.Misc qualified as E
-import Ethereum.RLP (RLP, get, getRlp)
+import Ethereum.RLP (RLP, get, getRlp, putRlpByteString)
 import Ethereum.Receipt
 import Ethereum.Transaction (Wei (..))
 import Ethereum.Utils hiding (int, natVal_)
@@ -63,6 +70,9 @@ import Foreign.Storable (Storable)
 import GHC.Generics (Generic)
 import GHC.TypeLits
 import Text.Printf
+import Chainweb.MerkleUniverse
+import Chainweb.Crypto.MerkleLog
+import Data.MerkleLog (MerkleNodeType(..))
 
 -- -------------------------------------------------------------------------- --
 -- Utils (should be moved to the ethereum package)
@@ -277,4 +287,23 @@ instance HasTextRepresentation DefaultBlockParameter where
         "finalized" -> return DefaultBlockFinalized
         x -> DefaultBlockNumber . E.BlockNumber . fromHexQuanity <$> fromText x
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+
+newtype RlpMerkleLogEntry (tag :: ChainwebHashTag) t = RlpMerkleLogEntry t
+    deriving newtype RLP
+
+instance
+    ( KnownNat (MerkleTagVal ChainwebHashTag tag)
+    , MerkleHashAlgorithm a
+    , RLP t
+    )
+    => IsMerkleLogEntry a ChainwebHashTag (RlpMerkleLogEntry tag t)
+  where
+    type Tag (RlpMerkleLogEntry tag t) = tag
+    toMerkleNode = InputNode . putRlpByteString
+    fromMerkleNode (InputNode bs) = case get getRlp bs of
+        Left e -> throwM $ MerkleLogDecodeException (T.pack e)
+        Right x -> Right x
+    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
 

@@ -131,7 +131,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/merkle-log.git
-    tag: 46ad8b617c2cac290bfb09066c1e5f0b6503584b
+    tag: 0d68305d8b596182080b6899c336ee6f91baf8ed
     --sha256: 1az7jcggcj275djnfsvhdg3n7hjrj6vp8rj137fxrg4hazh0hyz0
 
 source-repository-package

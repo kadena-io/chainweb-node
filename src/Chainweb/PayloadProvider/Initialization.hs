@@ -11,11 +11,9 @@ module Chainweb.PayloadProvider.Initialization
 ( Resources(..)
 ) where
 
-import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Version
 import Chainweb.Payload.PayloadStore
-import Chainweb.PayloadProvider
 import Chainweb.Pact.Types (MemPoolAccess)
 import Data.Text qualified as T
 
