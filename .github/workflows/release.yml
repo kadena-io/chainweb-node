@@ -84,7 +84,7 @@ jobs:
       - name: Get ghc version
         id: set-ghc-version
         run: |
-          VERSION_GHC=$(grep -Po '(?<="ghc": \[")(\d\.\d\.\d)' .github/workflows/applications.yml | head -1)
+          VERSION_GHC=$(grep -Po '(?<="ghc": ")(\d\.\d\.\d)' .github/workflows/applications.yml | head -1)
             if [[ -z $VERSION_GHC ]]; then
               echo "Unable to get GHC version from chainweb node build"
               exit 1
