@@ -353,3 +353,6 @@ executable evm-genesis
         , base
         , network-uri
         , http-client
+        , process
+        , directory
+        , retry
