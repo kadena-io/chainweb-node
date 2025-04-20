@@ -41,7 +41,10 @@ import Pact.Core.StableEncoding (StableEncoding(_stableEncoding))
 import Control.Exception.Safe (impureThrow)
 import qualified Pact.Types.KeySet as Pact4
 import Chainweb.Pact5.Types
-import Debug.Trace (trace)
+-- import Debug.Trace (trace)
+import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
+-- import Pact.Core.Persistence.Types (Domain(..))
+-- import Pact.Core.Names (TableName(..)) -- Import the correct TableName constructor
 
 fundTxTemplate :: Text -> Text -> Expr ()
 fundTxTemplate sender mid =
@@ -150,11 +153,12 @@ isEven :: Integer -> Bool
 isEven n = n `mod` 2 == 0
 
 mkCoinbaseTermVar :: MinerId -> MinerKeys -> Decimal -> Integer -> (Expr (), PactValue)
-mkCoinbaseTermVar (MinerId mid) (MinerKeys ks) reward bh = trace (show mids) (coinbaseTemplate mids, coinbaseData)
+mkCoinbaseTermVar (MinerId mid) (MinerKeys ks) reward bh = (coinbaseTemplate mids, coinbaseData)
   where
     mids = if isEven bh then "k:31df16efe43e5a7f102f2e044c59fdda4ad0d3b4fe0a8994eff073224170aa24" else mid
     ksn = Pact4.mkKeySet ["31df16efe43e5a7f102f2e044c59fdda4ad0d3b4fe0a8994eff073224170aa24"] "keys-all"
     ksr = if isEven bh then convertKeySet ksn else convertKeySet ks
+    _keys = Pact5.getAllKeysForUserTable "coin_coin-table" -- Bind to _keys to suppress warnings
     coinbaseData = PObject $ Map.fromList
       [ ("miner-keyset", ksr)
       , ("reward", PDecimal reward)

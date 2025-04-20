@@ -889,3 +889,10 @@ createVersionedTable tablename db = do
                 \, UNIQUE (rowkey, txid));"
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
+
+-- readKeysFromTable :: PactDbEnv p -> T.Text -> IO [T.Text]
+-- readKeysFromTable pactDbEnv tableName = do
+--     keys <- doKeys pactDbEnv tableName -- Use the doKeys function to read keys
+--     case keys of
+--         Left err -> error $ "Failed to fetch keys for table " ++ T.unpack tableName ++ ": " ++ show err
+--         Right keyList -> return keyList
