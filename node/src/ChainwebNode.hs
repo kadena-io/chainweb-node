@@ -90,7 +90,7 @@ import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
-import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
+-- import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 -- import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
@@ -170,9 +170,9 @@ pChainwebNodeConfiguration = id
     <*< nodeConfigDatabaseDirectory .:: fmap Just % textOption
         % long "database-directory"
         <> help "directory where the databases are persisted"
-    <*< nodeConfigResetChainDbs .:: enableDisableFlag
-        % long "reset-chain-databases"
-        <> help "Reset the chain databases for all chains on startup"
+    -- <*< nodeConfigResetChainDbs .:: enableDisableFlag
+    --     % long "reset-chain-databases"
+    --     <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getRocksDbDir conf = (\base -> base </> "0" </> "rocksDb") <$> getDbBaseDir conf
@@ -328,7 +328,6 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
 node :: HasCallStack => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
     dbBaseDir <- getDbBaseDir conf
-    when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
@@ -379,10 +378,10 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
 
     -- we don't log tx failures in replay
-    let !txFailureHandler =
-            if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
-            then [dropLogHandler (Proxy :: Proxy Pact4TxFailureLog), dropLogHandler (Proxy :: Proxy Pact5TxFailureLog)]
-            else []
+    -- let !txFailureHandler =
+    --         if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
+    --         then [dropLogHandler (Proxy :: Proxy Pact5TxFailureLog)]
+    --         else []
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -406,8 +405,8 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
     queueStatsBackend <- managed
         $ mkTelemetryLogger @QueueStats mgr teleLogConfig
-    reintroBackend <- managed
-        $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
+    -- reintroBackend <- managed
+    --     $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
     traceBackend <- managed
         $ mkTelemetryLogger @Trace mgr teleLogConfig
     mempoolStatsBackend <- managed
@@ -427,7 +426,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ L.withLogger (_logConfigLogger logCfg) $ logHandles
             (concat
                 [ [ logFilterHandle (_logConfigFilter logCfg) ]
-                , txFailureHandler
+                -- , txFailureHandler
                 ,
                     [ logHandler monitorBackend
                     , logHandler p2pInfoBackend
@@ -439,7 +438,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
                     -- , logHandler miningStatsBackend
                     , logHandler requestLogBackend
                     , logHandler queueStatsBackend
-                    , logHandler reintroBackend
+                    -- , logHandler reintroBackend
                     , logHandler traceBackend
                     , logHandler mempoolStatsBackend
                     , logHandler blockUpdateBackend
