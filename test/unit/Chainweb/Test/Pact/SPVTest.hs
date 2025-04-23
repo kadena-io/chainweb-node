@@ -76,7 +76,7 @@ import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), T
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
+import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, defaultPactServiceConfig, withBlockHeaderDb)
 import Chainweb.Test.Pact.CmdBuilder
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
@@ -201,7 +201,7 @@ roundtrip'
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
   let logger = hunitDummyLogger step
-  withWebPactExecutionService logger v testPactServiceConfig bdb (chainToMPA' tg) $ \(pact,_) -> do
+  withWebPactExecutionService logger v defaultPactServiceConfig bdb (chainToMPA' tg) $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0

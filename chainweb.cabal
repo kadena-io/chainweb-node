@@ -611,9 +611,9 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.BlockHeaderDB.PruneForks
         Chainweb.Test.Chainweb.Utils.Paging
-        -- Chainweb.Test.CutDB
+        Chainweb.Test.CutDB
         Chainweb.Test.Difficulty
-        -- Chainweb.Test.Mempool
+        Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI

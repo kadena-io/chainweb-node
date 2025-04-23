@@ -84,7 +84,7 @@ withCutResources
     -> PeerDb
     -> RocksDb
     -> WebBlockHeaderDb
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> HTTP.Manager
     -> (CutResources -> IO a)
     -> IO a

@@ -1186,7 +1186,7 @@ instance HasFixture a => HasFixture (IO a) where
 
 mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture
 mkFixture v baseRdb = do
-    fx <- CutFixture.mkFixture v testPactServiceConfig baseRdb
+    fx <- CutFixture.mkFixture v defaultPactServiceConfig baseRdb
     logger <- liftIO getTestLogger
 
     let mkSomePactServerData cid = PactServerData

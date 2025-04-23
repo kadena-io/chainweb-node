@@ -136,8 +136,9 @@ withPactService
     -> Pool SQLiteEnv
     -> SQLiteEnv
     -> PactServiceConfig
+    -> Maybe PayloadWithOutputs
     -> ResourceT IO (ServiceEnv tbl)
-withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config = do
+withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config maybeGenesisPayload = do
     SomeChainwebVersionT @v _ <- pure $ someChainwebVersionVal ver
     SomeChainIdT @c _ <- pure $ someChainIdVal cid
     let payloadClient = Rest.payloadClient @v @c @'PactProvider
@@ -169,7 +170,7 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             , _psMiner = _pactMiner config
             , _psNewBlockGasLimit = _pactNewBlockGasLimit config
             , _psMiningPayloadVar = miningPayloadVar
-            , _psGenesisPayload = _pactGenesisPayload config
+            , _psGenesisPayload = maybeGenesisPayload
             }
 
     return pse
@@ -198,12 +199,15 @@ runGenesisIfNeeded logger serviceEnv = do
         let targetSyncState = genesisConsensusState v cid
         let evalCtx = genesisEvaluationCtx serviceEnv
         let blockCtx = blockCtxOfEvaluationCtx v cid evalCtx
+        let !genesisPayload = case _psGenesisPayload serviceEnv of
+                Nothing -> error "genesis needs to be run, but the genesis payload is missing!"
+                Just p -> p
 
         maybeErr <- runExceptT $ Checkpointer.restoreAndSave logger v cid (_psReadWriteSql serviceEnv)
             $ NEL.singleton
             $ (blockCtx, \blockEnv -> do
                 _ <- Pact.execExistingBlock logger serviceEnv blockEnv
-                    (CheckablePayloadWithOutputs (_psGenesisPayload serviceEnv))
+                    (CheckablePayloadWithOutputs genesisPayload)
                 return ((), (genesisBlockHash, genesisPayloadHash))
             )
         case maybeErr of
@@ -212,7 +216,7 @@ runGenesisIfNeeded logger serviceEnv = do
                 addNewPayload
                     (_payloadStoreTable $ _psPdb serviceEnv)
                     (genesisHeight v cid)
-                    (_psGenesisPayload serviceEnv)
+                    genesisPayload
                 Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
 
     where

@@ -100,7 +100,7 @@ benchApplyCmd ver rdb act =
             lgr <- testLogger
 
             psEnvVar <- newEmptyMVar
-            tid <- forkIO $ void $ withPactService ver chain0 lgr Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            tid <- forkIO $ void $ withPactService ver chain0 lgr Nothing bhdb (_bdbPayloadDb tdb) sql defaultPactServiceConfig $ do
                 initialPayloadState ver chain0
                 psEnv <- ask
                 liftIO $ putMVar psEnvVar psEnv

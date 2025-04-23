@@ -104,8 +104,9 @@ withPactPayloadProvider
     -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
+    -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config = do
+withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
     (_, readOnlySqlPool) <- allocate
         (Pool.newPool $ Pool.defaultPoolConfig
@@ -116,7 +117,7 @@ withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir c
             & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
         )
         Pool.destroyAllResources
-    PactPayloadProvider logger <$> PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
+    PactPayloadProvider logger <$> PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config maybeGenesisPayload
     where
     mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 

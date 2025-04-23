@@ -67,13 +67,8 @@ module Chainweb.PayloadProvider
 , nextPayloadStm
 , payloadStream
 
--- * Some PayloadProvider
-, SomePayloadProvider(..)
-
--- * Payload Providers for all Chains
-, PayloadProviders(..)
-, payloadProviders
-, withPayloadProvider
+-- * PayloadProvider
+, ConfiguredPayloadProvider(..)
 
 -- * SPV
 , PayloadSpvException(..)
@@ -116,10 +111,8 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Aeson
 import Data.ByteString qualified as B
-import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as T
 import GHC.Generics (Generic)
-import GHC.Stack (HasCallStack)
 import Numeric.Natural
 import P2P.Peer
 import Streaming.Prelude qualified as S
@@ -958,44 +951,9 @@ newtype SpvProof = SpvProof Value
 -- -------------------------------------------------------------------------- --
 -- Some Payload Provider
 
-data SomePayloadProvider where
-    SomePayloadProvider :: PayloadProvider p => p -> SomePayloadProvider
-
-instance HasChainwebVersion SomePayloadProvider where
-    _chainwebVersion (SomePayloadProvider p) = _chainwebVersion p
-
-instance HasChainId SomePayloadProvider where
-    _chainId (SomePayloadProvider p) = _chainId p
-
--- -------------------------------------------------------------------------- --
--- Payload Providers
-
-newtype PayloadProviders = PayloadProviders
-    { _payloadProviders :: HM.HashMap ChainId SomePayloadProvider
-    }
-
-payloadProviders :: Getter PayloadProviders (HM.HashMap ChainId SomePayloadProvider)
-payloadProviders = to _payloadProviders
-
-type instance Index PayloadProviders = ChainId
-type instance IxValue PayloadProviders = SomePayloadProvider
-
-instance IxedGet PayloadProviders where
-    ixg i = to _payloadProviders . ix i
-
-withPayloadProvider
-    :: HasCallStack
-    => HasChainId c
-    => PayloadProviders
-    -> c
-    -> (forall p . PayloadProvider p => p -> a)
-    -> a
-withPayloadProvider (PayloadProviders ps) c f = case HM.lookup cid ps of
-    Just (SomePayloadProvider p) -> f p
-    Nothing -> error $
-        "PayloadProviders: unknown ChainId " <> sshow cid <> ". This is a bug"
-  where
-    cid = _chainId c
+data ConfiguredPayloadProvider where
+    ConfiguredPayloadProvider :: PayloadProvider p => p -> ConfiguredPayloadProvider
+    DisabledPayloadProvider :: ConfiguredPayloadProvider
 
 -- -------------------------------------------------------------------------- --
 -- Utils

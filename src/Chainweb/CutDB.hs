@@ -261,7 +261,7 @@ data CutDb = CutDb
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
-    , _cutDbPayloadProviders :: !PayloadProviders
+    , _cutDbPayloadProviders :: !(ChainMap ConfiguredPayloadProvider)
     , _cutDbCutStore :: !(Casify RocksDbTable CutHashes)
     , _cutDbQueueSize :: !Natural
     , _cutDbReadOnly :: !Bool
@@ -272,7 +272,7 @@ instance HasChainwebVersion CutDb where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
     {-# INLINE _chainwebVersion #-}
 
-cutDbPayloadProviders :: Getter CutDb PayloadProviders
+cutDbPayloadProviders :: Getter CutDb (ChainMap ConfiguredPayloadProvider)
 cutDbPayloadProviders = to _cutDbPayloadProviders
 {-# INLINE cutDbPayloadProviders #-}
 
@@ -396,7 +396,7 @@ withCutDb
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> (CutDb -> IO a)
     -> IO a
@@ -418,7 +418,7 @@ startCutDb
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> IO CutDb
 startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
@@ -541,7 +541,7 @@ processCuts
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
@@ -755,7 +755,7 @@ cutHashesToBlockHeaderMap
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> CutHashes
     -> IO (Maybe (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds

@@ -182,7 +182,7 @@ data Chainweb logger = Chainweb
     , _chainwebCoordinator :: !(Maybe (MiningCoordination logger))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
-    , _chainwebPayloadProviders :: !PayloadProviders
+    , _chainwebPayloadProviders :: !(ChainMap ConfiguredPayloadProvider)
     , _chainwebManager :: !HTTP.Manager
     -- , _chainwebPactData :: ![(ChainId, PactServerData logger tbl)]
     , _chainwebThrottler :: !(Throttle Address)
@@ -317,15 +317,15 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                     myInfo
                     peerDb
                     (_configPayloadProviders conf)
-                    x
+                    (\cr -> x cr)
             )
 
             -- initialize global resources after all chain resources are initialized
             (\cs -> do
                 logg Debug "finished initializing chain resources"
-                global (HM.fromList $ zip cidsList cs)
+                global cs
             )
-            cidsList
+            (onChains [(cid, cid) | cid <- cidsList])
   where
     v = _configChainwebVersion conf
 
@@ -354,22 +354,20 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
     p2pConfig = _peerResConfig peerRes
 
     pactConfig chain maxGasLimit = PactServiceConfig
-      { _pactReorgLimit = _configReorgLimit conf
-      , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
-      , _pactQueueSize = _configPactQueueSize conf
-      , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
-      , _pactUnlimitedInitialRewind =
-          isJust (_cutDbParamsInitialHeightLimit cutDbParams) ||
-          isJust (_cutDbParamsInitialCutFile cutDbParams)
-      , _pactNewBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
-      , _pactLogGas = _configLogGas conf
-      , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
-      , _pactFullHistoryRequired = _configFullHistoricPactState conf
-      , _pactTxTimeLimit = Nothing
-      -- FIXME
-      , _pactMiner = Nothing
-      , _pactGenesisPayload = Pact.genesisPayload v ^?! atChain chain
-      }
+        { _pactReorgLimit = _configReorgLimit conf
+        , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
+        , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+        , _pactUnlimitedInitialRewind =
+            isJust (_cutDbParamsInitialHeightLimit cutDbParams) ||
+            isJust (_cutDbParamsInitialCutFile cutDbParams)
+        , _pactNewBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
+        , _pactLogGas = _configLogGas conf
+        , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
+        , _pactFullHistoryRequired = _configFullHistoricPactState conf
+        , _pactTxTimeLimit = Nothing
+        -- FIXME
+        , _pactMiner = Nothing
+        }
 
     -- FIXME: make this configurable
     cutDbParams :: CutDbParams
@@ -413,10 +411,10 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
     -- avoid excessive indentation?
 
     global
-        :: HM.HashMap ChainId (ChainResources logger)
+        :: ChainMap (ChainResources logger)
         -> IO ()
     global cs = do
-        let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
+        let !webchain = mkWebBlockHeaderDb v (fmap _chainResBlockHeaderDb cs)
             -- !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             !providers = payloadProvidersForAllChains cs
             !cutLogger = setComponent "cut" logger
@@ -447,10 +445,12 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
             -- height) we want this to happen before we go online.
             --
             let
-                pactSyncChains =
-                    case _configSyncPactChains conf of
-                      Just syncChains | _configOnlySyncPact conf || _configReadOnlyReplay conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
-                      _ -> cs
+                -- pactSyncChains =
+                --     case _configSyncPactChains conf of
+                --         Just syncChains
+                --             | _configOnlySyncPact conf || _configReadOnlyReplay conf
+                --             -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                --         _ -> cs
 
             if _configReadOnlyReplay conf
               then do
@@ -557,7 +557,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                                         }
                                     }
 
-    synchronizeProviders :: WebBlockHeaderDb -> PayloadProviders -> Cut -> IO ()
+    synchronizeProviders :: WebBlockHeaderDb -> ChainMap ConfiguredPayloadProvider -> Cut -> IO ()
     synchronizeProviders wbh providers c = do
         mapConcurrently_ syncOne (_cutHeaders c)
       where

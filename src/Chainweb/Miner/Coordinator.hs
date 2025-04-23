@@ -608,15 +608,21 @@ runCoordination mr = do
     cdb = _coordCutDb mr
 
     providers = view cutDbPayloadProviders $ _coordCutDb mr
+    withProvider :: ChainId -> (forall p. PayloadProvider p => p -> a) -> a
+    withProvider cid k = case providers ^?! atChain cid of
+        ConfiguredPayloadProvider p -> k p
+        DisabledPayloadProvider ->
+            error $ "payload provider disabled on chain " <> sshow cid <> ", which is illegal for miners"
 
     -- Update the payload cache with the latest payloads from the the provider
     --
-    updateCache (cid, cache) = runForever lf label $ do
-        withPayloadProvider providers cid $ \provider -> do
-            payloadStream provider
-                & S.chain (\_ -> lf Info $ "update cache on chain " <> toText cid)
-                & S.mapM_ (insertIO cache)
-      where
+    updateCache (cid, cache) =
+        withProvider cid $ \provider ->
+        runForever lf label $ do
+        payloadStream provider
+            & S.chain (\_ -> lf Info $ "update cache on chain " <> toText cid)
+            & S.mapM_ (insertIO cache)
+        where
         label =  "miningCoordination.updateCache." <> toText cid
 
     -- Update the work state
@@ -637,7 +643,7 @@ runCoordination mr = do
         lf Info $ "initialize mining state"
         forConcurrently_ (HM.toList caches) $ \(cid, cache) -> do
             lf Info $ "initialize mining state for chain " <> brief cid
-            pld <- withPayloadProvider providers cid latestPayloadIO
+            pld <- withProvider cid latestPayloadIO
             lf Info $ "got latest payload for chain " <> brief cid
             insertIO cache pld
             curRh <- _workRankedHash <$> readTVarIO (_miningState state ^?! ix cid)

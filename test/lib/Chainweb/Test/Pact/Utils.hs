@@ -22,7 +22,6 @@ module Chainweb.Test.Pact.Utils
     -- , mempoolLookupPact5
 
         -- * Resources
-    , withTempSQLiteResource
     , withInMemSQLiteResource
     -- , withPactQueue
     , withMempool
@@ -99,10 +98,6 @@ withSQLiteResource
 withSQLiteResource file = snd <$> allocate
     (openSQLiteConnection file chainwebPragmas)
     closeSQLiteConnection
-
--- | Open a temporary file-backed SQLite database.
-withTempSQLiteResource :: ResourceT IO SQLiteEnv
-withTempSQLiteResource = withSQLiteResource ""
 
 -- | Open a temporary in-memory SQLite database.
 withInMemSQLiteResource :: ResourceT IO SQLiteEnv

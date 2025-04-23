@@ -49,7 +49,7 @@ module Chainweb.Pact.Types
     , genesisEvaluationCtx
 
     , PactServiceConfig(..)
-    , testPactServiceConfig
+    , defaultPactServiceConfig
     , BlockEnv(..)
     , psBlockDbEnv
     , psBlockCtx
@@ -146,7 +146,6 @@ import Data.Text.Encoding qualified as T
 import Data.Vector (Vector)
 import Data.Word
 import GHC.Generics (Generic)
-import Numeric.Natural
 import Pact.Core.Builtin qualified as Pact
 import Pact.Core.Capabilities qualified as Pact
 import Pact.Core.ChainData qualified as Pact
@@ -422,8 +421,6 @@ data PactServiceConfig = PactServiceConfig
     -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
-  , _pactQueueSize :: !Natural
-    -- ^ max size of pact internal queue.
   , _pactUnlimitedInitialRewind :: !Bool
     -- ^ disable initial rewind limit
   , _pactNewBlockGasLimit :: !Pact.GasLimit
@@ -441,24 +438,20 @@ data PactServiceConfig = PactServiceConfig
     --   If 'Nothing', it's a function of the BlockGasLimit.
   , _pactMiner :: !(Maybe Miner)
     -- ^ The miner used to make new blocks.
-  , _pactGenesisPayload :: !Chainweb.PayloadWithOutputs
-    -- ^ The genesis payload for this chain.
   } deriving (Eq,Show)
 
-testPactServiceConfig :: Chainweb.PayloadWithOutputs -> PactServiceConfig
-testPactServiceConfig genesisPayload = PactServiceConfig
+defaultPactServiceConfig :: PactServiceConfig
+defaultPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
-      , _pactQueueSize = 1000
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
       , _pactNewBlockGasLimit = testBlockGasLimit
       , _pactLogGas = False
       , _pactFullHistoryRequired = False
-      , _pactEnableLocalTimeout = False
+      , _pactEnableLocalTimeout = True
       , _pactTxTimeLimit = Nothing
       , _pactMiner = Just noMiner
-      , _pactGenesisPayload = genesisPayload
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -530,7 +523,7 @@ data ServiceEnv tbl = ServiceEnv
     -- ^ Latest mining payload produced, and block continuation thread.
     , _psNewBlockGasLimit :: Pact.GasLimit
     -- ^ Block gas limit in newly produced blocks.
-    , _psGenesisPayload :: !Chainweb.PayloadWithOutputs
+    , _psGenesisPayload :: !(Maybe Chainweb.PayloadWithOutputs)
     -- ^ The genesis payload for this chain.
     }
 
@@ -562,8 +555,9 @@ genesisEvaluationCtx serviceEnv = EvaluationCtx
     , _evaluationCtxMinerReward = MinerReward 0
     , _evaluationCtxPayload = ConsensusPayload
         { _consensusPayloadHash = genesisBlockPayloadHash v cid
-        , _consensusPayloadData = Just $ EncodedPayloadData $ Chainweb.encodePayloadData $
-            Chainweb.payloadWithOutputsToPayloadData (_psGenesisPayload serviceEnv)
+        , _consensusPayloadData =
+            EncodedPayloadData . Chainweb.encodePayloadData . Chainweb.payloadWithOutputsToPayloadData
+              <$> _psGenesisPayload serviceEnv
         }
     }
     where

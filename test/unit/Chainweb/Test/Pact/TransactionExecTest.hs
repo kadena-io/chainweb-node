@@ -111,7 +111,7 @@ readFromAfterGenesis ver rdb act = runResourceT $ do
     -- fake ro-sql pool, assuming we're using this single-threaded
     roSqlPool <- liftIO $ Pool.newPool (Pool.defaultPoolConfig (return sql) (\_ -> return ()) 10 10)
     logger <- liftIO $ testLogger
-    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (testPactServiceConfig PIN0.payloadBlock)
+    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (defaultPactServiceConfig PIN0.payloadBlock)
     liftIO $ do
         initialPayloadState logger serviceEnv
         fakeParentCreationTime <- mkFakeParentCreationTime
