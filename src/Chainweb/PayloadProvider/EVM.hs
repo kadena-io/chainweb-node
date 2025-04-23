@@ -82,10 +82,9 @@ import Configuration.Utils hiding (Error)
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception.Safe
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch (MonadThrow, throwM)
 import Data.ByteString.Short qualified as BS
 import Data.List qualified as L
 import Data.LogMessage
@@ -489,7 +488,7 @@ withEvmPayloadProvider logger v c rdb mgr conf f
         SomeChainIdT @c _ <- return $ someChainIdVal c
         let pldCli h = Rest.payloadClient @v @c @p h
 
-        genPld <- checkExecutionClient v c engineCtx (EVM.ChainId (fromSNat ecid))
+        genPld <- checkExecutionClient logger v c engineCtx (EVM.ChainId (fromSNat ecid))
         logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
         logFunctionText logger Debug $ "genesis payload from execution client: " <> sshow genPld
         pdb <- initPayloadDb $ payloadDbConfiguration v c rdb genPld
@@ -546,16 +545,24 @@ payloadListener p = case (_evmMinerAddress p) of
 -- Returns the genesis header.
 --
 checkExecutionClient
-    :: HasChainwebVersion v
+    :: (HasChainwebVersion v)
+    => Logger logger
     => HasChainId c
-    => v
+    => logger
+    -> v
     -> c
     -> JsonRpcHttpCtx
     -> EVM.ChainId
         -- ^ expected Ethereum Network ID
     -> IO Payload
-checkExecutionClient v c ctx expectedEcid = do
-    ecid <- callMethodHttp @Eth_ChainId ctx Nothing
+checkExecutionClient logger v c ctx expectedEcid = do
+    ecid <- try @_ @SomeException (callMethodHttp @Eth_ChainId ctx Nothing) >>= \case
+        Left err -> do
+            logFunctionText logger Error
+                $ "Exception while initially connecting to EVM on chain " <> toText (_chainId c) <> ": "
+                    <> T.pack (displayException err)
+            error "Error connecting to EVM"
+        Right ecid -> return ecid
     unless (expectedEcid == ecid) $
         throwM $ EvmChainIdMissmatch (Expected expectedEcid) (Actual ecid)
     callMethodHttp @Eth_GetBlockByNumber ctx (DefaultBlockNumber 0, False) >>= \case
@@ -613,7 +620,7 @@ forkchoiceUpdate p t fcs attr = go t
             throwM $ ForkchoiceUpdatedTimeoutException t
         | otherwise = do
             lf Info $ briefJson (ForkchoiceUpdatedV3Request fcs attr)
-            r <- try @(RPC.Error EngineServerErrors EngineErrors) $
+            r <- try @_ @(RPC.Error EngineServerErrors EngineErrors) $
                 RPC.callMethodHttp @Engine_ForkchoiceUpdatedV3 (_evmEngineCtx p)
                     (ForkchoiceUpdatedV3Request fcs attr)
             case r of
