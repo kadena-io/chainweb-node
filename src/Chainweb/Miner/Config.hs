@@ -166,8 +166,6 @@ data CoordinationConfig = CoordinationConfig
       -- present on the node.
     , _coordinationUpdateStreamTimeout :: !Seconds
         -- ^ the duration that an update stream is kept open in seconds
-    , _coordinationPayloadRefreshDelay :: !(TimeSpan Micros)
-        -- ^ the duration between payload refreshes in microseconds
     } deriving stock (Eq, Show, Generic)
 
 coordinationEnabled :: Lens' CoordinationConfig Bool
@@ -177,28 +175,21 @@ coordinationUpdateStreamTimeout :: Lens' CoordinationConfig Seconds
 coordinationUpdateStreamTimeout =
     lens _coordinationUpdateStreamTimeout (\m c -> m { _coordinationUpdateStreamTimeout = c })
 
-coordinationPayloadRefreshDelay :: Lens' CoordinationConfig (TimeSpan Micros)
-coordinationPayloadRefreshDelay =
-    lens _coordinationPayloadRefreshDelay (\m c -> m { _coordinationPayloadRefreshDelay = c })
-
 instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
         , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
-        , "payloadRefreshDelay" .= _coordinationPayloadRefreshDelay o
         ]
 
 instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
-        <*< coordinationPayloadRefreshDelay ..: "payloadRefreshDelay" % o
 
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
     { _coordinationEnabled = False
     , _coordinationUpdateStreamTimeout = 240
-    , _coordinationPayloadRefreshDelay = TimeSpan (Micros 15_000_000)
     }
 
 pCoordinationConfig :: MParser CoordinationConfig
@@ -209,9 +200,6 @@ pCoordinationConfig = id
     <*< coordinationUpdateStreamTimeout .:: jsonOption
         % long "mining-update-stream-timeout"
         <> help "duration that an update stream is kept open in seconds"
-    <*< coordinationPayloadRefreshDelay .:: jsonOption
-        % long "mining-payload-refresh-delay"
-        <> help "frequency that the mining payload is refreshed"
 
 pMiner :: String -> Parser Miner
 pMiner prefix = pkToMiner <$> pPk

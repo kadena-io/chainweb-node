@@ -31,40 +31,40 @@ testnet05 = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000009
     , _versionName = ChainwebVersionName "testnet05"
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> AllChains ForkAtGenesis
-        Vuln797Fix -> AllChains ForkAtGenesis
-        CoinV2 -> AllChains ForkAtGenesis
-        PactBackCompat_v16 -> AllChains ForkAtGenesis
-        ModuleNameFix -> AllChains ForkAtGenesis
-        SkipTxTimingValidation -> AllChains ForkAtGenesis
-        OldTargetGuard -> AllChains ForkAtGenesis
-        SkipFeatureFlagValidation -> AllChains ForkAtGenesis
-        ModuleNameFix2 -> AllChains ForkAtGenesis
-        OldDAGuard -> AllChains ForkAtGenesis
-        PactEvents -> AllChains ForkAtGenesis
-        SPVBridge -> AllChains ForkAtGenesis
-        Pact4Coin3 -> AllChains ForkAtGenesis
-        EnforceKeysetFormats -> AllChains ForkAtGenesis
-        Pact42 -> AllChains ForkAtGenesis
-        CheckTxHash -> AllChains ForkAtGenesis
-        Chainweb213Pact -> AllChains ForkAtGenesis
-        Chainweb214Pact -> AllChains ForkAtGenesis
-        Chainweb215Pact -> AllChains ForkAtGenesis
-        Pact44NewTrans -> AllChains ForkAtGenesis
-        Chainweb216Pact -> AllChains ForkAtGenesis
-        Chainweb217Pact -> AllChains ForkAtGenesis
-        Chainweb218Pact -> AllChains ForkAtGenesis
-        Chainweb219Pact -> AllChains ForkAtGenesis
-        Chainweb220Pact -> AllChains ForkAtGenesis
-        Chainweb221Pact -> AllChains ForkAtGenesis
-        Chainweb222Pact -> AllChains ForkAtGenesis
-        Chainweb223Pact -> AllChains ForkAtGenesis
-        Chainweb224Pact -> AllChains ForkAtGenesis
-        Chainweb225Pact -> AllChains ForkAtGenesis
-        Chainweb226Pact -> AllChains ForkAtGenesis
-        Pact5Fork -> AllChains ForkAtGenesis
-        Chainweb228Pact -> AllChains ForkAtGenesis
-        Chainweb229Pact -> AllChains ForkNever
+        SlowEpoch -> onAllChains testnet05 ForkAtGenesis
+        Vuln797Fix -> onAllChains testnet05 ForkAtGenesis
+        CoinV2 -> onAllChains testnet05 ForkAtGenesis
+        PactBackCompat_v16 -> onAllChains testnet05 ForkAtGenesis
+        ModuleNameFix -> onAllChains testnet05 ForkAtGenesis
+        SkipTxTimingValidation -> onAllChains testnet05 ForkAtGenesis
+        OldTargetGuard -> onAllChains testnet05 ForkAtGenesis
+        SkipFeatureFlagValidation -> onAllChains testnet05 ForkAtGenesis
+        ModuleNameFix2 -> onAllChains testnet05 ForkAtGenesis
+        OldDAGuard -> onAllChains testnet05 ForkAtGenesis
+        PactEvents -> onAllChains testnet05 ForkAtGenesis
+        SPVBridge -> onAllChains testnet05 ForkAtGenesis
+        Pact4Coin3 -> onAllChains testnet05 ForkAtGenesis
+        EnforceKeysetFormats -> onAllChains testnet05 ForkAtGenesis
+        Pact42 -> onAllChains testnet05 ForkAtGenesis
+        CheckTxHash -> onAllChains testnet05 ForkAtGenesis
+        Chainweb213Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb214Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb215Pact -> onAllChains testnet05 ForkAtGenesis
+        Pact44NewTrans -> onAllChains testnet05 ForkAtGenesis
+        Chainweb216Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb217Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb218Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb219Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb220Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb221Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb222Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb223Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb224Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb225Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb226Pact -> onAllChains testnet05 ForkAtGenesis
+        Pact5Fork -> onAllChains testnet05 ForkAtGenesis
+        Chainweb228Pact -> onAllChains testnet05 ForkAtGenesis
+        Chainweb229Pact -> onAllChains testnet05 ForkNever
 
     , _versionGraphs =
         Bottom (minBound, twentyChainGraph)
@@ -75,10 +75,10 @@ testnet05 = ChainwebVersion
         Bottom (minBound, Just 180_000)
     , _versionBootstraps = domainAddr2PeerInfo testnet05BootstrapHosts
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = OnChains $ HM.fromList $ concat
+        { _genesisBlockTarget = ChainMap $ HM.fromList $ concat
             [ [(unsafeChainId i, maxTarget) | i <- [0..19]]
             ]
-        , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+        , _genesisTime = onAllChains testnet05 $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
         , _genesisBlockPayload = onChains
             [ (unsafeChainId 0, unsafeFromText "Gbu_Tf-PJP2VyptN3m0AnTsXRfiFpnxV8iWZcimPZq4")
             , (unsafeChainId 1, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
@@ -102,7 +102,7 @@ testnet05 = ChainwebVersion
             , (unsafeChainId 19, unsafeFromText "c33AN8j0AKMwQO9BoCGCtinIQT_3JWyNc-fsqdt41Go")
             ]
         }
-    , _versionUpgrades = AllChains mempty
+    , _versionUpgrades = onAllChains testnet05 mempty
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = False
@@ -112,9 +112,9 @@ testnet05 = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $
+    , _versionVerifierPluginNames = onAllChains testnet05 $
         Bottom (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message"])
-    , _versionQuirks = noQuirks
+    , _versionQuirks = noQuirks testnet05
     , _versionServiceDate = Nothing
-    , _versionPayloadProviderTypes = AllChains PactProvider
+    , _versionPayloadProviderTypes = onAllChains testnet05 PactProvider
     }

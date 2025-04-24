@@ -102,11 +102,9 @@ mkFixtureWith pactServiceConfig baseRdb = do
     logLevel <- liftIO getTestLogLevel
     let logger = genericLogger logLevel Text.putStrLn
     perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
-        sqlite <- withTempSQLiteResource
+        (writeSqlite, readPool) <- withTempSQLiteResource
         let pdb = _bdbPayloadDb tdb
-        fakeRoSqlPool <- liftIO $ Pool.newPool (Pool.defaultPoolConfig (return sqlite) (\_ -> return ()) 10 10)
-        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing pdb fakeRoSqlPool sqlite pactServiceConfig (Just $ genesisPayload chain)
-        liftIO $ PactService.initialPayloadState logger serviceEnv
+        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing pdb readPool writeSqlite pactServiceConfig (Just $ genesisPayload chain)
         let mempoolCfg =
                 validatingMempoolConfig chain v
                     (GasLimit (Gas 150_000))
@@ -118,8 +116,8 @@ mkFixtureWith pactServiceConfig baseRdb = do
     let fixture = Fixture
             { _fixtureBlockDb = tdb
             , _fixtureLogger = logger
-            , _fixtureMempools = OnChains $ fst <$> perChain
-            , _fixturePacts = OnChains $ snd <$> perChain
+            , _fixtureMempools = ChainMap $ fst <$> perChain
+            , _fixturePacts = ChainMap $ snd <$> perChain
             }
     -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
     -- So by running an empty block with the creationTime set to the current time, we get these goals to align
@@ -278,7 +276,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             bip <- continueBlock fixture =<< makeEmptyBlock fixture ph
             return $ finalizeBlock fixture bip
         results
-            & P.alignExact ? onAllChains v (\cid ->
+            & P.alignExact ? tabulateChains v (\cid ->
                 if cid == chain0
                 then P.alignExact ? Vector.singleton ?
                     -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
@@ -646,7 +644,7 @@ mempoolClear Fixture{..} cid =
 
 advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact.Transaction] -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChainsWithTxs fixture txsPerChain = do
-    advanceAllChains fixture $ onAllChains v $ \cid ph -> do
+    advanceAllChains fixture $ tabulateChains v $ \cid ph -> do
         let txs = txsPerChain ^?! atChain cid
         mempoolClear fixture cid
         mempoolInsert fixture cid Mempool.CheckedInsert txs

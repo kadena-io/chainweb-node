@@ -102,6 +102,7 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
+import Control.Monad.Trans.Resource
 
 import Data.Aeson (ToJSON)
 import Data.Foldable
@@ -398,12 +399,11 @@ withCutDb
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
-    -> (CutDb -> IO a)
-    -> IO a
-withCutDb config logfun headerStore providers cutHashesStore a
-    = bracket
+    -> ResourceT IO CutDb
+withCutDb config logfun headerStore providers cutHashesStore
+    = snd <$> allocate
         (startCutDb config logfun headerStore providers cutHashesStore)
-        stopCutDb a
+        stopCutDb
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
@@ -434,7 +434,6 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
         "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
-    logg Debug "CutDB started"
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue

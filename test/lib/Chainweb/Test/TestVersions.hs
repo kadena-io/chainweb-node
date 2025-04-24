@@ -132,7 +132,7 @@ testVersionTemplate v = v
     & versionWindow .~ WindowWidth 120
     & versionMaxBlockGasLimit .~ Bottom (minBound, Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
-    & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
+    & versionVerifierPluginNames .~ onAllChains v (Bottom (minBound, mempty))
     & versionServiceDate .~ Nothing
 
 -- | A test version without Pact or PoW, with only one chain graph.
@@ -153,13 +153,13 @@ barebonesTestVersion g = buildTestVersion $ \v ->
             , _disablePeerValidation = True
             }
         & versionGenesis .~ VersionGenesis
-            { _genesisBlockPayload = AllChains $ _payloadWithOutputsPayloadHash emptyPayload
-            , _genesisBlockTarget = AllChains maxTarget
-            , _genesisTime = AllChains $ BlockCreationTime epoch
+            { _genesisBlockPayload = onAllChains v $ _payloadWithOutputsPayloadHash emptyPayload
+            , _genesisBlockTarget = onAllChains v maxTarget
+            , _genesisTime = onAllChains v $ BlockCreationTime epoch
             }
-        & versionForks .~ HM.fromList [ (f, AllChains ForkAtGenesis) | f <- [minBound..maxBound] ]
-        & versionQuirks .~ noQuirks
-        & versionUpgrades .~ AllChains HM.empty
+        & versionForks .~ HM.fromList [ (f, onAllChains v ForkAtGenesis) | f <- [minBound..maxBound] ]
+        & versionQuirks .~ noQuirks v
+        & versionUpgrades .~ onAllChains v HM.empty
 
 -- | A test version without Pact or PoW, with a chain graph upgrade at block height 8.
 timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
@@ -169,12 +169,12 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
     & versionBlockDelay .~ BlockDelay 1_000_000
     & versionWindow .~ WindowWidth 120
     & versionForks .~ tabulateHashMap (\case
-        SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
+        SkipTxTimingValidation -> onAllChains v $ ForkAtBlockHeight (BlockHeight 2)
         -- pact is disabled, we don't care about pact forks
-        _ -> AllChains ForkAtGenesis
+        _ -> onAllChains v ForkAtGenesis
     )
-    & versionQuirks .~ noQuirks
-    & versionUpgrades .~ AllChains HM.empty
+    & versionQuirks .~ noQuirks v
+    & versionUpgrades .~ onAllChains v HM.empty
     & versionGraphs .~ (BlockHeight 8, g2) `Above` Bottom (minBound, g1)
     & versionCheats .~ VersionCheats
         { _disablePow = True
@@ -189,8 +189,8 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         { _genesisBlockPayload = onChains $ [] -- TODO: PP
             -- (unsafeChainId 0, TN0.payloadBlock) :
             -- [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
-        , _genesisBlockTarget = AllChains maxTarget
-        , _genesisTime = AllChains $ BlockCreationTime epoch
+        , _genesisBlockTarget = onAllChains v maxTarget
+        , _genesisTime = onAllChains v $ BlockCreationTime epoch
         }
 
 -- | A test version without Pact or PoW.
@@ -201,12 +201,12 @@ checkpointerTestVersion g1 = buildTestVersion $ \v -> v
     & versionBlockDelay .~ BlockDelay 1_000_000
     & versionWindow .~ WindowWidth 120
     & versionForks .~ tabulateHashMap (\case
-        SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
+        SkipTxTimingValidation -> onAllChains v $ ForkAtBlockHeight (BlockHeight 2)
         -- pact is disabled, we don't care about pact forks
-        _ -> AllChains ForkAtGenesis
+        _ -> onAllChains v ForkAtGenesis
     )
-    & versionQuirks .~ noQuirks
-    & versionUpgrades .~ AllChains HM.empty
+    & versionQuirks .~ noQuirks v
+    & versionUpgrades .~ onAllChains v HM.empty
     & versionGraphs .~ Bottom (minBound, g1)
     & versionCheats .~ VersionCheats
         { _disablePow = True
@@ -219,10 +219,10 @@ checkpointerTestVersion g1 = buildTestVersion $ \v -> v
         }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains [ (n, _payloadWithOutputsPayloadHash emptyPayload) | n <- HS.toList (chainIds v) ]
-        , _genesisBlockTarget = AllChains maxTarget
-        , _genesisTime = AllChains $ BlockCreationTime epoch
+        , _genesisBlockTarget = onAllChains v maxTarget
+        , _genesisTime = onAllChains v $ BlockCreationTime epoch
         }
-    & versionPayloadProviderTypes .~ AllChains PactProvider
+    & versionPayloadProviderTypes .~ onAllChains v PactProvider
 
 -- | A family of versions each with Pact enabled and PoW disabled.
 cpmTestVersion :: ChainGraph -> VersionBuilder
@@ -240,8 +240,8 @@ cpmTestVersion g v = v
         { _disableMempoolSync = False
         , _disablePeerValidation = True
         }
-    & versionUpgrades .~ AllChains mempty
-    & versionPayloadProviderTypes .~ AllChains PactProvider
+    & versionUpgrades .~ onAllChains v mempty
+    & versionPayloadProviderTypes .~ onAllChains v PactProvider
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled,
 -- and with a gas fee quirk.
@@ -250,7 +250,7 @@ quirkedGasInstantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("quirked-instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        _ -> AllChains ForkAtGenesis)
+        _ -> onAllChains v ForkAtGenesis)
     & versionQuirks .~ VersionQuirks
         { _quirkGasFees = onChain (unsafeChainId 0)
             $ HM.singleton (BlockHeight 2, TxBlockIdx 0) (Pact.Gas 1)
@@ -259,11 +259,11 @@ quirkedGasInstantCpmTestVersion g = buildTestVersion $ \v -> v
         { _genesisBlockPayload = onChains $ [] -- TODO: PP
             -- (unsafeChainId 0, IN0.payloadBlock) :
             -- [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
-        , _genesisBlockTarget = AllChains maxTarget
-        , _genesisTime = AllChains $ BlockCreationTime epoch
+        , _genesisBlockTarget = onAllChains v maxTarget
+        , _genesisTime = onAllChains v $ BlockCreationTime epoch
         }
-    & versionUpgrades .~ AllChains mempty
-    & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
+    & versionUpgrades .~ onAllChains v mempty
+    & versionVerifierPluginNames .~ onAllChains v (Bottom (minBound, mempty))
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled,
 -- and with a gas fee quirk.
@@ -272,7 +272,7 @@ quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("quirked-pact5-instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        _ -> AllChains ForkAtGenesis)
+        _ -> onAllChains v ForkAtGenesis)
     & versionQuirks .~ VersionQuirks
         { _quirkGasFees = onChain (unsafeChainId 0)
             $ HM.singleton (BlockHeight 1, TxBlockIdx 0) (Pact.Gas 1)
@@ -281,11 +281,11 @@ quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, _payloadWithOutputsPayloadHash IN0.payloadBlock) :
             [(n, _payloadWithOutputsPayloadHash INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
-        , _genesisBlockTarget = AllChains maxTarget
-        , _genesisTime = AllChains $ BlockCreationTime epoch
+        , _genesisBlockTarget = onAllChains v maxTarget
+        , _genesisTime = onAllChains v $ BlockCreationTime epoch
         }
-    & versionUpgrades .~ AllChains mempty
-    & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
+    & versionUpgrades .~ onAllChains v mempty
+    & versionVerifierPluginNames .~ onAllChains v (Bottom (minBound, mempty))
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
 -- at genesis EXCEPT Pact 5.
@@ -294,18 +294,18 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        _ -> AllChains ForkAtGenesis
+        _ -> onAllChains v ForkAtGenesis
         )
-    & versionQuirks .~ noQuirks
+    & versionQuirks .~ noQuirks v
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, _payloadWithOutputsPayloadHash IN0.payloadBlock) :
             [(n, _payloadWithOutputsPayloadHash INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
-        , _genesisBlockTarget = AllChains maxTarget
-        , _genesisTime = AllChains $ BlockCreationTime epoch
+        , _genesisBlockTarget = onAllChains v maxTarget
+        , _genesisTime = onAllChains v $ BlockCreationTime epoch
         }
-    & versionUpgrades .~ AllChains mempty
-    & versionVerifierPluginNames .~ AllChains
+    & versionUpgrades .~ onAllChains v mempty
+    & versionVerifierPluginNames .~ onAllChains v
         (Bottom
             ( minBound
             , Set.fromList $ map Pact.VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
@@ -323,23 +323,23 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
 --         -- genesis blocks are not ever run with Pact 5
 --         Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisBlockHeight v cid)) | cid <- HS.toList $ graphChainIds g ]
 --         -- SPV Bridge is not in effect for Pact 5 yet.
---         SPVBridge -> AllChains ForkNever
---         _ -> AllChains ForkAtGenesis
+--         SPVBridge -> onAllChains v ForkNever
+--         _ -> onAllChains v ForkAtGenesis
 --         )
---     & versionQuirks .~ noQuirks
+--     & versionQuirks .~ noQuirks v
 --     & versionGenesis .~ VersionGenesis
 --         { _genesisBlockPayload = onChains $ [] -- TODO: PP
 --             -- (unsafeChainId 0, IN0.payloadBlock) :
 --             -- [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
---         , _genesisBlockTarget = AllChains maxTarget
---         , _genesisTime = AllChains $ BlockCreationTime epoch
+--         , _genesisBlockTarget = onAllChains v maxTarget
+--         , _genesisTime = onAllChains v $ BlockCreationTime epoch
 --         }
 --     & versionUpgrades .~ indexByForkHeights v
 --         -- TODO: PP
---         -- [ (Pact5Fork, AllChains (Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
+--         -- [ (Pact5Fork, onAllChains v (Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
 --         [
 --         ]
---     & versionVerifierPluginNames .~ AllChains
+--     & versionVerifierPluginNames .~ onAllChains v
 --         (Bottom
 --             ( minBound
 --             , Set.fromList $ map Pact.VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]

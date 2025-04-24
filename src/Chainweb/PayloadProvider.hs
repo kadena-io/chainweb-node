@@ -65,6 +65,7 @@ module Chainweb.PayloadProvider
 , blockHeaderToEvaluationCtx
 , nextPayload
 , nextPayloadStm
+, waitForChangedPayload
 , payloadStream
 
 -- * PayloadProvider
@@ -809,12 +810,12 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
         -> ForkInfo
         -> IO ConsensusState
 
-    -- | Asynchronoulsly yield new block payloads on top of the latest block.
+    -- | Asynchronously yield new block payloads on top of the latest block.
     --
     -- The new payload is identified by the block payload hash.
     --
     -- New payloads only depend on there respective evaluation context and new
-    -- block contenxt and are only valid within this context. The context is
+    -- block context and are only valid within this context. The context is
     -- fully determined by the parent header, which is always the block of the
     -- latest block of the current consensus state. It is represented by its
     -- respective height and block hash.
@@ -824,10 +825,10 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
     -- optimizations in payload synchronizations (e.g. by piggybacking the new
     -- payloads onto the respective new cuts in the P2P gossip network). Beside
     -- of being a sequence of bytes the content of the those payloads are
-    -- completely parametetric outside the context of the payload provider.
+    -- completely parametric outside the context of the payload provider.
     --
-    -- Payload provider should cache new payloads internally as long they have
-    -- not either been integrated into the longest chain or definitely
+    -- Payload providers should cache new payloads internally as long they
+    -- are not either integrated into the longest chain or definitely
     -- abandoned. Payload providers may also cache the validation result.
     --
     latestPayloadSTM :: p -> STM NewPayload
@@ -849,6 +850,11 @@ nextPayloadStm p cur = do
 
 nextPayload :: PayloadProvider p => p -> NewPayload -> IO NewPayload
 nextPayload p = atomically . nextPayloadStm p
+
+waitForChangedPayload :: PayloadProvider p => p -> IO NewPayload
+waitForChangedPayload p = do
+    old <- latestPayloadIO p
+    nextPayload p old
 
 payloadStream :: PayloadProvider p => p -> S.Stream (S.Of NewPayload) IO ()
 payloadStream p = do

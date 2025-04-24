@@ -34,16 +34,16 @@ evmDevnet = ChainwebVersion
     , _versionForks = tabulateHashMap $ \case
         -- TODO: for now, Pact 5 is never enabled on EVM devnet.
         -- this will change as it stabilizes.
-        Pact5Fork -> AllChains ForkNever
-        _ -> AllChains ForkAtGenesis
-    , _versionUpgrades = AllChains mempty
+        Pact5Fork -> onAllChains evmDevnet ForkNever
+        _ -> onAllChains evmDevnet ForkAtGenesis
+    , _versionUpgrades = onAllChains evmDevnet mempty
     , _versionGraphs = Bottom (minBound, twentyChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = AllChains $ HashTarget (maxBound `div` 500_000)
+        { _genesisBlockTarget = onAllChains evmDevnet $ HashTarget (maxBound `div` 500_000)
         , _genesisTime = onChains
             $ (unsafeChainId 0, BlockCreationTime (Time (secondsToTimeSpan 1687223762)))
             : (unsafeChainId 1, BlockCreationTime (Time (secondsToTimeSpan 1687223762)))
@@ -84,9 +84,9 @@ evmDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ Bottom
+    , _versionVerifierPluginNames = onAllChains evmDevnet $ Bottom
         (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
-    , _versionQuirks = noQuirks
+    , _versionQuirks = noQuirks evmDevnet
     , _versionServiceDate = Nothing
 
     -- FIXME make this safe for graph changes

@@ -33,9 +33,10 @@ module Chainweb.Test.Pact.CutFixture
     , fixturePayloadDb
     , fixtureWebBlockHeaderDb
     , fixtureMempools
-    -- , advanceAllChains
-    -- , advanceAllChains_
-    -- , withTestCutDb
+    , fixturePacts
+    , advanceAllChains
+    , advanceAllChains_
+    , withTestCutDb
     )
     where
 
@@ -59,6 +60,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -85,8 +87,8 @@ import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
 import qualified Data.Pool as Pool
 import qualified Chainweb.Pact.PactService as PactService
-import Chainweb.PayloadProvider.Pact (pactMemPoolAccess)
-import Chainweb.Test.CutDB (withTestCutDb)
+import Chainweb.PayloadProvider.Pact
+import Chainweb.PayloadProvider
 
 data Fixture = Fixture
     { _fixtureCutDb :: CutDb
@@ -105,219 +107,182 @@ instance HasFixture Fixture where
 instance HasFixture a => HasFixture (IO a) where
     cutFixture = (>>= cutFixture)
 
-mkFixture :: ChainwebVersion -> (ChainId -> PayloadWithOutputs) -> (PactServiceConfig) -> RocksDb -> ResourceT IO Fixture
+mkFixture :: ChainwebVersion -> (ChainId -> PayloadWithOutputs) -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixture v genesisPayloadFor pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
     testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
     (payloadDb, webBHDb) <- withBlockDbs v testRdb
-    perChain <- fmap OnChains $ iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
-        sqlite <- withTempSQLiteResource
-        fakeRoSqlPool <- liftIO $ Pool.newPool (Pool.defaultPoolConfig (return sqlite) (\_ -> return ()) 10 10)
-        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing payloadDb fakeRoSqlPool sqlite pactServiceConfig (Just $ genesisPayloadFor chain)
+    perChain <- fmap ChainMap $ iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+        (writeSqlite, readPool) <- withTempSQLiteResource
+        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing payloadDb readPool writeSqlite pactServiceConfig (Just $ genesisPayloadFor chain)
         mempool <- withMempool logger serviceEnv
         let serviceEnv' = serviceEnv { _psMempoolAccess = pactMemPoolAccess mempool logger }
         return (mempool, serviceEnv')
     let pacts = snd <$> perChain
     let mempools = fst <$> perChain
-    let cutHashesStore = cutHashesTable testRdb
-    cutDb <- withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact
-
+    let providers = ConfiguredPayloadProvider . PactPayloadProvider logger <$> pacts
+    (_, cutDb) <- withTestCutDb testRdb v id 0 providers (logFunction logger)
     let fixture = Fixture
             { _fixtureCutDb = cutDb
+            , _fixtureLogger = logger
+            , _fixturePacts = pacts
             , _fixturePayloadDb = payloadDb
             , _fixtureWebBlockHeaderDb = webBHDb
-            , _fixtureMempools = OnChains $ fst <$> perChain
+            , _fixtureMempools = mempools
             }
     -- we create the first block to avoid rejecting txs based on genesis
     -- block creation time being from the past
     _ <- liftIO $ advanceAllChains fixture
     return fixture
 
--- -- | Advance all chains by one block, filling that block with whatever is in
--- -- their mempools at the time.
--- --
--- advanceAllChains
---     :: (HasCallStack, HasFixture a)
---     => a
---     -> IO (Cut, ChainMap (Vector TestPact5CommandResult))
--- advanceAllChains fx = do
---     Fixture{..} <- cutFixture fx
---     let v = _chainwebVersion _fixtureCutDb
---     latestCut <- liftIO $ _fixtureCutDb ^. cut
---     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
---     let latestBlockHeight = maximum blockHeights
+-- | Advance all chains by one block, filling that block with whatever is in
+-- their mempools at the time.
+--
+advanceAllChains
+    :: (HasCallStack, HasFixture a)
+    => a
+    -> IO (Cut, ChainMap (Vector TestPact5CommandResult))
+advanceAllChains fx = do
+    Fixture{..} <- cutFixture fx
+    let v = _chainwebVersion _fixtureCutDb
+    latestCut <- liftIO $ _fixtureCutDb ^. cut
+    let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
+    let latestBlockHeight = maximum blockHeights
 
---     -- TODO: rejig this to do parallel mining.
---     (finalCut, perChainCommandResults) <- foldM
---         (\ (prevCut, !acc) cid -> do
---             (newCut, _minedChain, pwo) <-
---                 mine cid noMiner _fixtureWebPactExecutionService _fixtureCutDb prevCut
---             commandResults <- forM (_payloadWithOutputsTransactions pwo) $ \(_, txOut) -> do
---                 decodeOrThrow' $ LBS.fromStrict $ _transactionOutputBytes txOut
+    -- TODO: rejig this to do parallel mining.
+    (finalCut, perChainCommandResults) <- foldM
+        (\ (prevCut, !acc) cid -> do
+            (newCut, _minedChain, newPayload) <-
+                mine cid _fixtureCutDb prevCut
 
---             addNewPayload _fixturePayloadDb latestBlockHeight pwo
+            pwo <- decodeNewPayload newPayload
 
---             return $ (newCut, (cid, commandResults) : acc)
---         )
---         (latestCut, [])
---         (HashSet.toList (chainIdsAt v (latestBlockHeight + 1)))
+            commandResults <- forM (_payloadWithOutputsTransactions pwo) $ \(_, txOut) -> do
+                decodeOrThrow' $ LBS.fromStrict $ _transactionOutputBytes txOut
 
---     return (finalCut, onChains perChainCommandResults)
+            addNewPayload _fixturePayloadDb latestBlockHeight pwo
 
--- advanceAllChains_
---     :: (HasCallStack, HasFixture a)
---     => a
---     -> IO ()
--- advanceAllChains_ = void . advanceAllChains
+            return $ (newCut, (cid, commandResults) : acc)
+        )
+        (latestCut, [])
+        (HashSet.toList (chainIdsAt v (latestBlockHeight + 1)))
 
--- withTestCutDb :: (Logger logger)
---     => logger
---     -> ChainwebVersion
---     -> WebBlockHeaderDb
---     -> PayloadDb RocksDbTable
---     -> Casify RocksDbTable CutHashes
---     -> ResourceT IO CutDb
--- withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact = snd <$> allocate create destroy
---     where
---         create :: IO CutDb
---         create = do
---             initializePayloadDb v payloadDb
---             httpManager <- HTTP.newManager HTTP.defaultManagerSettings
+    return (finalCut, onChains perChainCommandResults)
 
---             headerStore <- newWebBlockHeaderStore httpManager webBHDb (logFunction logger)
---             payloadStore <- newWebPayloadStore httpManager webPact payloadDb (logFunction logger)
+advanceAllChains_
+    :: (HasCallStack, HasFixture a)
+    => a
+    -> IO ()
+advanceAllChains_ = void . advanceAllChains
 
---             let cutFetchTimeout = 3_000_000
---             cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) (logFunction logger) headerStore payloadStore cutHashesStore
---             return cutDb
+-- | Build a linear chainweb (no forks, assuming single threaded use of the
+-- cutDb). No POW or poison delay is applied. Block times are real times.
+mine
+    :: HasCallStack
+    => ChainId
+    -> CutDb
+    -> Cut
+    -> IO (Cut, ChainId, NewPayload)
+mine cid cutDb c = do
+    tryMineForChain cutDb c cid >>= \case
+        Left _ -> throwM $ InternalInvariantViolation
+            $ "Failed to create new cut on chain " <> toText cid <> "."
+            <> "This is a bug in Chainweb.Test.Pact.CutFixture or one of its users; check that this chain's adjacent chains aren't too far behind."
+            <> "\nCut: \n"
+            <> Text.unlines (cutToTextShort c)
+        Right x -> do
+            void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
+            return x
 
---         destroy :: CutDb -> IO ()
---         destroy = stopCutDb
+testMineWithPayloadHash
+    :: forall cid hdb. (HasChainId cid, ChainValueCasLookup hdb BlockHeader)
+    => hdb
+    -> Nonce
+    -> Time Micros
+    -> BlockPayloadHash
+    -> cid
+    -> Cut
+    -> IO (Either MineFailure (T2 BlockHeader Cut))
+testMineWithPayloadHash db n t ph cid c = try $ createNewCut (chainLookupM db) n t ph cid c
 
--- -- | Build a linear chainweb (no forks, assuming single threaded use of the
--- -- cutDb). No POW or poison delay is applied. Block times are real times.
--- mine
---     :: (HasCallStack, CanReadablePayloadCas tbl)
---     => ChainId
---     -> Miner
---         -- ^ The miner. For testing you may use 'defaultMiner' or 'noMiner'.
---         -- ^ only the new-block generator is used. For testing you may use
---         -- 'fakePact'.
---     -> CutDb
---     -> Cut
---     -> IO (Cut, ChainId, PayloadWithOutputs)
--- mine cid miner newBlockStrat pact cutDb c = do
---     tryMineForChain miner newBlockStrat pact cutDb c cid >>= \case
---         Left _ -> throwM $ InternalInvariantViolation
---             $ "Failed to create new cut on chain " <> toText cid <> "."
---             <> "This is a bug in Chainweb.Test.Pact.CutFixture or one of its users; check that this chain's adjacent chains aren't too far behind."
---             <> "\nCut: \n"
---             <> Text.unlines (cutToTextShort c)
---         Right x -> do
---             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
---             return x
+-- | Create a new block. Only produces a new cut but doesn't insert it into the
+-- chain database.
+--
+-- The creation time isn't checked.
+--
+createNewCut
+    :: (HasCallStack, MonadCatch m, MonadIO m, HasChainId cid)
+    => (ChainValue BlockHash -> m BlockHeader)
+    -> Nonce
+    -> Time Micros
+    -> BlockPayloadHash
+    -> cid
+    -> Cut
+    -> m (T2 BlockHeader Cut)
+createNewCut hdb n t pay i c = do
+    extension <- fromMaybeM BadAdjacents $ getCutExtension c i
+    work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
+    (h, mc') <- extendCut c (solveWork work n t)
+        `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
+    c' <- fromMaybeM BadAdjacents mc'
+    return $ T2 h c'
 
--- -- | Atomically await for a 'CutDb' instance to synchronize cuts according to some
--- -- predicate for a given 'Cut' and the results of '_cutStm'.
--- awaitCut
---     :: CutDb
---     -> (Cut -> Bool)
---     -> IO Cut
--- awaitCut cdb k = atomically $ do
---     c <- _cutStm cdb
---     STM.check $ k c
---     pure c
+-- | Solve Work. Doesn't check that the nonce and the time are valid.
+--
+solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
+solveWork w n t =
+    case runGetS decodeBlockHeaderWithoutHash $ SBS.fromShort $ _workHeaderBytes w of
+        Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
+        Just hdr -> SolvedWork
+            $ fromJuste
+            $ runGetS decodeBlockHeaderWithoutHash
+            $ runPutS
+            $ encodeBlockHeaderWithoutHash
+                -- After injecting the nonce and the creation time will have to do a
+                -- serialization roundtrip to update the Merkle hash.
+                --
+                -- A "real" miner would inject the nonce and time without first
+                -- decoding the header and would hand over the header in serialized
+                -- form.
 
--- testMineWithPayloadHash
---     :: forall cid hdb. (HasChainId cid, ChainValueCasLookup hdb BlockHeader)
---     => hdb
---     -> Nonce
---     -> Time Micros
---     -> BlockPayloadHash
---     -> cid
---     -> Cut
---     -> IO (Either MineFailure (T2 BlockHeader Cut))
--- testMineWithPayloadHash db n t ph cid c = try $ createNewCut (chainLookupM db) n t ph cid c
+            $ set blockCreationTime (BlockCreationTime t)
+            $ set blockNonce n
+            $ hdr
 
--- -- | Create a new block. Only produces a new cut but doesn't insert it into the
--- -- chain database.
--- --
--- -- The creation time isn't checked.
--- --
--- createNewCut
---     :: (HasCallStack, MonadCatch m, MonadIO m, HasChainId cid)
---     => (ChainValue BlockHash -> m BlockHeader)
---     -> Nonce
---     -> Time Micros
---     -> BlockPayloadHash
---     -> cid
---     -> Cut
---     -> m (T2 BlockHeader Cut)
--- createNewCut hdb n t pay i c = do
---     extension <- fromMaybeM BadAdjacents $ getCutExtension c i
---     work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
---     (h, mc') <- extendCut c pay (solveWork work n t)
---         `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
---     c' <- fromMaybeM BadAdjacents mc'
---     return $ T2 h c'
+-- | Build a linear chainweb (no forks). No POW or poison delay is applied.
+-- Block times are real times.
+--
+tryMineForChain
+    :: HasCallStack
+    => CutDb
+    -> Cut
+    -> ChainId
+    -> IO (Either MineFailure (Cut, ChainId, NewPayload))
+tryMineForChain cutDb c cid = do
+    newBlock <- case cutDb ^?! cutDbPayloadProviders . atChain cid of
+        ConfiguredPayloadProvider p -> waitForChangedPayload p
+        DisabledPayloadProvider -> error $ "missing payload provider on chain " <> show cid
+    let payloadHash = _newPayloadBlockPayloadHash newBlock
+    t <- getCurrentTimeIntegral
+    x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
+    case x of
+        Right (T2 h c') -> do
+            addCutHashes cutDb (cutToCutHashes Nothing c')
+                { _cutHashesHeaders = HashMap.singleton (view blockHash h) h
+                , _cutHashesPayloads =
+                    HashMap.singleton (view blockPayloadHash h) (fromJuste $ _newPayloadEncodedPayloadData newBlock)
+                }
+            return $ Right (c', cid, newBlock)
+        Left e -> return $ Left e
+    where
+        wdb = view cutDbWebBlockHeaderDb cutDb
 
--- -- | Solve Work. Doesn't check that the nonce and the time are valid.
--- --
--- solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
--- solveWork w n t =
---     case runGetS decodeBlockHeaderWithoutHash $ SBS.fromShort $ _workHeaderBytes w of
---         Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
---         Just hdr -> SolvedWork
---             $ fromJuste
---             $ runGetS decodeBlockHeaderWithoutHash
---             $ runPutS
---             $ encodeBlockHeaderWithoutHash
---                 -- After injecting the nonce and the creation time will have to do a
---                 -- serialization roundtrip to update the Merkle hash.
---                 --
---                 -- A "real" miner would inject the nonce and time without first
---                 -- decoding the header and would hand over the header in serialized
---                 -- form.
-
---             $ set blockCreationTime (BlockCreationTime t)
---             $ set blockNonce n
---             $ hdr
-
--- -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
--- -- Block times are real times.
--- --
--- tryMineForChain
---     :: forall tbl. (HasCallStack, CanReadablePayloadCas tbl)
---     => Miner
---         -- ^ The miner. For testing you may use 'defaultMiner'.
---     -> CutDb
---     -> Cut
---     -> ChainId
---     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
--- tryMineForChain miner newBlockStrat webPact cutDb c cid = do
---     newBlock <- throwIfNoHistory =<< _webPactNewBlock webPact cid miner newBlockStrat parent
---     let outputs = newBlockToPayloadWithOutputs newBlock
---     let payloadHash = _payloadWithOutputsPayloadHash outputs
---     t <- getCurrentTimeIntegral
---     x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
---     case x of
---         Right (T2 h c') -> do
---             addCutHashes cutDb (cutToCutHashes Nothing c')
---                 { _cutHashesHeaders = HashMap.singleton (view blockHash h) h
---                 , _cutHashesPayloads = HashMap.singleton (view blockPayloadHash h) (payloadWithOutputsToPayloadData outputs)
---                 }
---             return $ Right (c', cid, outputs)
---         Left e -> return $ Left e
---     where
---         parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
---         wdb = view cutDbWebBlockHeaderDb cutDb
-
--- data MineFailure
---     = InvalidHeader Text
---         -- ^ The header is invalid, e.g. because of a bad nonce or creation time.
---     | MissingParentHeader
---         -- ^ A parent header is missing in the chain db
---     | BadAdjacents
---         -- ^ This could mean that the chain is blocked.
---     deriving stock (Show)
---     deriving anyclass (Exception)
+data MineFailure
+    = InvalidHeader Text
+        -- ^ The header is invalid, e.g. because of a bad nonce or creation time.
+    | MissingParentHeader
+        -- ^ A parent header is missing in the chain db
+    | BadAdjacents
+        -- ^ This could mean that the chain is blocked.
+    deriving stock (Show)
+    deriving anyclass (Exception)

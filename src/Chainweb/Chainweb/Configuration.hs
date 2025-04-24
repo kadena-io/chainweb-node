@@ -759,7 +759,7 @@ parseVersion = constructVersion
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->
-                OnChains $ HM.mapWithKey
+                ChainMap $ HM.mapWithKey
                     (\cid _ ->
                         case winningVersion ^?! versionForks . at fub' . _Just . atChain cid of
                             ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."

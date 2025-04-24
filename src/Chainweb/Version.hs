@@ -94,7 +94,6 @@ module Chainweb.Version
     , someChainwebVersionVal
 
     -- ** Singletons
-    , Sing(SChainwebVersion)
     , SChainwebVersion
     , pattern FromSingChainwebVersion
 
@@ -102,7 +101,7 @@ module Chainweb.Version
     , PayloadProviderType(..)
     , HasPayloadProviderType(..)
     , payloadProviderTypeForChain
-    , Sing(SMinimalProvider, SPactProvider, SEvmProvider)
+    , Sing(..)
 
     -- * HasChainwebVersion
     , HasChainwebVersion(..)
@@ -139,7 +138,8 @@ module Chainweb.Version
     , indexByForkHeights
     , latestBehaviorAt
     , onAllChains
-    , onAllChainsM
+    , tabulateChains
+    , tabulateChainsM
     , domainAddr2PeerInfo
 
     -- * Internal. Don't use. Exported only for testing
@@ -397,11 +397,6 @@ data VersionQuirks = VersionQuirks
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-
-noQuirks :: VersionQuirks
-noQuirks = VersionQuirks
-    { _quirkGasFees = AllChains HM.empty
-    }
 
 -- -------------------------------------------------------------------------- --
 -- Payload Provider Type
@@ -772,7 +767,7 @@ indexByForkHeights
     :: ChainwebVersion
     -> [(Fork, ChainMap a)]
     -> ChainMap (HashMap BlockHeight a)
-indexByForkHeights v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
+indexByForkHeights v = ChainMap . foldl' go (HM.empty <$ HS.toMap (chainIds v))
   where
     conflictError fork h =
         error $ "conflicting behavior at block height " <> show h <> " when adding behavior for fork " <> show fork
@@ -800,13 +795,21 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
         , versionGraphs . to ruleHead . _1
         ]
 
-onAllChains :: ChainwebVersion -> (ChainId -> a) -> ChainMap a
-onAllChains v f = runIdentity $ onAllChainsM v (Identity . f)
+onAllChains :: ChainwebVersion -> a -> ChainMap a
+onAllChains v a = tabulateChains v (\_ -> a)
+
+tabulateChains :: ChainwebVersion -> (ChainId -> a) -> ChainMap a
+tabulateChains v f = runIdentity $ tabulateChainsM v (Identity . f)
 
 -- | Easy construction of a `ChainMap` with entries for every chain
 -- in a `ChainwebVersion`.
-onAllChainsM :: Applicative m => ChainwebVersion -> (ChainId -> m a) -> m (ChainMap a)
-onAllChainsM v f = OnChains <$>
+tabulateChainsM :: Applicative m => ChainwebVersion -> (ChainId -> m a) -> m (ChainMap a)
+tabulateChainsM v f = ChainMap <$>
     HM.traverseWithKey
         (\cid () -> f cid)
         (HS.toMap (chainIds v))
+
+noQuirks :: ChainwebVersion -> VersionQuirks
+noQuirks v = VersionQuirks
+    { _quirkGasFees = onAllChains v HM.empty
+    }

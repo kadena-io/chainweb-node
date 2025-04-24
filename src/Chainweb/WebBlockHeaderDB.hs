@@ -127,7 +127,7 @@ initWebBlockHeaderDb
     -> ChainwebVersion
     -> IO WebBlockHeaderDb
 initWebBlockHeaderDb db v = WebBlockHeaderDb
-    <$!> onAllChainsM v (\cid -> initBlockHeaderDb (conf cid db))
+    <$!> tabulateChainsM v (\cid -> initBlockHeaderDb (conf cid db))
     <*> pure v
   where
     conf cid = Configuration (genesisBlockHeader v cid)

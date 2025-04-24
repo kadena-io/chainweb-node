@@ -18,6 +18,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Chainweb.Pact.Types
     ( ServiceEnv(..)
@@ -38,6 +39,7 @@ module Chainweb.Pact.Types
     , psMiningPayloadVar
     , psNewBlockGasLimit
     , psGenesisPayload
+    , psBlockRefreshInterval
 
     , BlockCtx(..)
     , blockCtxOfEvaluationCtx
@@ -128,7 +130,6 @@ module Chainweb.Pact.Types
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq
-import Control.Exception.Safe
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
@@ -296,14 +297,11 @@ data LocalPreflightSimulation
 
 
 -- | The type of local results (used in /local endpoint)
--- Internally contains a JsonText instead of a CommandResult for compatibility across Pact versions,
--- but the constructors are hidden.
--- This can be undone in the 2.28 release.
 --
 data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
-    | LocalResultLegacy !J.JsonText
-    | LocalResultWithWarns !J.JsonText ![Text]
+    | LocalResultLegacy !(Pact.CommandResult Pact.Hash Pact.PactOnChainError)
+    | LocalResultWithWarns !(Pact.CommandResult Pact.Hash Pact.PactOnChainError) ![Text]
     | LocalTimeout
     deriving stock (Generic, Show)
 
@@ -332,16 +330,16 @@ instance FromJSON LocalResult where
             (\o ->
               metaFailureParser o
                   <|> localWithWarnParser o
-                  <|> pure (legacyFallbackParser o)
+                  <|> legacyFallbackParser o
             )
             v
       where
         metaFailureParser o =
             MetadataValidationFailure <$> o .: "preflightValidationFailure"
         localWithWarnParser o = LocalResultWithWarns
-            <$> (J.encodeJsonText @Value <$> o .: "preflightResult")
+            <$> o .: "preflightResult"
             <*> o .: "preflightWarnings"
-        legacyFallbackParser _ = LocalResultLegacy $ J.encodeJsonText v
+        legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
 
 type OnChainCommandResult =
   Pact.CommandResult Pact.Hash Pact.PactOnChainError
@@ -438,6 +436,8 @@ data PactServiceConfig = PactServiceConfig
     --   If 'Nothing', it's a function of the BlockGasLimit.
   , _pactMiner :: !(Maybe Miner)
     -- ^ The miner used to make new blocks.
+  , _pactBlockRefreshInterval :: !Micros
+    -- ^ How often to refresh blocks.
   } deriving (Eq,Show)
 
 defaultPactServiceConfig :: PactServiceConfig
@@ -452,6 +452,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactEnableLocalTimeout = True
       , _pactTxTimeLimit = Nothing
       , _pactMiner = Just noMiner
+      , _pactBlockRefreshInterval = Micros 1_000_000
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -523,8 +524,9 @@ data ServiceEnv tbl = ServiceEnv
     -- ^ Latest mining payload produced, and block continuation thread.
     , _psNewBlockGasLimit :: Pact.GasLimit
     -- ^ Block gas limit in newly produced blocks.
-    , _psGenesisPayload :: !(Maybe Chainweb.PayloadWithOutputs)
+    , _psGenesisPayload :: Maybe Chainweb.PayloadWithOutputs
     -- ^ The genesis payload for this chain.
+    , _psBlockRefreshInterval :: Micros
     }
 
 instance HasChainwebVersion (ServiceEnv tbl) where
@@ -749,7 +751,7 @@ toPayloadWithOutputs mi ts =
 
 data PactTxFailureLog = PactTxFailureLog !Pact.RequestKey !Text
   deriving stock (Generic)
-  deriving anyclass (NFData, Typeable)
+  deriving anyclass (NFData)
 instance LogMessage PactTxFailureLog where
   logText (PactTxFailureLog rk msg) =
     "Failed tx " <> sshow rk <> ": " <> msg

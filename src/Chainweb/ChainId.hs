@@ -18,6 +18,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.ChainId
@@ -67,7 +68,6 @@ module Chainweb.ChainId
 , chainZip
 ) where
 
-import Control.Applicative
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (Exception, MonadThrow)
@@ -81,7 +81,6 @@ import Data.Kind
 import Data.Proxy
 import Data.Semialign
 import qualified Data.Text as T
-import Data.These
 import Data.Word (Word32)
 
 import GHC.Generics (Generic)
@@ -283,50 +282,45 @@ chainIdInt (ChainId' cid) = int cid
 -- exists a value for each chain?
 
 -- | Values keyed by `ChainId`s, or a single value that applies for all chains.
-data ChainMap a = AllChains a | OnChains (HashMap ChainId a)
-    deriving stock (Eq, Functor, Foldable, Traversable, Generic, Ord, Show)
-    deriving anyclass (Hashable, NFData)
+newtype ChainMap a = ChainMap (HashMap ChainId a)
+    deriving stock (Traversable, Generic)
+    deriving newtype (Eq, Hashable, Functor, Foldable, NFData, Ord, Show)
+instance Semigroup (ChainMap a) where
+    (<>) = chainZip (\f _s -> f)
+instance Monoid (ChainMap a) where
+    mempty = ChainMap mempty
 
--- TODO: fix this. This is not a legal instance, because `align` can change the
--- shape from `AllChains` to `OnChains`. This breaks the "alignedness" law.
+instance FoldableWithIndex ChainId ChainMap where
+    ifoldMap f (ChainMap a) = ifoldMap f a
+
 instance Semialign ChainMap where
-    align (OnChains l) (OnChains r) = OnChains $ align l r
-    align (OnChains l) (AllChains r) = OnChains $ fmap (`These` r) l
-    align (AllChains l) (OnChains r) = OnChains $ fmap (l `These`) r
-    align (AllChains l) (AllChains r) = AllChains $ These l r
+    align (ChainMap l) (ChainMap r) = ChainMap $ align l r
 
--- | A smart constructor, @onChains = OnChains . HM.fromList@.
+-- | A smart constructor, @onChains = ChainMap . HM.fromList@.
 onChains :: [(ChainId, a)] -> ChainMap a
-onChains = OnChains . HM.fromList
+onChains = ChainMap . HM.fromList
 
--- | A smart constructor, @onChain c a = OnChains (HM.singleton c a)@.
+-- | A smart constructor, @onChain c a = ChainMap (HM.singleton c a)@.
 onChain :: ChainId -> a -> ChainMap a
-onChain c a = OnChains (HM.singleton c a)
+onChain c a = ChainMap (HM.singleton c a)
 
 -- | Zips two `ChainMap`s on their chain IDs.
 chainZip :: (a -> a -> a) -> ChainMap a -> ChainMap a -> ChainMap a
-chainZip f (OnChains l) (OnChains r) = OnChains $ HM.unionWith f l r
-chainZip f (OnChains l) (AllChains r) = OnChains $ fmap (`f` r) l
-chainZip f (AllChains l) (OnChains r) = OnChains $ fmap (l `f`) r
-chainZip f (AllChains l) (AllChains r) = AllChains $ f l r
+chainZip f (ChainMap l) (ChainMap r) = ChainMap $ HM.unionWith f l r
 
 instance ToJSON a => ToJSON (ChainMap a) where
-    toJSON (AllChains a) = object
-        [ "allChains" .= a
-        ]
-    toJSON (OnChains m) = toJSON m
+    toJSON (ChainMap m) = toJSON m
 
 instance FromJSON a => FromJSON (ChainMap a) where
     parseJSON = withObject "ChainMap" $ \o ->
-        (AllChains <$> o .: "allChains") <|> OnChains <$> parseJSON (Object o)
+        ChainMap <$> parseJSON (Object o)
 
 makePrisms ''ChainMap
 
 -- | Provides access to the value at a `ChainId`, if it exists.
 atChain :: HasChainId cid => cid -> Fold (ChainMap a) a
 atChain cid = folding $ \case
-    OnChains m -> m ^. at (_chainId cid)
-    AllChains a -> Just a
+    ChainMap m -> m ^. at (_chainId cid)
 
 type instance Index (ChainMap a) = ChainId
 type instance IxValue (ChainMap a) = a

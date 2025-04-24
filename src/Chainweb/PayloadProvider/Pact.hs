@@ -8,14 +8,18 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.PayloadProvider.Pact
     ( PactPayloadProvider(..)
     , withPactPayloadProvider
     , pactMemPoolAccess
+    , decodeNewPayload
     ) where
 
 import Control.Concurrent.STM
+import Control.Exception.Safe
 import Data.LogMessage
 import Data.Vector (Vector)
 import System.LogLevel
@@ -27,6 +31,7 @@ import Chainweb.ChainId
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
+import Chainweb.MerkleUniverse
 import qualified Chainweb.MinerReward as MinerReward
 import Chainweb.Pact.Backend.Utils
 import qualified Chainweb.Pact.PactService as PactService
@@ -91,9 +96,17 @@ instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvi
     eventProof :: Logger logger => PactPayloadProvider logger tbl -> XEventId -> IO SpvProof
     eventProof = error "not figured out yet"
 
+decodeNewPayload :: MonadThrow m => NewPayload -> m PayloadWithOutputs
+decodeNewPayload NewPayload{..} = do
+    pd <- decodePayloadData @_ @ChainwebMerkleHashAlgorithm $
+        _encodedPayloadData $ fromJuste _newPayloadEncodedPayloadData
+    bo <- decodeBlockOutputs @_ @ChainwebMerkleHashAlgorithm $
+        _encodedPayloadOutputs $ fromJuste _newPayloadEncodedPayloadOutputs
+    return $ payloadWithOutputs pd (_blockCoinbaseOutput bo) (_blockOutputs bo)
+
 -- | Initialization for Pact (in process) Api
 withPactPayloadProvider
-    :: CanReadablePayloadCas tbl
+    :: CanPayloadCas tbl
     => Logger logger
     => ChainwebVersion
     -> ChainId

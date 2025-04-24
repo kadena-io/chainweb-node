@@ -106,17 +106,16 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 -- PactServiceTest or RemotePactTest.
 readFromAfterGenesis :: ChainwebVersion -> RocksDb -> (BlockEnv -> BlockHandle -> IO a) -> IO a
 readFromAfterGenesis ver rdb act = runResourceT $ do
-    sql <- withTempSQLiteResource
+    (writeSql, readPool) <- withTempSQLiteResource
     tdb <- mkTestBlockDb ver rdb
     -- fake ro-sql pool, assuming we're using this single-threaded
-    roSqlPool <- liftIO $ Pool.newPool (Pool.defaultPoolConfig (return sql) (\_ -> return ()) 10 10)
     logger <- liftIO $ testLogger
-    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (defaultPactServiceConfig PIN0.payloadBlock)
+    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) readPool writeSql defaultPactServiceConfig (Just PIN0.payloadBlock)
     liftIO $ do
         initialPayloadState logger serviceEnv
         fakeParentCreationTime <- mkFakeParentCreationTime
         throwIfNoHistory =<<
-            readFrom logger ver cid sql fakeParentCreationTime
+            readFrom logger ver cid writeSql fakeParentCreationTime
                 (Parent (gh ver cid ^. rankedBlockHash))
                 act
 

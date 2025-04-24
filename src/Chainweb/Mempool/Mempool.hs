@@ -255,7 +255,7 @@ instance Show InsertError where
       InsertErrorBadlisted -> "Transaction is badlisted because it previously failed to validate."
       InsertErrorMetadataMismatch -> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint"
       InsertErrorTransactionsDisabled -> "Transactions are disabled until 2019 Dec 5"
-      InsertErrorBuyGas msg -> "Attempt to buy gas failed with: " <> T.unpack msg
+      InsertErrorBuyGas msg -> T.unpack msg
       InsertErrorCompilationFailed msg -> "Transaction compilation failed: " <> T.unpack msg
       InsertErrorOther m -> "insert error: " <> T.unpack m
       InsertErrorInvalidHash -> "Invalid transaction hash"

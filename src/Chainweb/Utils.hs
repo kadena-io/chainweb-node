@@ -114,6 +114,7 @@ module Chainweb.Utils
 , decodeB64UrlText
 , encodeB64UrlNoPadding
 , encodeB64UrlNoPaddingText
+, b64UrlNoPaddingPrism
 , b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
 
@@ -194,6 +195,7 @@ module Chainweb.Utils
 -- * Resource Management
 , concurrentWith
 , withLink
+, withAsyncR
 , concurrentlies
 , concurrentlies_
 
@@ -269,6 +271,7 @@ import Control.Monad.Cont
 import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
+import Control.Monad.Trans.Resource
 
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types qualified as Aeson
@@ -287,7 +290,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as BS
 import Data.Coerce
 import Data.Csv qualified as CSV
-import Data.Decimal
+import Data.Decimal hiding (allocate)
 import Data.DoubleWord
 import Data.Functor.Of
 import Data.HashMap.Strict qualified as HM
@@ -741,6 +744,11 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | A prism for encoding/decoding unpadded base64-url as/from text.
+--
+b64UrlNoPaddingPrism :: Prism' T.Text B.ByteString
+b64UrlNoPaddingPrism = prism' encodeB64UrlNoPaddingText decodeB64UrlNoPaddingText
 
 -- | Encode a binary value to a textual base64-url without padding
 -- representation.
@@ -1357,6 +1365,10 @@ withLink act = do
   a <- async act
   link a
   return a
+
+-- | Spawn a thread to do the input action and kill it on exit.
+withAsyncR :: IO a -> ResourceT IO (Async a)
+withAsyncR act = snd <$> allocate (async act) uninterruptibleCancel
 
 -- | Like `sequence` for IO but concurrent
 concurrentlies :: forall a. [IO a] -> IO [a]

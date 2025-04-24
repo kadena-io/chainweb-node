@@ -43,36 +43,38 @@ import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as R
 import Chainweb.Utils
 
 genesisPayload :: ChainwebVersion -> ChainMap PayloadWithOutputs
-genesisPayload Mainnet01 = OnChains $ HM.fromList $ concat
-    [ [ (unsafeChainId 0, MN0.payloadBlock)
-      , (unsafeChainId 1, MN1.payloadBlock)
-      , (unsafeChainId 2, MN2.payloadBlock)
-      , (unsafeChainId 3, MN3.payloadBlock)
-      , (unsafeChainId 4, MN4.payloadBlock)
-      , (unsafeChainId 5, MN5.payloadBlock)
-      , (unsafeChainId 6, MN6.payloadBlock)
-      , (unsafeChainId 7, MN7.payloadBlock)
-      , (unsafeChainId 8, MN8.payloadBlock)
-      , (unsafeChainId 9, MN9.payloadBlock)
-      ]
-    , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
-    ]
-genesisPayload Testnet04 = OnChains $ HM.fromList $ concat
-    [ [(unsafeChainId 0, T04N0.payloadBlock)]
-    , [(unsafeChainId i, T04NN.payloadBlock) | i <- [1..19]]
-    ]
-genesisPayload Testnet05 = OnChains $ HM.fromList $ concat
-    [ [(unsafeChainId 0, T05N0.payloadBlock)]
-    , [(unsafeChainId i, T05NN.payloadBlock) | i <- [1..19]]
-    ]
-genesisPayload Development = OnChains $ HM.fromList $ concat
-    [ [(unsafeChainId 0, DN0.payloadBlock)]
-    , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
-    ]
-genesisPayload RecapDevelopment = OnChains $ HM.fromList $ concat
-    [ [(unsafeChainId 0, RDN0.payloadBlock)]
-    , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
-    , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
-    ]
+genesisPayload v
+    | _versionCode v == _versionCode Mainnet01 = ChainMap $ HM.fromList $ concat
+        [
+            [ (unsafeChainId 0, MN0.payloadBlock)
+            , (unsafeChainId 1, MN1.payloadBlock)
+            , (unsafeChainId 2, MN2.payloadBlock)
+            , (unsafeChainId 3, MN3.payloadBlock)
+            , (unsafeChainId 4, MN4.payloadBlock)
+            , (unsafeChainId 5, MN5.payloadBlock)
+            , (unsafeChainId 6, MN6.payloadBlock)
+            , (unsafeChainId 7, MN7.payloadBlock)
+            , (unsafeChainId 8, MN8.payloadBlock)
+            , (unsafeChainId 9, MN9.payloadBlock)
+            ]
+        , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
+        ]
+    | _versionCode v == _versionCode Testnet04 = ChainMap $ HM.fromList $ concat
+        [ [(unsafeChainId 0, T04N0.payloadBlock)]
+        , [(unsafeChainId i, T04NN.payloadBlock) | i <- [1..19]]
+        ]
+    | _versionCode v == _versionCode Testnet05 = ChainMap $ HM.fromList $ concat
+        [ [(unsafeChainId 0, T05N0.payloadBlock)]
+        , [(unsafeChainId i, T05NN.payloadBlock) | i <- [1..19]]
+        ]
+    | _versionCode v == _versionCode Development = ChainMap $ HM.fromList $ concat
+        [ [(unsafeChainId 0, DN0.payloadBlock)]
+        , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
+        ]
+    | _versionCode v == _versionCode RecapDevelopment = ChainMap $ HM.fromList $ concat
+        [ [(unsafeChainId 0, RDN0.payloadBlock)]
+        , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
+        , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
+        ]
 genesisPayload v = error $
     "Chainweb.PayloadProvider.Pact.Genesis.genesisPayload: unsupported chainweb version: " <> sshow v

@@ -55,7 +55,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Monoid
 import Data.Pool (Pool)
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -125,7 +124,7 @@ import qualified Chainweb.Pact.NoCoinbase as Pact
 import Chainweb.Core.Brief
 
 withPactService
-    :: (Logger logger, CanReadablePayloadCas tbl)
+    :: (Logger logger, CanPayloadCas tbl)
     => ChainwebVersion
     -> ChainId
     -> Maybe HTTP.Manager
@@ -156,7 +155,8 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             { _psVersion = ver
             , _psChainId = cid
             -- TODO: PPgaslog
-            , _psGasLogger = undefined <$ guard (_pactLogGas config)
+            -- , _psGasLogger = undefined <$ guard (_pactLogGas config)
+            , _psGasLogger = Nothing
             , _psReadSqlPool = readSqlPool
             , _psReadWriteSql = readWriteSqlenv
             , _psPdb = payloadStore
@@ -171,8 +171,10 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             , _psNewBlockGasLimit = _pactNewBlockGasLimit config
             , _psMiningPayloadVar = miningPayloadVar
             , _psGenesisPayload = maybeGenesisPayload
+            , _psBlockRefreshInterval = _pactBlockRefreshInterval config
             }
 
+    liftIO $ initialPayloadState chainwebLogger pse
     return pse
 
 initialPayloadState
@@ -194,9 +196,12 @@ runGenesisIfNeeded
 runGenesisIfNeeded logger serviceEnv = do
     latestBlock <- fmap _consensusStateLatest <$> Checkpointer.getConsensusState (_psReadWriteSql serviceEnv)
     when (maybe True (isGenesisBlockHeader' v cid . Parent . _syncStateBlockHash) latestBlock) $ do
+        logFunctionText logger Debug "running genesis"
         let genesisBlockHash = genesisBlockHeader v cid ^. blockHash
         let genesisPayloadHash = genesisBlockPayloadHash v cid
+        let gTime = v ^?! versionGenesis . genesisTime . atChain cid
         let targetSyncState = genesisConsensusState v cid
+        let genesisRankedBlockHash = RankedBlockHash (genesisHeight v cid) genesisBlockHash
         let evalCtx = genesisEvaluationCtx serviceEnv
         let blockCtx = blockCtxOfEvaluationCtx v cid evalCtx
         let !genesisPayload = case _psGenesisPayload serviceEnv of
@@ -218,6 +223,16 @@ runGenesisIfNeeded logger serviceEnv = do
                     (genesisHeight v cid)
                     genesisPayload
                 Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
+                -- we have to kick off payload refreshing here
+                emptyBlock <- (throwIfNoHistory =<<) $
+                    Checkpointer.readFrom logger v cid
+                        (_psReadWriteSql serviceEnv)
+                        (Parent gTime)
+                        (Parent genesisRankedBlockHash) $
+                            \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
+                refresherThread <- liftIO $ async (refreshPayloads logger serviceEnv)
+                liftIO $
+                    atomically $ writeTMVar (_psMiningPayloadVar serviceEnv) (refresherThread, emptyBlock)
 
     where
     v = _chainwebVersion serviceEnv
@@ -368,8 +383,8 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                                 blockCtx (TxBlockIdx 0) spvSupport initialGas (view Pact.payloadObj <$> cwtx)
                                 )
                         commandResult <- case applyCmdResult of
-                            Left _err ->
-                                earlyReturn $ LocalResultWithWarns (J.encodeJsonText Pact.CommandResult
+                            Left err ->
+                                earlyReturn $ LocalResultWithWarns (Pact.CommandResult
                                     { _crReqKey = requestKey
                                     , _crTxId = Nothing
                                     , _crResult = Pact.PactResultErr $
@@ -381,7 +396,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                                             (Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0))
                                     , _crGas =
                                         cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasLimit . Pact._GasLimit
-                                    , _crLogs = Nothing :: Maybe Text
+                                    , _crLogs = Nothing
                                     , _crContinuation = Nothing
                                     , _crMetaData = Nothing
                                     , _crEvents = []
@@ -393,7 +408,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                         let commandResult' = hashPactTxLogs $ set Pact.crMetaData (Just metadata) commandResult
                         -- TODO: once Pact 5 has warnings, include them here.
                         pure $ LocalResultWithWarns
-                            (J.encodeJsonText $ Pact.pactErrorToOnChainError <$> commandResult')
+                            (Pact.pactErrorToOnChainError <$> commandResult')
                             []
                     _ -> lift $ do
                         -- default is legacy mode: use applyLocal, don't buy gas, don't do any
@@ -401,7 +416,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                         cr <- flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \dbEnv spvSupport -> do
                             -- TODO: PPgaslog
                             fmap Pact.pactErrorToOnChainError <$> Pact.applyLocal logger Nothing dbEnv blockCtx spvSupport (view Pact.payloadObj <$> cwtx)
-                        pure $ LocalResultLegacy $ J.encodeJsonText (hashPactTxLogs cr)
+                        pure $ LocalResultLegacy $ hashPactTxLogs cr
 
     gasLogger = view psGasLogger serviceEnv
     enableLocalTimeout = view psEnableLocalTimeout serviceEnv
@@ -621,32 +636,15 @@ syncToFork logger serviceEnv hints forkInfo = do
             (fmap (fromRight (error "invalid payload in database")) . runExceptT . pact5TransactionsFromPayload)
             rewoundPayloads
 
--- runBlock
---     :: (CanReadablePayloadCas tbl, Logger logger)
---     => logger
---     -> ServiceEnv tbl
---     -> BlockEnv
---     -> BlockPayloadHash
---     -> PayloadData
---     -> BlockHandle
---     -> StateT BlockHandle
---         (ExceptT BlockInvalidError IO)
---         (DList (Pact.Gas, PayloadWithOutputs, Vector Pact.Transaction))
--- runBlock logger serviceEnv blockEnv payload = do
---     (outputs, finalBlockHandle) <-
---         Pact.execExistingBlock logger serviceEnv blockEnv expectedPayloadHash (CheckablePayload payload)
---     return (DList.singleton outputs, finalBlockHandle, blockHashes)
---         where
---             expectedPayloadHash = _consensusPayloadHash $ _evaluationCtxPayload evalCtx
---             v = _chainwebVersion serviceEnv
---             cid = _chainId serviceEnv
-
 refreshPayloads :: Logger logger => logger -> ServiceEnv tbl -> IO ()
 refreshPayloads logger serviceEnv = do
     -- note that if this is empty, we wait; taking from it is the way to make us stop
     let logOutraced =
             liftIO $ logFunctionText logger Debug $ "Refresher outraced by new block"
     (_, blockInProgress) <- liftIO $ atomically $ readTMVar payloadVar
+    logFunctionText logger Debug $
+        "refreshing payloads for " <>
+        brief (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress)
     maybeRefreshedBlockInProgress <- Pool.withResource (view psReadSqlPool serviceEnv) $ \sql ->
         Checkpointer.readFrom logger v cid sql (_bctxParentCreationTime $ _blockInProgressBlockCtx blockInProgress) (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress) $ \blockEnv _bh -> do
         let dbEnv = view psBlockDbEnv blockEnv
@@ -665,7 +663,9 @@ refreshPayloads logger serviceEnv = do
                     return False
             if outraced
             then logOutraced
-            else refreshPayloads logger serviceEnv
+            else do
+                approximateThreadDelay (int $ _psBlockRefreshInterval serviceEnv)
+                refreshPayloads logger serviceEnv
     where
 
     payloadVar = _psMiningPayloadVar serviceEnv

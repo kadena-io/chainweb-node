@@ -148,7 +148,7 @@ import Control.Concurrent (threadDelay)
 data PactServerData logger tbl = PactServerData
     { _pactServerDataMempool :: !(MempoolBackend Pact.Transaction)
     , _pactServerDataLogger :: !logger
-    , _pactServerDataPact :: !(PactPayloadProvider logger tbl)
+    , _pactServerDataPact :: !(ServiceEnv tbl)
     }
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger tbl
@@ -191,7 +191,7 @@ pactServer d =
   where
     mempool = _pactServerDataMempool d
     logger = _pactServerDataLogger d
-    PactPayloadProvider _ pact = _pactServerDataPact d
+    pact = _pactServerDataPact d
 
     pactApiHandlers
       = sendHandler logger mempool
@@ -258,22 +258,38 @@ sendHandler
     -> Handler Pact.SendResponse
 sendHandler logger mempool (Pact.SendRequest (Pact.SubmitBatch cmds)) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse (liftError NEL.singleton . Pact.parseCommand) cmds of
-      Success cmdsWithParsedPayloads -> do
-          let cmdsWithParsedPayloadsV = V.fromList $ NEL.toList cmdsWithParsedPayloads
-          -- If any of the txs in the batch fail validation, we reject them all.
-          liftIO (mempoolInsertCheckVerbose mempool cmdsWithParsedPayloadsV) >>= checkResult
-          liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
-          return $! Pact.SendResponse $ Pact.RequestKeys $ NEL.map Pact.cmdToRequestKey cmdsWithParsedPayloads
-      Failure errs -> throwError $ setErrJSONPact (J.array $ fmap convertError errs) err400
+    cmdsWithParsedPayloads <- parsedCommands
+    let cmdsWithParsedPayloadsV = V.fromList $ NEL.toList cmdsWithParsedPayloads
+    -- If any of the txs in the batch fail validation, we reject them all.
+    liftIO (mempoolInsertCheckVerbose mempool cmdsWithParsedPayloadsV) >>= checkResult
+    liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
+    return $! Pact.SendResponse $ Pact.RequestKeys $ fmap Pact.cmdToRequestKey cmdsWithParsedPayloads
   where
-    convertError = Pact.pactErrorToOnChainError . fmap Pact.spanInfoToLineInfo
+    convertError = Pact._boundedText . Pact._peMsg . Pact.pactErrorToOnChainError . fmap Pact.spanInfoToLineInfo
     failWith :: Text -> ExceptT ServerError IO a
     failWith err = do
       liftIO $ logFunctionText logger Info err
       throwError $ setErrText err err400
 
     logg = logFunctionJson (setComponent "send-handler" logger)
+
+    parsedCommands :: ExceptT ServerError IO (NonEmpty Pact.Transaction)
+    parsedCommands = do
+      let
+        parsedWithErrs =
+          flip traverse (NEL.zip (NEL.iterate succ (0 :: Word)) cmds) $ \(i, tx) ->
+            case Pact.parseCommand tx of
+              Left err ->
+                Failure $ NEL.singleton $
+                  "Transaction at index " <> sshow i <>
+                  " has invalid Pact code: " <> convertError err
+              Right cmd ->
+                pure cmd
+      case parsedWithErrs of
+        Failure errs ->
+          failWith $ "One or more transactions has invalid Pact code: " <> T.intercalate ", " (toList errs)
+        Success parsedCmds ->
+          return parsedCmds
 
     checkResult :: Vector (T2 TransactionHash (Either InsertError Pact.Transaction)) -> ExceptT ServerError IO ()
     checkResult vec
@@ -657,7 +673,7 @@ internalPoll logger mempool pact confDepth requestKeys0 = do
             err = Pact.PactOnChainError
               -- the only legal error type, once chainweaver is really gone, we
               -- can use a real error type
-              (Pact.ErrorType "TxFailure")
+              (Pact.ErrorType "EvalError")
               (Pact.mkBoundedText "Transaction is badlisted because it previously failed to validate.")
               (Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin Pact.noInfo)
             !cr = Pact.CommandResult rk Nothing res (mempty :: Pact.Gas) Nothing Nothing Nothing []

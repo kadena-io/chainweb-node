@@ -58,13 +58,9 @@ import Chainweb.Test.Utils
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Core.Command.Server as Pact
 import qualified Pact.Core.Command.Types as Pact
-import qualified Data.Aeson as Aeson
-import qualified Data.Text.Lazy.Encoding as TL
-import qualified Data.Text.Lazy as TL
 import qualified Pact.Core.Hash as Pact
 import qualified Pact.Core.Command.Client as Pact
 import qualified Pact.Core.Errors as Pact
-import Chainweb.Utils
 
 -- ------------------------------------------------------------------ --
 -- Defaults
@@ -127,9 +123,7 @@ local
 local v sid cenv cmd = do
     Just cr <- preview _LocalResultLegacy <$>
       localWithQueryParams v sid cenv Nothing Nothing Nothing cmd
-    let !result = fromJuste $
-          Aeson.decode (TL.encodeUtf8 $ TL.fromStrict $ J.getJsonText cr)
-    pure result
+    return cr
 
 -- | Request an SPV proof using exponential retry logic
 --

@@ -128,6 +128,7 @@ module Chainweb.Test.Utils
 , withPactDir
 , NodeDbDirs(..)
 , withTempDir
+, withTempFile
 ) where
 
 import Control.Concurrent
@@ -147,6 +148,7 @@ import Data.Coerce (coerce)
 import Data.Foldable
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
+import Data.Pool (Pool)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Tree
@@ -167,10 +169,10 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
 
-import System.Directory (removeDirectoryRecursive)
+import System.Directory (removeDirectoryRecursive, removeFile)
 import System.Environment (withArgs)
 import System.IO
-import System.IO.Temp
+import System.IO.Temp qualified as Temp
 import System.LogLevel
 import System.Random (randomIO)
 
@@ -211,7 +213,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockF
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.Types(SQLiteEnv)
-import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Parent
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -309,8 +311,8 @@ withRocksResource :: ResourceT IO RocksDb
 withRocksResource = view _2 . snd <$> allocate create destroy
   where
     create = do
-      sysdir <- getCanonicalTemporaryDirectory
-      dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
+      sysdir <- Temp.getCanonicalTemporaryDirectory
+      dir <- Temp.createTempDirectory sysdir "chainweb-rocksdb-tmp"
       opts@(R.Options' opts_ptr _ _) <- R.mkOpts modernDefaultOptions
       rocks <- openRocksDb dir opts_ptr
       return (dir, rocks, opts)
@@ -333,9 +335,12 @@ withSQLiteResource file = snd <$> allocate
     (openSQLiteConnection file chainwebPragmas)
     closeSQLiteConnection
 
--- | Open a temporary file-backed SQLite database.
-withTempSQLiteResource :: ResourceT IO SQLiteEnv
-withTempSQLiteResource = withSQLiteResource ""
+-- | Open a temporary file-backed SQLite database, and return a writable
+-- connection and a read-only pool of connections.
+withTempSQLiteResource :: ResourceT IO (SQLiteEnv, Pool SQLiteEnv)
+withTempSQLiteResource = do
+    fp <- withTempFile "sqlite-tmp"
+    (,) <$> withSQLiteResource fp <*> withReadSqlitePool fp
 
 withInMemSQLiteResource :: ResourceT IO SQLiteEnv
 withInMemSQLiteResource = withSQLiteResource ":memory:"
@@ -564,19 +569,18 @@ testHost = "localhost"
 data TestClientEnv t = TestClientEnv
     { _envClientEnv :: !ClientEnv
     , _envCutDb :: !(Maybe CutDb)
-    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
-    , _envMempools :: ![(ChainId, MempoolBackend t)]
+    , _envBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     , _envVersion :: !ChainwebVersion
     }
 
 pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
-    -> [(ChainId, BlockHeaderDb)]
+    -> ChainMap BlockHeaderDb
     -> ChainwebVersion
     -> TestClientEnv t
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs, _cdbEnvVersion }
-    = TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] [] _cdbEnvVersion
+    <- TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] _cdbEnvVersion
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
@@ -584,7 +588,7 @@ pattern PeerDbsTestClientEnv
     -> ChainwebVersion
     -> TestClientEnv t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs, _pdbEnvVersion }
-    = TestClientEnv _pdbEnvClientEnv Nothing [] [] _pdbEnvPeerDbs _pdbEnvVersion
+    <- TestClientEnv _pdbEnvClientEnv Nothing _ _pdbEnvPeerDbs _pdbEnvVersion
 
 pattern PayloadTestClientEnv
     :: ClientEnv
@@ -592,7 +596,7 @@ pattern PayloadTestClientEnv
     -> ChainwebVersion
     -> TestClientEnv t
 pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb, _eEnvVersion }
-    = TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) [] [] [] _eEnvVersion
+    <- TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) _ [] _eEnvVersion
 
 withTestAppServer
     :: Bool
@@ -681,7 +685,7 @@ clientEnvWithChainwebTestServer
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> ResourceT IO (TestClientEnv t)
 clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
@@ -698,7 +702,6 @@ clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
         (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
         (_chainwebServerCutDb dbs)
         (_chainwebServerBlockHeaderDbs dbs)
-        (_chainwebServerMempools dbs)
         (_chainwebServerPeerDbs dbs)
         v
 
@@ -739,14 +742,12 @@ withBlockHeaderDbsServer
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
-    -> [(ChainId, MempoolBackend t)]
+    -> ChainMap BlockHeaderDb
     -> ResourceT IO (TestClientEnv t)
-withBlockHeaderDbsServer shouldValidateSpec tls v chainDbs mempools =
+withBlockHeaderDbsServer shouldValidateSpec tls v chainDbs =
     clientEnvWithChainwebTestServer shouldValidateSpec tls v
         emptyChainwebServerDbs
             { _chainwebServerBlockHeaderDbs = chainDbs
-            , _chainwebServerMempools = mempools
             }
 
 -- -------------------------------------------------------------------------- --
@@ -989,9 +990,6 @@ awaitBlockHeight v cenv i = do
     checkRetry _ (Right c)
         = return $ any (\bh -> _bhwhHeight bh < i) (_cutHashes c)
 
-withAsyncR :: IO a -> ResourceT IO (Async a)
-withAsyncR action = snd <$> allocate (async action) uninterruptibleCancel
-
 runTestNodes :: Logger logger
     => logger
     -> ChainwebVersion
@@ -1067,12 +1065,18 @@ data NodeDbDirs = NodeDbDirs
 withPactDir :: Word -> ResourceT IO FilePath
 withPactDir nid = withTempDir $ "pactdb-dir-" ++ show nid
 
+withTempFile :: FilePath -> ResourceT IO FilePath
+withTempFile template = snd <$> allocate create destroy
+    where
+    create = Temp.emptySystemTempFile template
+    destroy = removeFile
+
 withTempDir :: FilePath -> ResourceT IO FilePath
 withTempDir template = snd <$> allocate create destroy
     where
     create = do
-        targetDir <- getCanonicalTemporaryDirectory
-        createTempDirectory targetDir template
+        targetDir <- Temp.getCanonicalTemporaryDirectory
+        Temp.createTempDirectory targetDir template
     destroy = removeDirectoryRecursive
 
 withNodeDbDirs :: RocksDb -> Word -> ResourceT IO [NodeDbDirs]

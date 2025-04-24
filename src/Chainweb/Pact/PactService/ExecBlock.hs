@@ -169,6 +169,8 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
             startTxs <> V.fromList (concat valids)
           & blockInProgressRemainingGasLimit .~
             finalGasLimit
+          & blockInProgressNumber %~
+            succ
 
     liftIO $ logFunctionText logger Debug $ "block with new transactions: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
