@@ -109,7 +109,6 @@ module Chainweb.Pact.Types
     , _BuyGasError
     , _RedeemGasError
     , _PurchaseGasTxTooBigForGasLimit
-    , _TxInsertError
     , _TxExceedsBlockGasLimit
     , BlockInvalidError(..)
     , BlockOutputMismatchError(..)
@@ -661,8 +660,7 @@ data TxInvalidError
   = BuyGasError !BuyGasError
   | RedeemGasError !RedeemGasError
   | PurchaseGasTxTooBigForGasLimit
-  | TxInsertError !InsertError
-  | TxExceedsBlockGasLimit !Int
+  | TxExceedsBlockGasLimit
   deriving stock (Show, Eq, Generic)
 
 -- | Convert an error that would make a transaction invalid, into an error that can be

@@ -323,7 +323,7 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
       , txGasLimit > blockGas
       -- then the transaction is not allowed to fail, or it would consume more gas than remains in the block
       , Pact.PactResultErr _ <- Pact._crResult result
-      -> throwError $ TxExceedsBlockGasLimit (txGasLimit ^. Pact._GasLimit . to Pact._gas . to fromIntegral)
+      -> throwError $ TxExceedsBlockGasLimit
       | otherwise -> do
         let subtractGasLimit limit subtrahend =
               let limitGas = limit ^. Pact._GasLimit
