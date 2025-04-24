@@ -531,7 +531,11 @@ runGenesisPayload logger db spv ctx cmd = do
       (runTransactionM
         (runPayload
           Transactional
-          (Set.singleton FlagDisableRuntimeRTC)
+          (Set.unions
+            [ Set.singleton FlagDisableRuntimeRTC
+            , guardDisablePact51Flags ctx
+            , guardDisablePact52Flags ctx
+            ])
           db
           spv
           [ CapToken (QualifiedName "GENESIS" (ModuleName "coin" Nothing)) []
@@ -951,3 +955,9 @@ guardDisablePact51Flags :: BlockCtx -> Set ExecutionFlag
 guardDisablePact51Flags txCtx
   | guardCtx chainweb228Pact txCtx = Set.empty
   | otherwise = Set.singleton FlagDisablePact51
+
+-- TODO: PP, make sure this is right
+guardDisablePact52Flags :: BlockCtx -> Set ExecutionFlag
+guardDisablePact52Flags txCtx
+  | guardCtx chainweb229Pact txCtx = Set.empty
+  | otherwise = Set.singleton FlagDisablePact52
