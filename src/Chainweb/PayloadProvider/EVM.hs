@@ -417,8 +417,8 @@ logg p l t = logFunctionText (_evmLogger p) l t
 -- Exceptions
 
 data EvmExecutionEngineException
-    = EvmChainIdMissmatch (Expected EVM.ChainId) (Actual EVM.ChainId)
-    | EvmInvalidGensisHeader (Expected BlockPayloadHash) (Actual BlockPayloadHash)
+    = EvmChainIdMismatch ChainId (Expected EVM.ChainId) (Actual EVM.ChainId)
+    | EvmInvalidGenesisHeader ChainId (Expected BlockPayloadHash) (Actual BlockPayloadHash)
     deriving (Show, Eq, Generic)
 
 instance Exception EvmExecutionEngineException
@@ -557,12 +557,13 @@ checkExecutionClient
 checkExecutionClient v c ctx expectedEcid = do
     ecid <- callMethodHttp @Eth_ChainId ctx Nothing
     unless (expectedEcid == ecid) $
-        throwM $ EvmChainIdMissmatch (Expected expectedEcid) (Actual ecid)
+        throwM $ EvmChainIdMismatch (_chainId c) (Expected expectedEcid) (Actual ecid)
     callMethodHttp @Eth_GetBlockByNumber ctx (DefaultBlockNumber 0, False) >>= \case
         Nothing -> throwM EvmGenesisHeaderNotFound
         Just h -> do
             unless (EVM._hdrPayloadHash h == expectedGenesisHeader) $
-                throwM $ EvmInvalidGensisHeader
+                throwM $ EvmInvalidGenesisHeader
+                    (_chainId c)
                     (Expected expectedGenesisHeader)
                     (Actual $ EVM._hdrPayloadHash h)
             return h
