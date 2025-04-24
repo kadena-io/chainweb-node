@@ -388,12 +388,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                                     { _crReqKey = requestKey
                                     , _crTxId = Nothing
                                     , _crResult = Pact.PactResultErr $
-                                        Pact.PactOnChainError
-                                            -- the only legal error type, once chainweaver is really gone, we
-                                            -- can use a real error type
-                                            (Pact.ErrorType "EvalError")
-                                            (Pact.mkBoundedText $ undefined) -- TODO: PP prettyPact5GasPurchaseFailure err)
-                                            (Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0))
+                                        txInvalidErrorToOnChainPactError err
                                     , _crGas =
                                         cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasLimit . Pact._GasLimit
                                     , _crLogs = Nothing
@@ -749,9 +744,10 @@ execPreInsertCheckReq logger serviceEnv txs = do
             gasEnv <- Pact.mkTableGasEnv (Pact.MilliGasLimit mempty) Pact.GasLogsDisabled
             Pact.buyGas logger' gasEnv pactDb noMiner bctx (view Pact.payloadObj <$> tx)
         case result of
-            Left _err -> do
-                -- TODO: PP
-                throwError $ InsertErrorBuyGas $ undefined -- _prettyGasPurchaseFailure $ BuyGasError (Pact.cmdToRequestKey tx) err
+            Left err -> do
+                -- note that this is not on-chain
+                throwError $ InsertErrorBuyGas $ Pact._boundedText $ Pact._peMsg $
+                    txInvalidErrorToOnChainPactError (BuyGasError err)
             Right (_ :: Pact.EvalResult) -> return ()
 
 execLookupPactTxs

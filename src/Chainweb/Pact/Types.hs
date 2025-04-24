@@ -105,6 +105,7 @@ module Chainweb.Pact.Types
     , TransactionOutputProofB64(..)
 
     , TxInvalidError(..)
+    , txInvalidErrorToOnChainPactError
     , _BuyGasError
     , _RedeemGasError
     , _PurchaseGasTxTooBigForGasLimit
@@ -663,6 +664,39 @@ data TxInvalidError
   | TxInsertError !InsertError
   | TxExceedsBlockGasLimit !Int
   deriving stock (Show, Eq, Generic)
+
+-- | Convert an error that would make a transaction invalid, into an error that can be
+-- returned to the user. Note that outputs from here do not make it on-chain ever.
+txInvalidErrorToOnChainPactError :: TxInvalidError -> Pact.PactOnChainError
+txInvalidErrorToOnChainPactError = \case
+  BuyGasError err ->
+    prefixMsg "Failed to buy gas:" $
+      buyGasErrorToOnChainPactError err
+  RedeemGasError (RedeemGasPactError err) ->
+    prefixMsg "Failed to redeem gas:" $
+      Pact.pactErrorToOnChainError err
+  PurchaseGasTxTooBigForGasLimit -> Pact.PactOnChainError
+    { _peType = Pact.ErrorType "EvalError"
+    , _peMsg = "gas limit too low to even begin evaluation"
+    , _peInfo = Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0)
+    }
+  TxExceedsBlockGasLimit {} -> Pact.PactOnChainError
+    { _peType = Pact.ErrorType "EvalError"
+    , _peMsg = "tx gas limit taken with other block txs exceeds block gas limit"
+    , _peInfo = Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0)
+    }
+  where
+  buyGasErrorToOnChainPactError (BuyGasPactError err) = Pact.pactErrorToOnChainError err
+  buyGasErrorToOnChainPactError BuyGasMultipleGasPayerCaps = Pact.PactOnChainError
+    { _peType = Pact.ErrorType "EvalError"
+    , _peMsg = "multiple gas payer capabilities in signers list"
+    , _peInfo = Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0)
+    }
+  prefixMsg p err =
+    err
+      { Pact._peMsg = Pact.mkBoundedText $
+        T.unwords [p, Pact._boundedText (Pact._peMsg err) ]
+      }
 
 makePrisms ''TxInvalidError
 
