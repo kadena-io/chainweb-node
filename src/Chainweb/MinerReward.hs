@@ -182,7 +182,7 @@ blockMinerReward
 blockMinerReward v h = case M.lookupGE h minerRewards of
     Nothing -> MinerReward $ Stu 0
 -- Try a simple change. Devide by twice the number of chains (that's what I believe n is)
-    Just (_, s) -> MinerReward $ divideStu s (n * 2)
+    Just (_, s) -> MinerReward $ divideStu s n
   where
     !n = int . order $ chainGraphAt v h
 

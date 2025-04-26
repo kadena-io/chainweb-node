@@ -69,11 +69,8 @@ module Chainweb.Pact5.Backend.ChainwebPactDb
     , toPactTxLog
     , domainTableName
     , convRowKey
-    , doKeys
     , commitBlockStateToDatabase
     , initSchema
-    , getAllKeysForUserTable
-    , _fetchKeysSep
     ) where
 
 import Chainweb.BlockHash
@@ -133,9 +130,6 @@ import Pact.Core.Serialise qualified as Pact
 import Pact.Core.StableEncoding (encodeStable)
 import Pact.Types.Persistence qualified as Pact4
 import Prelude hiding (concat, log)
--- import Debug.Trace (trace)
--- import Chainweb.Pact.Types
-import System.IO (hPutStrLn, stderr)
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -336,11 +330,6 @@ chainwebPactBlockDb env = Pact5Db
                     runOnBlockGassed env stateVar doRollback
                 }
         r <- kont pactDb
-        ge <- ask -- Retrieve the GasEnv from the ReaderT context
-        _result <- liftIO $ modifyMVar stateVar $ \s -> do
-            r <- Pact.runGasM ge $ runReaderT (runStateT (runBlockHandler (_fetchKeysSep "coin")) s) env
-            let newState = either (\_ -> s) snd r
-            return (newState, fmap fst r)
         finalState <- readMVar stateVar
         -- Register a successful transaction in the pending data for the block
         let registerRequestKey = case maybeRequestKey of
@@ -887,44 +876,3 @@ getSerialiser = do
     cid <- view blockHandlerChainId
     blockHeight <- view blockHandlerBlockHeight
     return $ pact5Serialiser version cid blockHeight
-
--- Function to retrieve all keys for a user table
-getAllKeysForUserTable :: Text -> BlockHandler logger [Pact.RowKey]
-getAllKeysForUserTable tableName = do
-    let moduleName = Pact.ModuleName "user" Nothing -- Replace "user" with the actual module name if needed
-    let domain = Pact.DUserTables (Pact.TableName tableName moduleName) -- Correctly construct TableName
-    keys <- doKeys domain -- Fetch all keys
-    let keysLength = length keys -- Compute the length of the keys
-    logInfoN $ "Number of keys: " ++ show keysLength
-    return keys
-
-logInfoN :: String -> BlockHandler logger ()
-logInfoN msg = liftIO $ hPutStrLn stderr msg -- Write to stderr
-
-getDbHandle :: BlockHandler logger SQ3.Database
-getDbHandle = do
-    env <- ask -- Access the BlockHandlerEnv using the ReaderT monad
-    return $ _blockHandlerDb env -- Extract the database handle from the environment
-
-_fetchKeysSep :: Text -> BlockHandler logger [Text]
-_fetchKeysSep tableName = do
-    db <- getDbHandle -- Extract the database handle from the BlockHandler monad
-    let tableNameUtf8 = toUtf8 tableName -- Convert Text to SQ3.Utf8
-    result <- liftIO $ runExceptT $ qry db
-        ("SELECT DISTINCT rowkey FROM " <> tbl tableNameUtf8 <> " ORDER BY rowkey;")
-        [] [RText]
-    case result of
-        Left err -> error $ "Database error: " ++ show err
-        Right ks -> forM ks $ \row -> do
-            case row of
-                [SText k] -> return $ fromUtf8 k
-                _ -> error "fetchKeysSep: The impossible happened."
-
--- executeGetAllKeysForUserTable :: BlockHandlerEnv logger -> BlockState -> Text -> IO [Pact.RowKey]
--- executeGetAllKeysForUserTable env state tableName = do
---     stateVar <- newMVar state -- Wrap BlockState in an MVar
---     gasEnv <- initializeGasEnv -- Replace with your actual gas environment initialization
---     result <- Pact.runGasM gasEnv $ runOnBlockGassed env stateVar (getAllKeysForUserTable tableName)
---     case result of
---         Left err -> error $ "Gas computation failed: " ++ show err
---         Right keys -> return keys

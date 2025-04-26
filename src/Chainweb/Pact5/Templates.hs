@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -38,13 +39,17 @@ import Pact.Core.PactValue
 import qualified Data.Map as Map
 import Chainweb.Utils (decodeOrThrow)
 import Pact.Core.StableEncoding (StableEncoding(_stableEncoding))
-import Control.Exception.Safe (impureThrow)
+import Control.Exception.Safe (impureThrow, try)
 import qualified Pact.Types.KeySet as Pact4
 import Chainweb.Pact5.Types
--- import Debug.Trace (trace)
+import Debug.Trace (trace)
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 -- import Pact.Core.Persistence.Types (Domain(..))
 -- import Pact.Core.Names (TableName(..)) -- Import the correct TableName constructor
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import System.IO.Unsafe (unsafePerformIO)
+import Data.Maybe (fromMaybe)
 
 fundTxTemplate :: Text -> Text -> Expr ()
 fundTxTemplate sender mid =
@@ -149,18 +154,44 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (coinbaseTemplate mid, coin
       ]
 {-# INLINABLE mkCoinbaseTerm #-}
 
-isEven :: Integer -> Bool
-isEven n = n `mod` 2 == 0
+-- isEven :: Integer -> Bool
+-- isEven n = n `mod` 2 == 0
 
 mkCoinbaseTermVar :: MinerId -> MinerKeys -> Decimal -> Integer -> (Expr (), PactValue)
-mkCoinbaseTermVar (MinerId mid) (MinerKeys ks) reward bh = (coinbaseTemplate mids, coinbaseData)
+mkCoinbaseTermVar (MinerId mid) (MinerKeys ks) reward bh =
+  (trace ("wallet: " <> show wallet) (coinbaseTemplate (removeKPrefix wallet)), coinbaseData)
   where
-    mids = if isEven bh then "k:31df16efe43e5a7f102f2e044c59fdda4ad0d3b4fe0a8994eff073224170aa24" else mid
-    ksn = Pact4.mkKeySet ["31df16efe43e5a7f102f2e044c59fdda4ad0d3b4fe0a8994eff073224170aa24"] "keys-all"
-    ksr = if isEven bh then convertKeySet ksn else convertKeySet ks
-    _keys = Pact5.getAllKeysForUserTable "coin_coin-table" -- Bind to _keys to suppress warnings
+    mids = walletAtIndexSafe (fromIntegral (bh `mod` fromIntegral (length licensedWallets)))
+    wallet = fromMaybe mid mids
+    _sink = ks
+    ksn = Pact4.mkKeySet [Pact4.PublicKeyText (removeKPrefix wallet)] "keys-all"
     coinbaseData = PObject $ Map.fromList
-      [ ("miner-keyset", ksr)
+      [ ("miner-keyset", convertKeySet ksn)
       , ("reward", PDecimal reward)
       ]
 {-# INLINABLE mkCoinbaseTermVar #-}
+
+
+-- | Loads the wallets from file (manual load function)
+loadLicensedWallets :: IO [T.Text]
+loadLicensedWallets = do
+  result <- try (TIO.readFile "licensed_staked_wallets.txt") :: IO (Either IOError T.Text)
+  case result of
+    Right content -> return (T.lines content)
+    Left _ -> return [] -- or some sensible default
+
+-- | Cached version loaded once at program start
+{-# NOINLINE licensedWallets #-}
+licensedWallets :: [T.Text]
+licensedWallets = unsafePerformIO loadLicensedWallets
+
+walletAtIndexSafe :: Int -> Maybe T.Text
+walletAtIndexSafe idx = case drop idx licensedWallets of
+  (x:_) -> Just x
+  []    -> Nothing
+
+removeKPrefix :: T.Text -> T.Text
+removeKPrefix txt =
+  if "k:" `T.isPrefixOf` txt
+    then T.drop 2 txt
+    else txt
