@@ -135,14 +135,14 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
           # The first version in this list is the version to be used for release
-          "ghc": ["9.8.2", "9.10.1", "9.6.6"],
-          "cabal": ["3.12"],
+          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
               "ghc": "9.8.2",
-              "cabal": "3.12",
+              "cabal": "latest",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
             }
@@ -153,8 +153,8 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.8.2", "9.10.1", "9.6.6"],
-          "cabal": ["3.12"],
+          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [

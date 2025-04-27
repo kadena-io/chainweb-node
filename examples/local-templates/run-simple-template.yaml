@@ -2,7 +2,7 @@ isChainweb: true
 verbose:
   verbosity: false
 batchSize: 1
-chainwebVersion: timedCPM-peterson
+chainwebVersion: timedCPM-petersen
 hostAddresses:
 - hostname: 127.0.0.1
   port: 1789

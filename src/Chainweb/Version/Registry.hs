@@ -49,7 +49,6 @@ import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
-import Chainweb.Version.Testnet05
 import Chainweb.Utils.Rule
 -- temporarily left off because it doesn't validate
 
@@ -57,7 +56,7 @@ import Chainweb.Utils.Rule
 versionMap :: IORef (HashMap ChainwebVersionCode ChainwebVersion)
 versionMap = unsafePerformIO $ do
     traverse_ validateVersion knownVersions
-    newIORef $ HM.fromList [(_versionCode v, v) | v <- [mainnet, testnet04, testnet05]]
+    newIORef $ HM.fromList [(_versionCode v, v) | v <- [mainnet, testnet04]]
 
 -- | Register a version into our registry by code, ensuring it contains no
 -- errors and there are no others registered with that code.
@@ -75,8 +74,8 @@ registerVersion v = do
 -- | Unregister a version from the registry. This is ONLY for testing versions.
 unregisterVersion :: HasCallStack => ChainwebVersion -> IO ()
 unregisterVersion v = do
-    if elem (_versionCode v) (_versionCode <$> [mainnet, testnet04, testnet05])
-    then error "You cannot unregister mainnet, testnet04, or testnet05 versions"
+    if elem (_versionCode v) (_versionCode <$> [mainnet, testnet04])
+    then error "You cannot unregister mainnet or testnet04 versions"
     else atomicModifyIORef' versionMap $ \m -> (HM.delete (_versionCode v) m, ())
 
 validateVersion :: HasCallStack => ChainwebVersion -> IO ()
@@ -122,7 +121,6 @@ lookupVersionByCode code
     -- registering them is still allowed, as long as they are not conflicting.
     | code == _versionCode mainnet = mainnet
     | code == _versionCode testnet04 = testnet04
-    | code == _versionCode testnet05 = testnet05
     | otherwise =
         -- Setting the version code here allows us to delay doing the lookup in
         -- the case that we don't actually need the version, just the code.
@@ -148,7 +146,6 @@ lookupVersionByName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
 lookupVersionByName name
     | name == _versionName mainnet = mainnet
     | name == _versionName testnet04 = testnet04
-    | name == _versionName testnet05 = testnet05
     | otherwise = lookupVersion & versionName .~ name
   where
     lookupVersion = unsafeDupablePerformIO $ do
@@ -166,12 +163,12 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet04, testnet05, recapDevnet, devnet]
+knownVersions = [mainnet, testnet04, recapDevnet, devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.
 findKnownVersion :: MonadFail m => ChainwebVersionName -> m ChainwebVersion
 findKnownVersion vn =
     case find (\v -> _versionName v == vn) knownVersions of
-        Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01, testnet04, or testnet05"
+        Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01, or testnet04"
         Just v -> return v

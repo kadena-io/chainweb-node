@@ -71,7 +71,7 @@ let haskellSrc = with nix-filter.lib; filter {
       '').outPath;
       shell.tools = {
         cabal = {};
-        haskell-language-server = {};
+        #haskell-language-server = {};
       };
       shell.buildInputs = with pkgs; [
         zlib

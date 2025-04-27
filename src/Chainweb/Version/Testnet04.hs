@@ -133,11 +133,12 @@ testnet04 = ChainwebVersion
         Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_816_925 -- 2024-11-13 12:00:00+00:00
         Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_058_738       -- 2025-02-05 12:00:00+00:00
         Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_155_146 -- 2025-03-11 00:00:00+00:00
-        Chainweb229Pact -> AllChains ForkNever
+        Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
+        Chainweb230Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
-        Bottom (minBound, petersonChainGraph)
+        Bottom (minBound, petersenChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
@@ -193,5 +194,5 @@ testnet04 = ChainwebVersion
             , (unsafeChainId 2, HM.fromList [((BlockHeight 4108311, TxBlockIdx 0), Gas 65_130)])
             ]
         }
-    , _versionServiceDate = Just "2025-04-30T00:00:00Z"
+    , _versionServiceDate = Just "2025-07-23T00:00:00Z"
     }

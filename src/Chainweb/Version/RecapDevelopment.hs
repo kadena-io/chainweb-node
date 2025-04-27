@@ -78,6 +78,7 @@ recapDevnet = ChainwebVersion
         Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 640
         Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 650
         Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 660
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 680
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet
@@ -91,7 +92,7 @@ recapDevnet = ChainwebVersion
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`
-        Bottom (minBound, petersonChainGraph)
+        Bottom (minBound, petersenChainGraph)
 
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120

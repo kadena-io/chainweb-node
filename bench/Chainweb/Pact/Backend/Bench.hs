@@ -65,7 +65,7 @@ import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import qualified Pact.Types.Command as Pact
 
 testVer :: ChainwebVersion
-testVer = instantCpmTestVersion petersonChainGraph
+testVer = instantCpmTestVersion petersenChainGraph
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0

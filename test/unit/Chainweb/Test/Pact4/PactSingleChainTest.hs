@@ -104,7 +104,7 @@ import qualified Pact.Core.StableEncoding as PCore
 import Chainweb.Pact.Backend.Types
 
 testVersion :: ChainwebVersion
-testVersion = slowForkingCpmTestVersion petersonChainGraph
+testVersion = slowForkingCpmTestVersion petersenChainGraph
 
 cid :: ChainId
 cid = someChainId testVersion

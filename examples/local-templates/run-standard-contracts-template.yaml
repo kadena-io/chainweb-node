@@ -5,7 +5,7 @@ nodeChainId: 0
 chainwebHostAddress:
   hostname: 127.0.0.1
   port: 1789
-chainwebVersion: timedCPM-peterson
+chainwebVersion: timedCPM-petersen
 scriptCommand:
   tag: RunStandardContracts
   contents:

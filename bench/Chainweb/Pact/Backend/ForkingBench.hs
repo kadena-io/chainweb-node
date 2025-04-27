@@ -350,7 +350,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = slowForkingCpmTestVersion petersonChainGraph
+testVer = slowForkingCpmTestVersion petersenChainGraph
 
 -- MORE CODE DUPLICATION
 

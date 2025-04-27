@@ -188,11 +188,11 @@ instance Arbitrary Utf8Encoded where
 instance Arbitrary ChainwebVersion where
     arbitrary = elements
         [ barebonesTestVersion singletonChainGraph
-        , barebonesTestVersion petersonChainGraph
+        , barebonesTestVersion petersenChainGraph
         , timedConsensusVersion singletonChainGraph singletonChainGraph
-        , timedConsensusVersion petersonChainGraph petersonChainGraph
+        , timedConsensusVersion petersenChainGraph petersenChainGraph
         , timedConsensusVersion singletonChainGraph pairChainGraph
-        , timedConsensusVersion petersonChainGraph twentyChainGraph
+        , timedConsensusVersion petersenChainGraph twentyChainGraph
         , RecapDevelopment
         , Testnet04
         , Mainnet01
