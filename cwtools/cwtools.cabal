@@ -174,12 +174,14 @@ executable ea
         , async
         , base
         , chainweb-storage
+        , filepath
         , lens
         , loglevel
         , pact-json
         , pact-tng:pact-request-api
         , pact-tng
         , resource-pool
+        , resourcet
         , temporary
         , text
         , vector

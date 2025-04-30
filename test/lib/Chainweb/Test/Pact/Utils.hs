@@ -17,15 +17,8 @@ module Chainweb.Test.Pact.Utils
     , testLogFn
     , getTestLogger
 
-        -- * Mempool
-    -- , mempoolInsertPact5
-    -- , mempoolLookupPact5
-
         -- * Resources
-    , withInMemSQLiteResource
-    -- , withPactQueue
     , withMempool
-    -- , withRunPactService
     , withBlockDbs
 
         -- * Properties
@@ -98,10 +91,6 @@ withSQLiteResource
 withSQLiteResource file = snd <$> allocate
     (openSQLiteConnection file chainwebPragmas)
     closeSQLiteConnection
-
--- | Open a temporary in-memory SQLite database.
-withInMemSQLiteResource :: ResourceT IO SQLiteEnv
-withInMemSQLiteResource = withSQLiteResource ":memory:"
 
 withMempool
     :: (Logger logger)

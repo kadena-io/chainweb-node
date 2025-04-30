@@ -48,6 +48,8 @@ import Chainweb.Version.RecapDevelopment (pattern RecapDevelopment)
 import Chainweb.Version.Registry (registerVersion)
 import Control.Concurrent.Async
 import Control.Exception
+import Control.Monad.Trans.Resource
+import Control.Monad.IO.Class
 import Control.Lens
 import Data.Aeson qualified as Aeson
 import Data.Foldable
@@ -63,6 +65,7 @@ import Data.Traversable
 import Data.Vector qualified as V
 import Ea.Genesis
 import GHC.Exts(the)
+import System.FilePath
 import System.LogLevel
 import System.IO.Temp
 import Text.Printf
@@ -157,11 +160,11 @@ genPayloadModule :: ChainwebVersion -> Text -> Chainweb.ChainId -> [Pact.Transac
 genPayloadModule v tag cid cwTxs = do
     let logger = genericLogger Warn TIO.putStrLn
     pdb <- newPayloadDb
-    withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
-        payloadWO <- withSqliteDb cid logger pactDbDir False $ \readWriteSql -> do
-            roPool <- Pool.newPool $ Pool.defaultPoolConfig (startReadSqliteDb cid logger pactDbDir) stopSqliteDb 10 10
-            withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql (defaultPactServiceConfig emptyPayload) $ \serviceEnv ->
-                execNewGenesisBlock logger serviceEnv (V.fromList cwTxs)
+    withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> runResourceT $ do
+        readWriteSql <- withSqliteDb cid logger pactDbDir False
+        roPool <- withReadSqlitePool cid pactDbDir
+        serviceEnv <- withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql defaultPactServiceConfig Nothing
+        payloadWO <- liftIO $ execNewGenesisBlock logger serviceEnv (V.fromList cwTxs)
         return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
 mkChainwebTxs :: [FilePath] -> IO [Pact.Transaction]

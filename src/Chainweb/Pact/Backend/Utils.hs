@@ -60,7 +60,6 @@ module Chainweb.Pact.Backend.Utils
   , openSQLiteConnection
   , closeSQLiteConnection
   , withTempSQLiteConnection
-  , withInMemSQLiteConnection
   -- * SQLite
   , chainwebPragmas
   , LocatedSQ3Error(..)
@@ -271,10 +270,10 @@ withReadSqliteDb cid logger dbDir = snd <$> allocate
     (startReadSqliteDb cid logger dbDir)
     stopSqliteDb
 
-withReadSqlitePool :: FilePath -> ResourceT IO (Pool.Pool SQLiteEnv)
-withReadSqlitePool pactDbDir = snd <$> allocate
+withReadSqlitePool :: ChainId -> FilePath -> ResourceT IO (Pool.Pool SQLiteEnv)
+withReadSqlitePool cid pactDbDir = snd <$> allocate
     (Pool.newPool $ Pool.defaultPoolConfig
-        (openSQLiteConnection pactDbDir chainwebPragmas)
+        (openSQLiteConnection (pactDbDir </> chainDbFileName cid) chainwebPragmas)
         stopSqliteDb
         30 -- seconds to keep them around unused
         2 -- connections at most
@@ -344,14 +343,6 @@ closeSQLiteConnection c = void $ close_v2 c
 --
 withTempSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection = withSQLiteConnection ""
-
--- Using the special file name @:memory:@ causes sqlite to create a temporary in-memory
--- database.
---
--- Cf. https://www.sqlite.org/inmemorydb.html
---
-withInMemSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
-withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2

@@ -41,8 +41,7 @@ module Chainweb.Test.Utils
 , withTestBlockHeaderDb
 
 -- * SQLite Database Test Resource
-, withTempSQLiteResource
-, withInMemSQLiteResource
+, withTempChainSqlite
 
 -- * Data Generation
 , toyBlockHeaderDb
@@ -217,7 +216,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Parent
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Pact.Utils (getTestLogLevel)
+import Chainweb.Test.Pact.Utils (getTestLogLevel, getTestLogger)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
 import Chainweb.Test.Utils.BlockHeader
@@ -324,26 +323,13 @@ withRocksResource = view _2 . snd <$> allocate create destroy
 -- -------------------------------------------------------------------------- --
 -- SQLite DB Test Resource
 
--- | This function doesn't delete the database file after use.
---
--- You should use 'withTempSQLiteResource' or 'withInMemSQLiteResource' instead.
---
-withSQLiteResource
-    :: String
-    -> ResourceT IO SQLiteEnv
-withSQLiteResource file = snd <$> allocate
-    (openSQLiteConnection file chainwebPragmas)
-    closeSQLiteConnection
-
 -- | Open a temporary file-backed SQLite database, and return a writable
 -- connection and a read-only pool of connections.
-withTempSQLiteResource :: ResourceT IO (SQLiteEnv, Pool SQLiteEnv)
-withTempSQLiteResource = do
-    fp <- withTempFile "sqlite-tmp"
-    (,) <$> withSQLiteResource fp <*> withReadSqlitePool fp
-
-withInMemSQLiteResource :: ResourceT IO SQLiteEnv
-withInMemSQLiteResource = withSQLiteResource ":memory:"
+withTempChainSqlite :: ChainId -> ResourceT IO (SQLiteEnv, Pool SQLiteEnv)
+withTempChainSqlite cid = do
+    logger <- liftIO $ getTestLogger
+    fp <- withTempDir "sqlite-tmp"
+    (,) <$> withSqliteDb cid logger fp False <*> withReadSqlitePool cid fp
 
 -- -------------------------------------------------------------------------- --
 -- Toy Values

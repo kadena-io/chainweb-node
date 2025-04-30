@@ -63,7 +63,7 @@ module Ea.Genesis
 import Control.Lens
 import Control.Monad
 
-import Data.Text
+import Data.Text (Text)
 import Data.Word
 
 import Chainweb.Graph
