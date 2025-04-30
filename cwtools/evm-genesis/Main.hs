@@ -54,6 +54,7 @@ main = do
             [ "chainId" .= cid
             , "blockPayloadHash" .= E._hdrPayloadHash hdr
             , "blockPayload" .= encodeB64UrlNoPaddingText (E.putRlpByteString hdr)
+            , "evmPayloadHeader" .= hdr
             ]
         | (cid, hdr) <- hdrs
         ]
