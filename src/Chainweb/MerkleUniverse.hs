@@ -150,6 +150,7 @@ data ChainwebHashTag
     | EthExcessBlobGasTag
     | EthParentBeaconBlockRootTag
     | EthReceiptTag
+    | EthRequestsHashTag
     deriving (Show, Eq, Bounded, Enum)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -205,6 +206,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'EthExcessBlobGasTag = 0x0052
     type MerkleTagVal ChainwebHashTag 'EthParentBeaconBlockRootTag = 0x0053
     type MerkleTagVal ChainwebHashTag 'EthReceiptTag = 0x0054
+    type MerkleTagVal ChainwebHashTag 'EthRequestsHashTag = 0x0055
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
@@ -398,6 +400,9 @@ data instance Sing :: ChainwebHashTag -> Type where
     SEthReceiptTag
         :: SNat (MerkleTagVal ChainwebHashTag EthReceiptTag)
         -> Sing 'EthReceiptTag
+    SEthRequestsHashTag
+        :: SNat (MerkleTagVal ChainwebHashTag EthRequestsHashTag)
+        -> Sing 'EthRequestsHashTag
 
 deriving instance Show (Sing (a :: ChainwebHashTag))
 
@@ -457,6 +462,7 @@ sTagVal (SEthBlobGasUsedTag n) = n
 sTagVal (SEthExcessBlobGasTag n) = n
 sTagVal (SEthParentBeaconBlockRootTag n) = n
 sTagVal (SEthReceiptTag n) = n
+sTagVal (SEthRequestsHashTag n) = n
 
 pattern STagVal
     :: forall (a :: ChainwebHashTag)
@@ -511,6 +517,7 @@ instance SingI 'EthBlobGasUsedTag where sing = SEthBlobGasUsedTag SNat
 instance SingI 'EthExcessBlobGasTag where sing = SEthExcessBlobGasTag SNat
 instance SingI 'EthParentBeaconBlockRootTag where sing = SEthParentBeaconBlockRootTag SNat
 instance SingI 'EthReceiptTag where sing = SEthReceiptTag SNat
+instance SingI 'EthRequestsHashTag where sing = SEthRequestsHashTag SNat
 
 instance SingKind ChainwebHashTag where
     type Demote ChainwebHashTag = ChainwebHashTag
@@ -560,6 +567,7 @@ instance SingKind ChainwebHashTag where
     fromSing (SEthExcessBlobGasTag SNat) = EthExcessBlobGasTag
     fromSing (SEthParentBeaconBlockRootTag SNat) = EthParentBeaconBlockRootTag
     fromSing (SEthReceiptTag SNat) = EthReceiptTag
+    fromSing (SEthRequestsHashTag SNat) = EthRequestsHashTag
 
     toSing VoidTag = SomeSing (SVoidTag SNat)
     toSing MerkleRootTag = SomeSing (SMerkleRootTag SNat)
@@ -607,6 +615,7 @@ instance SingKind ChainwebHashTag where
     toSing EthExcessBlobGasTag = SomeSing (SEthExcessBlobGasTag SNat)
     toSing EthParentBeaconBlockRootTag = SomeSing (SEthParentBeaconBlockRootTag SNat)
     toSing EthReceiptTag = SomeSing (SEthReceiptTag SNat)
+    toSing EthRequestsHashTag = SomeSing (SEthRequestsHashTag SNat)
 
 tagList :: [ChainwebHashTag]
 tagList = [minBound .. maxBound]

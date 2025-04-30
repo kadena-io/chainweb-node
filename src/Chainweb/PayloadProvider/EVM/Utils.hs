@@ -35,6 +35,7 @@ module Chainweb.PayloadProvider.EVM.Utils
 , toAddress32
 , _blockValueStu
 , DefaultBlockParameter(..)
+, ExecutionRequest(..)
 
 -- * Misc Utils
 , fromHexQuanity
@@ -73,6 +74,7 @@ import Text.Printf
 import Chainweb.MerkleUniverse
 import Chainweb.Crypto.MerkleLog
 import Data.MerkleLog (MerkleNodeType(..))
+import qualified Data.ByteString.Short as SB
 
 -- -------------------------------------------------------------------------- --
 -- Utils (should be moved to the ethereum package)
@@ -252,6 +254,25 @@ newtype BlockValue = BlockValue { _blockValue :: Wei }
 
 _blockValueStu :: BlockValue -> Stu
 _blockValueStu (BlockValue (Wei v)) = Stu (int v)
+
+-- ----------------------------------------------------------------------------
+-- Execution Request
+
+-- | Execution Requests are described in EIP-7685 and introduced in the Pectra
+-- hard fork.
+--
+-- They let the execution layer request certain actions from the consensus that
+-- are usually related to managing stake.
+--
+-- In chainweb consensus we ignore these requests at the moment. However, it is
+-- possible that in the future we will use this mechanism for custom requests
+-- that are specific to chainweb consensus.
+--
+newtype ExecutionRequest = ExecutionRequest BS.ShortByteString
+    deriving (Show, Eq, Ord)
+    deriving newtype (RLP, E.Bytes, Hashable)
+    deriving ToJSON via (HexBytes (SB.ShortByteString))
+    deriving FromJSON via (HexBytes (SB.ShortByteString))
 
 -- -------------------------------------------------------------------------- --
 -- Default Block Parameter

@@ -57,6 +57,8 @@ module Chainweb.PayloadProvider.EVM.Header
 , beaconBlockRootToChainwebBlockHash
 , computeBlockHash
 , computeBlockPayloadHash
+, RequestsHash(..)
+, requestsHash
 
 -- * Misc
 
@@ -85,6 +87,10 @@ module Chainweb.PayloadProvider.EVM.Header
 , hdrBaseFeePerGas
 , hdrWithdrawalsRoot
 , hdrHeight
+, hdrBlobGasUsed
+, hdrExcessBlobGas
+, hdrParentBeaconBlockRoot
+, hdrRequestsHash
 , hdrHash
 , hdrPayloadHash
 ) where
@@ -96,7 +102,7 @@ import Chainweb.BlockPayloadHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.PayloadProvider.EVM.Receipt (Receipt)
+import Chainweb.PayloadProvider.EVM.Receipt ({- IsMerkleLogEntry ReceiptsRoot -})
 import Chainweb.PayloadProvider.EVM.Utils
 import Chainweb.Storage.Table
 import Chainweb.Time
@@ -112,16 +118,16 @@ import Data.ByteString.Short qualified as SBS
 import Data.Function
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog qualified as V2
-import Data.MerkleLog.Common
 import Data.Ratio ((%))
-import Data.Text qualified as T
 import Data.Void
+import Data.Hash.SHA2
 import Ethereum.Misc
 import Ethereum.RLP
 import Ethereum.Utils
 import Foreign.Storable
 import GHC.Generics (Generic)
 import GHC.TypeNats
+import Data.Coerce
 
 -- --------------------------------------------------------------------------
 -- Utils
@@ -237,6 +243,27 @@ newtype ExcessBlobGas = ExcessBlobGas Natural
     deriving ToJSON via (HexQuantity Natural)
     deriving FromJSON via (HexQuantity Natural)
 
+-- -- --------------------------------------------------------------------------
+-- Header fields for Pectra (Prague + Electra) Hardfork
+
+-- | Requests Hash
+--
+-- Since Pectra Hardfork (cf. EIP-7685)
+--
+newtype RequestsHash = RequestsHash (BytesN 32)
+    deriving (Show, Eq)
+    deriving newtype (RLP, Bytes, Storable, Hashable)
+    deriving ToJSON via (HexBytes (BytesN 32))
+    deriving FromJSON via (HexBytes (BytesN 32))
+
+requestsHash :: [ExecutionRequest] -> RequestsHash
+requestsHash = RequestsHash
+    . unsafeBytesN
+    . coerce
+    . hashShortByteString_ @Sha2_256
+    . mconcat
+    . fmap (coerce . hashShortByteString_ @Sha2_256 . coerce)
+
 -- -------------------------------------------------------------------------- --
 -- Header
 
@@ -324,6 +351,13 @@ data Header = Header
     , _hdrBlobGasUsed :: !BlobGasUsed
     , _hdrExcessBlobGas :: !ExcessBlobGas
     , _hdrParentBeaconBlockRoot :: !ParentBeaconBlockRoot
+
+    -- The following field was introduced in the Pectra hard fork. It is ignored
+    -- in legacy headers.
+    , _hdrRequestsHash :: !RequestsHash
+        -- ^ The requests hash is the SHA256 hash of the SHA256 hashes of all
+        -- non-empty hashes in the block ordered by request type. For blocks
+        -- with no requests this is the empty hash. (cf. EIP-7685)
 
     -- synthetic fields
     , _hdrHash :: {- Lazy -} BlockHash
@@ -458,6 +492,7 @@ headerProperties o =
     , "blobGasUsed" .= _hdrBlobGasUsed o
     , "excessBlobGas" .= _hdrExcessBlobGas o
     , "parentBeaconBlockRoot" .= _hdrParentBeaconBlockRoot o
+    , "requestsHash" .= _hdrRequestsHash o
     , "hash" .= _hdrHash o
     ]
 {-# INLINE headerProperties #-}
@@ -493,6 +528,7 @@ instance FromJSON Header where
             <*> o .: "blobGasUsed"
             <*> o .: "excessBlobGas"
             <*> o .: "parentBeaconBlockRoot"
+            <*> o .: "requestsHash"
             <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrHash JSON during deserialization")
             <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrPayloadHash JSON during deserialization")
         return hdr
@@ -536,6 +572,9 @@ instance RLP Header where
         , putRlp $ _hdrBlobGasUsed hdr
         , putRlp $ _hdrExcessBlobGas hdr
         , putRlp $ _hdrParentBeaconBlockRoot hdr
+
+        -- Pectra Hardfork
+        , putRlp $ _hdrRequestsHash hdr
         ]
 
     getRlp = label "Header" $ do
@@ -562,6 +601,10 @@ instance RLP Header where
             <*> getRlp -- blob gas used
             <*> getRlp -- excess blob gas
             <*> getRlp -- parent beacon block root
+
+            -- Pectra Hardfork
+            <*> getRlp -- requests hash
+
             <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrHash during RLP deserialization")
             <*> pure (error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrPayloadHash during RLP deserialization")
         return hdr
@@ -632,6 +675,9 @@ deriving via (RlpMerkleLogEntry 'EthExcessBlobGasTag ExcessBlobGas)
 deriving via (RlpMerkleLogEntry 'EthParentBeaconBlockRootTag ParentBeaconBlockRoot)
     instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ParentBeaconBlockRoot
 
+deriving via (RlpMerkleLogEntry 'EthRequestsHashTag RequestsHash)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag RequestsHash
+
 -- -------------------------------------------------------------------------- --
 -- MerkleLog Instance
 
@@ -659,6 +705,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
         , BlobGasUsed
         , ExcessBlobGas
         , ParentBeaconBlockRoot
+        , RequestsHash
         ]
     type MerkleLogBody Header = Void
 
@@ -685,6 +732,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
             :+: _hdrBlobGasUsed h
             :+: _hdrExcessBlobGas h
             :+: _hdrParentBeaconBlockRoot h
+            :+: _hdrRequestsHash h
             :+: emptyBody
 
     fromLog l = hdr
@@ -713,6 +761,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
             , _hdrBlobGasUsed = hBlobGasUsed
             , _hdrExcessBlobGas = hExcessBlobGas
             , _hdrParentBeaconBlockRoot = hParentBeaconBlockRoot
+            , _hdrRequestsHash = hRequestsHash
             , _hdrHash  = error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrHash during MerkleLog deserialization"
             , _hdrPayloadHash = error "Chainweb.PayloadProvider.EVM.Header: attempt to force _hdrPayloadHash during MerkleLog deserialization"
             }
@@ -736,6 +785,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
             :+: hBlobGasUsed
             :+: hExcessBlobGas
             :+: hParentBeaconBlockRoot
+            :+: hRequestsHash
             :+: _
             ) = _merkleLogEntries l
 
@@ -795,6 +845,18 @@ hdrWithdrawalsRoot = to _hdrWithdrawalsRoot
 
 hdrHeight :: Getter Header Chainweb.BlockHeight
 hdrHeight = to _hdrHeight
+
+hdrBlobGasUsed :: Getter Header BlobGasUsed
+hdrBlobGasUsed = to _hdrBlobGasUsed
+
+hdrExcessBlobGas :: Getter Header ExcessBlobGas
+hdrExcessBlobGas = to _hdrExcessBlobGas
+
+hdrParentBeaconBlockRoot :: Getter Header ParentBeaconBlockRoot
+hdrParentBeaconBlockRoot = to _hdrParentBeaconBlockRoot
+
+hdrRequestsHash :: Getter Header RequestsHash
+hdrRequestsHash = to _hdrRequestsHash
 
 hdrHash :: Getter Header BlockHash
 hdrHash = to _hdrHash

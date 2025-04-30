@@ -877,7 +877,7 @@ awaitNewPayload p = do
     go pid = do
 
         lf Debug $ "got payload ID " <> encodeToText [pid]
-        resp <- RPC.callMethodHttp @Engine_GetPayloadV3 ctx [pid]
+        resp <- RPC.callMethodHttp @Engine_GetPayloadV4 ctx [pid]
         lf Debug $ "got execution payload for payload ID " <> toText pid
 
         -- FIXME if this fails with unknown payload, we need to issues a new
@@ -885,11 +885,12 @@ awaitNewPayload p = do
         -- stuck.
 
         -- Response data
-        let v3 = _getPayloadV3ResponseExecutionPayload resp
+        let v3 = _getPayloadV4ResponseExecutionPayload resp
             v2 = _executionPayloadV2 v3
             v1 = _executionPayloadV1 v2
             h = EVM.numberToHeight $ _executionPayloadV1BlockNumber v1
             newEvmBlockHash = _executionPayloadV1BlockHash v1
+            reqs = _getjPayloadV4ResponseExecutionRequests resp
 
         -- check that this is a new payload
         atomically (tryReadTMVar (_evmPayloadVar p)) >>= \case
@@ -907,7 +908,7 @@ awaitNewPayload p = do
                 let n = maybe 0 (succ . _newPayloadNumber . ssnd) x
 
                 -- check that Blobs bundle is empty
-                unless (null $ _blobsBundleV1Blobs $ _getPayloadV3ResponseBlobsBundle resp) $
+                unless (null $ _blobsBundleV1Blobs $ _getPayloadV4ResponseBlobsBundle resp) $
                     throwM BlobsNotSupported
 
                 -- Check that the block height matches the expected height
@@ -917,13 +918,13 @@ awaitNewPayload p = do
                 -- Check that the fees of the execution paylod match the block
                 -- value of the response.
                 -- FIXME FIXME FIXME
-                -- unless (EVM._blockValueStu (_getPayloadV3ResponseBlockValue resp) == fees v1) $
+                -- unless (EVM._blockValueStu (_getPayloadV4ResponseBlockValue resp) == fees v1) $
                 --     throwM InconsistentNewPayloadFees
-                --         { _inconsistentPayloadBlockValue = _getPayloadV3ResponseBlockValue resp
+                --         { _inconsistentPayloadBlockValue = _getPayloadV4ResponseBlockValue resp
                 --         , _inconsistentPayloadFees = fees v1
                 --         }
 
-                let pld = executionPayloadV3ToHeader (_syncStateBlockHash sstate) v3
+                let pld = executionPayloadV3ToHeader (_syncStateBlockHash sstate) v3 reqs
 
                 -- Check that the computed block hash matches the hash from the
                 -- response
@@ -958,8 +959,9 @@ awaitNewPayload p = do
 executionPayloadV3ToHeader
     :: Chainweb.BlockHash
     -> ExecutionPayloadV3
+    -> [Utils.ExecutionRequest]
     -> Payload
-executionPayloadV3ToHeader phdr v3 = hdr
+executionPayloadV3ToHeader phdr v3 reqs = hdr
     { EVM._hdrHash = EVM.computeBlockHash hdr
     , EVM._hdrPayloadHash = EVM.computeBlockPayloadHash hdr
     }
@@ -987,6 +989,7 @@ executionPayloadV3ToHeader phdr v3 = hdr
         , _hdrBlobGasUsed = _executionPayloadV3BlobGasUsed v3
         , _hdrExcessBlobGas = _executionPayloadV3ExcessBlobGas v3
         , _hdrParentBeaconBlockRoot = EVM.chainwebBlockHashToBeaconBlockRoot phdr
+        , _hdrRequestsHash = EVM.requestsHash reqs
         , _hdrHash = error "Chainweb.PayloadProvider.EVM.executionPayloadV3ToHeader: _hdrHash"
         , _hdrPayloadHash = error "Chainweb.PayloadProvider.executionPayloadV3ToHeader: _hdrPayloadHash"
         }

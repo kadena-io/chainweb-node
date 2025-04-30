@@ -103,6 +103,7 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 , BlockValue(..)
 , GetPayloadV2Response(..)
 , GetPayloadV3Response(..)
+, GetPayloadV4Response(..)
 
 -- * Authentication and Client Context
 , JwtSecret(..)
@@ -114,6 +115,7 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 -- * Engine API Methods
 , type Engine_GetPayloadV2
 , type Engine_GetPayloadV3
+, type Engine_GetPayloadV4
 , type Engine_ForkchoiceUpdatedV3
 ) where
 
@@ -596,7 +598,7 @@ instance FromJSON ExecutionPayloadV2 where
 -- -------------------------------------------------------------------------- --
 -- Execution Payload V3
 
--- | Execution Payload V3a
+-- | Execution Payload V3
 --
 -- This structure has the syntax of ExecutionPayloadV2 and appends the new
 -- fields: blobGasUsed and excessBlobGas.
@@ -1067,7 +1069,7 @@ instance JsonRpcMethod "engine_getPayloadV3" where
         , ApplicationError UnsupportedFork
         ]
 
--- | Engine Get Payload V2 Response
+-- | Engine Get Payload V3 Response
 --
 -- error: code and message set in case an exception happens while getting the
 -- payload.
@@ -1117,6 +1119,81 @@ instance FromJSON GetPayloadV3Response where
         <*> o .: "blockValue"
         <*> o .: "blobsBundle"
         <*> o .: "shouldOverrideBuilder"
+    {-# INLINE parseJSON #-}
+
+-- -------------------------------------------------------------------------- --
+-- Engine Get Payload V4 (Prague / Pectra)
+
+type Engine_GetPayloadV4 = "engine_getPayloadV4"
+
+-- | Engine Get Payload V4
+--
+-- The response of this method is extended with the executionRequests field.
+--
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/prague.md#engine_getpayloadv4
+--
+instance JsonRpcMethod "engine_getPayloadV4" where
+    type MethodRequest "engine_getPayloadV4" = [PayloadId]
+    type MethodResponse "engine_getPayloadV4" = GetPayloadV4Response
+    type ServerErrors "engine_getPayloadV4" = EngineServerErrors
+    type ApplicationErrors "engine_getPayloadV4" = EngineErrors
+    responseTimeoutMs = Just 1000
+    methodErrors =
+        [ ApplicationError UnknownPayload
+        , ApplicationError UnsupportedFork
+        ]
+
+-- | Engine Get Payload V4 Response
+--
+-- New fields:
+--
+-- * executionRequests
+--
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/prague.md#response-1
+--
+data GetPayloadV4Response = GetPayloadV4Response
+    { _getPayloadV4ResponseExecutionPayload :: !ExecutionPayloadV3
+        -- ^ executionPayload: ExecutionPayloadV2
+    , _getPayloadV4ResponseBlockValue :: !BlockValue
+        -- ^ blockValue : QUANTITY, 256 Bits - The expected value to be received
+        -- by the feeRecipient in wei
+    , _getPayloadV4ResponseBlobsBundle :: !BlobsBundleV1
+        -- ^ blobsBundle: BlobsBundleV1 - Bundle with data corresponding to blob
+        -- transactions included into executionPayload
+    , _getPayloadV4ResponseShouldOverrideBuilder :: !Bool
+        -- ^ shouldOverrideBuilder : BOOLEAN - Suggestion from the execution layer
+        -- to use this executionPayload instead of an externally provided one
+    , _getjPayloadV4ResponseExecutionRequests :: ![ExecutionRequest]
+        -- ^ executionRequests: Array of DATA - Execution layer triggered requests
+        -- obtained from the executionPayload transaction execution.
+    }
+    deriving (Show, Eq, Generic)
+
+getPayloadV4ResponseProperties
+    :: KeyValue e kv
+    => GetPayloadV4Response
+    -> [kv]
+getPayloadV4ResponseProperties o =
+    [ "executionPayload" .= _getPayloadV4ResponseExecutionPayload o
+    , "blockValue" .= _getPayloadV4ResponseBlockValue o
+    , "blobsBundle" .= _getPayloadV4ResponseBlobsBundle o
+    , "shouldOverrideBuilder" .= _getPayloadV4ResponseShouldOverrideBuilder o
+    , "executionRequests" .= _getjPayloadV4ResponseExecutionRequests o
+    ]
+
+instance ToJSON GetPayloadV4Response where
+    toEncoding = pairs . mconcat . getPayloadV4ResponseProperties
+    toJSON = object . getPayloadV4ResponseProperties
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+instance FromJSON GetPayloadV4Response where
+    parseJSON = withObject "GetPayloadV4Response" $ \o -> GetPayloadV4Response
+        <$> o .: "executionPayload"
+        <*> o .: "blockValue"
+        <*> o .: "blobsBundle"
+        <*> o .: "shouldOverrideBuilder"
+        <*> o .: "executionRequests"
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
