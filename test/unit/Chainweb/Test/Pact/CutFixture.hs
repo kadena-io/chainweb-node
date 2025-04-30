@@ -113,8 +113,8 @@ mkFixture v genesisPayloadFor pactServiceConfig baseRdb = do
     testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
     (payloadDb, webBHDb) <- withBlockDbs v testRdb
     perChain <- fmap ChainMap $ iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
-        (writeSqlite, readPool) <- withTempSQLiteResource
-        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing payloadDb readPool writeSqlite pactServiceConfig (Just $ genesisPayloadFor chain)
+        (writeSqlite, readPool) <- withTempChainSqlite chain
+        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing payloadDb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayloadFor chain)
         mempool <- withMempool logger serviceEnv
         let serviceEnv' = serviceEnv { _psMempoolAccess = pactMemPoolAccess mempool logger }
         return (mempool, serviceEnv')

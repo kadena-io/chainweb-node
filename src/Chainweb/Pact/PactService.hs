@@ -67,7 +67,6 @@ import Prelude hiding (lookup)
 import qualified Pact.JSON.Encode as J
 
 import qualified Pact.Core.Gas as Pact
-import qualified Pact.Core.Info as Pact
 
 import qualified Chainweb.Pact.TransactionExec as Pact
 import qualified Chainweb.Pact.Validations as Pact
@@ -135,9 +134,9 @@ withPactService
     -> Pool SQLiteEnv
     -> SQLiteEnv
     -> PactServiceConfig
-    -> Maybe PayloadWithOutputs
+    -> GenesisConfig
     -> ResourceT IO (ServiceEnv tbl)
-withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config maybeGenesisPayload = do
+withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config pactGenesis = do
     SomeChainwebVersionT @v _ <- pure $ someChainwebVersionVal ver
     SomeChainIdT @c _ <- pure $ someChainIdVal cid
     let payloadClient = Rest.payloadClient @v @c @'PactProvider
@@ -170,11 +169,16 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             , _psMiner = _pactMiner config
             , _psNewBlockGasLimit = _pactNewBlockGasLimit config
             , _psMiningPayloadVar = miningPayloadVar
-            , _psGenesisPayload = maybeGenesisPayload
+            , _psGenesisPayload = case pactGenesis of
+                GeneratingGenesis -> Nothing
+                GenesisPayload p -> Just p
+                GenesisNotNeeded -> Nothing
             , _psBlockRefreshInterval = _pactBlockRefreshInterval config
             }
 
-    liftIO $ initialPayloadState chainwebLogger pse
+    case pactGenesis of
+        GeneratingGenesis -> return ()
+        _ -> liftIO $ initialPayloadState chainwebLogger pse
     return pse
 
 initialPayloadState

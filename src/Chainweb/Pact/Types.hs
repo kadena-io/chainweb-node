@@ -125,6 +125,7 @@ module Chainweb.Pact.Types
     , logError_
 
     , PactTxFailureLog(..)
+    , GenesisConfig(..)
     )
     where
 
@@ -813,3 +814,8 @@ deriving newtype instance ToHttpApiData RewindDepth
 deriving newtype instance FromHttpApiData ConfirmationDepth
 
 deriving newtype instance ToHttpApiData ConfirmationDepth
+
+data GenesisConfig
+  = GeneratingGenesis
+  | GenesisNotNeeded
+  | GenesisPayload Chainweb.PayloadWithOutputs

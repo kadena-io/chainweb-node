@@ -102,9 +102,9 @@ mkFixtureWith pactServiceConfig baseRdb = do
     logLevel <- liftIO getTestLogLevel
     let logger = genericLogger logLevel Text.putStrLn
     perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
-        (writeSqlite, readPool) <- withTempSQLiteResource
+        (writeSqlite, readPool) <- withTempChainSqlite chain
         let pdb = _bdbPayloadDb tdb
-        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing pdb readPool writeSqlite pactServiceConfig (Just $ genesisPayload chain)
+        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing pdb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayload chain)
         let mempoolCfg =
                 validatingMempoolConfig chain v
                     (GasLimit (Gas 150_000))

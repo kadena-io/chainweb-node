@@ -33,7 +33,7 @@ import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Types (defaultPactServiceConfig)
+import Chainweb.Pact.Types (defaultPactServiceConfig, GenesisConfig(..))
 import Chainweb.Pact.Utils (toTxCreationTime, emptyPayload)
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
@@ -163,7 +163,7 @@ genPayloadModule v tag cid cwTxs = do
     withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> runResourceT $ do
         readWriteSql <- withSqliteDb cid logger pactDbDir False
         roPool <- withReadSqlitePool cid pactDbDir
-        serviceEnv <- withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql defaultPactServiceConfig Nothing
+        serviceEnv <- withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql defaultPactServiceConfig GeneratingGenesis
         payloadWO <- liftIO $ execNewGenesisBlock logger serviceEnv (V.fromList cwTxs)
         return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 

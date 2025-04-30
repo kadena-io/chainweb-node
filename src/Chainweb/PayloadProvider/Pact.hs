@@ -130,7 +130,9 @@ withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir c
             & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
         )
         Pool.destroyAllResources
-    PactPayloadProvider logger <$> PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config maybeGenesisPayload
+    PactPayloadProvider logger <$>
+        PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
+        (maybe GenesisNotNeeded GenesisPayload maybeGenesisPayload)
     where
     mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 
