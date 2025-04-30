@@ -711,7 +711,9 @@ data BlockOutputMismatchError = BlockOutputMismatchError
   , blockOutputMismatchActualPayload :: !Chainweb.PayloadWithOutputs
   , blockOutputMismatchExpectedPayload :: !Chainweb.CheckablePayload
   }
-  deriving Show
+
+instance Show BlockOutputMismatchError where
+  show = T.unpack . J.encodeText
 
 instance J.Encode BlockOutputMismatchError where
   build bvf = J.object
