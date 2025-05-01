@@ -437,16 +437,10 @@ validateOne cfg badmap curTxIdx now t h =
     -- prop_tx_gas_rounding
     gasPriceRoundingCheck :: Either InsertError ()
     gasPriceRoundingCheck =
-        ebool_ (InsertErrorOther msg) f
+        ebool_ (InsertErrorBadGasPrice gp) f
       where
-        GasPrice d = txGasPrice txcfg t
+        gp@(GasPrice d) = txGasPrice txcfg t
         f = decimalPlaces d <= defaultMaxCoinDecimalPlaces
-        msg = T.concat
-            [ "This transaction's gas price ("
-            , sshow d
-            , ") is not correctly rounded. "
-            , "It should be rounded to at most 12 decimal places."
-            ]
 
     -- prop_tx_ttl_arrival
     ttlCheck :: Either InsertError ()

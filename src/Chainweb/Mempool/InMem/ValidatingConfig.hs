@@ -60,7 +60,7 @@ validatingMempoolConfig cid v gl gp preInsertCheck = InMemConfig
             sigs = Pact._cmdSigs tx
             ver  = Pact._pNetworkId pay
         if | not $ assertChainId cid pcid  -> Left InsertErrorMetadataMismatch
-           | not $ assertSigSize sigs      -> Left $ InsertErrorOther "Too many signatures"
+           | not $ assertSigSize sigs      -> Left InsertErrorTooManySigs
            | not $ assertNetworkId v ver   -> Left InsertErrorMetadataMismatch
            | otherwise                     -> Right tx
 
@@ -86,5 +86,6 @@ validatingMempoolConfig cid v gl gp preInsertCheck = InMemConfig
         f (These r (T2 h t)) = case r of
                                  Just e -> Left (T2 h e)
                                  Nothing -> Right (T2 h t)
-        f (That (T2 h _)) = Left (T2 h $ InsertErrorOther "preInsertBatch: align mismatch 0")
-        f (This _) = Left (T2 (TransactionHash "") (InsertErrorOther "preInsertBatch: align mismatch 1"))
+        f (That _) = alignmentError
+        f (This _) = alignmentError
+        alignmentError = error "internal error: mismatch between input and output length of pre-insert check"

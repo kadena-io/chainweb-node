@@ -415,11 +415,14 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                     $ defaultCmd cid
                 -- if any tx fails parsing, no txs even get validated
                 send fx v cid [cmdInvalidUserSig, cmdGood, cmdParseFailure]
-                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? P.checkAll
-                        [ textContains (validationFailed 0 cmdInvalidUserSig
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody
+                        ? textContains (parseFailed 2 "ParseError: Expected: [')']")
+
+                -- without parse failures, all txs get validated
+                send fx v cid [cmdInvalidUserSig, cmdGood]
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody
+                        ? textContains (validationFailed 0 cmdInvalidUserSig
                             "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
-                        , textContains (parseFailed 2 cmdParseFailure "Expected: [')']")
-                        ]
 
             , testCase "invalid metadata" $ do
                 cmdGood <- mkCmdGood
@@ -521,7 +524,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
     wrongChain = unsafeChainId 1
 
     validationFailed i cmd msg = "Transaction " <> sshow (_cmdHash cmd) <> " at index " <> sshow @Int i <> " failed with: " <> msg
-    parseFailed i cmd msg = "Transaction " <> sshow (_cmdHash cmd) <> " at index " <> sshow @Int i <> " has invalid Pact code: " <> msg
+    parseFailed i msg = "Transaction at index " <> sshow @Int i <> " has invalid Pact code: " <> msg
 
     mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
 
