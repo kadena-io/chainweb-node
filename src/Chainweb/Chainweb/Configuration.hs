@@ -31,6 +31,7 @@ module Chainweb.Chainweb.Configuration
 , payloadProviderConfigMinimal
 , payloadProviderConfigPact
 , payloadProviderConfigEvm
+, payloadProviderConfigDisabled
 , defaultPayloadProviderConfig
 , minimalPayloadProviderConfig
 , validatePayloadProviderConfig
@@ -93,7 +94,7 @@ import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (RewindLimit(..))
+import Chainweb.Pact.Types (RewindLimit(..), PactServiceConfig, defaultPactServiceConfig)
 import Chainweb.Pact.Types (defaultReorgLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.PayloadProvider.EVM (EvmProviderConfig, defaultEvmProviderConfig, pEvmProviderConfig)
@@ -159,6 +160,7 @@ data PayloadProviderConfig = PayloadProviderConfig
     { _payloadProviderConfigMinimal :: !MinimalProviderConfig
     , _payloadProviderConfigPact :: !(HM.HashMap ChainId PactProviderConfig)
     , _payloadProviderConfigEvm :: !(HM.HashMap ChainId EvmProviderConfig)
+    , _payloadProviderConfigDisabled :: !(HS.HashSet ChainId)
     }
     deriving (Show, Eq, Generic)
 
@@ -171,6 +173,7 @@ defaultPayloadProviderConfig v = PayloadProviderConfig
     { _payloadProviderConfigMinimal = defaultMinimalProviderConfig
     , _payloadProviderConfigPact = pacts
     , _payloadProviderConfigEvm = evms
+    , _payloadProviderConfigDisabled = mempty
     }
   where
     (pacts, evms) = go (toList $ chainIds v)
@@ -187,6 +190,7 @@ minimalPayloadProviderConfig m = PayloadProviderConfig
     { _payloadProviderConfigMinimal = m
     , _payloadProviderConfigPact = mempty
     , _payloadProviderConfigEvm = mempty
+    , _payloadProviderConfigDisabled = mempty
     }
 
 validatePayloadProviderConfig :: ChainwebVersion -> ConfigValidation PayloadProviderConfig []
@@ -196,18 +200,18 @@ validatePayloadProviderConfig v conf = do
     go [] = return ()
     go (c:t) = go t <* case payloadProviderTypeForChain v c of
         PactProvider -> unless (HM.member c (_payloadProviderConfigPact conf)) $
-            if (HM.member c (_payloadProviderConfigEvm conf))
+            if HM.member c (_payloadProviderConfigEvm conf) || HS.member c (_payloadProviderConfigDisabled conf)
               then throwError $ mconcat $
-                [ "Wrong payload provdider type configuration for chain " <> sshow c
+                [ "Wrong payload provider type configuration for chain " <> sshow c
                 , ". Expected Pact but found EVM"
                 ] <> msg
               else throwError $ mconcat
                     $ "Missing Pact payload provider configuration for chain " <> sshow c
                     : msg
         EvmProvider _ -> unless (HM.member c (_payloadProviderConfigEvm conf)) $
-            if (HM.member c (_payloadProviderConfigPact conf))
+            if HM.member c (_payloadProviderConfigPact conf) || HS.member c (_payloadProviderConfigDisabled conf)
               then throwError $ mconcat $
-                [ "Wrong payload provdider type configuration for chain " <> sshow c
+                [ "Wrong payload provider type configuration for chain " <> sshow c
                 , ". Expected EVM but found Pact"
                 ] <> msg
               else throwError $ mconcat
@@ -216,7 +220,7 @@ validatePayloadProviderConfig v conf = do
         MinimalProvider -> return ()
     msg =
         [ ". In order to use chainweb-node with chainweb version " <> sshow v
-        , " you must provide a configuraton for all payload providers except"
+        , " you must provide a configuraton for all enabled payload providers except"
         , " the chains that use the default payload provider."
         , " The following is the default payload provider configuration for"
         , " chainweb version " <> sshow v
@@ -755,7 +759,7 @@ parseVersion = constructVersion
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->
-                OnChains $ HM.mapWithKey
+                ChainMap $ HM.mapWithKey
                     (\cid _ ->
                         case winningVersion ^?! versionForks . at fub' . _Just . atChain cid of
                             ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."

@@ -66,7 +66,7 @@ common warning-flags
 
 custom-setup
     setup-depends:
-        , Cabal >= 3.8
+        , Cabal >= 3.14
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
         , directory >= 1.3

@@ -302,20 +302,19 @@ someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
 
 someBlockHeaderDbServers
     :: ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
+    -> ChainMap BlockHeaderDb
     -> SomeServer
-someBlockHeaderDbServers v cdbs = mconcat
-    [ someBlockHeaderDbServer (someBlockHeaderDbVal v cid cdb)
-    | (cid, cdb) <- Map.toList $ (Map.fromList cdbs)
-    ]
+someBlockHeaderDbServers v cdbs = ifoldMap
+    (\cid cdb -> someBlockHeaderDbServer (someBlockHeaderDbVal v cid cdb))
+    cdbs
 
 someP2pBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
 someP2pBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
     = SomeServer (Proxy @(P2pBlockHeaderDbApi v c)) (p2pBlockHeaderDbServer db)
 
-someP2pBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
-someP2pBlockHeaderDbServers v = mconcat
-    . fmap (someP2pBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+someP2pBlockHeaderDbServers :: ChainwebVersion -> ChainMap BlockHeaderDb -> SomeServer
+someP2pBlockHeaderDbServers v = ifoldMap
+    (\cid bhdb -> someP2pBlockHeaderDbServer (someBlockHeaderDbVal v cid bhdb))
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
@@ -344,4 +343,3 @@ blockStreamHandler db = Tagged $ \req resp -> do
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
         [ fromLazyByteString . encode $ toJSON hu ]
-

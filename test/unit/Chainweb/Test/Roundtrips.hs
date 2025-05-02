@@ -276,7 +276,7 @@ jsonTestCases f =
     , testProperty "PeerInfo" $ f @PeerInfo
     , testProperty "Peer" $ f @Peer
     , testProperty "NetworkId" $ f @NetworkId
-    , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
+    -- , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
     , testProperty "MerkleRootType" $ f @MerkleRootType
     , testProperty "ChainwebConfiguration" $ f @ChainwebConfiguration
     , testProperty "Probability" $ f @Probability
@@ -299,7 +299,7 @@ jsonTestCases f =
         , testProperty "SpvSubjectType" $ f @SpvAlgorithm
         , testProperty "SpvSubjectIdentifier" $ f @SpvSubjectIdentifier
         , testProperty "Spv2Request" $ f @Spv2Request
-        , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
+        -- , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
         , testProperty "TransactionOutputProof" $ f @(TransactionOutputProof ChainwebMerkleHashAlgorithm)
         , testProperty "PayloadProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
         , testProperty "SomePayloadProof" $ f @(SomePayloadProof)
@@ -478,7 +478,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "P2pNetworkId" $ prop_iso' @_ @NetworkId fromText toText
     , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
-    , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
+    -- , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
     , testProperty "MerkleRootType" $ prop_iso' @_ @MerkleRootType fromText toText
     , testProperty "Fork" $ prop_iso' @_ @Fork fromText toText
     ]

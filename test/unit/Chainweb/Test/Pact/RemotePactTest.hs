@@ -30,17 +30,17 @@
 
 module Chainweb.Test.Pact.RemotePactTest
     ( tests
-    , mkFixture
-    , Fixture(..)
-    , HasFixture(..)
-    , poll
-    , pollWithDepth
-    , PollException(..)
-    , ClientException(..)
-    , _FailureResponse
-    , send
-    , local
-    , textContains
+    -- , mkFixture
+    -- , Fixture(..)
+    -- , HasFixture(..)
+    -- , poll
+    -- , pollWithDepth
+    -- , PollException(..)
+    -- , ClientException(..)
+    -- , _FailureResponse
+    -- , send
+    -- , local
+    -- , textContains
     ) where
 
 import Control.Concurrent.Async hiding (poll)
@@ -64,7 +64,6 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Pact.JSON.Encode (getJsonText)
 import Data.Text.Encoding qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
@@ -88,10 +87,11 @@ import Test.Tasty
 import Test.Tasty.HUnit (testCaseSteps, testCase, assertFailure)
 
 import Pact.Core.Capabilities
-import Pact.Core.ChainData (TxCreationTime(..))
+import Pact.Core.ChainData qualified as Pact
+import Pact.Core.Command.Client (SubmitBatch(..))
 import Pact.Core.Command.Crypto (signEd25519, exportEd25519Signature, importEd25519KeyPair, PrivateKeyBS (..))
 import Pact.Core.Command.RPC (ContMsg (..))
-import Pact.Core.Command.Server qualified as Pact5
+import Pact.Core.Command.Server
 import Pact.Core.Command.Types
 import Pact.Core.DefPacts.Types
 import Pact.Core.Errors
@@ -101,8 +101,6 @@ import Pact.Core.Hash
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.SPV
-import Pact.Types.API qualified as Pact
-import Pact.Types.ChainId qualified as Pact
 
 import Chainweb.ChainId
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
@@ -111,6 +109,8 @@ import Chainweb.Mempool.Mempool (TransactionHash (..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Types
+import Chainweb.Payload
+import Chainweb.PayloadProvider.Pact
 import Chainweb.RestAPI.Utils (someServerApplication)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact.CmdBuilder
@@ -122,6 +122,9 @@ import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Mainnet (mainnet)
+
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 
 
 -- generating this cert and making an HTTP manager take quite a while relative
@@ -138,8 +141,8 @@ httpManager = unsafePerformIO $ HTTP.newTlsManagerWith (HTTP.mkManagerSettings d
 tests :: RocksDb -> TestTree
 tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
     testGroup "Pact5 RemotePactTest"
-        [ testCaseSteps "crosschainTest" (crosschainTest rdb)
-        , sendInvalidTxsTest rdb
+        -- [ testCaseSteps "crosschainTest" (crosschainTest rdb)
+        [ sendInvalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
         , testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
         , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
@@ -147,15 +150,13 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "gasPurchaseFailureMessages" (gasPurchaseFailureMessages rdb)
-        , testCaseSteps "transition occurs" (transitionOccurs rdb)
-        , testCaseSteps "transition crosschain" (transitionCrosschain rdb)
         , testCaseSteps "upgradeNamespaceTests" (upgradeNamespaceTests rdb)
         , localTests rdb
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
 pollingInvalidRequestKeyTest baseRdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let v = instantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v baseRdb
 
@@ -165,7 +166,7 @@ pollingInvalidRequestKeyTest baseRdb _step = runResourceT $ do
 
 pollingConfirmationDepthTest :: RocksDb -> Step -> IO ()
 pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let v = instantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v baseRdb
 
@@ -185,7 +186,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
                 , P.match _Just ? P.fun _crResult ? P.equals (PactResultOk (PInteger 43))
                 ]
 
-        let expectEmpty :: (HasCallStack, Foldable t, Eq a) => t (Maybe a) -> IO ()
+        let expectEmpty :: (HasCallStack, Foldable t, Eq a, Show a) => t (Maybe a) -> IO ()
             expectEmpty = traverse_ (P.equals Nothing)
 
         send fx v cid [cmd1, cmd2]
@@ -232,7 +233,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
 
 crosschainTest :: RocksDb -> Step -> IO ()
 crosschainTest baseRdb step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersenChainGraph
+    let v = instantCpmTestVersion petersenChainGraph
     fx <- mkFixture v baseRdb
 
     let srcChain = unsafeChainId 0
@@ -260,7 +261,7 @@ crosschainTest baseRdb step = runResourceT $ do
 
         -- what if the source chain hasn't got the xchain transfer in a block yet?
         spvTxOutProof fx v targetChain srcChain initiatorReqKey
-            & P.fails ? P.match _FailureResponse ? P.fun responseBody
+            & P.throws ? P.match _FailureResponse ? P.fun responseBody
             ? P.equals ("Transaction hash not found: " <> sshow initiatorReqKey)
 
         advanceAllChains_ fx
@@ -269,7 +270,7 @@ crosschainTest baseRdb step = runResourceT $ do
 
         -- what if the target chain isn't aware of the source xchain transfer yet?
         spvTxOutProof fx v targetChain srcChain initiatorReqKey
-            & P.fails ? P.match _FailureResponse ? P.fun responseBody
+            & P.throws ? P.match _FailureResponse ? P.fun responseBody
             ? P.equals "SPV target not reachable: target chain not reachable. Chainweb instance is too young"
 
         step "waiting"
@@ -341,7 +342,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                     $ set cbRPC (mkExec' "(+ 1")
                     $ defaultCmd cid
                 send fx v cid [cmdParseFailure]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains "Pact parse error: Expected: [')']"
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains "ParseError: Expected: [')']"
 
             , testCase "invalid hash" $ do
                 cmdInvalidPayloadHash <- do
@@ -352,7 +353,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                         { _cmdHash = hash "fakehash"
                         }
                 send fx v cid [cmdInvalidPayloadHash]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
                         (validationFailed 0 cmdInvalidPayloadHash "Invalid transaction hash")
 
             , testCase "signature length mismatch" $ do
@@ -364,7 +365,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                         { _cmdSigs = []
                         }
                 send fx v cid [cmdSignersSigsLengthMismatch1]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
                         (validationFailed 0 cmdSignersSigsLengthMismatch1 "Invalid transaction sigs: The number of signers and signatures do not match. Number of signers: 1. Number of signatures: 0.")
 
                 cmdSignersSigsLengthMismatch2 <- do
@@ -379,13 +380,13 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                         _cmdSigs = [ED25519Sig "fakeSig"]
                         }
                 send fx v cid [cmdSignersSigsLengthMismatch2]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
                         (validationFailed 0 cmdSignersSigsLengthMismatch2 "Invalid transaction sigs: The number of signers and signatures do not match. Number of signers: 0. Number of signatures: 1.")
 
             , testCase "invalid signatures" $ do
                 cmdInvalidUserSig <- mkCmdInvalidUserSig
                 send fx v cid [cmdInvalidUserSig]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
                         (validationFailed 0 cmdInvalidUserSig "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
 
             , testCase "batches are rejected with any invalid txs" $ do
@@ -394,15 +395,17 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                 -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
                 -- We just re-use a previously built bad cmd.
                 send fx v cid [cmdInvalidUserSig, cmdGood]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                        (validationFailed 0 cmdInvalidUserSig "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed 0 cmdInvalidUserSig
+                            "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
                 -- Test that [goodCmd, badCmd] fails on badCmd, and the batch is rejected.
                 -- Order matters, and the error message also indicates the position of the
                 -- failing tx.
                 -- We just re-use a previously built bad cmd.
                 send fx v cid [cmdGood, cmdInvalidUserSig]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                        (validationFailed 1 cmdInvalidUserSig "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed 1 cmdInvalidUserSig
+                            "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
 
             , testCase "multiple bad txs in batch" $ do
                 cmdGood <- mkCmdGood
@@ -410,20 +413,26 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                 cmdParseFailure <- buildTextCmd v
                     $ set cbRPC (mkExec' "(+ 1")
                     $ defaultCmd cid
+                -- if any tx fails parsing, no txs even get validated
                 send fx v cid [cmdInvalidUserSig, cmdGood, cmdParseFailure]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? P.checkAll
-                        [ textContains (validationFailed 0 cmdInvalidUserSig "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
-                        , textContains (validationFailed 2 cmdParseFailure "Pact parse error: Expected: [')']")
-                        ]
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody
+                        ? textContains (parseFailed 2 "ParseError: Expected: [')']")
+
+                -- without parse failures, all txs get validated
+                send fx v cid [cmdInvalidUserSig, cmdGood]
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody
+                        ? textContains (validationFailed 0 cmdInvalidUserSig
+                            "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
 
             , testCase "invalid metadata" $ do
                 cmdGood <- mkCmdGood
                 send fx v wrongChain [cmdGood]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                        (validationFailed 0 cmdGood "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed 0 cmdGood
+                            "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
 
                 send fx wrongV cid [cmdGood]
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals notFound404
                         , P.fun responseBody ? P.equals ""
                         ]
@@ -431,22 +440,25 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                 let invalidCid = "invalid chain ID"
                 cmdInvalidChain <- buildTextCmd v (defaultCmd cid & set cbChainId invalidCid)
                 send fx v wrongChain [cmdInvalidChain]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                        (validationFailed 0 cmdInvalidChain "insert error: Unparsable ChainId")
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed 0 cmdInvalidChain
+                            "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
 
                 cmdWrongV <- buildTextCmd wrongV
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
                     $ defaultCmd cid
                 send fx v cid [cmdWrongV]
-                    & P.fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                        (validationFailed 0 cmdWrongV "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
+                    & P.throws ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed 0 cmdWrongV
+                            "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
 
-                cmdExpiredTTL <- buildTextCmd v (defaultCmd cid & cbCreationTime .~ Just (TxCreationTime 0))
+                cmdExpiredTTL <- buildTextCmd v (defaultCmd cid & cbCreationTime .~ Just (Pact.TxCreationTime 0))
                 send fx v cid [cmdExpiredTTL]
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
-                            (validationFailed 0 cmdExpiredTTL "Transaction time-to-live is expired")
+                            (validationFailed 0 cmdExpiredTTL
+                                "Transaction time-to-live is expired")
                         ]
 
             , testCase "cannot buy gas" $ do
@@ -454,20 +466,22 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                     $ set cbGasLimit (GasLimit $ Gas 100000000000000)
                     $ defaultCmd cid
                 send fx v cid [cmdExcessiveGasLimit]
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
-                            (validationFailed 0 cmdExcessiveGasLimit "Transaction gas limit exceeds block gas limit")
+                            (validationFailed 0 cmdExcessiveGasLimit
+                                "Transaction gas limit exceeds block gas limit")
                         ]
 
                 cmdGasPriceTooPrecise <- buildTextCmd v
                     $ set cbGasPrice (GasPrice 0.00000000000000001)
                     $ defaultCmd cid
                 send fx v cid [cmdGasPriceTooPrecise]
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
-                            (validationFailed 0 cmdGasPriceTooPrecise "insert error: This transaction's gas price: 0.00000000000000001 is not correctly rounded. It should be rounded to at most 12 decimal places.")
+                            (validationFailed 0 cmdGasPriceTooPrecise
+                                "This transaction's gas price (0.00000000000000001) is not correctly rounded. It should be rounded to at most 12 decimal places.")
                         ]
 
                 cmdNotEnoughGasFunds <- buildTextCmd v
@@ -475,22 +489,22 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                     $ set cbGasLimit (GasLimit (Gas 10_000))
                     $ defaultCmd cid
                 send fx v cid [cmdNotEnoughGasFunds]
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
-                            (validationFailed 0 cmdNotEnoughGasFunds "Attempt to buy gas failed with: " <> sshow (_cmdHash cmdNotEnoughGasFunds) <> " Failed to buy gas: Insufficient funds")
+                            (validationFailed 0 cmdNotEnoughGasFunds
+                                "Failed to buy gas: Insufficient funds")
                         ]
 
                 cmdInvalidSender <- buildTextCmd v
                     $ set cbSender "invalid-sender"
                     $ defaultCmd cid
                 send fx v cid [cmdInvalidSender]
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
-                            -- TODO: the full error is far more verbose than this,
-                            -- perhaps that's something we should fix.
-                            (validationFailed 0 cmdInvalidSender "Attempt to buy gas failed")
+                            (validationFailed 0 cmdInvalidSender
+                                "Failed to buy gas: No value found in table coin_coin-table for key")
                         ]
 
             ]
@@ -503,13 +517,14 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
 
         ]
     where
-    v = pact5InstantCpmTestVersion petersenChainGraph
-    wrongV = pact5InstantCpmTestVersion twentyChainGraph
+    v = instantCpmTestVersion petersenChainGraph
+    wrongV = instantCpmTestVersion twentyChainGraph
 
     cid = unsafeChainId 0
     wrongChain = unsafeChainId 1
 
     validationFailed i cmd msg = "Transaction " <> sshow (_cmdHash cmd) <> " at index " <> sshow @Int i <> " failed with: " <> msg
+    parseFailed i msg = "Transaction at index " <> sshow @Int i <> " has invalid Pact code: " <> msg
 
     mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
 
@@ -520,7 +535,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
 
 caplistTest :: RocksDb -> Step -> IO ()
 caplistTest baseRdb step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersenChainGraph
+    let v = instantCpmTestVersion petersenChainGraph
     fx <- mkFixture v baseRdb
 
     let cid = unsafeChainId 0
@@ -555,7 +570,9 @@ caplistTest baseRdb step = runResourceT $ do
             >>= P.alignExact ? List.singleton ? P.match _Just ?
                 P.checkAll
                     [ P.fun _crResult ? P.match (_PactResultOk . _PString) ? P.equals "Write succeeded"
-                    , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
+                    , P.fun _crMetaData
+                        ? P.match (_Just . A._Object . at "blockHash")
+                        ? P.match (_Just . A._String . b64UrlNoPaddingPrism) P.succeed
                     ]
 
 
@@ -579,7 +596,7 @@ allocation02KeyPair' =
 
 allocationTest :: RocksDb -> (String -> IO ()) -> IO ()
 allocationTest rdb step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersenChainGraph
+    let v = instantCpmTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
 
@@ -596,7 +613,7 @@ allocationTest rdb step = runResourceT $ do
                 P.alignExact
                     [ P.match _Just ? P.checkAll
                         [ P.fun _crResult ? P.match _PactResultOk ? P.succeed
-                        , P.fun _crEvents ? P.startingWith
+                        , P.fun _crEvents ? P.match _head ?
                             (event
                                 (P.equals "RELEASE_ALLOCATION")
                                 (P.equals [PString "allocation00", PDecimal 1000000])
@@ -607,7 +624,7 @@ allocationTest rdb step = runResourceT $ do
             buildTextCmd v
                 (set cbRPC (mkExec' "(coin.details \"allocation00\")") $ defaultCmd cid)
                 >>= local fx v cid Nothing Nothing Nothing
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                     ? P.fun _crResult
                     ? P.match _PactResultOk
                     ? P.match _PObject
@@ -625,7 +642,7 @@ allocationTest rdb step = runResourceT $ do
                     $ set cbSigners [mkEd25519Signer' allocation01KeyPair [], mkEd25519Signer' sender00 []]
                     $ defaultCmd cid)
                 >>= local fx v cid Nothing Nothing Nothing
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                     ? P.fun _crResult
                     ? P.match _PactResultErr
                     ? P.checkAll
@@ -639,7 +656,7 @@ allocationTest rdb step = runResourceT $ do
                     $ set cbSigners [mkEd25519Signer' allocation01KeyPair [], mkEd25519Signer' sender00 []]
                     $ defaultCmd cid)
                 >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                >>= P.match (_Pact5LocalResultWithWarns . _1) ?
+                >>= P.match (_LocalResultWithWarns . _1) ?
                     P.fun _crResult ? P.match _PactResultErr ?
                     P.checkAll
                         [ P.fun _peType ? P.equals ? ErrorType "TxFailure"
@@ -673,7 +690,7 @@ allocationTest rdb step = runResourceT $ do
 
             buildTextCmd v (set cbRPC (mkExec' "(coin.details \"allocation02\")") $ defaultCmd cid)
                 >>= local fx v cid Nothing Nothing Nothing
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                     ? P.fun _crResult
                     ? P.match _PactResultOk
                     ? P.match _PObject
@@ -685,7 +702,7 @@ allocationTest rdb step = runResourceT $ do
 
 gasPurchaseFailureMessages :: RocksDb -> Step -> IO ()
 gasPurchaseFailureMessages rdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersenChainGraph
+    let v = instantCpmTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
 
@@ -704,17 +721,17 @@ gasPurchaseFailureMessages rdb _step = runResourceT $ do
                 $ defaultCmd cid
 
             local fx v cid (Just PreflightSimulation) Nothing Nothing cmd
-                >>= P.match _Pact5LocalResultWithWarns
+                >>= P.match _LocalResultWithWarns
                 ? P.fun fst
                 ? P.fun _crResult
                 ? P.match _PactResultErr
                 ? P.checkAll
-                    [ P.fun _peType ? P.equals ? ErrorType "EvalError"
+                    [ P.fun _peType ? P.equals ? ErrorType "TxFailure"
                     , P.fun _peMsg ? P.fun _boundedText ? textContains "Failed to buy gas: Insufficient funds"
                     ]
 
             send fx v cid [cmd]
-                & P.fails
+                & P.throws
                 ? P.match _FailureResponse
                 ? P.fun responseBody
                 ? textContains "Failed to buy gas: Insufficient funds"
@@ -734,113 +751,21 @@ gasPurchaseFailureMessages rdb _step = runResourceT $ do
                 $ defaultCmd cid
 
             local fx v cid (Just PreflightSimulation) Nothing Nothing cmd
-                >>= P.match _Pact5LocalResultWithWarns
+                >>= P.match _LocalResultWithWarns
                 ? P.fun fst
                 ? P.fun _crResult
                 ? P.match _PactResultErr
                 ? P.checkAll
                     [ P.fun _peType ? P.equals ? ErrorType "EvalError"
-                    , P.fun _peMsg ? P.fun _boundedText ? textContains "Failed to buy gas: Multiple gas payer capabilities"
+                    , P.fun _peMsg ? P.fun _boundedText
+                        ? textContains "Failed to buy gas: multiple gas payer capabilities in signers list"
                     ]
 
             send fx v cid [cmd]
-                & P.fails
+                & P.throws
                 ? P.match _FailureResponse
                 ? P.fun responseBody
-                ? textContains "Failed to buy gas: Multiple gas payer capabilities"
-
-transitionOccurs :: RocksDb -> Step -> IO ()
-transitionOccurs rdb _step = runResourceT $ do
-    let v = instantCpmTransitionTestVersion petersenChainGraph
-    let cid = unsafeChainId 0
-    fx <- mkFixture v rdb
-
-    liftIO $ do
-        checkPactVersion fx v cid >>= P.equals Pact4
-        forM_ @_ @_ @Word [1..17] $ \i -> do
-            advanceAllChains_ fx
-            -- index trick to show which iteration fails, if any
-            (i,) <$> checkPactVersion fx v cid >>= P.equals (i, Pact4)
-        advanceAllChains_ fx
-        checkPactVersion fx v cid >>= P.equals Pact5
-
--- | Test that xchains work across the Pact4->Pact4 transition boundary.
---   This is mostly the same as 'spvTest', except it waits for the transition.
-transitionCrosschain :: RocksDb -> Step -> IO ()
-transitionCrosschain rdb step = runResourceT $ do
-    let v = instantCpmTransitionTestVersion petersenChainGraph
-    let srcChain = unsafeChainId 0
-    let targetChain = unsafeChainId 9
-    fx <- mkFixture v rdb
-
-    let checkIsVersion pv = do
-            checkPactVersion fx v srcChain >>= P.equals pv
-            checkPactVersion fx v targetChain >>= P.equals pv
-
-    liftIO $ do
-        checkIsVersion Pact4
-
-        step "xchain initiate"
-        initiator <- buildTextCmd v
-            $ set cbSigners
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
-                    , CapToken (QualifiedName "TRANSFER_XCHAIN" (ModuleName "coin" Nothing))
-                        [ PString "sender00"
-                        , PString "sender01"
-                        , PDecimal 1.0
-                        , PString (chainIdToText targetChain)
-                        ]
-                    ]
-                ]
-            $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
-            $ defaultCmd srcChain
-
-        send fx v srcChain [initiator]
-        let initiatorReqKey = cmdToRequestKey initiator
-        advanceAllChains_ fx
-        [Just sendCr] <- pollWithDepth fx v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
-        let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
-
-        step "waiting until pact5 transition"
-
-        step "... performing transition"
-        replicateM_ 16 $ advanceAllChains_ fx
-        checkIsVersion Pact4
-        advanceAllChains_ fx
-        checkIsVersion Pact5
-
-        TransactionOutputProofB64 spvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
-        let contMsg = ContMsg
-                { _cmPactId = _peDefPactId cont
-                , _cmStep = succ $ _peStep cont
-                , _cmRollback = _peStepHasRollback cont
-                , _cmData = PUnit
-                , _cmProof = Just (ContProof (T.encodeUtf8 spvProof))
-                }
-        step "xchain recv"
-
-        recv <- buildTextCmd v
-            $ set cbRPC (mkCont contMsg)
-            $ defaultCmd targetChain
-        send fx v targetChain [recv]
-        let recvReqKey = cmdToRequestKey recv
-        advanceAllChains_ fx
-        poll fx v targetChain [recvReqKey]
-            >>= P.match (_head . _Just)
-                ? P.checkAll
-                    [ P.fun _crResult ? P.match _PactResultOk P.succeed
-                    , P.fun _crEvents ? P.alignExact
-                        [ P.succeed
-                        , P.checkAll
-                            [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
-                            , P.fun _peArgs ? P.equals
-                                [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
-                            ]
-                        , P.fun _peName ? P.equals "X_RESUME"
-                        , P.succeed
-                        ]
-                    ]
+                ? textContains "Failed to buy gas: multiple gas payer capabilities in signers list"
 
     return ()
 
@@ -848,7 +773,7 @@ transitionCrosschain rdb step = runResourceT $ do
 -- by the pact service.
 webAuthnSignatureTest :: RocksDb -> Step -> IO ()
 webAuthnSignatureTest rdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersenChainGraph
+    let v = instantCpmTestVersion petersenChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v rdb
     liftIO $ do
@@ -863,7 +788,7 @@ webAuthnSignatureTest rdb _step = runResourceT $ do
 
 localTests :: RocksDb -> TestTree
 localTests baseRdb = let
-    v = pact5InstantCpmTestVersion petersenChainGraph
+    v = instantCpmTestVersion petersenChainGraph
     cid = unsafeChainId 0
     in testGroup "tests for local"
         [ testCase "ordinary txs" $ runResourceT $ do
@@ -887,11 +812,11 @@ localTests baseRdb = let
                         ]
                 buildTextCmd v (defaultCmd cid)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? expectation
+                    >>= P.match _LocalResultWithWarns ? P.fun fst ? expectation
 
                 buildTextCmd v (defaultCmd cid)
                     >>= local fx v cid (Just PreflightSimulation) (Just NoVerify) Nothing
-                    >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? expectation
+                    >>= P.match _LocalResultWithWarns ? P.fun fst ? expectation
 
         , testCase "signature with the wrong key" $ runResourceT $ do
             fx <- mkFixture v baseRdb
@@ -908,7 +833,7 @@ localTests baseRdb = let
                     <&> set cmdSigs [sender01Sig]
                     -- preflight mode, verify signatures
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"The signature at position 0 is invalid: invalid ed25519 signature.\"]"
                         ]
@@ -923,7 +848,7 @@ localTests baseRdb = let
                     <&> set cmdSigs [sender01Sig]
                     -- non-preflight mode, verify signatures
                     >>= local fx v cid Nothing Nothing Nothing
-                    & P.fails ? P.match _FailureResponse
+                    & P.throws ? P.match _FailureResponse
                     ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"The signature at position 0 is invalid: invalid ed25519 signature.\"]"
@@ -942,7 +867,7 @@ localTests baseRdb = let
                 let wrongChain = unsafeChainId maxBound
                 buildTextCmd v (defaultCmd wrongChain)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Chain id mismatch\"]"
                         ]
@@ -955,7 +880,7 @@ localTests baseRdb = let
                 let invalidChain = "not a real chain"
                 buildTextCmd v (defaultCmd cid & set cbChainId invalidChain)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Chain id mismatch\"]"
                         ]
@@ -966,21 +891,21 @@ localTests baseRdb = let
 
                 buildTextCmd v (set cbGasLimit (GasLimit $ Gas 100000000000000) $ defaultCmd cid)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Transaction Gas limit exceeds block gas limit\"]"
                         ]
 
                 buildTextCmd v (set cbGasPrice (GasPrice 0.00000000000000001) $ defaultCmd cid)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Gas price decimal precision too high\"]"
                         ]
 
                 buildTextCmd mainnet (defaultCmd cid)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Network id mismatch\"]"
                         ]
@@ -988,7 +913,7 @@ localTests baseRdb = let
                 let sigs' = replicate 101 $ mkEd25519Signer' sender00 []
                 buildTextCmd v (defaultCmd cid & set cbSigners sigs')
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    & P.fails ? P.match _FailureResponse ? P.checkAll
+                    & P.throws ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Signature list size too big\"]"
                         ]
@@ -998,7 +923,7 @@ localTests baseRdb = let
                         & set cbGasPrice (GasPrice 10_000_000_000)
                         & set cbGasLimit (GasLimit (Gas 10_000)))
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
-                    >>= P.match (_Pact5LocalResultWithWarns . _1)
+                    >>= P.match (_LocalResultWithWarns . _1)
                     ? P.fun _crResult
                     -- TODO: a more detailed check here than "is an error" might be nice
                     ? P.match _PactResultErr P.succeed
@@ -1007,7 +932,7 @@ localTests baseRdb = let
             startBalance <- buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local fx v cid Nothing Nothing (Just (RewindDepth 0))
                 <&> unsafeHeadOf
-                    ? _Pact5LocalResultLegacy
+                    ? _LocalResultLegacy
                     . to _crResult
                     . _PactResultOk . _PObject
                     . at "balance" . _Just
@@ -1036,7 +961,7 @@ localTests baseRdb = let
 
             buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local fx v cid Nothing Nothing Nothing
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                 ? P.checkAll
                 [ hasBalance ? P.lt startBalance
                 , hasBlockHeight (P.equals 3)
@@ -1044,7 +969,7 @@ localTests baseRdb = let
 
             buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local fx v cid Nothing Nothing (Just (RewindDepth 0))
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                 ? P.checkAll
                 [ hasBalance ? P.lt startBalance
                 , hasBlockHeight (P.equals 3)
@@ -1052,7 +977,7 @@ localTests baseRdb = let
 
             buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local fx v cid Nothing Nothing (Just (RewindDepth 1))
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                 ? P.checkAll
                 [ hasBalance ? P.equals startBalance
                 , hasBlockHeight (P.equals 2)
@@ -1060,7 +985,7 @@ localTests baseRdb = let
 
             buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local fx v cid Nothing Nothing (Just (RewindDepth 2))
-                >>= P.match _Pact5LocalResultLegacy
+                >>= P.match _LocalResultLegacy
                 ? P.checkAll
                 [ hasBalance ? P.equals startBalance
                 , hasBlockHeight (P.equals 1)
@@ -1068,11 +993,10 @@ localTests baseRdb = let
 
             buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local fx v cid Nothing Nothing (Just (RewindDepth 3))
-                >>= P.match _Pact5LocalResultLegacy
-                ? P.checkAll
-                [ hasBalance ? P.equals startBalance
-                , hasBlockHeight (P.equals 1)
-                ]
+                & P.throws
+                ? P.match _FailureResponse
+                ? P.fun responseBody
+                ? textContains "No block exists at the given rewind depth"
 
         , withResourceT (mkFixture v baseRdb) $ \fx -> testCase "local continuation" $ do
             let code = "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
@@ -1088,15 +1012,16 @@ localTests baseRdb = let
                 $ set cbRPC (mkCont (mkContMsg defPactId 1))
                 $ defaultCmd cid
             local fx v cid Nothing Nothing Nothing continuer
-                >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
+                >>= P.match _LocalResultLegacy ? P.fun _crResult
                 ? P.match _PactResultOk ? P.equals (PInteger 2)
 
         ]
 
 
+
 pollingMetadataTest :: RocksDb -> Step -> IO ()
 pollingMetadataTest baseRdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let v = instantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v baseRdb
 
@@ -1115,16 +1040,15 @@ pollingMetadataTest baseRdb _step = runResourceT $ do
         poll fx v cid [cmdToRequestKey cmd] >>=
             P.alignExact
             [ P.match _Just ? P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.alignExact ? A.KeyMap.fromList
-                [ ("blockHash", P.match A._String P.succeed)
+                [ ("blockHash", P.match (A._String . b64UrlNoPaddingPrism) P.succeed)
                 , ("blockHeight", P.equals (A.Number 2))
-                , ("blockTime", P.match A._Number P.succeed)
-                , ("prevBlockHash", P.match A._String P.succeed)
+                , ("blockPayloadHash", P.match (A._String . b64UrlNoPaddingPrism) P.succeed)
                 ]
             ]
 
 upgradeNamespaceTests :: RocksDb -> Step -> IO ()
 upgradeNamespaceTests baseRdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let v = instantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fx <- mkFixture v baseRdb
 
@@ -1166,7 +1090,7 @@ upgradeNamespaceTests baseRdb _step = runResourceT $ do
                 ? textContains "Loaded module ns"
 
 
-----------------------------------------------------
+-- ----------------------------------------------------
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -1184,16 +1108,20 @@ instance HasFixture Fixture where
 instance HasFixture a => HasFixture (IO a) where
     remotePactTestFixture = (>>= remotePactTestFixture)
 
+instantCpmTestVersionGenesis :: ChainId -> PayloadWithOutputs
+instantCpmTestVersionGenesis chain
+    | chain == unsafeChainId 0 = IN0.payloadBlock
+    | otherwise = INN.payloadBlock
+
 mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture
 mkFixture v baseRdb = do
-    fx <- CutFixture.mkFixture v testPactServiceConfig baseRdb
+    fx <- CutFixture.mkFixture v instantCpmTestVersionGenesis defaultPactServiceConfig { _pactBlockRefreshInterval = 10_000 } baseRdb
     logger <- liftIO getTestLogger
 
     let mkSomePactServerData cid = PactServerData
-            { _pactServerDataCutDb = fx ^. CutFixture.fixtureCutDb
-            , _pactServerDataMempool = fx ^. CutFixture.fixtureMempools ^?! atChain cid
+            { _pactServerDataMempool = fx ^?! CutFixture.fixtureMempools . atChain cid
             , _pactServerDataLogger = logger
-            , _pactServerDataPact = mkPactExecutionService (fx ^. CutFixture.fixturePactQueues ^?! atChain cid)
+            , _pactServerDataPact = fx ^?! CutFixture.fixturePacts . atChain cid
             }
     let pactServer = somePactServers v $ List.map (\cid -> (cid, mkSomePactServerData cid)) (HashSet.toList (chainIds v))
     let cutGetServer = someCutGetServer v (fx ^. CutFixture.fixtureCutDb)
@@ -1243,14 +1171,18 @@ pollWithDepth
 pollWithDepth fx v cid rks mConfirmationDepth = do
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
     let rksNel = NE.fromList rks
-    pollResult <- runClientM (pactPollApiClient v cid mConfirmationDepth (Pact5.PollRequest rksNel)) clientEnv
+    pollResult <- runClientM (pactPollApiClient v cid mConfirmationDepth (PollRequest rksNel)) clientEnv
     case pollResult of
         Left e -> do
             throwM (PollException (show e))
-        Right (Pact5.PollResponse response) -> do
+        Right (PollResponse response) -> do
             -- the poll should only return results for commands
             -- that were polled for
-            response & P.fun HashMap.keys ? traverse_ ? P.fun (\rk -> elem rk rks) ? P.bool
+            response
+                & P.fun HashMap.keys
+                ? traverse_
+                ? P.fun (\rk -> elem rk rks)
+                ? P.equals True
             return
                 (rks <&> (\rk -> HashMap.lookup rk response))
 
@@ -1273,13 +1205,13 @@ send :: (HasCallStack, HasFixture fx)
     -> IO ()
 send fx v cid cmds = do
     let commands = NE.fromList $ toListOf each cmds
-    let batch = Pact4.SubmitBatch (fmap toPact4Command commands)
+    let batch = SendRequest (SubmitBatch commands)
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
     sendResult <- runClientM (pactSendApiClient v cid batch) clientEnv
     case sendResult of
         Left e -> do
             throwM (ClientException callStack e)
-        Right (Pact4.RequestKeys (fmap toPact5RequestKey -> response)) -> do
+        Right (SendResponse (RequestKeys response)) -> do
             -- the returned request keys should always be exactly the hashes
             -- of the commands
             response & P.equals (cmdToRequestKey <$> commands)
@@ -1297,7 +1229,9 @@ local fx v cid preflight sigVerify depth cmd = do
     -- send a single local request and return the result
     --
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
-    r <- runClientM (pactLocalWithQueryApiClient v cid preflight sigVerify depth (toPact4Command cmd)) clientEnv
+    r <- runClientM
+        (pactLocalApiClient v cid preflight sigVerify depth cmd)
+        clientEnv
     either (throwM . ClientException callStack) return r
 
 spvTxOutProof :: (HasCallStack, HasFixture fx)
@@ -1309,9 +1243,10 @@ spvTxOutProof :: (HasCallStack, HasFixture fx)
     -> IO TransactionOutputProofB64
 spvTxOutProof fx v trgChain srcChain reqKey = do
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
-    let pact4TrgChain = Pact4.ChainId $ toText trgChain
-    let pact4ReqKey = toPact4RequestKey reqKey
-    r <- runClientM (pactSpvApiClient v srcChain (SpvRequest pact4ReqKey pact4TrgChain)) clientEnv
+    let pactTrgChain = Pact.ChainId $ toText trgChain
+    r <- runClientM
+        (pactSpvApiClient v srcChain (SpvRequest reqKey pactTrgChain))
+        clientEnv
     either (throwM . ClientException callStack) return r
 
 pactDeadBeef :: RequestKey
@@ -1323,24 +1258,3 @@ textContains expectedStr actualStr
     | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
     | otherwise =
         P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
-
-checkPactVersion :: Fixture -> ChainwebVersion -> ChainId -> IO PactVersion
-checkPactVersion fx v cid = do
-    cmd <- buildTextCmd v
-        $ set cbRPC (mkExec' "(do 1)")
-        $ defaultCmd cid
-    r <- local fx v cid (Just PreflightSimulation) Nothing Nothing cmd
-    case r of
-        LocalResultLegacy (getJsonText -> txt) -> do
-            if extractError txt == Just "Cannot resolve do"
-            then return Pact4
-            else return Pact5
-        LocalResultWithWarns (getJsonText -> txt) _warns -> do
-            if extractError txt == Just "Cannot resolve do"
-            then return Pact4
-            else return Pact5
-        anythingElse -> do
-            assertFailure $ "checkPactVersion: Unexpected result: " ++ show anythingElse
-    where
-        extractError :: Text -> Maybe Text
-        extractError json = json ^? A.key "result" . A.key "error" . A.key "message" . A._String

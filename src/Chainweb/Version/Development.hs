@@ -28,17 +28,17 @@ devnet :: ChainwebVersion
 devnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000002
     , _versionName = ChainwebVersionName "development"
-    , _versionForks = tabulateHashMap $ \case
-        _ -> AllChains ForkAtGenesis
-    , _versionUpgrades = AllChains mempty
+    , _versionForks = tabulateHashMap $
+        \_ -> onAllChains devnet ForkAtGenesis
+    , _versionUpgrades = onAllChains devnet mempty
     , _versionGraphs = Bottom (minBound, twentyChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = AllChains $ HashTarget (maxBound `div` 100_000)
-        , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+        { _genesisBlockTarget = onAllChains devnet $ HashTarget (maxBound `div` 100_000)
+        , _genesisTime = onAllChains devnet $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
         , _genesisBlockPayload = onChains
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
             , (unsafeChainId 1, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
@@ -75,9 +75,9 @@ devnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ Bottom
+    , _versionVerifierPluginNames = onAllChains devnet $ Bottom
         (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
-    , _versionQuirks = noQuirks
+    , _versionQuirks = noQuirks devnet
     , _versionServiceDate = Nothing
-    , _versionPayloadProviderTypes = AllChains PactProvider
+    , _versionPayloadProviderTypes = onAllChains devnet PactProvider
     }

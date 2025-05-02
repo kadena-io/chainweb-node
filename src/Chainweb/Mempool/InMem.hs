@@ -437,15 +437,10 @@ validateOne cfg badmap curTxIdx now t h =
     -- prop_tx_gas_rounding
     gasPriceRoundingCheck :: Either InsertError ()
     gasPriceRoundingCheck =
-        ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
+        ebool_ (InsertErrorBadGasPrice gp) f
       where
-        f (GasPrice d) = decimalPlaces d <= defaultMaxCoinDecimalPlaces
-        msg = T.unwords
-            [ "This transaction's gas price:"
-            , sshow (txGasPrice txcfg t)
-            , "is not correctly rounded."
-            , "It should be rounded to at most 12 decimal places."
-            ]
+        gp@(GasPrice d) = txGasPrice txcfg t
+        f = decimalPlaces d <= defaultMaxCoinDecimalPlaces
 
     -- prop_tx_ttl_arrival
     ttlCheck :: Either InsertError ()
@@ -631,7 +626,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate evalCtx =
         err s = error $
                 mconcat [ "Error decoding tx (\""
                         , s
-                        , "\"): tx was: "
+                        , "\"): did you disable checks and insert an invalid transaction? tx was: "
                         , T.unpack (T.decodeUtf8 tx)
                         ]
     getSize = txGasLimit txcfg

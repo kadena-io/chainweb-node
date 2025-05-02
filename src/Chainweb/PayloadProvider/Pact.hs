@@ -8,14 +8,18 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.PayloadProvider.Pact
     ( PactPayloadProvider(..)
     , withPactPayloadProvider
     , pactMemPoolAccess
+    , decodeNewPayload
     ) where
 
 import Control.Concurrent.STM
+import Control.Exception.Safe
 import Data.LogMessage
 import Data.Vector (Vector)
 import System.LogLevel
@@ -27,6 +31,7 @@ import Chainweb.ChainId
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
+import Chainweb.MerkleUniverse
 import qualified Chainweb.MinerReward as MinerReward
 import Chainweb.Pact.Backend.Utils
 import qualified Chainweb.Pact.PactService as PactService
@@ -39,6 +44,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import qualified Data.Pool as Pool
 import Control.Monad.Trans.Resource (ResourceT, allocate)
+import Chainweb.Core.Brief
 
 data PactPayloadProvider logger tbl = PactPayloadProvider logger (ServiceEnv tbl)
 
@@ -90,9 +96,17 @@ instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvi
     eventProof :: Logger logger => PactPayloadProvider logger tbl -> XEventId -> IO SpvProof
     eventProof = error "not figured out yet"
 
+decodeNewPayload :: MonadThrow m => NewPayload -> m PayloadWithOutputs
+decodeNewPayload NewPayload{..} = do
+    pd <- decodePayloadData @_ @ChainwebMerkleHashAlgorithm $
+        _encodedPayloadData $ fromJuste _newPayloadEncodedPayloadData
+    bo <- decodeBlockOutputs @_ @ChainwebMerkleHashAlgorithm $
+        _encodedPayloadOutputs $ fromJuste _newPayloadEncodedPayloadOutputs
+    return $ payloadWithOutputs pd (_blockCoinbaseOutput bo) (_blockOutputs bo)
+
 -- | Initialization for Pact (in process) Api
 withPactPayloadProvider
-    :: CanReadablePayloadCas tbl
+    :: CanPayloadCas tbl
     => Logger logger
     => ChainwebVersion
     -> ChainId
@@ -103,8 +117,9 @@ withPactPayloadProvider
     -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
+    -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config = do
+withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
     (_, readOnlySqlPool) <- allocate
         (Pool.newPool $ Pool.defaultPoolConfig
@@ -115,7 +130,9 @@ withPactPayloadProvider ver cid http logger txFailuresCounter mp pdb pactDbDir c
             & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
         )
         Pool.destroyAllResources
-    PactPayloadProvider logger <$> PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
+    PactPayloadProvider logger <$>
+        PactService.withPactService ver cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
+        (maybe GenesisNotNeeded GenesisPayload maybeGenesisPayload)
     where
     mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 
@@ -139,8 +156,8 @@ pactMemPoolGetBlock
             -> EvaluationCtx ()
             -> IO (Vector to))
 pactMemPoolGetBlock mp theLogger bf validate ctx = do
-    logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
-        <> "height = " <> sshow (_evaluationCtxCurrentHeight ctx) <> ", hash = " <> sshow (_evaluationCtxParentHash ctx)
+    logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for parent "
+        <> brief (_evaluationCtxRankedParentHash ctx)
     mempoolGetBlock mp bf validate ctx
     where
     logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints

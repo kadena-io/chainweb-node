@@ -32,9 +32,8 @@ module Chainweb.Test.Pact.CutFixture
     , fixtureCutDb
     , fixturePayloadDb
     , fixtureWebBlockHeaderDb
-    , fixtureWebPactExecutionService
     , fixtureMempools
-    , fixturePactQueues
+    , fixturePacts
     , advanceAllChains
     , advanceAllChains_
     , withTestCutDb
@@ -55,14 +54,13 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService.Pact4.ExecBlock ()
-import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -71,7 +69,6 @@ import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements, only)
 import Control.Monad
@@ -87,14 +84,18 @@ import Data.Text qualified as Text
 import Data.Vector (Vector)
 import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
+import qualified Data.Pool as Pool
+import qualified Chainweb.Pact.PactService as PactService
+import Chainweb.PayloadProvider.Pact
+import Chainweb.PayloadProvider
 
 data Fixture = Fixture
-    { _fixtureCutDb :: CutDb RocksDbTable
+    { _fixtureCutDb :: CutDb
     , _fixturePayloadDb :: PayloadDb RocksDbTable
     , _fixtureWebBlockHeaderDb :: WebBlockHeaderDb
-    , _fixtureWebPactExecutionService :: WebPactExecutionService
-    , _fixtureMempools :: ChainMap (MempoolBackend Pact4.UnparsedTransaction)
-    , _fixturePactQueues :: ChainMap PactQueue
+    , _fixtureLogger :: GenericLogger
+    , _fixturePacts :: ChainMap (ServiceEnv RocksDbTable)
+    , _fixtureMempools :: ChainMap (MempoolBackend Pact.Transaction)
     }
 makeLenses ''Fixture
 
@@ -105,27 +106,28 @@ instance HasFixture Fixture where
 instance HasFixture a => HasFixture (IO a) where
     cutFixture = (>>= cutFixture)
 
-mkFixture :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
-mkFixture v pactServiceConfig baseRdb = do
+mkFixture :: ChainwebVersion -> (ChainId -> PayloadWithOutputs) -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
+mkFixture v genesisPayloadFor pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
     testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
     (payloadDb, webBHDb) <- withBlockDbs v testRdb
-    perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
-        pactQueue <- liftIO $ newPactQueue 2_000
-        mempool <- withMempool v chain pactQueue
-        withRunPactService logger v chain pactQueue mempool webBHDb payloadDb pactServiceConfig
-        return (mempool, pactQueue)
-    let webPact = mkWebPactExecutionService $ HashMap.map (mkPactExecutionService . snd) perChain
-    let cutHashesStore = cutHashesTable testRdb
-    cutDb <- withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact
-
+    perChain <- fmap ChainMap $ iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+        (writeSqlite, readPool) <- withTempChainSqlite chain
+        serviceEnv <- PactService.withPactService v chain Nothing mempty logger Nothing payloadDb readPool writeSqlite pactServiceConfig (GenesisPayload $ genesisPayloadFor chain)
+        mempool <- withMempool logger serviceEnv
+        let serviceEnv' = serviceEnv { _psMempoolAccess = pactMemPoolAccess mempool logger }
+        return (mempool, serviceEnv')
+    let pacts = snd <$> perChain
+    let mempools = fst <$> perChain
+    let providers = ConfiguredPayloadProvider . PactPayloadProvider logger <$> pacts
+    (_, cutDb) <- withTestCutDb testRdb v id 0 providers (logFunction logger)
     let fixture = Fixture
             { _fixtureCutDb = cutDb
+            , _fixtureLogger = logger
+            , _fixturePacts = pacts
             , _fixturePayloadDb = payloadDb
             , _fixtureWebBlockHeaderDb = webBHDb
-            , _fixtureWebPactExecutionService = webPact
-            , _fixtureMempools = OnChains $ fst <$> perChain
-            , _fixturePactQueues = OnChains $ snd <$> perChain
+            , _fixtureMempools = mempools
             }
     -- we create the first block to avoid rejecting txs based on genesis
     -- block creation time being from the past
@@ -149,8 +151,11 @@ advanceAllChains fx = do
     -- TODO: rejig this to do parallel mining.
     (finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
-            (newCut, _minedChain, pwo) <-
-                mine cid noMiner NewBlockFill _fixtureWebPactExecutionService _fixtureCutDb prevCut
+            (newCut, _minedChain, newPayload) <-
+                mine cid _fixtureCutDb prevCut
+
+            pwo <- decodeNewPayload newPayload
+
             commandResults <- forM (_payloadWithOutputsTransactions pwo) $ \(_, txOut) -> do
                 decodeOrThrow' $ LBS.fromStrict $ _transactionOutputBytes txOut
 
@@ -169,47 +174,16 @@ advanceAllChains_
     -> IO ()
 advanceAllChains_ = void . advanceAllChains
 
-withTestCutDb :: (Logger logger)
-    => logger
-    -> ChainwebVersion
-    -> WebBlockHeaderDb
-    -> PayloadDb RocksDbTable
-    -> Casify RocksDbTable CutHashes
-    -> WebPactExecutionService
-    -> ResourceT IO (CutDb RocksDbTable)
-withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact = snd <$> allocate create destroy
-    where
-        create :: IO (CutDb RocksDbTable)
-        create = do
-            initializePayloadDb v payloadDb
-            httpManager <- HTTP.newManager HTTP.defaultManagerSettings
-
-            headerStore <- newWebBlockHeaderStore httpManager webBHDb (logFunction logger)
-            payloadStore <- newWebPayloadStore httpManager webPact payloadDb (logFunction logger)
-
-            let cutFetchTimeout = 3_000_000
-            cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) (logFunction logger) headerStore payloadStore cutHashesStore
-            return cutDb
-
-        destroy :: CutDb RocksDbTable -> IO ()
-        destroy = stopCutDb
-
 -- | Build a linear chainweb (no forks, assuming single threaded use of the
 -- cutDb). No POW or poison delay is applied. Block times are real times.
 mine
-    :: (HasCallStack, CanReadablePayloadCas tbl)
+    :: HasCallStack
     => ChainId
-    -> Miner
-        -- ^ The miner. For testing you may use 'defaultMiner' or 'noMiner'.
-    -> NewBlockFill
-    -> WebPactExecutionService
-        -- ^ only the new-block generator is used. For testing you may use
-        -- 'fakePact'.
-    -> CutDb tbl
+    -> CutDb
     -> Cut
-    -> IO (Cut, ChainId, PayloadWithOutputs)
-mine cid miner newBlockStrat pact cutDb c = do
-    tryMineForChain miner newBlockStrat pact cutDb c cid >>= \case
+    -> IO (Cut, ChainId, NewPayload)
+mine cid cutDb c = do
+    tryMineForChain cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
             $ "Failed to create new cut on chain " <> toText cid <> "."
             <> "This is a bug in Chainweb.Test.Pact.CutFixture or one of its users; check that this chain's adjacent chains aren't too far behind."
@@ -218,17 +192,6 @@ mine cid miner newBlockStrat pact cutDb c = do
         Right x -> do
             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
             return x
-
--- | Atomically await for a 'CutDb' instance to synchronize cuts according to some
--- predicate for a given 'Cut' and the results of '_cutStm'.
-awaitCut
-    :: CutDb tbl
-    -> (Cut -> Bool)
-    -> IO Cut
-awaitCut cdb k = atomically $ do
-    c <- _cutStm cdb
-    STM.check $ k c
-    pure c
 
 testMineWithPayloadHash
     :: forall cid hdb. (HasChainId cid, ChainValueCasLookup hdb BlockHeader)
@@ -257,9 +220,9 @@ createNewCut
     -> m (T2 BlockHeader Cut)
 createNewCut hdb n t pay i c = do
     extension <- fromMaybeM BadAdjacents $ getCutExtension c i
-    bh <- newHeaderForPayloadPure hdb (BlockCreationTime t) extension pay
-    (solvedHeader, mc') <- extendCut c pay (solveWork bh n t) bh
-        `catch` \(InvalidSolvedHeader msg) -> throwM $ InvalidHeader msg
+    work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
+    (h, mc') <- extendCut c (solveWork work n t)
+        `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
     c' <- fromMaybeM BadAdjacents mc'
     return $ T2 solvedHeader c'
 
@@ -287,31 +250,28 @@ solveWork bh n t =
 -- Block times are real times.
 --
 tryMineForChain
-    :: forall tbl. (HasCallStack, CanReadablePayloadCas tbl)
-    => Miner
-        -- ^ The miner. For testing you may use 'defaultMiner'.
-    -> NewBlockFill
-    -> WebPactExecutionService
-    -> CutDb tbl
+    :: HasCallStack
+    => CutDb
     -> Cut
     -> ChainId
-    -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
-tryMineForChain miner newBlockStrat webPact cutDb c cid = do
-    newBlock <- throwIfNoHistory =<< _webPactNewBlock webPact cid miner newBlockStrat parent
-    let outputs = newBlockToPayloadWithOutputs newBlock
-    let payloadHash = _payloadWithOutputsPayloadHash outputs
+    -> IO (Either MineFailure (Cut, ChainId, NewPayload))
+tryMineForChain cutDb c cid = do
+    newBlock <- case cutDb ^?! cutDbPayloadProviders . atChain cid of
+        ConfiguredPayloadProvider p -> waitForChangedPayload p
+        DisabledPayloadProvider -> error $ "missing payload provider on chain " <> show cid
+    let payloadHash = _newPayloadBlockPayloadHash newBlock
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
             addCutHashes cutDb (cutToCutHashes Nothing c')
                 { _cutHashesHeaders = HashMap.singleton (view blockHash h) h
-                , _cutHashesPayloads = HashMap.singleton (view blockPayloadHash h) (payloadWithOutputsToPayloadData outputs)
+                , _cutHashesPayloads =
+                    HashMap.singleton (view blockPayloadHash h) (fromJuste $ _newPayloadEncodedPayloadData newBlock)
                 }
-            return $ Right (c', cid, outputs)
+            return $ Right (c', cid, newBlock)
         Left e -> return $ Left e
     where
-        parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
         wdb = view cutDbWebBlockHeaderDb cutDb
 
 data MineFailure

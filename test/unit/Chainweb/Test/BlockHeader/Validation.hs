@@ -47,6 +47,7 @@ import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.Difficulty
 import Chainweb.Graph hiding (AdjacentChainMismatch)
+import Chainweb.Parent
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils.TestHeader
 import Chainweb.Test.TestVersions
@@ -225,7 +226,7 @@ validationFailures =
     , ( hdr & testHeaderParent . coerced . blockHeight .~ 318359
       , [IncorrectHeight, IncorrectEpoch, IncorrectTarget]
       )
-    , ( hdr & testHeaderHdr . blockParent %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
+    , ( hdr & testHeaderHdr . blockParent %~ messWords (encodeBlockHash . unwrapParent) (Parent <$> decodeBlockHash) (flip complementBit 0)
       , [MissingParent]
       )
     , ( hdr & testHeaderHdr . blockPayloadHash %~ messWords encodeBlockPayloadHash decodeBlockPayloadHash (flip complementBit 0)
@@ -273,10 +274,10 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
       , [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
       )
-    , ( hdr & testHeaderAdjs . each . parentHeader . blockChainwebVersion .~ _versionCode RecapDevelopment
+    , ( hdr & testHeaderAdjs . each . _Parent . blockChainwebVersion .~ _versionCode RecapDevelopment
       , [InvalidAdjacentVersion]
       )
-    , ( hdr & testHeaderAdjs . ix 0 . parentHeader . blockChainId .~ unsafeChainId 0
+    , ( hdr & testHeaderAdjs . ix 0 . _Parent . blockChainId .~ unsafeChainId 0
       , [AdjacentParentChainMismatch]
       )
     ]
@@ -348,9 +349,9 @@ daValidation =
   where
     h, p :: Lens' TestHeader BlockHeader
     h = testHeaderHdr
-    p = testHeaderParent . parentHeader
+    p = testHeaderParent . _Parent
 
-    a = testHeaderAdjs . each . parentHeader
+    a = testHeaderAdjs . each . _Parent
 
     expected = [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
 
@@ -401,7 +402,7 @@ legacyDaValidation =
   where
     h, p :: Lens' TestHeader BlockHeader
     h = testHeaderHdr
-    p = testHeaderParent . parentHeader
+    p = testHeaderParent . _Parent
 
     -- From mainnet height 600000
     hdr = testHeader
@@ -446,11 +447,11 @@ testnet04Headers :: [TestHeader]
 testnet04Headers = genesisTestHeaders Testnet04
 
 -- TODO replace these by "interesting headers" form mainnet (e.g. fork block heights)
-_testnet04InvalidHeaders :: [(ParentHeader, BlockHeader, [ValidationFailureType])]
+_testnet04InvalidHeaders :: [(Parent BlockHeader, BlockHeader, [ValidationFailureType])]
 _testnet04InvalidHeaders = some
   where
     f (p, h, e) = (,,)
-        <$> (fmap ParentHeader . decode . wrap) p
+        <$> (fmap Parent . decode . wrap) p
         <*> (decode . wrap) h
         <*> pure e
 

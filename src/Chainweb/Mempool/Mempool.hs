@@ -237,9 +237,10 @@ data InsertError
   | InsertErrorTransactionsDisabled
   | InsertErrorBuyGas Text
   | InsertErrorCompilationFailed Text
-  | InsertErrorOther Text
+  | InsertErrorBadGasPrice GasPrice
   | InsertErrorInvalidHash
   | InsertErrorInvalidSigs Text
+  | InsertErrorTooManySigs
   | InsertErrorTimedOut
   | InsertErrorPactParseError Text
   | InsertErrorWrongChain Text Text
@@ -255,14 +256,20 @@ instance Show InsertError where
       InsertErrorBadlisted -> "Transaction is badlisted because it previously failed to validate."
       InsertErrorMetadataMismatch -> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint"
       InsertErrorTransactionsDisabled -> "Transactions are disabled until 2019 Dec 5"
-      InsertErrorBuyGas msg -> "Attempt to buy gas failed with: " <> T.unpack msg
+      InsertErrorBuyGas msg -> T.unpack msg
       InsertErrorCompilationFailed msg -> "Transaction compilation failed: " <> T.unpack msg
-      InsertErrorOther m -> "insert error: " <> T.unpack m
       InsertErrorInvalidHash -> "Invalid transaction hash"
       InsertErrorInvalidSigs msg -> "Invalid transaction sigs: " <> T.unpack msg
       InsertErrorTimedOut -> "Transaction validation timed out"
       InsertErrorPactParseError msg -> "Pact parse error: " <> T.unpack msg
       InsertErrorWrongChain expected actual -> "Wrong chain, expected: " <> T.unpack expected <> ", actual: " <> T.unpack actual
+      InsertErrorBadGasPrice (GasPrice d) -> concat
+        [ "This transaction's gas price ("
+        , sshow d
+        , ") is not correctly rounded. "
+        , "It should be rounded to at most 12 decimal places."
+        ]
+      InsertErrorTooManySigs -> "Too many signatures"
 
 instance Exception InsertError
 

@@ -36,6 +36,7 @@ module Chainweb.Pact.PactService
     , execReadOnlyReplay
     , withPactService
     , execNewGenesisBlock
+    , makeEmptyBlock
     ) where
 
 import Control.Concurrent.Async
@@ -54,7 +55,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Monoid
 import Data.Pool (Pool)
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -67,7 +67,6 @@ import Prelude hiding (lookup)
 import qualified Pact.JSON.Encode as J
 
 import qualified Pact.Core.Gas as Pact
-import qualified Pact.Core.Info as Pact
 
 import qualified Chainweb.Pact.TransactionExec as Pact
 import qualified Chainweb.Pact.Validations as Pact
@@ -121,9 +120,10 @@ import qualified Data.Pool as Pool
 import qualified Data.List.NonEmpty as NEL
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact.NoCoinbase as Pact
+import Chainweb.Core.Brief
 
 withPactService
-    :: (Logger logger, CanReadablePayloadCas tbl)
+    :: (Logger logger, CanPayloadCas tbl)
     => ChainwebVersion
     -> ChainId
     -> Maybe HTTP.Manager
@@ -134,8 +134,9 @@ withPactService
     -> Pool SQLiteEnv
     -> SQLiteEnv
     -> PactServiceConfig
+    -> GenesisConfig
     -> ResourceT IO (ServiceEnv tbl)
-withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config = do
+withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config pactGenesis = do
     SomeChainwebVersionT @v _ <- pure $ someChainwebVersionVal ver
     SomeChainIdT @c _ <- pure $ someChainIdVal cid
     let payloadClient = Rest.payloadClient @v @c @'PactProvider
@@ -153,7 +154,8 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             { _psVersion = ver
             , _psChainId = cid
             -- TODO: PPgaslog
-            , _psGasLogger = undefined <$ guard (_pactLogGas config)
+            -- , _psGasLogger = undefined <$ guard (_pactLogGas config)
+            , _psGasLogger = Nothing
             , _psReadSqlPool = readSqlPool
             , _psReadWriteSql = readWriteSqlenv
             , _psPdb = payloadStore
@@ -167,9 +169,16 @@ withPactService ver cid http memPoolAccess chainwebLogger txFailuresCounter pdb 
             , _psMiner = _pactMiner config
             , _psNewBlockGasLimit = _pactNewBlockGasLimit config
             , _psMiningPayloadVar = miningPayloadVar
-            , _psGenesisPayload = _pactGenesisPayload config
+            , _psGenesisPayload = case pactGenesis of
+                GeneratingGenesis -> Nothing
+                GenesisPayload p -> Just p
+                GenesisNotNeeded -> Nothing
+            , _psBlockRefreshInterval = _pactBlockRefreshInterval config
             }
 
+    case pactGenesis of
+        GeneratingGenesis -> return ()
+        _ -> liftIO $ initialPayloadState chainwebLogger pse
     return pse
 
 initialPayloadState
@@ -191,17 +200,23 @@ runGenesisIfNeeded
 runGenesisIfNeeded logger serviceEnv = do
     latestBlock <- fmap _consensusStateLatest <$> Checkpointer.getConsensusState (_psReadWriteSql serviceEnv)
     when (maybe True (isGenesisBlockHeader' v cid . Parent . _syncStateBlockHash) latestBlock) $ do
+        logFunctionText logger Debug "running genesis"
         let genesisBlockHash = genesisBlockHeader v cid ^. blockHash
         let genesisPayloadHash = genesisBlockPayloadHash v cid
+        let gTime = v ^?! versionGenesis . genesisTime . atChain cid
         let targetSyncState = genesisConsensusState v cid
+        let genesisRankedBlockHash = RankedBlockHash (genesisHeight v cid) genesisBlockHash
         let evalCtx = genesisEvaluationCtx serviceEnv
         let blockCtx = blockCtxOfEvaluationCtx v cid evalCtx
+        let !genesisPayload = case _psGenesisPayload serviceEnv of
+                Nothing -> error "genesis needs to be run, but the genesis payload is missing!"
+                Just p -> p
 
         maybeErr <- runExceptT $ Checkpointer.restoreAndSave logger v cid (_psReadWriteSql serviceEnv)
             $ NEL.singleton
             $ (blockCtx, \blockEnv -> do
                 _ <- Pact.execExistingBlock logger serviceEnv blockEnv
-                    (CheckablePayloadWithOutputs (_psGenesisPayload serviceEnv))
+                    (CheckablePayloadWithOutputs genesisPayload)
                 return ((), (genesisBlockHash, genesisPayloadHash))
             )
         case maybeErr of
@@ -210,17 +225,22 @@ runGenesisIfNeeded logger serviceEnv = do
                 addNewPayload
                     (_payloadStoreTable $ _psPdb serviceEnv)
                     (genesisHeight v cid)
-                    (_psGenesisPayload serviceEnv)
+                    genesisPayload
                 Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
+                -- we have to kick off payload refreshing here
+                emptyBlock <- (throwIfNoHistory =<<) $
+                    Checkpointer.readFrom logger v cid
+                        (_psReadWriteSql serviceEnv)
+                        (Parent gTime)
+                        (Parent genesisRankedBlockHash) $
+                            \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
+                refresherThread <- liftIO $ async (refreshPayloads logger serviceEnv)
+                liftIO $
+                    atomically $ writeTMVar (_psMiningPayloadVar serviceEnv) (refresherThread, emptyBlock)
 
     where
     v = _chainwebVersion serviceEnv
     cid = _chainId serviceEnv
-
-getMiner :: HasCallStack => ServiceEnv tbl -> IO Miner
-getMiner serviceEnv = case _psMiner serviceEnv of
-    Nothing -> error "Chainweb.Pact.PactService: Mining is disabled, but was invoked. This is a bug in chainweb."
-    Just miner -> return miner
 
 -- | only for use in generating genesis blocks in tools.
 --
@@ -249,7 +269,7 @@ execNewGenesisBlock logger serviceEnv newTrans = do
                 , _blockInProgressBlockCtx = _psBlockCtx blockEnv
                 }
 
-        let fakeServiceEnv = serviceEnv
+        let fakeMempoolServiceEnv = serviceEnv
                 & psMempoolAccess .~ mempty
                     { mpaGetBlock = \bf pbc evalCtx -> do
                         if _bfCount bf == 0
@@ -264,7 +284,7 @@ execNewGenesisBlock logger serviceEnv newTrans = do
                     }
                 & psMiner .~ Just noMiner
 
-        results <- Pact.continueBlock logger fakeServiceEnv (_psBlockDbEnv blockEnv) bipStart
+        results <- Pact.continueBlock logger fakeMempoolServiceEnv (_psBlockDbEnv blockEnv) bipStart
         let !pwo = toPayloadWithOutputs
                 noMiner
                 (_blockInProgressTransactions results)
@@ -367,20 +387,15 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                                 blockCtx (TxBlockIdx 0) spvSupport initialGas (view Pact.payloadObj <$> cwtx)
                                 )
                         commandResult <- case applyCmdResult of
-                            Left _err ->
-                                earlyReturn $ LocalResultWithWarns (J.encodeJsonText Pact.CommandResult
+                            Left err ->
+                                earlyReturn $ LocalResultWithWarns (Pact.CommandResult
                                     { _crReqKey = requestKey
                                     , _crTxId = Nothing
                                     , _crResult = Pact.PactResultErr $
-                                        Pact.PactOnChainError
-                                            -- the only legal error type, once chainweaver is really gone, we
-                                            -- can use a real error type
-                                            (Pact.ErrorType "EvalError")
-                                            (Pact.mkBoundedText $ undefined) -- TODO: PP prettyPact5GasPurchaseFailure err)
-                                            (Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0))
+                                        txInvalidErrorToOnChainPactError err
                                     , _crGas =
                                         cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasLimit . Pact._GasLimit
-                                    , _crLogs = Nothing :: Maybe Text
+                                    , _crLogs = Nothing
                                     , _crContinuation = Nothing
                                     , _crMetaData = Nothing
                                     , _crEvents = []
@@ -392,7 +407,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                         let commandResult' = hashPactTxLogs $ set Pact.crMetaData (Just metadata) commandResult
                         -- TODO: once Pact 5 has warnings, include them here.
                         pure $ LocalResultWithWarns
-                            (J.encodeJsonText $ Pact.pactErrorToOnChainError <$> commandResult')
+                            (Pact.pactErrorToOnChainError <$> commandResult')
                             []
                     _ -> lift $ do
                         -- default is legacy mode: use applyLocal, don't buy gas, don't do any
@@ -400,7 +415,7 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
                         cr <- flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \dbEnv spvSupport -> do
                             -- TODO: PPgaslog
                             fmap Pact.pactErrorToOnChainError <$> Pact.applyLocal logger Nothing dbEnv blockCtx spvSupport (view Pact.payloadObj <$> cwtx)
-                        pure $ LocalResultLegacy $ J.encodeJsonText (hashPactTxLogs cr)
+                        pure $ LocalResultLegacy $ hashPactTxLogs cr
 
     gasLogger = view psGasLogger serviceEnv
     enableLocalTimeout = view psEnableLocalTimeout serviceEnv
@@ -421,27 +436,29 @@ makeEmptyBlock
     => logger
     -> ServiceEnv tbl
     -> BlockEnv
-    -> StateT BlockHandle IO BlockInProgress
-makeEmptyBlock logger serviceEnv blockEnv = do
-    miner <- liftIO $ getMiner serviceEnv
-    let blockGasLimit = _psNewBlockGasLimit serviceEnv
-    coinbaseOutput <- revertStateOnFailure (Pact.runCoinbase logger blockEnv miner) >>= \case
-        Left coinbaseError -> error $ "Error during coinbase: " <> sshow coinbaseError
-        Right coinbaseOutput ->
-            -- pretend that coinbase can throw an error, when we know it can't.
-            -- perhaps we can make the Transactions express this, may not be worth it.
-            return $ coinbaseOutput & Pact.crResult . Pact._PactResultErr %~ absurd
-    hndl <- get
-    return BlockInProgress
-            { _blockInProgressHandle = hndl
-            , _blockInProgressBlockCtx = view psBlockCtx blockEnv
-            , _blockInProgressRemainingGasLimit = blockGasLimit
-            , _blockInProgressTransactions = Transactions
-                { _transactionCoinbase = coinbaseOutput
-                , _transactionPairs = mempty
+    -> BlockHandle
+    -> IO BlockInProgress
+makeEmptyBlock logger serviceEnv blockEnv initialBlockHandle =
+    flip evalStateT initialBlockHandle $ do
+        miner <- liftIO getMiner
+        let blockGasLimit = _psNewBlockGasLimit serviceEnv
+        coinbaseOutput <- revertStateOnFailure (Pact.runCoinbase logger blockEnv miner) >>= \case
+            Left coinbaseError -> error $ "Error during coinbase: " <> sshow coinbaseError
+            Right coinbaseOutput ->
+                -- pretend that coinbase can throw an error, when we know it can't.
+                -- perhaps we can make the Transactions express this, may not be worth it.
+                return $ coinbaseOutput & Pact.crResult . Pact._PactResultErr %~ absurd
+        hndl <- get
+        return BlockInProgress
+                { _blockInProgressHandle = hndl
+                , _blockInProgressBlockCtx = view psBlockCtx blockEnv
+                , _blockInProgressRemainingGasLimit = blockGasLimit
+                , _blockInProgressTransactions = Transactions
+                    { _transactionCoinbase = coinbaseOutput
+                    , _transactionPairs = mempty
+                    }
+                , _blockInProgressNumber = 0
                 }
-            , _blockInProgressNumber = 0
-            }
     where
     revertStateOnFailure :: Monad m => StateT s (ExceptT e m) a -> StateT s m (Either e a)
     revertStateOnFailure s = do
@@ -451,6 +468,10 @@ makeEmptyBlock logger serviceEnv blockEnv = do
             f old = \case
                 Left err -> (Left err, old)
                 Right (success, new) -> (Right success, new)
+    getMiner :: HasCallStack => IO Miner
+    getMiner = case _psMiner serviceEnv of
+        Nothing -> error "Chainweb.Pact.PactService: Mining is disabled, but was invoked. This is a bug in chainweb."
+        Just miner -> return miner
 
 syncToFork
     :: forall tbl logger
@@ -469,45 +490,50 @@ syncToFork logger serviceEnv hints forkInfo = do
         -- check if some past block had the target as its parent; if so, that
         -- means we can rewind to it
         latestBlockRewindable <-
-            Checkpointer.lookupParentBlockHash sql (Parent $ _syncStateBlockHash (_consensusStateLatest pactConsensusState))
+            Checkpointer.lookupBlockHash sql (_latestBlockHash forkInfo._forkInfoTargetState)
         if atTarget
         then do
             -- no work to do at all except set consensus state
             -- TODO PP: disallow rewinding final?
-            logFunctionText logger Debug $ "no work done to move to " <> sshow forkInfo._forkInfoTargetState
+            logFunctionText logger Debug $ "no work done to move to " <> brief forkInfo._forkInfoTargetState
             Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
             return (mempty, mempty, forkInfo._forkInfoTargetState)
         else if latestBlockRewindable
         then do
             -- we just have to rewind and set the final + safe blocks
             -- TODO PP: disallow rewinding final?
-            logFunctionText logger Debug $ "pure rewind to " <> sshow forkInfo._forkInfoTargetState
-            rewoundTxs <- getRewoundTxs (Parent $ _syncStateHeight (_consensusStateLatest pactConsensusState))
-            Checkpointer.rewindTo v cid sql (_syncStateRankedBlockHash (_consensusStateLatest pactConsensusState))
+            logFunctionText logger Debug $ "pure rewind to " <> brief forkInfo._forkInfoTargetState
+            rewoundTxs <- getRewoundTxs (Parent $ forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
+            Checkpointer.rewindTo v cid sql (_syncStateRankedBlockHash (_consensusStateLatest forkInfo._forkInfoTargetState))
             Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
             return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
         else do
-            logFunctionText logger Debug $ "no work done to move to " <> sshow forkInfo._forkInfoTargetState
             let traceBlockHashes =
                     drop 1 (unwrapParent . _evaluationCtxRankedParentHash <$> forkInfo._forkInfoTrace) <>
-                    [_syncStateRankedBlockHash pactConsensusState._consensusStateLatest]
+                    [_syncStateRankedBlockHash forkInfo._forkInfoTargetState._consensusStateLatest]
+            logFunctionText logger Debug $
+                "playing blocks to move to " <> brief forkInfo._forkInfoTargetState
+                <> " using trace blocks " <> brief traceBlockHashes
             findForkChain (zip forkInfo._forkInfoTrace traceBlockHashes) >>= \case
                 Nothing -> do
-                    logFunctionText logger Error $ "impossible to move to " <> sshow forkInfo._forkInfoTargetState
+                    logFunctionText logger Error $ "impossible to move to " <> brief forkInfo._forkInfoTargetState
                     -- error: we have no way to get to the target block. just report
                     -- our current state and do nothing else.
                     return (mempty, mempty, pactConsensusState)
                 Just forkChainBottomToTop -> do
-                    rewoundTxs <- getRewoundTxs (Parent $ _syncStateHeight (_consensusStateLatest pactConsensusState))
+                    rewoundTxs <- getRewoundTxs (Parent $ forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
                     -- the happy case: we can find a way to get to the target block
                     -- look up all of the payloads to see if we've run them before
                     -- even then we still have to run them, because they aren't in the checkpointer
                     knownPayloads <- liftIO $
                         tableLookupBatch' pdb (each . _2) ((\e -> (e, _evaluationCtxRankedPayloadHash $ fst e)) <$> forkChainBottomToTop)
 
-                    logFunctionText logger Debug $ "unknown blocks in context: " <> sshow (length $ NEL.filter (isNothing . snd) knownPayloads)
+                    let unknownPayloads = NEL.filter (isNothing . snd) knownPayloads
+                    when (not (null unknownPayloads))
+                        $ logFunctionText logger Debug $ "unknown blocks in context: " <> sshow (length unknownPayloads)
 
                     runnableBlocks <- forM knownPayloads $ \((evalCtx, rankedBHash), maybePayload) -> do
+                        logFunctionText logger Debug $ "running block: " <> brief rankedBHash
                         payload <- case maybePayload of
                             -- fetch payload if missing
                             Nothing -> getPayloadForContext logger serviceEnv hints evalCtx
@@ -538,8 +564,9 @@ syncToFork logger serviceEnv hints forkInfo = do
                     -- told to start mining, we produce an empty block
                     -- immediately. then we set up a separate thread
                     -- to add new transactions to the block.
+                    logFunctionText logger Debug "producing new block"
                     emptyBlock <- Checkpointer.readFromLatest logger v cid sql (_newBlockCtxParentCreationTime newBlockCtx) $ \blockEnv blockHandle ->
-                        flip evalStateT blockHandle $ makeEmptyBlock logger serviceEnv blockEnv
+                        makeEmptyBlock logger serviceEnv blockEnv blockHandle
                     let payloadVar = view psMiningPayloadVar serviceEnv
 
                     -- cancel payload refresher thread
@@ -566,23 +593,34 @@ syncToFork logger serviceEnv hints forkInfo = do
         :: [(EvaluationCtx p, RankedBlockHash)]
         -> IO (Maybe (NEL.NonEmpty (EvaluationCtx p, RankedBlockHash)))
     findForkChain [] = return Nothing
-    findForkChain (tip:chain) = go (NEL.singleton tip) chain
+    findForkChain (tip:chain) = go [] (tip:chain)
         where
         go
-            :: NEL.NonEmpty (EvaluationCtx p, RankedBlockHash)
+            :: [(EvaluationCtx p, RankedBlockHash)]
             -> [(EvaluationCtx p, RankedBlockHash)]
             -> IO (Maybe (NEL.NonEmpty (EvaluationCtx p, RankedBlockHash)))
         go !acc (tip':chain') = do
             -- note that if we see the eval ctx in the checkpointer,
-            -- that means that the block has been evaluated, thus we do
-            -- not include `tip` in the resulting list.
-            known <- Checkpointer.lookupRankedBlockHash sql (snd tip')
+            -- that means that the parent block has been evaluated, thus we do
+            -- include `tip` in the resulting list.
+            known <- Checkpointer.lookupRankedBlockHash sql (unwrapParent $ _evaluationCtxRankedParentHash $ fst tip')
             if known
-            then return $ Just acc
+            then do
+                logFunctionText logger Debug $ "fork point: " <> brief (printable tip')
+                return $ Just $ tip' NEL.:| acc
             -- if we don't know this block, remember it for later as we'll
             -- need to execute it on top
-            else go (tip' `NEL.cons` acc) chain'
-        go _acc [] = return Nothing
+            else do
+                logFunctionText logger Debug $
+                    "block not in checkpointer: "
+                    <> brief (printable tip')
+                go (tip' : acc) chain'
+        go _ [] = do
+            logFunctionText logger Debug $
+                "no fork point found for chain: "
+                <> brief (printable <$> (tip:chain))
+            return Nothing
+        printable (a, b) = (_evaluationCtxRankedParentHash a, b)
 
     -- remember to call this *before* executing the actual rewind,
     -- and only alter the mempool *after* the db transaction is done.
@@ -597,32 +635,15 @@ syncToFork logger serviceEnv hints forkInfo = do
             (fmap (fromRight (error "invalid payload in database")) . runExceptT . pact5TransactionsFromPayload)
             rewoundPayloads
 
--- runBlock
---     :: (CanReadablePayloadCas tbl, Logger logger)
---     => logger
---     -> ServiceEnv tbl
---     -> BlockEnv
---     -> BlockPayloadHash
---     -> PayloadData
---     -> BlockHandle
---     -> StateT BlockHandle
---         (ExceptT BlockInvalidError IO)
---         (DList (Pact.Gas, PayloadWithOutputs, Vector Pact.Transaction))
--- runBlock logger serviceEnv blockEnv payload = do
---     (outputs, finalBlockHandle) <-
---         Pact.execExistingBlock logger serviceEnv blockEnv expectedPayloadHash (CheckablePayload payload)
---     return (DList.singleton outputs, finalBlockHandle, blockHashes)
---         where
---             expectedPayloadHash = _consensusPayloadHash $ _evaluationCtxPayload evalCtx
---             v = _chainwebVersion serviceEnv
---             cid = _chainId serviceEnv
-
 refreshPayloads :: Logger logger => logger -> ServiceEnv tbl -> IO ()
 refreshPayloads logger serviceEnv = do
     -- note that if this is empty, we wait; taking from it is the way to make us stop
     let logOutraced =
             liftIO $ logFunctionText logger Debug $ "Refresher outraced by new block"
     (_, blockInProgress) <- liftIO $ atomically $ readTMVar payloadVar
+    logFunctionText logger Debug $
+        "refreshing payloads for " <>
+        brief (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress)
     maybeRefreshedBlockInProgress <- Pool.withResource (view psReadSqlPool serviceEnv) $ \sql ->
         Checkpointer.readFrom logger v cid sql (_bctxParentCreationTime $ _blockInProgressBlockCtx blockInProgress) (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress) $ \blockEnv _bh -> do
         let dbEnv = view psBlockDbEnv blockEnv
@@ -641,7 +662,9 @@ refreshPayloads logger serviceEnv = do
                     return False
             if outraced
             then logOutraced
-            else refreshPayloads logger serviceEnv
+            else do
+                approximateThreadDelay (int $ _psBlockRefreshInterval serviceEnv)
+                refreshPayloads logger serviceEnv
     where
 
     payloadVar = _psMiningPayloadVar serviceEnv
@@ -725,9 +748,10 @@ execPreInsertCheckReq logger serviceEnv txs = do
             gasEnv <- Pact.mkTableGasEnv (Pact.MilliGasLimit mempty) Pact.GasLogsDisabled
             Pact.buyGas logger' gasEnv pactDb noMiner bctx (view Pact.payloadObj <$> tx)
         case result of
-            Left _err -> do
-                -- TODO: PP
-                throwError $ InsertErrorBuyGas $ undefined -- _prettyGasPurchaseFailure $ BuyGasError (Pact.cmdToRequestKey tx) err
+            Left err -> do
+                -- note that this is not on-chain
+                throwError $ InsertErrorBuyGas $ Pact._boundedText $ Pact._peMsg $
+                    txInvalidErrorToOnChainPactError (BuyGasError err)
             Right (_ :: Pact.EvalResult) -> return ()
 
 execLookupPactTxs
@@ -737,7 +761,7 @@ execLookupPactTxs
     -> Maybe ConfirmationDepth
     -> Vector SB.ShortByteString
     -> IO (Historical (HM.HashMap SB.ShortByteString (T3 BlockHeight BlockPayloadHash BlockHash)))
-execLookupPactTxs logger serviceEnv confDepth txs = do -- pactLabel "execLookupPactTxs" $ do
+execLookupPactTxs logger serviceEnv confDepth txs = do
     if V.null txs
     then return (Historical mempty)
     else do

@@ -166,7 +166,7 @@ destroyFixture fx = do
 oneBlock :: ChainwebVersion -> RocksDb -> Word -> C.Benchmarkable
 oneBlock v rdb numTxs =
     let cid = unsafeChainId 0
-        cfg = testPactServiceConfig
+        cfg = defaultPactServiceConfig
 
         setupEnv _ = do
             fx <- createFixture v rdb cfg

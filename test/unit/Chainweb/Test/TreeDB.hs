@@ -43,6 +43,7 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
+import Chainweb.Parent
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.TreeDB

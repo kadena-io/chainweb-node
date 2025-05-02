@@ -46,6 +46,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.BlockHeight
+import Chainweb.Parent
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
@@ -113,18 +114,18 @@ addTestBlockDb (TestBlockDb wdb pdb cmv) bh n gbt cid outs = do
     Left e -> throwM $ userError ("addTestBlockDb: " <> show e)
 
 -- | Get header for chain on current cut.
-getParentTestBlockDb :: TestBlockDb -> ChainId -> IO BlockHeader
+getParentTestBlockDb :: TestBlockDb -> ChainId -> IO (Parent BlockHeader)
 getParentTestBlockDb (TestBlockDb _ _ cmv) cid = do
   c <- readMVar cmv
   fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $
-    HM.lookup cid $ _cutMap c
+    Parent <$> HM.lookup cid (_cutMap c)
 
 -- | Get header for chain on current cut.
-getParentBlockTestBlockDb :: TestBlockDb -> ChainId -> IO Block
+getParentBlockTestBlockDb :: TestBlockDb -> ChainId -> IO (Parent Block)
 getParentBlockTestBlockDb tdb cid = do
-  bh <- getParentTestBlockDb tdb cid
+  Parent bh <- getParentTestBlockDb tdb cid
   pwo <- fromJuste <$> lookupPayloadWithHeight (_bdbPayloadDb tdb) (Just $ view blockHeight bh) (view blockPayloadHash bh)
-  return Block
+  return $ Parent Block
     { _blockHeader = bh
     , _blockPayloadWithOutputs = pwo
     }

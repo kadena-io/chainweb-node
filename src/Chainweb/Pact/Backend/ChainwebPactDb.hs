@@ -73,7 +73,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
     , commitBlockStateToDatabase
     , initSchema
     , lookupBlockWithHeight
-    , lookupParentBlockHash
+    , lookupBlockHash
     , lookupRankedBlockHash
     , getPayloadsAfter
     , getEarliestBlock
@@ -258,7 +258,7 @@ chainwebPactBlockDb env = ChainwebPactDb
                 }
         let headerOracle = HeaderOracle
                 { chain = _chainId env
-                , consult = throwOnDbError . lookupParentBlockHash (_blockHandlerDb env)
+                , consult = throwOnDbError . lookupBlockHash (_blockHandlerDb env) . unwrapParent
                 }
         let spv = pactSPV headerOracle
         r <- kont pactDb spv
@@ -870,7 +870,7 @@ getPayloadsAfter :: HasCallStack => SQLiteEnv -> Parent BlockHeight -> ExceptT L
 getPayloadsAfter db parentHeight = do
     qry db "SELECT blockheight, payloadhash FROM BlockHistory WHERE blockheight > ?"
         [SInt (fromIntegral @BlockHeight @Int64 (unwrapParent parentHeight))]
-        [RBlob] >>= traverse
+        [RInt, RBlob] >>= traverse
         \case
             [SInt bh, SBlob bhash] ->
                 return $! Ranked (fromIntegral @Int64 @BlockHeight bh) $ either error id $ runGetEitherS decodeBlockPayloadHash bhash
@@ -892,33 +892,31 @@ getEarliestBlock db = do
         in return (RankedBlockHash (fromIntegral hgt) hash)
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
 
-lookupBlockWithHeight :: SQ3.Database -> BlockHeight -> ExceptT LocatedSQ3Error IO (Maybe (Ranked (Parent BlockHash)))
+lookupBlockWithHeight :: HasCallStack => SQ3.Database -> BlockHeight -> ExceptT LocatedSQ3Error IO (Maybe (Ranked BlockHash))
 lookupBlockWithHeight db bheight = do
-    qry db qtext [SInt $ fromIntegral bheight] [RInt] >>= \case
-        [[SBlob parentHash]] -> return $! Just $!
-            Ranked bheight (either error Parent $ runGetEitherS decodeBlockHash parentHash)
-        [_] -> error "lookupBlock: output type mismatch"
-        _ -> error "Expected single-row result"
+    qry db qtext [SInt $ fromIntegral bheight] [RBlob] >>= \case
+        [[SBlob hash]] -> return $! Just $!
+            Ranked bheight (either error id $ runGetEitherS decodeBlockHash hash)
+        [] -> return Nothing
+        res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT parenthash FROM BlockHistory WHERE blockheight = ?;"
+    qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?;"
 
-lookupParentBlockHash :: SQ3.Database -> Parent BlockHash -> ExceptT LocatedSQ3Error IO Bool
-lookupParentBlockHash db (Parent parentHash) = do
-    qry db qtext [SBlob (runPutS (encodeBlockHash parentHash))] [RInt] >>= \case
+lookupBlockHash :: HasCallStack => SQ3.Database -> BlockHash -> ExceptT LocatedSQ3Error IO Bool
+lookupBlockHash db hash = do
+    qry db qtext [SBlob (runPutS (encodeBlockHash hash))] [RInt] >>= \case
         [[SInt n]] -> return $! n == 1
-        [_] -> error "lookupBlock: output type mismatch"
-        _ -> error "Expected single-row result"
+        res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE parenthash = ?;"
+    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE hash = ?;"
 
-lookupRankedBlockHash :: SQ3.Database -> RankedBlockHash -> IO Bool
+lookupRankedBlockHash :: HasCallStack => SQ3.Database -> RankedBlockHash -> IO Bool
 lookupRankedBlockHash db rankedBHash = throwOnDbError $ do
     qry db qtext
         [ SInt $ fromIntegral (_rankedBlockHashHeight rankedBHash)
         , SBlob $ runPutS $ encodeBlockHash $ _rankedBlockHashHash rankedBHash
         ] [RInt] >>= \case
         [[SInt n]] -> return $! n == 1
-        [_] -> error "lookupBlock: output type mismatch"
-        _ -> error "Expected single-row result"
+        res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND parenthash = ?;"
+    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"

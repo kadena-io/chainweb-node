@@ -830,7 +830,6 @@ instance Arbitrary CoordinationConfig where
     arbitrary = CoordinationConfig
         <$> arbitrary
         <*> arbitrary
-        <*> arbitrary
 
 instance Arbitrary NodeMiningConfig where
     arbitrary = NodeMiningConfig

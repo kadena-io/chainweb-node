@@ -162,7 +162,6 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
     liftIO $ mpaBadlistTx mpAccess
       (V.fromList $ fmap pactRequestKeyToTransactionHash $ concat invalids)
 
-    liftIO $ logFunctionText logger Debug $ "Order of completed transactions: " <> sshow (map (Pact.unRequestKey . Pact._crReqKey . ssnd) $ concat $ reverse valids)
     let !blockInProgress' = blockInProgress
           & blockInProgressHandle .~
             finalBlockHandle
@@ -170,8 +169,10 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
             startTxs <> V.fromList (concat valids)
           & blockInProgressRemainingGasLimit .~
             finalGasLimit
+          & blockInProgressNumber %~
+            succ
 
-    liftIO $ logFunctionText logger Debug $ "Final block transaction order: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+    liftIO $ logFunctionText logger Debug $ "block with new transactions: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
     return blockInProgress'
   return blockInProgress'
@@ -193,19 +194,17 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
         pure stop
       | otherwise = do
         newTxs <- liftIO $ getBlockTxs blockEnv prevBlockFillState
-        liftIO $ logFunctionText logger Debug $ "Refill: fetched transaction: " <> sshow (V.length newTxs)
+        liftIO $ logFunctionText logger Debug $ "Refill: fetched transactions: " <> sshow (V.length newTxs)
         if V.null newTxs
-        then do
-          liftIO $ logFunctionText logger Debug "Refill: no new transactions"
-          pure stop
+        then pure stop
         else do
           (newCompletedTransactions, newInvalidTransactions, newBlockGasLimit, timedOut) <-
             execNewTransactions prevRemainingGas txTimeLimit newTxs
 
           liftIO $ do
-            logFunctionText logger Debug $ "Refill: included request keys: "
+            logFunctionText logger Debug $ "Refill: included: "
               <> sshow @[Hash] (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) newCompletedTransactions)
-            logFunctionText logger Debug $ "Refill: badlisted request keys: "
+              <> ", badlisted: "
               <> sshow @[Hash] (fmap Pact.unRequestKey newInvalidTransactions)
 
           let newBlockFillState = BlockFill
@@ -270,7 +269,6 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
                   ((as, timedOut), s') <- runStateT rest s
                   return ((Left (Pact._cmdHash tx):as, timedOut), s')
                 Just (Right (a, s')) -> do
-                  logFunctionText logger Debug "applyCmdInBlock buy gas succeeded"
                   ((as, timedOut), s'') <- runStateT rest s'
                   let !txBytes = commandToBytes tx
                   return ((Right (T2 txBytes a):as, timedOut), s'')
@@ -325,7 +323,7 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
       , txGasLimit > blockGas
       -- then the transaction is not allowed to fail, or it would consume more gas than remains in the block
       , Pact.PactResultErr _ <- Pact._crResult result
-      -> throwError $ TxExceedsBlockGasLimit (txGasLimit ^. Pact._GasLimit . to Pact._gas . to fromIntegral)
+      -> throwError $ TxExceedsBlockGasLimit
       | otherwise -> do
         let subtractGasLimit limit subtrahend =
               let limitGas = limit ^. Pact._GasLimit
@@ -436,7 +434,7 @@ validateParsedChainwebTx _logger blockEnv tx
     cid = blockCtx ^. chainId
     v = blockCtx ^. chainwebVersion
     bh = _bctxCurrentBlockHeight blockCtx
-    txValidationTime = undefined
+    txValidationTime = _bctxParentCreationTime blockCtx
 
     checkChain :: ExceptT InsertError IO ()
     checkChain = unless (Pact.assertChainId cid txCid) $

@@ -65,15 +65,11 @@ module Chainweb.PayloadProvider
 , blockHeaderToEvaluationCtx
 , nextPayload
 , nextPayloadStm
+, waitForChangedPayload
 , payloadStream
 
--- * Some PayloadProvider
-, SomePayloadProvider(..)
-
--- * Payload Providers for all Chains
-, PayloadProviders(..)
-, payloadProviders
-, withPayloadProvider
+-- * PayloadProvider
+, ConfiguredPayloadProvider(..)
 
 -- * SPV
 , PayloadSpvException(..)
@@ -116,10 +112,8 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Aeson
 import Data.ByteString qualified as B
-import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as T
 import GHC.Generics (Generic)
-import GHC.Stack (HasCallStack)
 import Numeric.Natural
 import P2P.Peer
 import Streaming.Prelude qualified as S
@@ -495,7 +489,7 @@ data ForkInfo = ForkInfo
         -- It may be more intuitive and convenient to store the trace in reverse
         -- order.
         --
-    , _forkInfoBasePayloadHash :: !BlockPayloadHash
+    , _forkInfoBasePayloadHash :: !(Parent BlockPayloadHash)
         -- ^ The payload hash of the parent block of the first entry in the
         -- fork info trace. If the fork info trace is empty, this is the payload
         -- hash of the latest block in the consensus state.
@@ -516,20 +510,20 @@ data ForkInfo = ForkInfo
     }
     deriving (Show, Eq, Ord)
 
-_forkInfoBaseHeight :: ForkInfo -> BlockHeight
+_forkInfoBaseHeight :: ForkInfo -> Parent BlockHeight
 _forkInfoBaseHeight fi = case _forkInfoTrace fi of
-    [] -> _latestHeight (_forkInfoTargetState fi)
-    (h:_) -> unwrapParent $ _evaluationCtxParentHeight h
+    [] -> Parent $ _latestHeight (_forkInfoTargetState fi)
+    (h:_) -> _evaluationCtxParentHeight h
 
-_forkInfoBaseRankedPayloadHash :: ForkInfo -> RankedBlockPayloadHash
+_forkInfoBaseRankedPayloadHash :: ForkInfo -> Parent RankedBlockPayloadHash
 _forkInfoBaseRankedPayloadHash fi = RankedBlockPayloadHash
-    (_forkInfoBaseHeight fi)
-    (_forkInfoBasePayloadHash fi)
+    <$> _forkInfoBaseHeight fi
+    <*> _forkInfoBasePayloadHash fi
 
 assertForkInfoInvariants :: MonadThrow m => ForkInfo -> m ()
 assertForkInfoInvariants forkInfo = do
     when (null (_forkInfoTrace forkInfo)) $
-        unless (trgPayloadHash forkInfo == _forkInfoBasePayloadHash forkInfo) $
+        unless (trgPayloadHash forkInfo == unwrapParent (_forkInfoBasePayloadHash forkInfo)) $
             throwM $ InvalidForkInfo
                 "The base payload hash must match the target payload hash, when the fork info trace is empty"
 
@@ -816,12 +810,12 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
         -> ForkInfo
         -> IO ConsensusState
 
-    -- | Asynchronoulsly yield new block payloads on top of the latest block.
+    -- | Asynchronously yield new block payloads on top of the latest block.
     --
     -- The new payload is identified by the block payload hash.
     --
     -- New payloads only depend on there respective evaluation context and new
-    -- block contenxt and are only valid within this context. The context is
+    -- block context and are only valid within this context. The context is
     -- fully determined by the parent header, which is always the block of the
     -- latest block of the current consensus state. It is represented by its
     -- respective height and block hash.
@@ -831,10 +825,10 @@ class (HasChainwebVersion p, HasChainId p) => PayloadProvider p where
     -- optimizations in payload synchronizations (e.g. by piggybacking the new
     -- payloads onto the respective new cuts in the P2P gossip network). Beside
     -- of being a sequence of bytes the content of the those payloads are
-    -- completely parametetric outside the context of the payload provider.
+    -- completely parametric outside the context of the payload provider.
     --
-    -- Payload provider should cache new payloads internally as long they have
-    -- not either been integrated into the longest chain or definitely
+    -- Payload providers should cache new payloads internally as long they
+    -- are not either integrated into the longest chain or definitely
     -- abandoned. Payload providers may also cache the validation result.
     --
     latestPayloadSTM :: p -> STM NewPayload
@@ -856,6 +850,11 @@ nextPayloadStm p cur = do
 
 nextPayload :: PayloadProvider p => p -> NewPayload -> IO NewPayload
 nextPayload p = atomically . nextPayloadStm p
+
+waitForChangedPayload :: PayloadProvider p => p -> IO NewPayload
+waitForChangedPayload p = do
+    old <- latestPayloadIO p
+    nextPayload p old
 
 payloadStream :: PayloadProvider p => p -> S.Stream (S.Of NewPayload) IO ()
 payloadStream p = do
@@ -958,44 +957,9 @@ newtype SpvProof = SpvProof Value
 -- -------------------------------------------------------------------------- --
 -- Some Payload Provider
 
-data SomePayloadProvider where
-    SomePayloadProvider :: PayloadProvider p => p -> SomePayloadProvider
-
-instance HasChainwebVersion SomePayloadProvider where
-    _chainwebVersion (SomePayloadProvider p) = _chainwebVersion p
-
-instance HasChainId SomePayloadProvider where
-    _chainId (SomePayloadProvider p) = _chainId p
-
--- -------------------------------------------------------------------------- --
--- Payload Providers
-
-newtype PayloadProviders = PayloadProviders
-    { _payloadProviders :: HM.HashMap ChainId SomePayloadProvider
-    }
-
-payloadProviders :: Getter PayloadProviders (HM.HashMap ChainId SomePayloadProvider)
-payloadProviders = to _payloadProviders
-
-type instance Index PayloadProviders = ChainId
-type instance IxValue PayloadProviders = SomePayloadProvider
-
-instance IxedGet PayloadProviders where
-    ixg i = to _payloadProviders . ix i
-
-withPayloadProvider
-    :: HasCallStack
-    => HasChainId c
-    => PayloadProviders
-    -> c
-    -> (forall p . PayloadProvider p => p -> a)
-    -> a
-withPayloadProvider (PayloadProviders ps) c f = case HM.lookup cid ps of
-    Just (SomePayloadProvider p) -> f p
-    Nothing -> error $
-        "PayloadProviders: unknown ChainId " <> sshow cid <> ". This is a bug"
-  where
-    cid = _chainId c
+data ConfiguredPayloadProvider where
+    ConfiguredPayloadProvider :: PayloadProvider p => p -> ConfiguredPayloadProvider
+    DisabledPayloadProvider :: ConfiguredPayloadProvider
 
 -- -------------------------------------------------------------------------- --
 -- Utils

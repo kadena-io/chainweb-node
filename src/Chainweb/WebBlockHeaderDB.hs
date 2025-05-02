@@ -47,7 +47,6 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
 import qualified Data.List as L
 
 import qualified Streaming.Prelude as S
@@ -85,7 +84,7 @@ import Chainweb.Storage.Table.RocksDB
 --  the dbs must be guarded see issue #123.
 --
 data WebBlockHeaderDb = WebBlockHeaderDb
-    { _webBlockHeaderDb :: !(HM.HashMap ChainId BlockHeaderDb)
+    { _webBlockHeaderDb :: !(ChainMap BlockHeaderDb)
     , _webChainwebVersion :: !ChainwebVersion
     }
 
@@ -97,13 +96,13 @@ instance HasChainwebVersion WebBlockHeaderDb where
     _chainwebVersion = _webChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
+webBlockHeaderDb :: Getter WebBlockHeaderDb (ChainMap BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
 
 -- | Returns all blocks in all block header databases.
 --
 webEntries :: WebBlockHeaderDb -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
-webEntries db f = go (view (webBlockHeaderDb . to HM.elems) db) mempty
+webEntries db f = go (view (webBlockHeaderDb . to toList) db) mempty
   where
     go [] s = f s
     go (h:t) s = entries h Nothing Nothing Nothing Nothing $ \x ->
@@ -114,7 +113,7 @@ type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb
 
 instance IxedGet WebBlockHeaderDb where
-    ixg i = webBlockHeaderDb . ix i
+    ixg i = webBlockHeaderDb . ixg i
     {-# INLINE ixg #-}
 
 instance (k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHeaderDb k (ChainValue BlockHeader) where
@@ -128,7 +127,7 @@ initWebBlockHeaderDb
     -> ChainwebVersion
     -> IO WebBlockHeaderDb
 initWebBlockHeaderDb db v = WebBlockHeaderDb
-    <$!> itraverse (\cid _ -> initBlockHeaderDb (conf cid db)) (HS.toMap $ chainIds v)
+    <$!> tabulateChainsM v (\cid -> initBlockHeaderDb (conf cid db))
     <*> pure v
   where
     conf cid = Configuration (genesisBlockHeader v cid)
@@ -137,7 +136,7 @@ initWebBlockHeaderDb db v = WebBlockHeaderDb
 --
 mkWebBlockHeaderDb
     :: ChainwebVersion
-    -> HM.HashMap ChainId BlockHeaderDb
+    -> ChainMap BlockHeaderDb
     -> WebBlockHeaderDb
 mkWebBlockHeaderDb v m = WebBlockHeaderDb m v
 
@@ -149,7 +148,7 @@ getWebBlockHeaderDb
     -> m BlockHeaderDb
 getWebBlockHeaderDb db p = do
     checkWebChainId graph p
-    return $! _webBlockHeaderDb db HM.! _chainId p
+    return $! _webBlockHeaderDb db ^?! atChain (_chainId p)
   where
     v = _chainwebVersion db
     graph = chainGraphAt v maxBound

@@ -333,7 +333,7 @@ forkInfoForHeader wdb hdr pldData
         state <- consensusState wdb hdr
         return $ ForkInfo
             { _forkInfoTrace = []
-            , _forkInfoBasePayloadHash = _latestPayloadHash state
+            , _forkInfoBasePayloadHash = Parent $ _latestPayloadHash state
             , _forkInfoTargetState = state
             , _forkInfoNewBlockCtx = Just nbctx
             }
@@ -349,7 +349,7 @@ forkInfoForHeader wdb hdr pldData
         state <- consensusState wdb hdr
         return $ ForkInfo
             { _forkInfoTrace = [consensusPayload <$ blockHeaderToEvaluationCtx phdr]
-            , _forkInfoBasePayloadHash = view blockPayloadHash (unwrapParent phdr)
+            , _forkInfoBasePayloadHash = view blockPayloadHash <$> phdr
             , _forkInfoTargetState = state
             , _forkInfoNewBlockCtx = Just nbctx
             }
@@ -389,7 +389,7 @@ getBlockHeaderInternal
     -> candidateHeaderCas
         -- ^ Ephemeral store for block headers under consideration
     -> candidatePldTbl
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
         -- ^ Payload and Header data for the block, in case that it is
         -- available.
@@ -487,89 +487,93 @@ getBlockHeaderInternal
                 validateInductiveChainM (tableLookup chainDb) header
 
         -- Get the Payload Provider and
-        withPayloadProvider providers cid $ \provider -> do
-            let hints = Hints <$> maybeOrigin'
-            pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
-            finfo <- forkInfoForHeader wdb header pld
+        let hints = Hints <$> maybeOrigin'
+        pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
+        finfo <- forkInfoForHeader wdb header pld
+        let prefetchProviderPayloads = case providers ^?! atChain cid of
+                ConfiguredPayloadProvider provider ->
+                    prefetchPayloads provider hints finfo
+                    -- TODO (_rankedBlockPayloadHash header)
+                DisabledPayloadProvider -> return ()
 
-            runConcurrently
-                -- instruct the payload provider to fetch payload data and prepare
-                -- validation.
-                $ Concurrently
-                    (prefetchPayloads provider hints finfo
-                        -- TODO (_rankedBlockPayloadHash header)
-                    )
+        runConcurrently
+            -- instruct the payload provider to fetch payload data and prepare
+            -- validation.
+            $ Concurrently prefetchProviderPayloads
 
-                -- query parent (recursively)
-                --
-                <* queryParent (view blockParent <$> chainValue header)
-
-                -- query adjacent parents (recursively)
-                <* mconcat (queryAdjacentParent <$> adjParents header)
-
-                -- TODO Above recursive calls are potentially long running
-                -- computations. In particular pact validation can take significant
-                -- amounts of time. We may try make these calls tail recursive by
-                -- providing a continuation. This would allow earlier garbage
-                -- collection of some stack resources.
-                --
-                -- This requires to provide a CPS version of memoInsert.
-
-            logg Debug $ taskMsg k $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
-
-            -- ------------------------------------------------------------------ --
-            -- Validation
-
-            -- 1. Validate Parents and Adjacent Parents
+            -- query parent (recursively)
             --
-            -- Existence and validity of parents and adjacent parents is guaranteed
-            -- in the dependency resolution code above.
+            <* queryParent (view blockParent <$> chainValue header)
 
-            -- 2. Validate BlockHeader
+            -- query adjacent parents (recursively)
+            <* mconcat (queryAdjacentParent <$> adjParents header)
+
+            -- TODO Above recursive calls are potentially long running
+            -- computations. In particular pact validation can take significant
+            -- amounts of time. We may try make these calls tail recursive by
+            -- providing a continuation. This would allow earlier garbage
+            -- collection of some stack resources.
             --
-            -- Single chain properties are currently validated when the block header
-            -- is inserted into the block header db.
+            -- This requires to provide a CPS version of memoInsert.
 
-            -- 3. Validate Braiding
-            --
-            -- Currently, we allow blocks here that are not part of a valid
-            -- braiding. However, those block won't make it into cuts, because the
-            -- cut processor uses 'joinIntoHeavier' to combine an external cut with
-            -- the local cut, which guarantees that only blocks with valid braiding
-            -- are referenced by local cuts.
-            --
-            -- TODO: check braiding and reject blocks without valid braiding here.
+        logg Debug $ taskMsg k $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
 
-            -- 4. Validate block payload
-            --
-            -- Pact validation is done in the context of a particular header. Just
-            -- because the payload does already exist in the store doesn't mean that
-            -- validation succeeds in the context of a particular block header.
-            --
-            -- If we reach this point in the code we are certain that the header
-            -- isn't yet in the block header database and thus we still must
-            -- validate the payload for this block header.
-            --
+        -- ------------------------------------------------------------------ --
+        -- Validation
 
-            logg Debug $ taskMsg k $
-                "getBlockHeaderInternal validate payload for " <> sshow h
+        -- 1. Validate Parents and Adjacent Parents
+        --
+        -- Existence and validity of parents and adjacent parents is guaranteed
+        -- in the dependency resolution code above.
 
-            r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
-                logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
-                throwM e
-            unless (r == _forkInfoTargetState finfo) $ do
-                throwM $ GetBlockHeaderFailure $ "unexpected result state"
-                    <> "; expected: " <> sshow (_forkInfoTargetState finfo)
-                    <> "; actual: " <> sshow r
+        -- 2. Validate BlockHeader
+        --
+        -- Single chain properties are currently validated when the block header
+        -- is inserted into the block header db.
 
-            logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"
+        -- 3. Validate Braiding
+        --
+        -- Currently, we allow blocks here that are not part of a valid
+        -- braiding. However, those block won't make it into cuts, because the
+        -- cut processor uses 'joinIntoHeavier' to combine an external cut with
+        -- the local cut, which guarantees that only blocks with valid braiding
+        -- are referenced by local cuts.
+        --
+        -- TODO: check braiding and reject blocks without valid braiding here.
 
-            logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
-            return $! chainValue header
+        -- 4. Validate block payload
+        --
+        -- Pact validation is done in the context of a particular header. Just
+        -- because the payload does already exist in the store doesn't mean that
+        -- validation succeeds in the context of a particular block header.
+        --
+        -- If we reach this point in the code we are certain that the header
+        -- isn't yet in the block header database and thus we still must
+        -- validate the payload for this block header.
+        --
+
+        logg Debug $ taskMsg k $
+            "getBlockHeaderInternal validate payload for " <> sshow h
+        case providers ^?! atChain cid of
+            ConfiguredPayloadProvider provider -> do
+                r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
+                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with :" <> sshow e
+                    throwM e
+                unless (r == _forkInfoTargetState finfo) $ do
+                    throwM $ GetBlockHeaderFailure $ "unexpected result state"
+                        <> "; expected: " <> sshow (_forkInfoTargetState finfo)
+                        <> "; actual: " <> sshow r
+            DisabledPayloadProvider -> do
+                logg Debug $ taskMsg k $ "getBlockHeaderInternal payload provider disabled"
+
+        logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"
+
+        logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
+        return $! chainValue header
     logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
     return bh
 
-  where
+    where
 
     mgr = _webBlockHeaderStoreMgr headerStore
     cas = WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore
@@ -683,7 +687,7 @@ getBlockHeader
     => WebBlockHeaderStore
     -> candidateHeaderCas
     -> candidatePldTbl
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
     -> ChainId
     -> Priority
