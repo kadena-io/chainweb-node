@@ -96,9 +96,9 @@ localTest lf v coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
         wh <- work coord
-        let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
+        let height = c ^?! ixg (_miningWorkChainId wh) . blockHeight
 
-        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
+        race (awaitNewCutByChainId cdb (_miningWorkChainId wh) c) (go height wh) >>= \case
             Left _ -> return ()
             Right new -> do
                 solve coord new
@@ -107,10 +107,10 @@ localTest lf v coord cdb gen miners =
     meanBlockTime :: Double
     meanBlockTime = int (_getBlockDelay (_versionBlockDelay v)) / 1_000_000
 
-    go :: BlockHeight -> WorkHeader -> IO SolvedWork
+    go :: BlockHeight -> MiningWork -> IO SolvedWork
     go height w = do
         MWC.geometric1 t gen >>= threadDelay
-        runGetS decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
+        runGetS decodeSolvedWork $ BS.fromShort $ _miningWorkBytes w
       where
         t :: Double
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1_000_000)
@@ -145,13 +145,13 @@ localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb
     lf Debug "request new work for localPOW miner"
     wh <- work coord
-    let cid = _workHeaderChainId wh
+    let cid = _miningWorkChainId wh
     lf Debug $ "run localPOW miner on chain " <> toText cid
     race (awaitNewCutByChainId cdb cid c) (go wh) >>= \case
         Left _ -> do
             lf Debug "abondond work due to chain update"
             return ()
-        Right new -> do
+        Right (new, h) -> do
             lf Debug $ "solved work on chain " <> toText cid
             solve coord new
 
@@ -161,12 +161,21 @@ localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
             -- chain is at least as high as the solved work.
             -- This can still dead-lock if for some reason the solved work is
             -- invalid.
-            awaitHeight (_chainId new) (view solvedWorkHeight new)
+            awaitHeight (_chainId new) h
   where
-    go :: WorkHeader -> IO SolvedWork
-    go = mine @Blake2s_256 (Nonce 0)
+    go :: MiningWork -> IO (SolvedWork, BlockHeight)
+    go w = do
+        h <- workHeight w
+        s <- mine @Blake2s_256 (Nonce 0) w
+        return (s, h)
+
+    workHeight w = runGetS (skip 258 >> decodeBlockHeight)
+        $ BS.fromShort
+        $ _miningWorkBytes w
 
     awaitHeight cid h = atomically $ do
         c <- _cutStm cdb
         let h' = view blockHeight $ c ^?! ixg cid
         guard (h <= h')
+
+

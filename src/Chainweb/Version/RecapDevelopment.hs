@@ -69,6 +69,7 @@ recapDevnet = ChainwebVersion
         Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 10
         Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
         Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
+        HashedAdjacentRecord -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
 
     , _versionUpgrades = onChains []
 

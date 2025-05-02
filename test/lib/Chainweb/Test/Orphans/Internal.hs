@@ -428,17 +428,19 @@ instance Arbitrary CutHeight where
 -- -------------------------------------------------------------------------- --
 -- Mining Work
 
-instance Arbitrary WorkHeader where
+instance Arbitrary MiningWork where
     arbitrary = do
         hdr <- arbitrary
-        return $ WorkHeader
-            { _workHeaderChainId = _chainId hdr
-            , _workHeaderTarget = view blockTarget hdr
-            , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
+        return $ MiningWork
+            { _miningWorkChainId = _chainId hdr
+            , _miningWorkTarget = view blockTarget hdr
+            , _miningWorkBytes = BS.toShort $ runPutS $ encodeAsMiningWork hdr
             }
 
 instance Arbitrary SolvedWork where
-    arbitrary = SolvedWork <$> arbitrary
+    arbitrary = fromJuste . runGetS decodeSolvedWork . BS.fromShort . work <$> arbitrary
+      where
+        work hdr = BS.toShort $ runPutS $ encodeAsMiningWork hdr
 
 -- -------------------------------------------------------------------------- --
 -- Payload over arbitrary bytesstrings

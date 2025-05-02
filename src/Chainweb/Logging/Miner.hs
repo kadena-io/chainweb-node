@@ -29,6 +29,8 @@ import Chainweb.BlockHeader
 import Chainweb.Time
 import Chainweb.MinerReward
 import Numeric.Natural
+import Chainweb.Parent
+import Chainweb.BlockHash
 
 data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
@@ -42,7 +44,8 @@ data NewMinedBlock = NewMinedBlock
     deriving anyclass (ToJSON, NFData)
 
 data OrphanedBlock = OrphanedBlock
-    { _orphanedHeader :: !(ObjectEncoded BlockHeader)
+    { _orphanedParent :: !(Parent BlockHash)
+    , _orphanedPayloadHash :: !BlockPayloadHash
     , _orphanedBestOnCut :: !(ObjectEncoded BlockHeader)
     , _orphanedDiscoveredAt :: !(Time Micros)
     , _orphanedReason :: !Text

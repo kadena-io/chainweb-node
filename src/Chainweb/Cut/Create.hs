@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -5,13 +7,13 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.Cut.Create
@@ -49,25 +51,23 @@ module Chainweb.Cut.Create
 , getCutExtension
 
 -- * WorkParents
-, WorkParents
+, WorkParents(..)
 , workParents
 , _workParent
 , workParent
 , _workParentsAdjacentHashes
 , workParentsAdjacentHashes
 , newWork
+, getAdjacentParentHeaders
 
 -- * Work
-, WorkHeader(..)
-, encodeWorkHeader
-, decodeWorkHeader
-, newWorkHeader
-, newWorkHeaderPure
+, MiningWork(..)
+, encodeMiningWork
+, decodeMiningWork
+, newMiningWorkPure
 
 -- * Solved Work
 , SolvedWork(..)
-, solvedWorkHeight
-, encodeSolvedWork
 , decodeSolvedWork
 , extend
 , InvalidSolvedHeader(..)
@@ -99,13 +99,12 @@ import Chainweb.Core.Brief
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
+import Chainweb.Parent
 import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs)
-import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
-import Chainweb.Parent
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -274,18 +273,24 @@ getCutExtension c cid = do
             $ "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation"
 
 -- -------------------------------------------------------------------------- --
--- Mining Work Header
+-- Mining Work
 
--- | A work header has a preliminary creation time and an invalid nonce of 0.
+-- | Mining work has a preliminary creation time and an invalid nonce of 0.
+--
+-- The work is derived from a block header, however it is not obtain the
+-- original block header from the work header. In order to obtain the original
+-- header one has to extract the nonce and the creation from the mining work and
+-- inject it into the original block header.
+--
 -- It is the job of the miner to update the creation time and find a valid nonce
 -- that satisfies the target of the header.
 --
--- The updated header has type 'SolvedHeader'.
+-- The result of mining has type 'SolvedMiningWork'.
 --
-data WorkHeader = WorkHeader
-    { _workHeaderChainId :: !ChainId
-    , _workHeaderTarget :: !HashTarget
-    , _workHeaderBytes :: !SB.ShortByteString
+data MiningWork = MiningWork
+    { _miningWorkChainId :: !ChainId
+    , _miningWorkTarget :: !HashTarget
+    , _miningWorkBytes :: !SB.ShortByteString
         -- ^ 286 work bytes.
         -- The last 8 bytes are the nonce
         -- The creation time is encoded in bytes 8-15
@@ -293,43 +298,32 @@ data WorkHeader = WorkHeader
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-encodeWorkHeader :: WorkHeader -> Put
-encodeWorkHeader wh = do
-    encodeChainId $ _workHeaderChainId wh
-    encodeHashTarget $ _workHeaderTarget wh
-    putByteString $ SB.fromShort $ _workHeaderBytes wh
+encodeMiningWork :: MiningWork -> Put
+encodeMiningWork wh = do
+    encodeChainId $ _miningWorkChainId wh
+    encodeHashTarget $ _miningWorkTarget wh
+    putByteString $ SB.fromShort $ _miningWorkBytes wh
 
 -- FIXME: We really want this indepenent of the block height. For production
 -- chainweb version this is actually the case.
 --
-decodeWorkHeader :: ChainwebVersion -> BlockHeight -> Get WorkHeader
-decodeWorkHeader ver h = WorkHeader
+decodeMiningWork :: ChainwebVersion -> BlockHeight -> Get MiningWork
+decodeMiningWork ver h = MiningWork
     <$> decodeChainId
     <*> decodeHashTarget
     <*> (SB.toShort <$> getByteString (int $ workSizeBytes ver h))
 
--- | Create work header for cut
+-- | A pure version of 'newWorkHeader' that is useful in testing. It is not used
+-- in production code.
 --
-newWorkHeader
-    :: ChainValueCasLookup hdb BlockHeader
-    => hdb
-    -> CutExtension
-    -> BlockPayloadHash
-    -> IO WorkHeader
-newWorkHeader hdb e h = do
-    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-    newWorkHeaderPure (chainLookupM hdb) creationTime e h
-
--- | A pure version of 'newWorkHeader' that is useful in testing.
---
-newWorkHeaderPure
+newMiningWorkPure
     :: Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> BlockCreationTime
     -> CutExtension
     -> BlockPayloadHash
-    -> m WorkHeader
-newWorkHeaderPure hdb creationTime extension phash = do
+    -> m MiningWork
+newMiningWorkPure hdb creationTime extension phash = do
     -- Collect block headers for adjacent parents, some of which may be
     -- available in the cut.
     createWithParents <$> getAdjacentParentHeaders hdb extension
@@ -342,10 +336,10 @@ newWorkHeaderPure hdb creationTime extension phash = do
         let nh = newBlockHeader parents phash (Nonce 0) creationTime
                 $! _cutExtensionParent extension
                     -- FIXME: check that parents also include hashes on new chains!
-        in WorkHeader
-            { _workHeaderBytes = SB.toShort $ runPutS $ encodeBlockHeaderWithoutHash nh
-            , _workHeaderTarget = view blockTarget nh
-            , _workHeaderChainId = _chainId nh
+        in MiningWork
+            { _miningWorkBytes = SB.toShort $ runPutS $ encodeAsMiningWork nh
+            , _miningWorkTarget = view blockTarget nh
+            , _miningWorkChainId = _chainId nh
             }
 
 -- | Get all adjacent parent headers for a new block header for a given cut.
@@ -388,8 +382,11 @@ getAdjacentParentHeaders hdb extension
             <> ". CutHashes: " <> encodeToText (cutToCutHashes Nothing c)
 
 -- -------------------------------------------------------------------------- --
---
+-- Work Parents
 
+-- | The direct parents and adjacent new parents onto which a new block is
+-- created.
+--
 data WorkParents = WorkParents
     { _workParent' :: !(Parent BlockHeader)
         -- ^ The header onto which the new block is created.
@@ -402,6 +399,11 @@ data WorkParents = WorkParents
         -- used to construct the new work.
     }
     deriving (Show, Eq, Generic)
+
+instance Brief WorkParents where
+    brief ps = brief (view _Parent $ _workParent ps)
+        <> ":"
+        <> brief (HM.toList $ view _Parent <$> _workAdjacentParents' ps)
 
 _workParent :: WorkParents -> Parent BlockHeader
 _workParent = _workParent'
@@ -439,55 +441,108 @@ newWork
     :: BlockCreationTime
     -> WorkParents
     -> BlockPayloadHash
-    -> WorkHeader
-newWork creationTime parents pldHash = WorkHeader
-    { _workHeaderBytes = SB.toShort $ runPutS $ encodeBlockHeaderWithoutHash nh
-    , _workHeaderTarget = view blockTarget nh
-    , _workHeaderChainId = _chainId nh
+    -> MiningWork
+newWork creationTime parents pldHash = MiningWork
+    { _miningWorkBytes = SB.toShort $ runPutS $ encodeAsMiningWork nh
+    , _miningWorkTarget = view blockTarget nh
+    , _miningWorkChainId = _chainId nh
     }
   where
     adjParents = _workAdjacentParents' parents
     parent = _workParent' parents
     nh = newBlockHeader adjParents pldHash (Nonce 0) creationTime parent
 
--- -------------------------------------------------------------------------- --
--- Solved Header
+-- | TODO: do we have to verify that the solved for matches the work parents?
 --
+newHeader
+    :: WorkParents
+    -> SolvedWork
+    -> BlockHeader
+newHeader parents solved =
+    newBlockHeader adjParents pldHash nonce creationTime parent
+  where
+    pldHash = _solvedPayloadHash solved
+    adjParents = _workAdjacentParents' parents
+    parent = _workParent' parents
+    nonce = _solvedWorkNonce solved
+    creationTime = _solvedWorkCreationTime solved
 
--- | A solved header is the result of mining. It has the final creation time and
--- a valid nonce. The binary representation doesn't yet contain a Merkle Hash.
--- Also, the block header is not yet validated.
+-- -------------------------------------------------------------------------- --
+-- Solved Work
+
+-- | A solution for mining work. It provides final creation time and
+-- a valid nonce for the respective new header that is identfied by the parent
+-- hashes, and the payload hash.
 --
--- This is an internal data type. On the client/miner side only the serialized
--- representation is used.
+-- With the currently mining API, mining clients actually return a solved mining
+-- work value from which the solution is extracted. Future version of the API
+-- will most like return SolvedWork values directly.
 --
-newtype SolvedWork = SolvedWork BlockHeader
+data SolvedWork = SolvedWork
+    { _solvedChainId :: !ChainId
+    , _solvedParentHash :: !(Parent BlockHash)
+    , _solvedAdjacentHash :: !AdjacentsHash
+    , _solvedPayloadHash :: !BlockPayloadHash
+    , _solvedWorkCreationTime :: !BlockCreationTime
+    , _solvedWorkNonce :: !Nonce
+    }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-encodeSolvedWork :: SolvedWork -> Put
-encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
-
-decodeSolvedWork :: Get SolvedWork
-decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
-
-solvedWorkHeight :: Getter SolvedWork BlockHeight
-solvedWorkHeight = to (\(SolvedWork hdr) -> hdr) . blockHeight
-
 instance HasChainId SolvedWork where
-    _chainId (SolvedWork hdr) = _chainId hdr
+    _chainId = _solvedChainId
+    {-# INLINE _chainId #-}
 
-instance HasChainwebVersion SolvedWork where
-    _chainwebVersion (SolvedWork hdr) = _chainwebVersion hdr
+-- | This is a special decoding function that decode solved work from the
+-- mining work bytes that are minter returns as solution.
+--
+decodeSolvedWork :: Get SolvedWork
+decodeSolvedWork = do
+    -- creation time: [8:15]
+    skip 8
+    time <- decodeBlockCreationTime
 
-data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text
+    -- parenthash: [16:47]
+    parent <- decodeBlockHash
+
+    -- third adjacent hash: [126:157]
+    skip 78
+    adj <- decodeAdjacentsHash
+
+    -- payload hash: [190:221]
+    skip 32
+    pldHash <- decodeBlockPayloadHash
+
+    -- chainId [222:225]
+    cid <- decodeChainId
+
+    -- nonce: [278:285]
+    skip 52
+    nonce <- decodeNonce
+
+    return $ SolvedWork
+        { _solvedChainId = cid
+        , _solvedParentHash = Parent parent
+        , _solvedAdjacentHash = adj
+        , _solvedPayloadHash = pldHash
+        , _solvedWorkCreationTime = time
+        , _solvedWorkNonce = nonce
+        }
+
+data InvalidSolvedHeader = InvalidSolvedHeader T.Text
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 instance Exception InvalidSolvedHeader
 
 instance Brief SolvedWork where
-    brief (SolvedWork hdr) = "SolvedWork" <> ":" <> brief hdr
+    brief (SolvedWork cid p a pld t n) = "SolvedWork"
+        <> ": chain " <> brief cid
+        <> ", parent " <> brief p
+        <> ", adj " <> brief a
+        <> ", payload " <> brief pld
+        <> ", time " <> sshow t
+        <> ", nonce " <> sshow n
 
 -- | Extend a Cut with a solved work value.
 --
@@ -501,18 +556,16 @@ instance Brief SolvedWork where
 -- The result is 'Nothing' if the given cut can't be extended with the solved
 -- work.
 --
--- FIXME: this should be the only function that can pattern match the Header out
--- of a 'SolvedWork' value.
---
 extend
     :: MonadThrow m
     => Cut
     -> Maybe EncodedPayloadData
     -> Maybe EncodedPayloadOutputs
+    -> WorkParents
     -> SolvedWork
     -> m (BlockHeader, Maybe CutHashes)
-extend c pld pwo s = do
-    (bh, mc) <- extendCut c s
+extend c pld pwo ps s = do
+    (bh, mc) <- extendCut c ps s
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'
@@ -528,17 +581,20 @@ extend c pld pwo s = do
 extendCut
     :: MonadThrow m
     => Cut
+    -> WorkParents
     -> SolvedWork
     -> m (BlockHeader, Maybe Cut)
-extendCut c (SolvedWork bh) = do
+extendCut c ps s = do
+    -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
+    -- Hash) is trivially incorrect, reject it.
+    --
+    unless (prop_block_pow bh)
+        $ throwM $ InvalidSolvedHeader "Invalid POW hash"
 
-        -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
-        -- Hash) is trivially incorrect, reject it.
-        --
-        unless (prop_block_pow bh)
-            $ throwM $ InvalidSolvedHeader bh "Invalid POW hash"
+    -- If the `BlockHeader` is already stale and can't be appended to the
+    -- best `Cut`, Nothing is returned
+    --
+    (bh,) <$> tryMonotonicCutExtension c bh
+  where
+    bh = newHeader ps s
 
-        -- If the `BlockHeader` is already stale and can't be appended to the
-        -- best `Cut`, Nothing is returned
-        --
-        (bh,) <$> tryMonotonicCutExtension c bh

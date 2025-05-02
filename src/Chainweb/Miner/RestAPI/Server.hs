@@ -65,7 +65,7 @@ workHandler
     -> Handler WorkBytes
 workHandler mr = do
     wh <- liftIO $ work mr
-    return $ WorkBytes $ runPutS $ encodeWorkHeader wh
+    return $ WorkBytes $ runPutS $ encodeMiningWork wh
 
 -- -------------------------------------------------------------------------- --
 -- Solved Handler
@@ -86,7 +86,7 @@ solvedHandler mr (HeaderBytes bytes) = do
             result <- liftIO $ catches (Right () <$ solve mr solved)
                 [ E.Handler $ \NoAsscociatedPayload ->
                     return $ Left $ setErrText "No associated Payload" err404
-                , E.Handler $ \(InvalidSolvedHeader _ msg) ->
+                , E.Handler $ \(InvalidSolvedHeader msg) ->
                     return $ Left $ setErrText ("Invalid solved work: " <> msg) err400
                 ]
             case result of
@@ -178,11 +178,10 @@ awaitWorkChange ms cid timer prevVar = go
         -- check result
         case r of
             Nothing -> return Nothing
-            Just (WorkReady prh ppld pps pwh, WorkReady crh cpld cps cwh)
+            Just (WorkReady prh ppld pps, WorkReady crh cpld cps)
                 | prh /= crh -> return $ Just WorkOutdated
                 | pps /= cps -> return $ Just WorkOutdated
                 | ppld /= cpld -> return $ Just WorkRefreshed
-                | pwh /= cwh -> return $ Just WorkRefreshed
                 | otherwise -> go
             Just (WorkReady{}, _) -> return $ Just WorkOutdated
             _ -> go

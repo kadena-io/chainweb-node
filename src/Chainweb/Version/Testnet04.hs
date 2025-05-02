@@ -116,6 +116,7 @@ testnet04 = ChainwebVersion
         Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_058_738       -- 2025-02-05 12:00:00+00:00
         Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_155_146 -- 2025-03-11 00:00:00+00:00
         Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
+        HashedAdjacentRecord -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
         Chainweb230Pact -> AllChains ForkNever
 
     , _versionGraphs =

@@ -41,6 +41,7 @@ module Chainweb.Utils.Serialization
     , getShortByteString
     , putRawByteString
     , getRemainingLazyByteString
+    , skip
 
     -- abstract encoders and decoders
     , WordEncoding(..)
@@ -180,6 +181,10 @@ putRawByteString = coerce (Binary.putBuilder . Builder.fromByteString)
 
 getRemainingLazyByteString :: Get BL.ByteString
 getRemainingLazyByteString = coerce Binary.getRemainingLazyByteString
+
+skip :: Int -> Get ()
+skip = coerce . Binary.skip
+{-# INLINE skip #-}
 
 --------------------
 -- Abstract encoders/decoders

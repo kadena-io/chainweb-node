@@ -1,8 +1,12 @@
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.Core.Brief
@@ -25,18 +29,24 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Core.CryptoHash
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
-import Chainweb.PayloadProvider
 import Chainweb.Parent
+import Chainweb.PayloadProvider
 import Chainweb.Ranked
 import Chainweb.Utils
 import Control.Lens
+import Data.Aeson
+import Data.ByteString qualified as B
+import Data.ByteString.Short qualified as BS
+import Data.Coerce
+import Data.Hash.Class.Mutable
+import Data.Hash.SHA2 (Sha2_512_256(..) {- Coercible AdjacentsHashAlgorithm BS.ShortByteString -})
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as L
 import Data.Text qualified as T
 import Numeric.Natural
-import Data.Aeson
 
 -- -------------------------------------------------------------------------- --
 -- Adhoc class for brief logging output
@@ -81,6 +91,13 @@ instance Brief BlockHash where brief = toTextShort
 instance Brief BlockPayloadHash where brief = toTextShort
 instance Brief BlockHeader where brief = brief . view blockHash
 instance Brief (Parent BlockHeader) where brief = brief . unwrapParent
+deriving
+    via (CryptoHash AdjacentsHashAlgorithm)
+    instance Brief AdjacentsHash
+
+deriving
+    via (BriefText (CryptoHash a))
+    instance (IncrementalHash a, Coercible a BS.ShortByteString) => Brief (CryptoHash a)
 
 instance Brief BlockHashWithHeight where
     brief a = brief (_bhwhHeight a) <> ":" <> brief (_bhwhHash a)
@@ -129,3 +146,26 @@ briefValue (Object o) = Object (briefValue <$> o)
 briefValue (Array a) = Array (briefValue <$> a)
 briefValue (String t) = String (toTextShort t)
 briefValue n = n
+
+-- -------------------------------------------------------------------------- --
+-- Tools for Deriving Via
+
+newtype ShowBrief a = ShowBrief a
+instance Show a => Brief (ShowBrief a) where
+    brief (ShowBrief a) = T.take 6 $ T.pack $ show a
+
+newtype BriefBase64ByteString = BriefBase64ByteString B.ByteString
+instance Brief BriefBase64ByteString where
+    brief (BriefBase64ByteString bytes) = T.take 6
+        $ encodeB64UrlNoPaddingText
+        $ bytes
+
+newtype BriefBase64ShortByteString = BriefBase64ShortByteString BS.ShortByteString
+instance Brief BriefBase64ShortByteString where
+    brief (BriefBase64ShortByteString bytes) = T.take 6
+        $ encodeB64UrlNoPaddingText
+        $ BS.fromShort bytes
+
+newtype BriefText a = BriefText a
+instance HasTextRepresentation a => Brief (BriefText a) where
+    brief (BriefText t) = toTextShort t

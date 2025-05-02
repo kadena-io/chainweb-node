@@ -1,16 +1,20 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -18,8 +22,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE DerivingVia #-}
 
 -- |
 -- Module: Chainweb.BlockHash
@@ -62,6 +64,15 @@ module Chainweb.BlockHash
 , encodeRankedBlockHash
 , decodeRankedBlockHash
 
+-- * AdjacentsHash
+, AdjacentsHash(..)
+, adjacentsHash
+, adjacentsHashBytes
+, encodeAdjacentsHash
+, decodeAdjacentsHash
+, AdjacentsHashAlgorithm
+, AdjacentsHashSize
+
 -- * Exceptions
 ) where
 
@@ -74,12 +85,14 @@ import Data.Aeson
     (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bifoldable
+import Data.ByteString.Short qualified as SB
 import Data.Foldable
+import Data.Hash.SHA2
+import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable(..))
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as L
-import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.List qualified as L
+import Data.Text qualified as T
+import Data.Vector qualified as V
 
 import GHC.Generics hiding (to)
 
@@ -97,6 +110,7 @@ import Chainweb.Parent
 import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Core.CryptoHash
 
 -- -------------------------------------------------------------------------- --
 -- BlockHash
@@ -266,6 +280,46 @@ blockHashRecordFromVector g cid = BlockHashRecord
     . HM.fromList
     . zip (L.sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
+
+-- ----------------------------------------------------------------------------
+-- | BlockHashRecord Hash for MiningWork
+
+type AdjacentsHashAlgorithm = Sha2_512_256
+type AdjacentsHashSize = DigestSize AdjacentsHashAlgorithm
+
+-- | The MiningWork includes an (aggregate) hash of the adjacent block hashes
+-- that is calculate from the BlockHashRecord.
+--
+newtype AdjacentsHash = AdjacentsHash (CryptoHash Sha2_512_256)
+    deriving stock (Show, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (Eq, Ord, Hashable, ToJSON, FromJSON)
+
+instance HasTextRepresentation AdjacentsHash where
+    toText (AdjacentsHash h) = toText h
+    fromText = fmap AdjacentsHash . fromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+encodeAdjacentsHash :: AdjacentsHash -> Put
+encodeAdjacentsHash (AdjacentsHash w) = encodeCryptoHash w
+{-# INLINE encodeAdjacentsHash #-}
+
+adjacentsHashBytes :: AdjacentsHash -> SB.ShortByteString
+adjacentsHashBytes (AdjacentsHash bytes) = cryptoHashBytes bytes
+{-# INLINE adjacentsHashBytes #-}
+
+decodeAdjacentsHash :: Get AdjacentsHash
+decodeAdjacentsHash = AdjacentsHash <$> decodeCryptoHash
+{-# INLINE decodeAdjacentsHash #-}
+
+-- | Compute the AdjacentsHash from a BlockHashRecord.
+--
+adjacentsHash :: BlockHashRecord -> AdjacentsHash
+adjacentsHash = AdjacentsHash
+    . hashByteString_ @(CryptoHash AdjacentsHashAlgorithm)
+    . foldMap (runPutS . encodeBlockHash . view _Parent)
+    . blockHashRecordToVector
 
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Hash

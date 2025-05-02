@@ -176,6 +176,7 @@ library
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
         , Chainweb.Core.Brief
+        , Chainweb.Core.CryptoHash
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut

@@ -146,25 +146,16 @@ arbitraryBlockTimeOffset lower upper = do
 
 -- | Solve Work. Doesn't check that the nonce and the time are valid.
 --
-solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
-solveWork w n t =
-    case runGetS decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
-        Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
-        Just hdr -> SolvedWork
-            $ fromJuste
-            $ runGetS decodeBlockHeaderWithoutHash
-            $ runPutS
-            $ encodeBlockHeaderWithoutHash
-                -- After injecting the nonce and the creation time will have to do a
-                -- serialization roundtrip to update the Merkle hash.
-                --
-                -- A "real" miner would inject the nonce and time without first
-                -- decoding the header and would hand over the header in serialized
-                -- form.
-
-            $ set blockCreationTime (BlockCreationTime t)
-            $ set blockNonce n
-            $ hdr
+solveWork :: HasCallStack => MiningWork -> Nonce -> Time Micros -> SolvedWork
+solveWork work n t = s
+    { _solvedWorkCreationTime = BlockCreationTime t
+    , _solvedWorkNonce = n
+    }
+  where
+    s = fromJuste
+        $ runGetS decodeSolvedWork
+        $ BS.fromShort
+        $ _miningWorkBytes work
 
 -- -------------------------------------------------------------------------- --
 -- Test Mining
@@ -244,11 +235,13 @@ createNewCut
     -> m (T2 BlockHeader Cut)
 createNewCut hdb n t pay i c = do
     extension <- fromMaybeM BadAdjacents $ getCutExtension c i
-    work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
-    (h, mc') <- extendCut c (solveWork work n t)
-        `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
+    wp <- WorkParents (_cutExtensionParent extension)
+        <$> getAdjacentParentHeaders hdb extension
+    work <- newMiningWorkPure hdb (BlockCreationTime t) extension pay
+    (solvedHeader, mc') <- extendCut c wp (solveWork work n t)
+        `catch` \(InvalidSolvedHeader msg) -> throwM $ InvalidHeader msg
     c' <- fromMaybeM BadAdjacents mc'
-    return $ T2 h c'
+    return $ T2 solvedHeader c'
 
 -- | Create a new cut where the new block has a creation time of one second
 -- after its parent.

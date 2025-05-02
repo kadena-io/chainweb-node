@@ -95,7 +95,7 @@ mine
   :: forall a
   . HashAlgorithm a
   => Nonce
-  -> WorkHeader
+  -> MiningWork
   -> IO SolvedWork
 mine orig work = do
     when (bufSize < noncePosition + sizeOf (0 :: Word64)) $
@@ -137,8 +137,8 @@ mine orig work = do
                 go0 100000 t orig
         runGetS decodeSolvedWork new
   where
-    tbytes = runPutS $ encodeHashTarget (_workHeaderTarget work)
-    hbytes = BS.fromShort $ _workHeaderBytes work
+    tbytes = runPutS $ encodeHashTarget (_miningWorkTarget work)
+    hbytes = BS.fromShort $ _miningWorkBytes work
 
     bufSize :: Int
     !bufSize = B.length hbytes

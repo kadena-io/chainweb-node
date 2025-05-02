@@ -408,7 +408,7 @@ testPayload = case eitherDecodeStrictText payloadStr of
         "parentBeaconBlockRoot": "0x80af8b91b32cae2e3c3b17ef0b6ce9124e01176bf953f192633a6cc718f129ba",
         "hash": "0x47c1944c382527f82044276c04a9e0d642da58316d1b963e7a623e03ac085d4f"
         }
-        |]
+    |]
 
 testHeader :: BlockHeader
 testHeader = case eitherDecodeStrictText headerStr of
@@ -436,7 +436,7 @@ testHeader = case eitherDecodeStrictText headerStr of
         "featureFlags": 0,
         "hash": "9NDFjt_VVE2_fJD54eLcybRfbp_BAOR2T2HxavWe7ho"
         }
-        |]
+    |]
 
 
 -- EVM Development block (chain 0, height 354)

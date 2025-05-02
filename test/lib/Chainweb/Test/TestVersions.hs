@@ -17,6 +17,7 @@ module Chainweb.Test.TestVersions
     , timedConsensusVersion
     , instantCpmTestVersion
     , checkpointerTestVersion
+    , testVersions
     ) where
 
 import Control.Lens hiding (elements)
