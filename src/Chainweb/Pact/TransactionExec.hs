@@ -300,7 +300,7 @@ applyCmd
       -- ^ command with payload to execute
     -> IO (Either TxInvalidError (CommandResult [TxLog ByteString] (Pact.PactError Info)))
 applyCmd logger maybeGasLogger db miner txCtx txIdxInBlock spv initialGas cmd = do
-  logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
+  logDebug_ logger "applyCmd"
   let flags = Set.fromList
         [ FlagDisableRuntimeRTC
         , FlagDisableHistoryInTransactionalMode
@@ -531,7 +531,11 @@ runGenesisPayload logger db spv ctx cmd = do
       (runTransactionM
         (runPayload
           Transactional
-          (Set.singleton FlagDisableRuntimeRTC)
+          (Set.unions
+            [ Set.singleton FlagDisableRuntimeRTC
+            , guardDisablePact51Flags ctx
+            , guardDisablePact52Flags ctx
+            ])
           db
           spv
           [ CapToken (QualifiedName "GENESIS" (ModuleName "coin" Nothing)) []
@@ -702,8 +706,7 @@ buyGas
   -> IO (Either BuyGasError EvalResult)
 buyGas logger origGasEnv db (Miner mid mks) txCtx cmd = do
   let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1_500_000))
-  logFunctionText logger L.Debug $
-    "buying gas for " <> sshow (_cmdHash cmd)
+  logFunctionText logger L.Debug "buying gas"
   -- TODO: use quirked gas?
   let gasPayerCaps =
         [ cap
@@ -811,8 +814,7 @@ redeemGas :: (Logger logger)
   -> IO (Either RedeemGasError EvalResult)
 redeemGas logger db (Miner mid mks) txCtx gasUsed maybeFundTxPactId cmd
     | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
-      logFunctionText logger L.Debug $
-        "redeeming gas (post-2.24) for " <> sshow (_cmdHash cmd)
+      logFunctionText logger L.Debug "redeeming gas (post-2.24)"
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
       -- todo: gas logs
@@ -837,8 +839,7 @@ redeemGas logger db (Miner mid mks) txCtx gasUsed maybeFundTxPactId cmd
 
     | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = do
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
-      logFunctionText logger L.Debug $
-        "redeeming gas (pre-2.24) for " <> sshow (_cmdHash cmd)
+      logFunctionText logger L.Debug "redeeming gas (pre-2.24)"
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
 
@@ -954,3 +955,9 @@ guardDisablePact51Flags :: BlockCtx -> Set ExecutionFlag
 guardDisablePact51Flags txCtx
   | guardCtx chainweb228Pact txCtx = Set.empty
   | otherwise = Set.singleton FlagDisablePact51
+
+-- TODO: PP, make sure this is right
+guardDisablePact52Flags :: BlockCtx -> Set ExecutionFlag
+guardDisablePact52Flags txCtx
+  | guardCtx chainweb229Pact txCtx = Set.empty
+  | otherwise = Set.singleton FlagDisablePact52

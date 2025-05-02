@@ -17,7 +17,7 @@
 module Chainweb.Test.Pact.TransactionExecTest (tests) where
 
 import Chainweb.BlockHeader
-import Chainweb.Graph (petersenChainGraph)
+import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerGuard(..), noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, mkFakeParentCreationTime)
@@ -106,17 +106,16 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 -- PactServiceTest or RemotePactTest.
 readFromAfterGenesis :: ChainwebVersion -> RocksDb -> (BlockEnv -> BlockHandle -> IO a) -> IO a
 readFromAfterGenesis ver rdb act = runResourceT $ do
-    sql <- withTempSQLiteResource
+    (writeSql, readPool) <- withTempChainSqlite cid
     tdb <- mkTestBlockDb ver rdb
     -- fake ro-sql pool, assuming we're using this single-threaded
-    roSqlPool <- liftIO $ Pool.newPool (Pool.defaultPoolConfig (return sql) (\_ -> return ()) 10 10)
     logger <- liftIO $ testLogger
-    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) roSqlPool sql (testPactServiceConfig PIN0.payloadBlock)
+    serviceEnv <- withPactService ver cid Nothing mempty logger Nothing (_bdbPayloadDb tdb) readPool writeSql defaultPactServiceConfig (GenesisPayload PIN0.payloadBlock)
     liftIO $ do
         initialPayloadState logger serviceEnv
         fakeParentCreationTime <- mkFakeParentCreationTime
         throwIfNoHistory =<<
-            readFrom logger ver cid sql fakeParentCreationTime
+            readFrom logger ver cid writeSql fakeParentCreationTime
                 (Parent (gh ver cid ^. rankedBlockHash))
                 act
 
@@ -504,7 +503,7 @@ quirkSpec rdb = readFromAfterGenesis quirkVer rdb $ \blockEnv blockHandle ->
                 , P.fun _crGas ? P.equals ? Gas 1
                 ]
     where
-    quirkVer = quirkedGasPact5InstantCpmTestVersion petersen
+    quirkVer = quirkedGasPact5InstantCpmTestVersion peterson
 
 applyCmdVerifierSpec :: RocksDb -> IO ()
 applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $ \blockEnv blockHandle ->
@@ -903,7 +902,7 @@ gh = genesisBlockHeader
 -- vUpgrades = slowCpmTestVersion singletonChainGraph
 
 v :: ChainwebVersion
-v = instantCpmTestVersion petersenChainGraph
+v = instantCpmTestVersion petersonChainGraph
 
 -- | this utility for reading balances from the pactdb also takes care of
 -- making a transaction for the read to live in

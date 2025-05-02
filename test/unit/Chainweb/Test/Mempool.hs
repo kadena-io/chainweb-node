@@ -116,7 +116,7 @@ arbitraryDecimal = do
     return $! Decimal places mantissa
 
 arbitraryGasPrice :: Gen GasPrice
-arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
+arbitraryGasPrice = GasPrice . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
   arbitrary = MockTx
@@ -202,7 +202,7 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
 
     -- once we call mempoolGetBlock, the bad txs should be badlisted
-    liftIO $ void $ mempoolGetBlock mempool mockBlockFill preblockCheck 1 nullBlockHash
+    liftIO $ void $ mempoolGetBlock mempool mockBlockFill preblockCheck (EvaluationCtx 1 nullBlockHash)
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     liftIO $ insert badTxs

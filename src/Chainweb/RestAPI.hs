@@ -54,6 +54,7 @@ module Chainweb.RestAPI
 import Control.Monad (guard)
 
 import Data.Bool (bool)
+import Data.Foldable
 
 import GHC.Generics (Generic)
 
@@ -133,22 +134,18 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t = ChainwebServerDbs
+data ChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe CutDb)
-    , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
-    , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
-    , _chainwebServerPayloads :: ![(ChainId, SomeServer)]
+    , _chainwebServerBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t
+emptyChainwebServerDbs :: ChainwebServerDbs
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
-    , _chainwebServerBlockHeaderDbs = []
-    , _chainwebServerMempools = []
-    , _chainwebServerPayloads = []
-    , _chainwebServerPeerDbs = []
+    , _chainwebServerBlockHeaderDbs = mempty
+    , _chainwebServerPeerDbs = mempty
     }
 
 -- -------------------------------------------------------------------------- --
@@ -198,23 +195,22 @@ chainwebServiceMiddlewares
 -- Chainweb Peer Server
 
 someChainwebServer
-    :: Show t
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    :: ChainwebConfiguration
+    -> ChainwebServerDbs
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> mconcat (snd <$> payloads)
+    -- <> fold payloads
     <> someP2pBlockHeaderDbServers v blocks
-    <> Mempool.someMempoolServers v mempools
+    -- <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
   where
-    payloads = _chainwebServerPayloads dbs
+    -- payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
+    -- mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
@@ -223,24 +219,23 @@ someChainwebServer config dbs =
 -- When we have comprehensive testing for the service API we can remove this
 --
 someChainwebServerWithHashesAndSpvApi
-    :: Show t
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    :: ChainwebConfiguration
+    -> ChainwebServerDbs
     -> SomeServer
 someChainwebServerWithHashesAndSpvApi config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> mconcat (snd <$> payloads)
+    -- <> foldMap snd payloads
     <> someBlockHeaderDbServers v blocks
-    <> Mempool.someMempoolServers v mempools
+    -- <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
     <> maybe mempty (someSpvServers v) cuts
   where
-    payloads = _chainwebServerPayloads dbs
+    -- payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
+    -- mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
@@ -248,9 +243,8 @@ someChainwebServerWithHashesAndSpvApi config dbs =
 -- Chainweb P2P API Application
 
 chainwebApplication
-    :: Show t
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    :: ChainwebConfiguration
+    -> ChainwebServerDbs
     -> Application
 chainwebApplication config dbs
     = chainwebP2pMiddlewares
@@ -262,9 +256,8 @@ chainwebApplication config dbs
 -- When we have comprehensive testing for the service API we can remove this
 --
 chainwebApplicationWithHashesAndSpvApi
-    :: Show t
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    :: ChainwebConfiguration
+    -> ChainwebServerDbs
     -> Application
 chainwebApplicationWithHashesAndSpvApi config dbs
     = chainwebP2pMiddlewares
@@ -272,40 +265,36 @@ chainwebApplicationWithHashesAndSpvApi config dbs
     $ someChainwebServerWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
-    :: Show t
-    => Port
+    :: Port
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> IO ()
 serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
-    :: Show t
-    => Settings
+    :: Settings
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> IO ()
 serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
-    :: Show t
-    => Settings
+    :: Settings
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> Middleware
     -> IO ()
 serveChainwebSocket settings sock c dbs m =
     runSettingsSocket settings sock $ m $ chainwebApplication c dbs
 
 serveChainwebSocketTls
-    :: Show t
-    => Settings
+    :: Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
@@ -336,10 +325,9 @@ servePeerDbSocketTls settings certChain key sock v nid pdb m =
 -- Chainweb Service API Application
 
 someServiceApiServer
-    :: Show t
-    => Logger logger
+    :: Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
@@ -355,19 +343,17 @@ someServiceApiServer v dbs mr (HeaderStream hs) backupEnv pbl =
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
-    <> mconcat (snd <$> payloads)
+    -- <> mconcat (snd <$> payloads)
     <> someBlockHeaderDbServers v blocks
     <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
     cuts = _chainwebServerCutDb dbs
-    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
 
 serviceApiApplication
-    :: Show t
-    => Logger logger
+    :: Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
@@ -379,12 +365,11 @@ serviceApiApplication v dbs mr hs be pbl
     $ someServiceApiServer v dbs mr hs be pbl
 
 serveServiceApiSocket
-    :: Show t
-    => Logger logger
+    :: Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)

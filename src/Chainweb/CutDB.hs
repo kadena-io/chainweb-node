@@ -102,6 +102,7 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
+import Control.Monad.Trans.Resource
 
 import Data.Aeson (ToJSON)
 import Data.Foldable
@@ -261,7 +262,7 @@ data CutDb = CutDb
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
-    , _cutDbPayloadProviders :: !PayloadProviders
+    , _cutDbPayloadProviders :: !(ChainMap ConfiguredPayloadProvider)
     , _cutDbCutStore :: !(Casify RocksDbTable CutHashes)
     , _cutDbQueueSize :: !Natural
     , _cutDbReadOnly :: !Bool
@@ -272,7 +273,7 @@ instance HasChainwebVersion CutDb where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
     {-# INLINE _chainwebVersion #-}
 
-cutDbPayloadProviders :: Getter CutDb PayloadProviders
+cutDbPayloadProviders :: Getter CutDb (ChainMap ConfiguredPayloadProvider)
 cutDbPayloadProviders = to _cutDbPayloadProviders
 {-# INLINE cutDbPayloadProviders #-}
 
@@ -396,14 +397,13 @@ withCutDb
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
-    -> (CutDb -> IO a)
-    -> IO a
-withCutDb config logfun headerStore providers cutHashesStore a
-    = bracket
+    -> ResourceT IO CutDb
+withCutDb config logfun headerStore providers cutHashesStore
+    = snd <$> allocate
         (startCutDb config logfun headerStore providers cutHashesStore)
-        stopCutDb a
+        stopCutDb
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
@@ -418,7 +418,7 @@ startCutDb
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> IO CutDb
 startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
@@ -434,7 +434,6 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
         "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
-    logg Debug "CutDB started"
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
@@ -541,7 +540,7 @@ processCuts
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
@@ -755,7 +754,7 @@ cutHashesToBlockHeaderMap
     :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> PayloadProviders
+    -> ChainMap ConfiguredPayloadProvider
     -> CutHashes
     -> IO (Maybe (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds

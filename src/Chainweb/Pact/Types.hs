@@ -18,6 +18,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Chainweb.Pact.Types
     ( ServiceEnv(..)
@@ -38,6 +39,7 @@ module Chainweb.Pact.Types
     , psMiningPayloadVar
     , psNewBlockGasLimit
     , psGenesisPayload
+    , psBlockRefreshInterval
 
     , BlockCtx(..)
     , blockCtxOfEvaluationCtx
@@ -49,7 +51,7 @@ module Chainweb.Pact.Types
     , genesisEvaluationCtx
 
     , PactServiceConfig(..)
-    , testPactServiceConfig
+    , defaultPactServiceConfig
     , BlockEnv(..)
     , psBlockDbEnv
     , psBlockCtx
@@ -103,10 +105,10 @@ module Chainweb.Pact.Types
     , TransactionOutputProofB64(..)
 
     , TxInvalidError(..)
+    , txInvalidErrorToOnChainPactError
     , _BuyGasError
     , _RedeemGasError
     , _PurchaseGasTxTooBigForGasLimit
-    , _TxInsertError
     , _TxExceedsBlockGasLimit
     , BlockInvalidError(..)
     , BlockOutputMismatchError(..)
@@ -123,12 +125,12 @@ module Chainweb.Pact.Types
     , logError_
 
     , PactTxFailureLog(..)
+    , GenesisConfig(..)
     )
     where
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq
-import Control.Exception.Safe
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
@@ -146,7 +148,6 @@ import Data.Text.Encoding qualified as T
 import Data.Vector (Vector)
 import Data.Word
 import GHC.Generics (Generic)
-import Numeric.Natural
 import Pact.Core.Builtin qualified as Pact
 import Pact.Core.Capabilities qualified as Pact
 import Pact.Core.ChainData qualified as Pact
@@ -167,7 +168,7 @@ import Chainweb.BlockPayloadHash
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-import Chainweb.Miner.Pact (Miner, toMinerData)
+import Chainweb.Miner.Pact (Miner, toMinerData, noMiner)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Transaction qualified as Pact
@@ -297,14 +298,11 @@ data LocalPreflightSimulation
 
 
 -- | The type of local results (used in /local endpoint)
--- Internally contains a JsonText instead of a CommandResult for compatibility across Pact versions,
--- but the constructors are hidden.
--- This can be undone in the 2.28 release.
 --
 data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
-    | LocalResultLegacy !J.JsonText
-    | LocalResultWithWarns !J.JsonText ![Text]
+    | LocalResultLegacy !(Pact.CommandResult Pact.Hash Pact.PactOnChainError)
+    | LocalResultWithWarns !(Pact.CommandResult Pact.Hash Pact.PactOnChainError) ![Text]
     | LocalTimeout
     deriving stock (Generic, Show)
 
@@ -333,16 +331,16 @@ instance FromJSON LocalResult where
             (\o ->
               metaFailureParser o
                   <|> localWithWarnParser o
-                  <|> pure (legacyFallbackParser o)
+                  <|> legacyFallbackParser o
             )
             v
       where
         metaFailureParser o =
             MetadataValidationFailure <$> o .: "preflightValidationFailure"
         localWithWarnParser o = LocalResultWithWarns
-            <$> (J.encodeJsonText @Value <$> o .: "preflightResult")
+            <$> o .: "preflightResult"
             <*> o .: "preflightWarnings"
-        legacyFallbackParser _ = LocalResultLegacy $ J.encodeJsonText v
+        legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
 
 type OnChainCommandResult =
   Pact.CommandResult Pact.Hash Pact.PactOnChainError
@@ -422,8 +420,6 @@ data PactServiceConfig = PactServiceConfig
     -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
-  , _pactQueueSize :: !Natural
-    -- ^ max size of pact internal queue.
   , _pactUnlimitedInitialRewind :: !Bool
     -- ^ disable initial rewind limit
   , _pactNewBlockGasLimit :: !Pact.GasLimit
@@ -441,24 +437,23 @@ data PactServiceConfig = PactServiceConfig
     --   If 'Nothing', it's a function of the BlockGasLimit.
   , _pactMiner :: !(Maybe Miner)
     -- ^ The miner used to make new blocks.
-  , _pactGenesisPayload :: !Chainweb.PayloadWithOutputs
-    -- ^ The genesis payload for this chain.
+  , _pactBlockRefreshInterval :: !Micros
+    -- ^ How often to refresh blocks.
   } deriving (Eq,Show)
 
-testPactServiceConfig :: Chainweb.PayloadWithOutputs -> PactServiceConfig
-testPactServiceConfig genesisPayload = PactServiceConfig
+defaultPactServiceConfig :: PactServiceConfig
+defaultPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
-      , _pactQueueSize = 1000
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
       , _pactNewBlockGasLimit = testBlockGasLimit
       , _pactLogGas = False
       , _pactFullHistoryRequired = False
-      , _pactEnableLocalTimeout = False
+      , _pactEnableLocalTimeout = True
       , _pactTxTimeLimit = Nothing
-      , _pactMiner = Nothing
-      , _pactGenesisPayload = genesisPayload
+      , _pactMiner = Just noMiner
+      , _pactBlockRefreshInterval = Micros 1_000_000
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -530,8 +525,9 @@ data ServiceEnv tbl = ServiceEnv
     -- ^ Latest mining payload produced, and block continuation thread.
     , _psNewBlockGasLimit :: Pact.GasLimit
     -- ^ Block gas limit in newly produced blocks.
-    , _psGenesisPayload :: !Chainweb.PayloadWithOutputs
+    , _psGenesisPayload :: Maybe Chainweb.PayloadWithOutputs
     -- ^ The genesis payload for this chain.
+    , _psBlockRefreshInterval :: Micros
     }
 
 instance HasChainwebVersion (ServiceEnv tbl) where
@@ -562,8 +558,9 @@ genesisEvaluationCtx serviceEnv = EvaluationCtx
     , _evaluationCtxMinerReward = MinerReward 0
     , _evaluationCtxPayload = ConsensusPayload
         { _consensusPayloadHash = genesisBlockPayloadHash v cid
-        , _consensusPayloadData = Just $ EncodedPayloadData $ Chainweb.encodePayloadData $
-            Chainweb.payloadWithOutputsToPayloadData (_psGenesisPayload serviceEnv)
+        , _consensusPayloadData =
+            EncodedPayloadData . Chainweb.encodePayloadData . Chainweb.payloadWithOutputsToPayloadData
+              <$> _psGenesisPayload serviceEnv
         }
     }
     where
@@ -664,9 +661,41 @@ data TxInvalidError
   = BuyGasError !BuyGasError
   | RedeemGasError !RedeemGasError
   | PurchaseGasTxTooBigForGasLimit
-  | TxInsertError !InsertError
-  | TxExceedsBlockGasLimit !Int
+  | TxExceedsBlockGasLimit
   deriving stock (Show, Eq, Generic)
+
+-- | Convert an error that would make a transaction invalid, into an error that can be
+-- returned to the user. Note that outputs from here do not make it on-chain ever.
+txInvalidErrorToOnChainPactError :: TxInvalidError -> Pact.PactOnChainError
+txInvalidErrorToOnChainPactError = \case
+  BuyGasError err ->
+    prefixMsg "Failed to buy gas:" $
+      buyGasErrorToOnChainPactError err
+  RedeemGasError (RedeemGasPactError err) ->
+    prefixMsg "Failed to redeem gas:" $
+      Pact.pactErrorToOnChainError err
+  PurchaseGasTxTooBigForGasLimit -> Pact.PactOnChainError
+    { _peType = Pact.ErrorType "EvalError"
+    , _peMsg = "gas limit too low to even begin evaluation"
+    , _peInfo = Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0)
+    }
+  TxExceedsBlockGasLimit {} -> Pact.PactOnChainError
+    { _peType = Pact.ErrorType "EvalError"
+    , _peMsg = "tx gas limit taken with other block txs exceeds block gas limit"
+    , _peInfo = Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0)
+    }
+  where
+  buyGasErrorToOnChainPactError (BuyGasPactError err) = Pact.pactErrorToOnChainError err
+  buyGasErrorToOnChainPactError BuyGasMultipleGasPayerCaps = Pact.PactOnChainError
+    { _peType = Pact.ErrorType "EvalError"
+    , _peMsg = "multiple gas payer capabilities in signers list"
+    , _peInfo = Pact.LocatedErrorInfo Pact.TopLevelErrorOrigin (Pact.LineInfo 0)
+    }
+  prefixMsg p err =
+    err
+      { Pact._peMsg = Pact.mkBoundedText $
+        T.unwords [p, Pact._boundedText (Pact._peMsg err) ]
+      }
 
 makePrisms ''TxInvalidError
 
@@ -683,7 +712,9 @@ data BlockOutputMismatchError = BlockOutputMismatchError
   , blockOutputMismatchActualPayload :: !Chainweb.PayloadWithOutputs
   , blockOutputMismatchExpectedPayload :: !Chainweb.CheckablePayload
   }
-  deriving Show
+
+instance Show BlockOutputMismatchError where
+  show = T.unpack . J.encodeText
 
 instance J.Encode BlockOutputMismatchError where
   build bvf = J.object
@@ -755,7 +786,7 @@ toPayloadWithOutputs mi ts =
 
 data PactTxFailureLog = PactTxFailureLog !Pact.RequestKey !Text
   deriving stock (Generic)
-  deriving anyclass (NFData, Typeable)
+  deriving anyclass (NFData)
 instance LogMessage PactTxFailureLog where
   logText (PactTxFailureLog rk msg) =
     "Failed tx " <> sshow rk <> ": " <> msg
@@ -783,3 +814,8 @@ deriving newtype instance ToHttpApiData RewindDepth
 deriving newtype instance FromHttpApiData ConfirmationDepth
 
 deriving newtype instance ToHttpApiData ConfirmationDepth
+
+data GenesisConfig
+  = GeneratingGenesis
+  | GenesisNotNeeded
+  | GenesisPayload Chainweb.PayloadWithOutputs

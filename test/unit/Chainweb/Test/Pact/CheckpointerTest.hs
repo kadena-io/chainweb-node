@@ -23,7 +23,7 @@ import Data.ByteString (ByteString)
 import Data.Functor.Product
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
-import Data.MerkleLog (MerkleNodeType (..), merkleRoot, merkleTree)
+import Data.MerkleLog (MerkleNodeType (..), merkleRoot)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -52,13 +52,17 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
 import Chainweb.Pact.Types
 import Chainweb.Parent
-import Chainweb.PayloadProvider (NewBlockCtx (_newBlockCtxMinerReward, _newBlockCtxParentCreationTime), genesisConsensusState)
+import Chainweb.PayloadProvider
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils hiding (withTempSQLiteResource)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
+import Chainweb.MinerReward
+import Control.Monad.State.Strict
+import qualified Chainweb.Payload as Chainweb
+import Chainweb.Pact.Utils (emptyPayload)
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
@@ -161,8 +165,8 @@ blockHeaderFromTxLogs :: Parent RankedBlockHash -> [TxLog ByteString] -> IO (Blo
 blockHeaderFromTxLogs parent txLogs = do
     fakePayloadHash <- runGetS decodeBlockPayloadHash $
         let
-            payloadLogMerkleTree = merkleTree @ChainwebMerkleHashAlgorithm @ByteString
-                [ TreeNode $ merkleRoot $ merkleTree
+            payloadLogMerkleTree = merkleRoot @ChainwebMerkleHashAlgorithm
+                [ TreeNode $ merkleRoot $
                     [ InputNode (T.encodeUtf8 (_txDomain txLog))
                     , InputNode (T.encodeUtf8 (_txKey txLog))
                     , InputNode (_txValue txLog)
@@ -170,17 +174,17 @@ blockHeaderFromTxLogs parent txLogs = do
                 | txLog <- txLogs
                 ]
         in
-            runPutS $ encodeMerkleLogHash $ MerkleLogHash $ merkleRoot payloadLogMerkleTree
+            runPutS $ encodeMerkleLogHash $ MerkleLogHash payloadLogMerkleTree
     fakeBlockHash <- runGetS decodeBlockHash $
         let
-            blockLogMerkleTree = merkleTree @ChainwebMerkleHashAlgorithm @ByteString
-                [ TreeNode $ merkleRoot $ merkleTree
+            blockLogMerkleTree = merkleRoot @ChainwebMerkleHashAlgorithm
+                [ TreeNode $ merkleRoot $
                     [ InputNode (runPutS $ encodeBlockHash $ unwrapParent $ _rankedBlockHashHash <$> parent)
                     , InputNode (runPutS $ encodeBlockPayloadHash @ChainwebMerkleHashAlgorithm fakePayloadHash)
                     ]
                 ]
         in
-            runPutS $ encodeMerkleLogHash $ MerkleLogHash $ merkleRoot blockLogMerkleTree
+            runPutS $ encodeMerkleLogHash $ MerkleLogHash blockLogMerkleTree
     return (fakeBlockHash, fakePayloadHash)
 
 -- TODO things to test later:
@@ -197,32 +201,35 @@ runBlocks sql rootBlockCtx blks = do
     where
     loop parent (block:blocks) = do
         logger <- getTestLogger
-        fakeNewBlockCtx <- Checkpointer.mkFakeNewBlockCtx
+        fakeParentCreationTime <- Checkpointer.mkFakeParentCreationTime
         (fakeBlockInfo, block', _finalBlockHandle) <-
             (throwIfNoHistory =<<) $
-                Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx parent $
+                Checkpointer.readFrom logger testVer cid sql fakeParentCreationTime parent $
                     executeBlockTransaction parent block
         let childBlockCtx = BlockCtx
-                { _bctxParentCreationTime = _newBlockCtxParentCreationTime fakeNewBlockCtx
+                { _bctxParentCreationTime = fakeParentCreationTime
                 , _bctxParentHash = Parent $ fst fakeBlockInfo
                 , _bctxParentHeight = Parent $ childBlockHeight testVer cid parent
                 , _bctxChainId = cid
                 , _bctxChainwebVersion = testVer
-                , _bctxMinerReward = _newBlockCtxMinerReward fakeNewBlockCtx
+                , _bctxMinerReward = blockMinerReward testVer (childBlockHeight testVer cid parent)
                 }
         let parentBlockCtx = BlockCtx
-                { _bctxParentCreationTime = _newBlockCtxParentCreationTime fakeNewBlockCtx
+                { _bctxParentCreationTime = fakeParentCreationTime
                 , _bctxParentHash = _rankedBlockHashHash <$> parent
                 , _bctxParentHeight = _rankedBlockHashHeight <$> parent
                 , _bctxChainId = cid
                 , _bctxChainwebVersion = testVer
-                , _bctxMinerReward = _newBlockCtxMinerReward fakeNewBlockCtx
+                , _bctxMinerReward = blockMinerReward testVer (unwrapParent $ _rankedBlockHashHeight <$> parent)
                 }
         _ <- Checkpointer.restoreAndSave logger testVer cid sql
-            (NE.singleton (parentBlockCtx, \blockEnv blockHandle -> do
-                (fakeBlockInfo', _blk, finalBlockHandle) <- executeBlockTransaction parent block blockEnv blockHandle
-                fakeBlockInfo' & P.equals fakeBlockInfo
-                return ((), finalBlockHandle, fakeBlockInfo)
+            (NE.singleton (parentBlockCtx, \blockEnv -> do
+                blockHandle <- get
+                (fakeBlockInfo', _blk, finalBlockHandle) <-
+                    liftIO $ executeBlockTransaction parent block blockEnv blockHandle
+                put finalBlockHandle
+                liftIO $ fakeBlockInfo' & P.equals fakeBlockInfo
+                return ((), fakeBlockInfo)
                 ))
         ((parentBlockCtx, fakeBlockInfo, block') :) <$> loop (_bctxParentRankedBlockHash childBlockCtx) blocks
     loop _ [] = return []
@@ -239,7 +246,7 @@ runBlocks sql rootBlockCtx blks = do
 -- is consistent with us executing that block with `readFrom`
 assertBlock :: SQLiteEnv -> BlockCtx -> (BlockHash, BlockPayloadHash) -> DbBlock Identity -> IO ()
 assertBlock sql blockCtx expectedBlockInfo blk = do
-    fakeNewBlockCtx <- Checkpointer.mkFakeNewBlockCtx
+    fakeNewBlockCtx <- Checkpointer.mkFakeParentCreationTime
     logger <- getTestLogger
     hist <- Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx (_bctxParentRankedBlockHash blockCtx) $ \blockEnv startHandle -> do
         ((), _endHandle) <- doChainwebPactDbTransaction (_psBlockDbEnv blockEnv) startHandle Nothing $ \txdb _spv -> do
@@ -272,7 +279,7 @@ tests = testGroup "Pact5 Checkpointer tests"
             ChainwebPactDb.initSchema sql
             Checkpointer.setConsensusState sql $ genesisConsensusState testVer cid
             logger <- getTestLogger
-            fakeNewBlockCtx <- Checkpointer.mkFakeNewBlockCtx
+            fakeNewBlockCtx <- Checkpointer.mkFakeParentCreationTime
             ((), _handle) <- (throwIfNoHistory =<<) $
                 Checkpointer.readFrom logger testVer cid sql fakeNewBlockCtx genesisParentRanked
                     $ \db blockHandle -> do
@@ -290,8 +297,8 @@ tests = testGroup "Pact5 Checkpointer tests"
                 -- extend this empty chain with the genesis block
                 _ <- Checkpointer.restoreAndSave logger testVer cid sql $
                     (
-                        NE.singleton (blockCtxOfEvaluationCtx testVer cid (genesisEvaluationCtx testVer cid),
-                        \_ hndl -> return ((), hndl, (view blockHash (genesisBlockHeader testVer cid), genesisBlockPayloadHash testVer cid)))
+                        NE.singleton (blockCtxOfEvaluationCtx testVer cid (genesisEvalCtx cid),
+                        \_ -> return ((), (view blockHash (genesisBlockHeader testVer cid), genesisBlockPayloadHash testVer cid)))
                     )
                 handle @_ @SomeException
                     (\ex -> putStrLn (displayException ex) >> throw ex)
@@ -303,6 +310,19 @@ tests = testGroup "Pact5 Checkpointer tests"
             evalIO $ forM_ finishedBlocks $ \(parent, blockInfo, block) -> do
                 assertBlock sql parent blockInfo block
     ]
+    where
+    genesisEvalCtx c = EvaluationCtx
+        { _evaluationCtxParentCreationTime = Parent $ testVer ^?! versionGenesis . genesisTime . atChain c
+        , _evaluationCtxParentHash = genesisParentBlockHash testVer c
+        , _evaluationCtxParentHeight = Parent $ genesisHeight testVer c
+        -- should not be used
+        , _evaluationCtxMinerReward = MinerReward 0
+        , _evaluationCtxPayload = ConsensusPayload
+            { _consensusPayloadHash = genesisBlockPayloadHash testVer c
+            , _consensusPayloadData = Just $ EncodedPayloadData $ Chainweb.encodePayloadData $
+                Chainweb.payloadWithOutputsToPayloadData emptyPayload
+            }
+        }
 
 
 testVer :: ChainwebVersion

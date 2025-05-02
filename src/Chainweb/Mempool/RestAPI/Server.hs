@@ -13,6 +13,7 @@ module Chainweb.Mempool.RestAPI.Server
 
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
+import Control.Lens
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.IO.Class
 import qualified Data.DList as D
@@ -119,9 +120,9 @@ someMempoolServer ver (SomeMempool (mempool :: Mempool_ v c t))
 
 someMempoolServers
     :: (Show t)
-    => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
-someMempoolServers v = mconcat
-    . fmap (someMempoolServer v . uncurry (someMempoolVal v))
+    => ChainwebVersion -> ChainMap (MempoolBackend t) -> SomeServer
+someMempoolServers v = ifoldMap
+    (\cid mempool -> someMempoolServer v (someMempoolVal v cid mempool))
 
 
 mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)

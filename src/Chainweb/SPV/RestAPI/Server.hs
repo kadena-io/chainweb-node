@@ -25,8 +25,9 @@ module Chainweb.SPV.RestAPI.Server
 , someSpvServers
 ) where
 
+import Control.Lens ((^?!))
 import Control.Monad.IO.Class
-import Control.Exception (try, Exception(..))
+import Control.Exception.Safe (try, Exception(..))
 import Data.Foldable
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -98,7 +99,7 @@ spvGetEventProofHandler
         -- ^ The event index in the transaction
     -> Handler FakeEventProof
 spvGetEventProofHandler db tcid scid bh i e = do
-    liftIO (try getProof) >>= \case
+    (try getProof) >>= \case
         Left err -> do
             let msg = BL8.pack (displayException err)
             throwError $ case err of
@@ -112,12 +113,15 @@ spvGetEventProofHandler db tcid scid bh i e = do
         Right v ->
             return $ FakeEventProof tcid v
   where
-    getProof = withPayloadProvider providers scid $ \p -> do
-        -- trgHeader <- minimumTrgHeader headerDb tcid scid bh
-        -- TODO: check through block height whether a proof can possibly
-        -- already by available before we do any expensive computations.
-        (SpvProof v) <- eventProof p xevent
-        return v
+    getProof = case providers ^?! atChain scid of
+        ConfiguredPayloadProvider p -> do
+            -- trgHeader <- minimumTrgHeader headerDb tcid scid bh
+            -- TODO: check through block height whether a proof can possibly
+            -- already by available before we do any expensive computations.
+            (SpvProof v) <- liftIO $ eventProof p xevent
+            return v
+        DisabledPayloadProvider ->
+            throwError err404 { errBody = BL8.pack "disabled payload provider on chain" }
 
     providers = view cutDbPayloadProviders db
     xevent = XEventId

@@ -32,11 +32,13 @@ import Chainweb.Parent
 import Chainweb.Ranked
 import Chainweb.Utils
 import Control.Lens
+import Data.Aeson
+import Data.Foldable
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as L
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text qualified as T
 import Numeric.Natural
-import Data.Aeson
 
 -- -------------------------------------------------------------------------- --
 -- Adhoc class for brief logging output
@@ -63,6 +65,9 @@ instance Brief a => Brief (Maybe a) where
 
 instance Brief a => Brief [a] where
     brief l = "[" <> (T.intercalate "," $ brief <$> l) <> "]"
+
+instance Brief a => Brief (NonEmpty a) where
+    brief = brief . toList
 
 instance Brief a => Brief (Parent a) where
     brief = brief . unwrapParent

@@ -68,8 +68,6 @@ import GHC.Stats
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
 
-import qualified Streaming.Prelude as S
-
 import System.Directory
 import System.FilePath
 import System.IO
@@ -86,18 +84,14 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
--- import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 -- import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Pact.Types
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Data.Time.Format.ISO8601
 import Chainweb.Utils
@@ -170,9 +164,6 @@ pChainwebNodeConfiguration = id
     <*< nodeConfigDatabaseDirectory .:: fmap Just % textOption
         % long "database-directory"
         <> help "directory where the databases are persisted"
-    -- <*< nodeConfigResetChainDbs .:: enableDisableFlag
-    --     % long "reset-chain-databases"
-    --     <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getRocksDbDir conf = (\base -> base </> "0" </> "rocksDb") <$> getDbBaseDir conf
@@ -239,31 +230,24 @@ instance ToJSON BlockUpdate where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-runBlockUpdateMonitor :: Logger logger => logger -> CutDb -> IO ()
-runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
-    runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
-        blockDiffStream db
-            & S.mapM toUpdate
-            & S.mapM_ (logFunctionJson l Info)
-  where
-    txCount :: BlockHeader -> IO Int
-    txCount bh = return (-1)
-    --     bp <- lookupPayloadDataWithHeight (Just $ view blockHeight bh) (view blockPayloadHash bh) >>= \case
-    --         Nothing -> error "block payload not found"
-    --         Just x -> return x
-    --     return $ length $ view payloadDataTransactions bp
-
-    toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
-    toUpdate (Right bh) = BlockUpdate
-        <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
-        <*> pure False -- _blockUpdateOrphaned
-        <*> txCount bh -- _blockUpdateTxCount
-        <*> pure (difficultyToDouble (targetToDifficulty (view blockTarget bh))) -- _blockUpdateDifficultyDouble
-    toUpdate (Left bh) = BlockUpdate
-        <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
-        <*> pure True -- _blockUpdateOrphaned
-        <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
-        <*> pure (difficultyToDouble (targetToDifficulty (view blockTarget bh))) -- _blockUpdateDifficultyDouble
+-- runBlockUpdateMonitor :: Logger logger => logger -> CutDb -> IO ()
+-- runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
+--     runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
+--         blockDiffStream db
+--             & S.mapM toUpdate
+--             & S.mapM_ (logFunctionJson l Info)
+--   where
+--     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
+--     toUpdate (Right bh) = BlockUpdate
+--         <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
+--         <*> pure False -- _blockUpdateOrphaned
+--         <*> txCount bh -- _blockUpdateTxCount
+--         <*> pure (difficultyToDouble (targetToDifficulty (view blockTarget bh))) -- _blockUpdateDifficultyDouble
+--     toUpdate (Left bh) = BlockUpdate
+--         <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
+--         <*> pure True -- _blockUpdateOrphaned
+--         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
+--         <*> pure (difficultyToDouble (targetToDifficulty (view blockTarget bh))) -- _blockUpdateDifficultyDouble
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
@@ -327,7 +311,6 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
 
 node :: HasCallStack => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
-    dbBaseDir <- getDbBaseDir conf
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
@@ -354,8 +337,8 @@ node conf logger = do
                         runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
                     , when telemetryEnabled $
                         runRtsMonitor (_chainwebLogger cw)
-                    , when telemetryEnabled $
-                        runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                    -- , when telemetryEnabled $
+                    --     runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
                     , when telemetryEnabled $
                         runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
                     ]
@@ -378,10 +361,10 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
 
     -- we don't log tx failures in replay
-    -- let !txFailureHandler =
-    --         if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
-    --         then [dropLogHandler (Proxy :: Proxy Pact5TxFailureLog)]
-    --         else []
+     let !txFailureHandler =
+            if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
+            then [dropLogHandler (Proxy :: Proxy PactTxFailureLog)]
+            else []
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -405,8 +388,6 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
     queueStatsBackend <- managed
         $ mkTelemetryLogger @QueueStats mgr teleLogConfig
-    -- reintroBackend <- managed
-    --     $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
     traceBackend <- managed
         $ mkTelemetryLogger @Trace mgr teleLogConfig
     mempoolStatsBackend <- managed
@@ -426,7 +407,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ L.withLogger (_logConfigLogger logCfg) $ logHandles
             (concat
                 [ [ logFilterHandle (_logConfigFilter logCfg) ]
-                -- , txFailureHandler
+                , txFailureHandler
                 ,
                     [ logHandler monitorBackend
                     , logHandler p2pInfoBackend
@@ -438,7 +419,6 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
                     -- , logHandler miningStatsBackend
                     , logHandler requestLogBackend
                     , logHandler queueStatsBackend
-                    -- , logHandler reintroBackend
                     , logHandler traceBackend
                     , logHandler mempoolStatsBackend
                     , logHandler blockUpdateBackend

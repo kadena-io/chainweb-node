@@ -15,6 +15,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
@@ -51,6 +52,7 @@ module Chainweb.Pact.Backend.Utils
   -- * SQLite runners
   , withSqliteDb
   , withReadSqliteDb
+  , withReadSqlitePool
   , startSqliteDb
   , startReadSqliteDb
   , stopSqliteDb
@@ -58,7 +60,6 @@ module Chainweb.Pact.Backend.Utils
   , openSQLiteConnection
   , closeSQLiteConnection
   , withTempSQLiteConnection
-  , withInMemSQLiteConnection
   -- * SQLite
   , chainwebPragmas
   , LocatedSQ3Error(..)
@@ -85,9 +86,10 @@ import Control.Monad.Trans.Resource (ResourceT, allocate)
 import Data.Bits
 import Data.Foldable
 import Data.String
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Database.SQLite3.Direct as SQ3
+import Data.Pool qualified as Pool
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Database.SQLite3.Direct qualified as SQ3
 
 import Prelude hiding (log)
 
@@ -153,7 +155,7 @@ asStringUtf8 = toUtf8 . asString
 --
 
 withSavepoint
-    :: (MonadMask m, MonadIO m)
+    :: (HasCallStack, MonadMask m, MonadIO m)
     => SQLiteEnv
     -> SavepointName
     -> m a
@@ -258,6 +260,26 @@ withSqliteDb cid logger dbDir resetDb = snd <$> allocate
     (startSqliteDb cid logger dbDir resetDb)
     stopSqliteDb
 
+withReadSqliteDb
+    :: Logger logger
+    => ChainId
+    -> logger
+    -> FilePath
+    -> ResourceT IO SQLiteEnv
+withReadSqliteDb cid logger dbDir = snd <$> allocate
+    (startReadSqliteDb cid logger dbDir)
+    stopSqliteDb
+
+withReadSqlitePool :: ChainId -> FilePath -> ResourceT IO (Pool.Pool SQLiteEnv)
+withReadSqlitePool cid pactDbDir = snd <$> allocate
+    (Pool.newPool $ Pool.defaultPoolConfig
+        (openSQLiteConnection (pactDbDir </> chainDbFileName cid) chainwebPragmas)
+        stopSqliteDb
+        30 -- seconds to keep them around unused
+        2 -- connections at most
+        & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
+    ) (Pool.destroyAllResources)
+
 startSqliteDb
     :: Logger logger
     => ChainId
@@ -285,17 +307,6 @@ startReadSqliteDb cid logger dbDir = do
     openSQLiteConnection sqliteFile chainwebPragmas
   where
     sqliteFile = dbDir </> chainDbFileName cid
-
-withReadSqliteDb
-  :: Logger logger
-  => ChainId
-  -> logger
-  -> FilePath
-  -> (SQLiteEnv -> IO a)
-  -> IO a
-withReadSqliteDb cid logger dbDir = bracket
-  (startReadSqliteDb cid logger dbDir)
-  stopSqliteDb
 
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
@@ -332,14 +343,6 @@ closeSQLiteConnection c = void $ close_v2 c
 --
 withTempSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection = withSQLiteConnection ""
-
--- Using the special file name @:memory:@ causes sqlite to create a temporary in-memory
--- database.
---
--- Cf. https://www.sqlite.org/inmemorydb.html
---
-withInMemSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
-withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2

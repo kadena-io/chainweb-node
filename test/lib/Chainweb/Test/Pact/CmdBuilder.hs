@@ -23,6 +23,7 @@ import Control.Lens hiding ((.=))
 import Pact.Core.Command.Types
 import Data.Text (Text)
 import GHC.Generics
+import GHC.Stack
 import Pact.Core.Capabilities
 import Pact.Core.Guards
 import Pact.Core.Verifiers (Verifier, ParsedVerifierProof)
@@ -186,28 +187,18 @@ defaultCmd cid = CmdBuilder
 
 -- | Build parsed + verified Pact command
 -- TODO: Use the new `assertPact4Command` function.
-buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact.Transaction
+buildCwCmd :: (HasCallStack, MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact.Transaction
 buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
   case validateCommand v c of
-    Left err -> throwM $ userError $ "buildCwCmd failed: " ++ err
+    Left err -> error $ "buildCwCmd failed: " ++ err
     Right cmd' -> return cmd'
 
--- -- | Build a Pact4 command without parsing it. This can be useful for inserting txs directly into the mempool for testing.
--- buildCwCmdNoParse :: forall m. (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact4.UnparsedTransaction
--- buildCwCmdNoParse v cmd = do
---   cmd5 <- buildTextCmd v cmd
---   cmd4 <- case Aeson.fromJSON @(Pact4.Command Text) $ J._getLegacyValue $ J.toLegacyJsonViaEncode cmd5 of
---     Aeson.Error e -> throwM $ userError $ "buildCwCmdNoParse failed: " ++ e
---     Aeson.Success c -> return c
-
---   let decodePayload :: ByteString -> m (Pact4.Payload Pact4.PublicMeta Text)
---       decodePayload bs = case Aeson.eitherDecodeStrict' bs of
---         Left err -> throwM $ userError $ "buildCwCmdNoParse failed to decode json payload: " ++ err
---         Right payload -> return payload
-
---   let payloadBytes = T.encodeUtf8 $ Pact4._cmdPayload cmd4
---   payload <- decodePayload payloadBytes
---   return $ Pact4.mkPayloadWithText $ fmap (\_ -> (payloadBytes, payload)) cmd4
+-- | Build parsed, not verified Pact command
+buildCwCmdNoSigCheck :: (HasCallStack, MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact.Transaction
+buildCwCmdNoSigCheck v cmd = buildTextCmd v cmd >>= \(cmdText :: Command Text) ->
+    case Pact.parseCommand cmdText of
+      Left err -> error $ "buildCwCmd failed: " ++ sshow err
+      Right parsedCmd -> return parsedCmd
 
 -- | Build unparsed, unverified command
 --

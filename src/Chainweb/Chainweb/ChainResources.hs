@@ -87,6 +87,7 @@ import P2P.Peer (PeerInfo)
 import P2P.Session
 import P2P.TaskQueue
 import Prelude hiding (log)
+import qualified Data.HashSet as HS
 
 -- -------------------------------------------------------------------------- --
 -- Payload P2P Network Resources
@@ -193,20 +194,12 @@ payloadServiceApiResources config pdb = PayloadServiceApiResources
 -- | Payload Provider Resources
 --
 data ProviderResources = ProviderResources
-    { _providerResPayloadProvider :: !SomePayloadProvider
+    { _providerResPayloadProvider :: !ConfiguredPayloadProvider
     , _providerResServiceApi :: !(Maybe PayloadServiceApiResources)
     , _providerResP2pApiResources :: !(Maybe PayloadP2pResources)
     }
 
 makeLenses ''ProviderResources
-
-instance HasChainwebVersion ProviderResources where
-    _chainwebVersion = _chainwebVersion . _providerResPayloadProvider
-    {-# INLINE _chainwebVersion #-}
-
-instance HasChainId ProviderResources where
-    _chainId = _chainId . _providerResPayloadProvider
-    {-# INLINE _chainId #-}
 
 withPayloadProviderResources
     :: Logger logger
@@ -226,7 +219,9 @@ withPayloadProviderResources
 withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs inner = do
     SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal v
     SomeChainIdT @c' _ <- return $ someChainIdVal c
-    withSomeSing provider $ \case
+    if HS.member (_chainId c) (_payloadProviderConfigDisabled configs)
+    then inner $ ProviderResources DisabledPayloadProvider Nothing Nothing
+    else withSomeSing provider $ \case
         SMinimalProvider -> do
 
             -- FIXME this should be better abstracted.
@@ -244,7 +239,7 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs 
             p2pRes <- payloadP2pResources @v' @c' @'MinimalProvider
                 logger p2pConfig myInfo peerDb pdb queue mgr
             inner ProviderResources
-                { _providerResPayloadProvider = SomePayloadProvider p
+                { _providerResPayloadProvider = ConfiguredPayloadProvider p
                 , _providerResServiceApi = Nothing
                 , _providerResP2pApiResources = Just p2pRes
                 }
@@ -253,6 +248,7 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs 
             _config <- case HM.lookup cid (_payloadProviderConfigPact configs) of
                 Just x -> return x
                 Nothing -> error $ "Chainweb.Chainweb.ChainResources.withPayloadProviderResources: missing payload provider configuration for chain " <> sshow cid
+        -- , _pactGenesisPayload = Pact.genesisPayload v ^?! atChain chain
             error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: providerResources not implemented for Pact"
 
         SEvmProvider @n _ -> do
@@ -270,7 +266,7 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs 
                 p2pRes <- payloadP2pResources @v' @c' @('EvmProvider n)
                     logger p2pConfig myInfo peerDb pdb queue mgr
                 inner ProviderResources
-                    { _providerResPayloadProvider = SomePayloadProvider p
+                    { _providerResPayloadProvider = ConfiguredPayloadProvider p
                     , _providerResServiceApi = Nothing
                     , _providerResP2pApiResources = Just p2pRes
                     }
@@ -370,10 +366,10 @@ payloadsToServeOnServiceApi chains = catMaybes
 -- | Return the payload providers for all chains
 --
 payloadProvidersForAllChains
-    :: HM.HashMap ChainId (ChainResources logger)
-    -> PayloadProviders
-payloadProvidersForAllChains chains = PayloadProviders
-    $ (_providerResPayloadProvider . _chainResPayloadProvider)
+    :: ChainMap (ChainResources logger)
+    -> ChainMap ConfiguredPayloadProvider
+payloadProvidersForAllChains chains =
+    (_providerResPayloadProvider . _chainResPayloadProvider)
     <$> chains
 
 -- | Returns actions for running the P2P nodes for all chains.

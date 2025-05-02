@@ -42,7 +42,6 @@ import Chainweb.Miner.Miners
 import Chainweb.Version
 import Control.Concurrent.Async
 import Control.Lens
-import Data.HashMap.Strict (HashMap)
 import Data.LogMessage (LogFunction)
 import System.Random.MWC qualified as MWC
 
@@ -87,7 +86,7 @@ withMiningCoordination logger conf cdb inner
 data MinerResources logger = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !CutDb
-    , _minerChainResources :: !(HashMap ChainId (ChainResources logger))
+    , _minerChainResources :: !(ChainMap (ChainResources logger))
     , _minerResConfig :: !NodeMiningConfig
     , _minerResCoordination :: !(Maybe (MiningCoordination logger))
         -- ^ The primed work cache. This is Nothing when coordination is
@@ -98,7 +97,7 @@ data MinerResources logger = MinerResources
 withMinerResources
     :: logger
     -> NodeMiningConfig
-    -> HashMap ChainId (ChainResources logger)
+    -> ChainMap (ChainResources logger)
     -> CutDb
     -> Maybe (MiningCoordination logger)
     -> (Maybe (MinerResources logger) -> IO a)

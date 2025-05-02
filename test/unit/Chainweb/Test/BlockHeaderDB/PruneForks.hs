@@ -37,7 +37,7 @@ import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeaderDB.PruneForks
-import Chainweb.Chainweb.PruneChainDatabase
+-- import Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
