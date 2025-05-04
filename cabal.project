@@ -156,6 +156,11 @@ source-repository-package
     tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
     --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
 
+source-repository-package
+    type: git
+    location: https://github.com/pcapriotti/optparse-applicative/
+    tag: 7861d08b5d0ae542c82dfc109ca85e61745dc4eb
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 

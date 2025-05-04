@@ -160,7 +160,7 @@ instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
     <$< nodeConfigChainweb %:: pChainwebConfiguration
-    <*< nodeConfigLog %:: pLogConfig
+    <*< parserOptionGroup "Logging" (nodeConfigLog %:: pLogConfig)
     <*< nodeConfigDatabaseDirectory .:: fmap Just % textOption
         % long "database-directory"
         <> help "directory where the databases are persisted"
