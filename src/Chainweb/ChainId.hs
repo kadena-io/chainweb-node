@@ -66,6 +66,12 @@ module Chainweb.ChainId
 , onChains
 , onChain
 , chainZip
+
+-- * Configuration Utils
+, prefixLongCid
+, suffixHelpCid
+, helpCid
+, pEnableConfigCid
 ) where
 
 import Control.DeepSeq
@@ -84,7 +90,7 @@ import qualified Data.Text as T
 import Data.Word (Word32)
 
 import GHC.Generics (Generic)
-import GHC.TypeLits
+import GHC.TypeLits hiding (Mod)
 
 -- internal imports
 
@@ -94,6 +100,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Data.Singletons hiding (Index)
+import Configuration.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -327,3 +334,33 @@ type instance IxValue (ChainMap a) = a
 
 instance IxedGet (ChainMap a) where
     ixg i = atChain i
+
+-- -------------------------------------------------------------------------- --
+-- Configuration Utils
+
+prefixLongCid :: HasName f => ChainId -> String -> Mod f a
+prefixLongCid cid = prefixLong (Just p)
+  where
+    p = "chain-" <> T.unpack (toText cid)
+
+suffixHelpCid :: ChainId -> String -> Mod f a
+suffixHelpCid cid = suffixHelp (Just s)
+  where
+    s = "chain-" <> T.unpack (toText cid)
+
+helpCid :: ChainId -> String -> (Mod f a)
+helpCid cid t = suffixHelp (Just "the respective chain") t
+    <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
+
+pEnableConfigCid
+    :: String
+    -> ChainId
+    -> (ChainId -> MParser a)
+    -> MParser (EnableConfig a)
+pEnableConfigCid comp cid pConfig = id
+    <$< enableConfigEnabled .:: enableDisableFlag
+        % prefixLongCid cid comp
+        <> help ("whether " <> comp <> " is enabled or disabled for the respective chain")
+        <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
+    <*< enableConfigConfig %:: pConfig cid
+
