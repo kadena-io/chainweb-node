@@ -25,6 +25,7 @@
 {-# OPTIONS_GHC -Wprepositive-qualified-module #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM
@@ -35,8 +36,12 @@
 --
 module Chainweb.PayloadProvider.EVM
 ( EvmProviderConfig(..)
+, evmConfEngineUri
+, evmConfEngineJwtSecret
+, evmConfMinerAddress
 , defaultEvmProviderConfig
 , pEvmProviderConfig
+, validateEvmProviderConfig
 
 -- * EVM Payload Provider Implementation
 , EvmPayloadProvider(..)
@@ -85,6 +90,7 @@ import Control.Concurrent.STM
 import Control.Exception.Safe
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Writer
 import Data.ByteString.Short qualified as BS
 import Data.List qualified as L
 import Data.LogMessage
@@ -105,7 +111,6 @@ import Network.URI.Static
 import P2P.Session (ClientEnv)
 import P2P.TaskQueue
 import System.LogLevel
-import Data.Function
 
 -- -------------------------------------------------------------------------- --
 -- Types (to keep the code clean and avoid confusion)
@@ -138,25 +143,15 @@ payloadDbConfiguration = EvmDB.configuration
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
-prefixLongCid :: HasName f => ChainId -> String -> Mod f a
-prefixLongCid cid = prefixLong (Just p)
-  where
-    p = "chain-" <> T.unpack (toText cid)
-
-suffixHelpCid :: ChainId -> String -> Mod f a
-suffixHelpCid cid = suffixHelp (Just s)
-  where
-    s = "chain-" <> T.unpack (toText cid)
-
 pJwtSecret :: ChainId -> OptionParser JwtSecret
 pJwtSecret cid = textOption
-    % prefixLongCid cid "jwt-secret"
-    <> suffixHelpCid cid "JWT secret for the EVM Engine API"
+    % prefixLongCid cid "evm-jwt-secret"
+    <> helpCid cid "JWT secret for the EVM Engine API"
 
 pMinerAddress :: ChainId -> OptionParser EVM.Address
 pMinerAddress cid = textOption
-    % prefixLongCid cid "miner-address"
-    <> suffixHelpCid cid "Miner address for new EVM blocks"
+    % prefixLongCid cid "evm-miner-address"
+    <> helpCid cid "Miner address for new EVM blocks"
 
 newtype EngineUri = EngineUri { _engineUri :: URI }
     deriving (Show, Eq, Generic)
@@ -168,8 +163,8 @@ instance HasTextRepresentation EngineUri where
 
 pEngineUri :: ChainId -> OptionParser EngineUri
 pEngineUri cid = textOption
-    % prefixLongCid cid "uri"
-    <> suffixHelpCid cid "EVM Engine URI"
+    % prefixLongCid cid "evm-uri"
+    <> helpCid cid "EVM Engine URI"
 
 data EvmProviderConfig = EvmProviderConfig
     { _evmConfEngineUri :: !EngineUri
@@ -186,6 +181,26 @@ defaultEvmProviderConfig = EvmProviderConfig
     , _evmConfEngineJwtSecret = unsafeFromText "0000000000000000000000000000000000000000000000000000000000000000"
     , _evmConfMinerAddress = Nothing
     }
+
+validateEvmProviderConfig :: ChainwebVersion -> ChainId -> ConfigValidation EvmProviderConfig []
+validateEvmProviderConfig _ cid conf = do
+    when (euri == _evmConfEngineUri defaultEvmProviderConfig) $ tell
+        [ "EVM Engine URI for " <> sshow cid
+        <> " is to the default value: " <> sshow euri
+        <> ". This is likely to fail if more than one EVM chain is configured"
+        ]
+    when (jwt == _evmConfEngineJwtSecret defaultEvmProviderConfig) $ tell
+        [ "EVM Engine JWT secret for " <> sshow cid
+        <> " is to the default value: " <> sshow jwt
+        <> ". This value is not a secure JWT secret."
+        ]
+    when (isNothing $ _evmConfMinerAddress conf) $ tell
+        [ "EVM miner address is not set for " <> sshow cid
+        <> ". This means that payload production is disabled."
+        ]
+  where
+    euri = _evmConfEngineUri conf
+    jwt = _evmConfEngineJwtSecret conf
 
 instance ToJSON EvmProviderConfig where
     toJSON o = object

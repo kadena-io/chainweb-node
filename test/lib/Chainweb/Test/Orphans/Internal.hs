@@ -836,7 +836,7 @@ instance Arbitrary NodeMiningConfig where
         <$> arbitrary <*> pure (MinerCount 10)
 
 instance Arbitrary MiningConfig where
-    arbitrary = MiningConfig <$> arbitrary <*> arbitrary <*> arbitrary
+    arbitrary = MiningConfig <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb.SPV.EventProof

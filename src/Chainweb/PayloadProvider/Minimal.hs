@@ -14,11 +14,11 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TypeAbstractions #-}
 
 -- |
 -- Module: Chainweb.IdleProvider
@@ -73,6 +73,8 @@
 --
 module Chainweb.PayloadProvider.Minimal
 ( MinimalProviderConfig(..)
+, mpcRedeemChain
+, mpcRedeemAccount
 , defaultMinimalProviderConfig
 , validateMinimalProviderConfig
 , pMinimalProviderConfig

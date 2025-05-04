@@ -28,7 +28,10 @@ import Servant
 
 -- internal modules
 import Chainweb.Chainweb.Configuration
-import Chainweb.Miner.Config
+import Chainweb.PayloadProvider.EVM (evmConfMinerAddress)
+import Chainweb.PayloadProvider.Minimal (mpcRedeemAccount)
+import Chainweb.PayloadProvider.Minimal.Payload (invalidAccount)
+import Chainweb.PayloadProvider.Pact.Configuration (pactConfigMiner)
 import Chainweb.RestAPI.Utils
 
 import P2P.Node.Configuration
@@ -54,7 +57,9 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
     $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
 
     -- Miner Info
-    $ set (configMining . miningMiner) invalidMiner
+    $ set (configPayloadProviders . payloadProviderConfigMinimal . mpcRedeemAccount) invalidAccount
+    $ set (configPayloadProviders . payloadProviderConfigPact . each . pactConfigMiner) Nothing
+    $ set (configPayloadProviders . payloadProviderConfigEvm . each . evmConfMinerAddress) Nothing
 
     -- Service API port
     $ set (configServiceApi . serviceApiConfigPort) 0

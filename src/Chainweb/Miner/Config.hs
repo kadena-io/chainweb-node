@@ -23,8 +23,6 @@ module Chainweb.Miner.Config
 , pMiningConfig
 , miningCoordination
 , miningInNode
-, miningMiner
-, invalidMiner
 , validateMinerConfig
 , CoordinationConfig(..)
 , pCoordinationConfig
@@ -38,27 +36,19 @@ module Chainweb.Miner.Config
 
 import Configuration.Utils
 
-import Control.Lens (lens, view)
+import Control.Lens (lens)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.Writer (tell)
-import Data.Set qualified as Set
 
 import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
 
-import Options.Applicative
-
-import Pact.JSON.Encode qualified as J
-
 -- internal modules
 
-import Pact.Core.Guards qualified as Pact
-
-import Chainweb.Miner.Pact (Miner(..), MinerGuard(..), MinerId(..), minerId)
 import Chainweb.Time
-import Chainweb.Utils (hostArch, sshow, textOption)
+import Chainweb.Utils (hostArch, sshow)
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
@@ -83,17 +73,12 @@ validateMinerConfig v c = do
             ]
         when (not (_coordinationEnabled cc))
             $ throwError "In-node mining is enabled but mining coordination is disabled"
-        when (view minerId (_miningMiner c) == "")
-            $ throwError "In-node Mining is enabled but no miner id is configured"
-
     when (_coordinationEnabled cc && isProd) $ do
         when (hostArch `notElem` supportedArchs) $ do
             throwError $ mconcat
                 [ "Unsupported host architecture for mining on production networks: " <> sshow hostArch <> "."
                 , " Supported architectures are " <> sshow supportedArchs
                 ]
-        when (view minerId (_miningMiner c) == "")
-            $ throwError "Mining is enabled but no miner id is configured"
   where
     nmc = _miningInNode c
     cc = _miningCoordination c
@@ -109,7 +94,6 @@ validateMinerConfig v c = do
 data MiningConfig = MiningConfig
     { _miningCoordination :: !CoordinationConfig
     , _miningInNode :: !NodeMiningConfig
-    , _miningMiner :: !Miner
     }
     deriving stock (Eq, Show)
 
@@ -119,21 +103,16 @@ miningCoordination = lens _miningCoordination (\m c -> m { _miningCoordination =
 miningInNode :: Lens' MiningConfig NodeMiningConfig
 miningInNode = lens _miningInNode (\m c -> m { _miningInNode = c })
 
-miningMiner :: Lens' MiningConfig Miner
-miningMiner = lens _miningMiner (\m c -> m { _miningMiner = c })
-
 instance ToJSON MiningConfig where
     toJSON o = object
         [ "coordination" .= _miningCoordination o
         , "nodeMining" .= _miningInNode o
-        , "miner" .= J.toJsonViaEncode (_miningMiner o)
         ]
 
 instance FromJSON (MiningConfig -> MiningConfig) where
     parseJSON = withObject "MiningConfig" $ \o -> id
         <$< miningCoordination %.: "coordination" % o
         <*< miningInNode %.: "nodeMining" % o
-        <*< miningMiner ..: "miner" % o
 
 instance FromJSON MiningConfig where
     parseJSON v = do
@@ -144,17 +123,12 @@ pMiningConfig :: MParser MiningConfig
 pMiningConfig = id
     <$< miningCoordination %:: pCoordinationConfig
     <*< miningInNode %:: pNodeMiningConfig
-    <*< miningMiner .:: pMiner ""
 
 defaultMining :: MiningConfig
 defaultMining = MiningConfig
     { _miningCoordination = defaultCoordination
     , _miningInNode = defaultNodeMining
-    , _miningMiner = invalidMiner
     }
-
-invalidMiner :: Miner
-invalidMiner = Miner "" . MinerGuard $ Pact.GKeyset (Pact.KeySet mempty Pact.KeysAll)
 
 -- -------------------------------------------------------------------------- --
 -- Mining Coordination Config
@@ -200,16 +174,6 @@ pCoordinationConfig = id
     <*< coordinationUpdateStreamTimeout .:: jsonOption
         % long "mining-update-stream-timeout"
         <> help "duration that an update stream is kept open in seconds"
-
-pMiner :: String -> Parser Miner
-pMiner prefix = pkToMiner <$> pPk
-  where
-    pkToMiner pk = Miner
-        (MinerId $ "k:" <> Pact._pubKey pk)
-        (MinerGuard $ Pact.GKeyset $ Pact.KeySet (Set.singleton pk) Pact.KeysAll)
-    pPk = Pact.PublicKeyText <$> textOption
-        % long (prefix <> "mining-public-key")
-        <> help "public key of a miner in hex decimal encoding. The account name is the public key prefix by 'k:'. (This option can be provided multiple times.)"
 
 -- -------------------------------------------------------------------------- --
 -- Node Mining Config

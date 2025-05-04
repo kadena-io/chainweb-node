@@ -291,20 +291,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
         concurrentWith
             -- initialize chains concurrently
             (\cid x -> do
-                -- let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
-
-                -- FIXME: shouldn't this be done in a configuration validation?
-                -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-                let maxGasLimit = Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit v maxBound
-                case maxGasLimit of
-                    Just maxGasLimit'
-                        | _configBlockGasLimit conf > maxGasLimit' ->
-                            logg Warn $ T.unwords
-                                [ "configured block gas limit is greater than the"
-                                , "maximum for this chain; the maximum will be used instead"
-                                ]
-                    _ -> return ()
-
                 -- Initialize all chain resources, including payload providers
                 withChainResources
                     (chainLogger cid)
@@ -313,10 +299,11 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                     rocksDb
                     (_peerResManager peerRes)
                     pactDbDir
-                    (pactConfig maxGasLimit)
                     (_peerResConfig peerRes)
                     myInfo
                     peerDb
+                    (_configReorgLimit conf)
+                    initialUnlimitedRewind
                     (_configPayloadProviders conf)
                     (\cr -> x cr)
             )
@@ -351,23 +338,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
     p2pConfig :: P2pConfiguration
     p2pConfig = _peerResConfig peerRes
 
-    pactConfig maxGasLimit = PactServiceConfig
-        { _pactReorgLimit = _configReorgLimit conf
-        , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
-        , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
-        , _pactUnlimitedInitialRewind =
-            isJust (_cutDbParamsInitialHeightLimit cutDbParams) ||
-            isJust (_cutDbParamsInitialCutFile cutDbParams)
-        , _pactNewBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
-        , _pactLogGas = _configLogGas conf
-        , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
-        , _pactFullHistoryRequired = _configFullHistoricPactState conf
-        , _pactTxTimeLimit = Nothing
-        -- FIXME
-        , _pactMiner = Nothing
-        , _pactBlockRefreshInterval = Micros 5_000_000
-        }
-
     -- FIXME: make this configurable
     cutDbParams :: CutDbParams
     cutDbParams = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
@@ -375,10 +345,14 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         , _cutDbParamsFastForwardHeightLimit = _cutFastForwardBlockHeightLimit cutConf
-        , _cutDbParamsReadOnly = _configOnlySyncPact conf || _configReadOnlyReplay conf
+        , _cutDbParamsReadOnly = _configOnlySync conf || _configReadOnlyReplay conf
         }
       where
         cutConf = _configCuts conf
+
+    initialUnlimitedRewind =
+        isJust (_cutDbParamsInitialHeightLimit cutDbParams) ||
+        isJust (_cutDbParamsInitialCutFile cutDbParams)
 
     -- Logger
 
@@ -480,7 +454,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                 -- logFunctionJson logger Info PactReplaySuccessful
                 -- inner $ Replayed lowerBoundCut upperBoundCut
               else
-                if _configOnlySyncPact conf
+                if _configOnlySync conf
                   then do
                     error "Chainweb.Chainweb.withChainwebInternal: pact replay is not supported"
                     -- initialCut <- _cut mCutDb
@@ -872,22 +846,30 @@ runChainweb cw nowServing = do
     -- Mempool
 
     mempoolP2pConfig :: EnableConfig MempoolP2pConfig
-    mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
+    -- mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
+    -- FIXME
+    mempoolP2pConfig = error "Chainweb.Chainweb.runChainweb: FIXME Pact mempoolP2pConfig moved into Pact and is not yet implemented"
 
     -- | Decide whether to enable the mempool sync clients.
     --
+    -- FIXME: Pact mempools are now part of the pact payload provider and are
+    -- configured there.
+    --
     mempoolSyncClients :: IO [IO ()]
-    mempoolSyncClients = case enabledConfig mempoolP2pConfig of
-        Nothing -> disabled
-        Just c
-            | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
-            | otherwise -> enabled c
-        where
-        disabled = do
-            logg Info "Mempool p2p sync disabled"
-            return []
-        enabled conf = do
-            logg Info "Mempool p2p sync enabled"
-            -- return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
-            logg Warn "Overwriting mempool p2p sync client configuration. It is currently not supported"
-            return []
+    mempoolSyncClients = return []
+    -- mempoolSyncClients = case enabledConfig mempoolP2pConfig of
+    --     Nothing -> disabled
+    --     Just c
+    --         | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
+    --         | otherwise -> enabled c
+    --   where
+    --     disabled = do
+    --         logg Info "Mempool p2p sync disabled"
+    --         return []
+    --     enabled conf = do
+    --         logg Info "Mempool p2p sync enabled"
+    --         -- FIXME FIXME FIXME
+    --         -- return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
+    --         logg Warn "Overwriting mempool p2p sync client configuration. It is currently not supported"
+    --         logg Warn "Chainweb.Chainweb.runChainweb.mempoolSyncClient: Pact mempool synchronization is currently disabled"
+    --         return []

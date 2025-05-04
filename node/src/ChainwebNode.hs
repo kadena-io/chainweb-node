@@ -88,7 +88,6 @@ import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
--- import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Pact.Types
@@ -315,7 +314,7 @@ node conf logger = do
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
     withRocksDb' <-
-        if _configOnlySyncPact cwConf || _configReadOnlyReplay cwConf
+        if _configOnlySync cwConf || _configReadOnlyReplay cwConf
         then
             withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
         else
@@ -362,7 +361,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     -- we don't log tx failures in replay
     let !txFailureHandler =
-            if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
+            if _configOnlySync chainwebCfg || _configReadOnlyReplay chainwebCfg
             then [dropLogHandler (Proxy :: Proxy PactTxFailureLog)]
             else []
 

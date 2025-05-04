@@ -240,6 +240,7 @@ library
         , Chainweb.PayloadProvider.Minimal.Payload
         , Chainweb.PayloadProvider.Minimal.PayloadDB
         , Chainweb.PayloadProvider.Pact
+        , Chainweb.PayloadProvider.Pact.Configuration
         , Chainweb.PayloadProvider.Pact.Genesis
         , Chainweb.PayloadProvider.P2P
         , Chainweb.PayloadProvider.P2P.RestAPI

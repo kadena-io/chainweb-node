@@ -157,9 +157,6 @@ multiConfig v n = defaultChainwebConfiguration v
     & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configMining . miningInNode) miner
 
-    & set configReintroTxs True
-        -- enable transaction re-introduction
-
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
 
@@ -577,7 +574,7 @@ replayTest loglevel v n rdb pactDbDir step = do
         runNodesForSeconds loglevel logFun
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
-                & set configOnlySyncPact True)
+                & set configOnlySync True)
             n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
                 Replayed l (Just u) -> do
                     writeIORef firstReplayCompleteRef True
@@ -599,7 +596,7 @@ replayTest loglevel v n rdb pactDbDir step = do
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
-                & set configOnlySyncPact True)
+                & set configOnlySync True)
             n (Seconds 20) rdb pactDbDir $ \_ cw -> case cw of
                 Replayed l (Just u) -> do
                     writeIORef secondReplayCompleteRef True

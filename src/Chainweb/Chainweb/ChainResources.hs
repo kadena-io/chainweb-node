@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- |
 -- Module: Chainweb.Chainweb.ChainResources
@@ -66,6 +67,7 @@ import Chainweb.PayloadProvider.EVM
 import Chainweb.PayloadProvider.Minimal
 import Chainweb.PayloadProvider.P2P.RestAPI
 import Chainweb.PayloadProvider.P2P.RestAPI.Server
+import Chainweb.PayloadProvider.Pact.Configuration
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Storage.Table
@@ -87,7 +89,10 @@ import P2P.Peer (PeerInfo)
 import P2P.Session
 import P2P.TaskQueue
 import Prelude hiding (log)
-import qualified Data.HashSet as HS
+import Chainweb.Version.Guards (maxBlockGasLimit)
+import Pact.Core.Gas qualified as Pact
+import System.LogLevel
+import Chainweb.Time
 
 -- -------------------------------------------------------------------------- --
 -- Payload P2P Network Resources
@@ -213,15 +218,17 @@ withPayloadProviderResources
     -> PeerDb
     -> RocksDb
     -> HTTP.Manager
+    -> RewindLimit
+        -- ^ the reorg limit for the payload providers
+    -> Bool
+        -- ^ whether to allow unlimited rewind on startup
     -> PayloadProviderConfig
     -> (ProviderResources -> IO a)
     -> IO a
-withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs inner = do
+withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs inner = do
     SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal v
     SomeChainIdT @c' _ <- return $ someChainIdVal c
-    if HS.member (_chainId c) (_payloadProviderConfigDisabled configs)
-    then inner $ ProviderResources DisabledPayloadProvider Nothing Nothing
-    else withSomeSing provider $ \case
+    withSomeSing provider $ \case
         SMinimalProvider -> do
 
             -- FIXME this should be better abstracted.
@@ -244,33 +251,62 @@ withPayloadProviderResources logger v c p2pConfig myInfo peerDb rdb mgr configs 
                 , _providerResP2pApiResources = Just p2pRes
                 }
 
-        SPactProvider -> do
-            _config <- case HM.lookup cid (_payloadProviderConfigPact configs) of
-                Just x -> return x
-                Nothing -> error $ "Chainweb.Chainweb.ChainResources.withPayloadProviderResources: missing payload provider configuration for chain " <> sshow cid
-        -- , _pactGenesisPayload = Pact.genesisPayload v ^?! atChain chain
-            error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: providerResources not implemented for Pact"
+        SPactProvider -> case HM.lookup cid (_payloadProviderConfigPact configs) of
+            Just conf -> do
+                -- , _pactGenesisPayload = Pact.genesisPayload v ^?! atChain chain
 
-        SEvmProvider @n _ -> do
-            config <- case HM.lookup cid (_payloadProviderConfigEvm configs) of
-                Just x -> return x
-                Nothing -> error $ "Chainweb.Chainweb.ChainResources.withPayloadProviderResources: missing payload provider configuration for chain " <> sshow cid
+                -- let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
 
-            -- This assumes that the respective execution client is available
-            -- and answering API requests.
-            -- It also starts to awaiting and devlivering new payloads if mining
-            -- is enabled.
-            withEvmPayloadProvider logger v c rdb (Just mgr) config $ \p -> do
-                let pdb = view evmPayloadDb p
-                let queue = view evmPayloadQueue p
-                p2pRes <- payloadP2pResources @v' @c' @('EvmProvider n)
-                    logger p2pConfig myInfo peerDb pdb queue mgr
-                inner ProviderResources
-                    { _providerResPayloadProvider = ConfiguredPayloadProvider p
-                    , _providerResServiceApi = Nothing
-                    , _providerResP2pApiResources = Just p2pRes
-                    }
+                -- FIXME move the following to the pact provider initialization
+
+                let maxGasLimit = Pact.GasLimit . Pact.Gas . fromIntegral <$> maxBlockGasLimit ver maxBound
+                case maxGasLimit of
+                    Just maxGasLimit'
+                        | _pactConfigBlockGasLimit conf > maxGasLimit' ->
+                            logFunction logger Warn $ T.unwords
+                                [ "configured block gas limit is greater than the"
+                                , "maximum for this chain; the maximum will be used instead"
+                                ]
+                    _ -> return ()
+
+                let pactConfig = PactServiceConfig
+                        { _pactReorgLimit = rewindLimit
+                        , _pactPreInsertCheckTimeout = _pactConfigPreInsertCheckTimeout conf
+                        , _pactAllowReadsInLocal = _pactConfigAllowReadsInLocal conf
+                        , _pactUnlimitedInitialRewind = initialUnlimitedRewind
+                        , _pactNewBlockGasLimit = maybe id min maxGasLimit (_pactConfigBlockGasLimit conf)
+                        , _pactLogGas = _pactConfigLogGas conf
+                        , _pactEnableLocalTimeout = _pactConfigEnableLocalTimeout conf
+                        , _pactFullHistoryRequired = _pactConfigFullHistoricPactState conf
+                        , _pactTxTimeLimit = Nothing
+                        , _pactMiner = _pactConfigMiner conf
+                        , _pactBlockRefreshInterval = Micros 5_000_000
+                        }
+
+                error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: providerResources not implemented for Pact"
+
+            _ -> inner $ ProviderResources DisabledPayloadProvider Nothing Nothing
+
+        SEvmProvider @n _ -> case HM.lookup cid (_payloadProviderConfigEvm configs) of
+            Just config -> do
+                -- This assumes that the respective execution client is available
+                -- and answering API requests.
+                -- It also starts to awaiting and devlivering new payloads if mining
+                -- is enabled.
+                withEvmPayloadProvider logger v c rdb (Just mgr) config $ \p -> do
+                    let pdb = view evmPayloadDb p
+                    let queue = view evmPayloadQueue p
+                    p2pRes <- payloadP2pResources @v' @c' @('EvmProvider n)
+                        logger p2pConfig myInfo peerDb pdb queue mgr
+                    inner ProviderResources
+                        { _providerResPayloadProvider = ConfiguredPayloadProvider p
+                        , _providerResServiceApi = Nothing
+                        , _providerResP2pApiResources = Just p2pRes
+                        }
+            _ -> inner $ ProviderResources DisabledPayloadProvider Nothing Nothing
+
   where
+    ver = _chainwebVersion v
     cid = _chainId c
     provider :: PayloadProviderType
     provider = payloadProviderTypeForChain v c
@@ -317,14 +353,17 @@ withChainResources
     -> HTTP.Manager
     -> FilePath
         -- ^ database directory for pact databases
-    -> PactServiceConfig
     -> P2pConfiguration
     -> PeerInfo
     -> PeerDb
+    -> RewindLimit
+        -- ^ the reorg limit for the payload providers
+    -> Bool
+        -- ^ whether to allow unlimited rewind on startup
     -> PayloadProviderConfig
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources logger v c rdb mgr _pactDbDir _pConf p2pConf myInfo peerDb configs inner =
+withChainResources logger v c rdb mgr _pactDbDir p2pConf myInfo peerDb rewindLimit initialUnlimitedRewind configs inner =
 
     -- This uses the the CutNetwork for fetching block headers.
     withBlockHeaderDb rdb (_chainwebVersion v) (_chainId c) $ \cdb -> do
@@ -332,7 +371,7 @@ withChainResources logger v c rdb mgr _pactDbDir _pConf p2pConf myInfo peerDb co
         -- Payload Providers are using per chain payload networks for fetching
         -- block headers.
         withPayloadProviderResources
-            providerLogger v c p2pConf myInfo peerDb rdb mgr configs $ \provider -> do
+            providerLogger v c p2pConf myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs $ \provider -> do
 
                 inner ChainResources
                     { _chainResBlockHeaderDb = cdb

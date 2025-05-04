@@ -416,12 +416,25 @@ data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !RewindLimit
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
+    --
+    -- TODO: This is a property of consensus that is currently implemented on
+    -- payload provider level. It should be moved to consensus level.
+    --
+    -- Payload providers only need to know how much history to keep, which must
+    -- be enough to satisfy the reorg limit.
+
   , _pactPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
+
   , _pactUnlimitedInitialRewind :: !Bool
     -- ^ disable initial rewind limit
+    --
+    -- TODO: this property is only used for history replays, which should in the
+    -- future be separated from normal operation. So this should be not about
+    -- initial rewinds but rewind limits in general.
+
   , _pactNewBlockGasLimit :: !Pact.GasLimit
     -- ^ the gas limit for new block creation, not for validation
   , _pactLogGas :: !Bool

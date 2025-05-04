@@ -214,6 +214,7 @@ import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.Types(SQLiteEnv)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Parent
+import Chainweb.PayloadProvider.Pact.Configuration
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Pact.Utils (getTestLogLevel, getTestLogger)
@@ -1089,8 +1090,13 @@ config ver n = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMining . miningInNode) miner
-    & set configReintroTxs True
-    & set configBlockGasLimit (Pact.GasLimit $ Pact.Gas 1_000_000)
+    & set
+        ( configPayloadProviders
+        . payloadProviderConfigPact
+        . each
+        . pactConfigBlockGasLimit
+        )
+        (Pact.GasLimit $ Pact.Gas 1_000_000)
     & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
