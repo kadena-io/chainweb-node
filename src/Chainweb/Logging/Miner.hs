@@ -46,7 +46,6 @@ data NewMinedBlock = NewMinedBlock
 data OrphanedBlock = OrphanedBlock
     { _orphanedParent :: !(Parent BlockHash)
     , _orphanedPayloadHash :: !BlockPayloadHash
-    , _orphanedBestOnCut :: !(ObjectEncoded BlockHeader)
     , _orphanedDiscoveredAt :: !(Time Micros)
     , _orphanedReason :: !Text
     }

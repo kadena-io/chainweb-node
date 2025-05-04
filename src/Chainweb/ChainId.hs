@@ -66,6 +66,7 @@ module Chainweb.ChainId
 , onChains
 , onChain
 , chainZip
+, chainIntersect
 
 -- * Configuration Utils
 , prefixLongCid
@@ -296,6 +297,8 @@ instance Semigroup (ChainMap a) where
     (<>) = chainZip (\f _s -> f)
 instance Monoid (ChainMap a) where
     mempty = ChainMap mempty
+instance FunctorWithIndex ChainId ChainMap where
+    imap f (ChainMap a) = ChainMap $ imap f a
 
 instance FoldableWithIndex ChainId ChainMap where
     ifoldMap f (ChainMap a) = ifoldMap f a
@@ -314,6 +317,9 @@ onChain c a = ChainMap (HM.singleton c a)
 -- | Zips two `ChainMap`s on their chain IDs.
 chainZip :: (a -> a -> a) -> ChainMap a -> ChainMap a -> ChainMap a
 chainZip f (ChainMap l) (ChainMap r) = ChainMap $ HM.unionWith f l r
+
+chainIntersect :: (a -> b -> c) -> ChainMap a -> ChainMap b -> ChainMap c
+chainIntersect f (ChainMap l) (ChainMap r) = ChainMap $ HM.intersectionWith f l r
 
 instance ToJSON a => ToJSON (ChainMap a) where
     toJSON (ChainMap m) = toJSON m
@@ -363,4 +369,3 @@ pEnableConfigCid comp cid pConfig = id
         <> help ("whether " <> comp <> " is enabled or disabled for the respective chain")
         <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
     <*< enableConfigConfig %:: pConfig cid
-

@@ -643,6 +643,11 @@ data NewPayload = NewPayload
     }
     deriving (Show, Generic)
 
+_newPayloadRankedParentHash :: NewPayload -> Parent RankedBlockHash
+_newPayloadRankedParentHash np = Parent $ RankedBlockHash
+    (unwrapParent $ _newPayloadParentHeight np)
+    (unwrapParent $ _newPayloadParentHash np)
+
 instance Eq NewPayload where
     (==) = on (==) $ \x ->
         -- move entropy to the beginning of the comparision to fail fast
@@ -681,11 +686,6 @@ instance Hashable NewPayload where
     -- This is opinionated but should be fine for our purposes
     hashWithSalt s = hashWithSalt s . _newPayloadBlockPayloadHash
     {-# INLINE hashWithSalt #-}
-
-_newPayloadRankedParentHash :: NewPayload -> Parent RankedBlockHash
-_newPayloadRankedParentHash np = Parent $ RankedBlockHash
-    (unwrapParent $ _newPayloadParentHeight np)
-    (unwrapParent $ _newPayloadParentHash np)
 
 instance HasChainwebVersion NewPayload where
     _chainwebVersion = _newPayloadChainwebVersion

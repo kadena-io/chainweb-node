@@ -30,7 +30,9 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
+import Chainweb.Miner.PayloadCache
 import Chainweb.Miner.RestAPI (MiningApi)
+import Chainweb.PayloadProvider
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -152,39 +154,37 @@ data WorkChange
 -- | This event triggers when the previous work got outdated
 --
 awaitWorkChange
-    :: MiningState
-    -> ChainId
+    :: TVar (Maybe WorkState)
+    -> PayloadCache
     -> TVar Bool
         -- ^ Timer
-    -> TVar WorkState
-        -- ^ Previous Work State
+    -> TVar (Maybe (WorkState, NewPayload))
     -> IO (Maybe WorkChange)
-awaitWorkChange ms cid timer prevVar = go
+awaitWorkChange var payloadCache timer prevVar = go
   where
     go = do
         -- await a change in the work state of the chain
-        r <- atomically $ readTVar timer >>= \case
+        atomically $ readTVar timer >>= \case
             True -> return Nothing
             False -> do
                 prev <- readTVar prevVar
-                cur <- readTVar (ms ^?! ixg cid)
-                -- TODO: this guard is potentially somewhat expense. However,
-                -- ideally in most cases it should be possible to establish
-                -- equality by pointer equality.
-                guard (prev /= cur)
-                writeTVar prevVar cur
-                return $ Just (prev, cur)
+                cur <- readTVar var
+                (workChange, curPayload) <- case (prev, cur) of
+                    (Just _, Nothing) ->
+                        return (WorkOutdated, Nothing)
+                    (old, Just newWorkState) -> do
+                        pload <- awaitLatestPayloadForWorkStateSTM payloadCache newWorkState
+                        case old of
+                            Just (oldWorkState, oldPayload)
+                                | oldWorkState == newWorkState -> do
+                                    guard (pload /= oldPayload)
+                                    return (WorkRefreshed, Just pload)
+                            _ -> return (WorkOutdated, Just pload)
+                    (Nothing, Nothing) ->
+                        retry
+                writeTVar prevVar ((,) <$> cur <*> curPayload)
 
-        -- check result
-        case r of
-            Nothing -> return Nothing
-            Just (WorkReady prh ppld pps, WorkReady crh cpld cps)
-                | prh /= crh -> return $ Just WorkOutdated
-                | pps /= cps -> return $ Just WorkOutdated
-                | ppld /= cpld -> return $ Just WorkRefreshed
-                | otherwise -> go
-            Just (WorkReady{}, _) -> return $ Just WorkOutdated
-            _ -> go
+                return $ Just workChange
 
 -- |
 --
@@ -221,16 +221,21 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
     jitter <- randomRIO @Double (0.9, 1.1)
     timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
 
-    curWork <- readTVarIO (_coordState mr ^?! ixg cid)
+    curWork <- atomically $ readTVar (_coordState mr ^?! ixg cid) >>= \case
+        Nothing -> return Nothing
+        Just workState -> do
+            pload <- awaitLatestPayloadForWorkStateSTM (_coordPayloadCache mr ^?! ixg cid) workState
+            return $ Just (workState, pload)
+
     prevVar <- newTVarIO curWork
 
     eventSourceAppIO (go timer cid prevVar) req resp
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
-    go :: TVar Bool -> ChainId -> TVar WorkState -> IO ServerEvent
+    go :: TVar Bool -> ChainId -> TVar (Maybe (WorkState, NewPayload)) -> IO ServerEvent
     go timer cid prevVar = do
-        awaitWorkChange (_coordState mr) cid timer prevVar >>= \case
+        awaitWorkChange (_coordState mr ^?! ixg cid) (_coordPayloadCache mr ^?! ixg cid) timer prevVar >>= \case
             Nothing -> do
                 logFunctionText logger Debug $
                     "sent close event to miner on chain " <> toText cid
