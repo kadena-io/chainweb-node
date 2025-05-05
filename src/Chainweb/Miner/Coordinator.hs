@@ -328,17 +328,20 @@ updateForSolved lf cdb payloadCache var sw = do
                 let pld = _newPayloadEncodedPayloadData payload
                 let pwo = _newPayloadEncodedPayloadOutputs payload
 
-                extend c pld pwo (workStateParents solvedWorkState) sw >>= \case
+                try (extend c pld pwo (workStateParents solvedWorkState) sw) >>= \case
 
                     -- Publish CutHashes to CutDb and log success
-                    (bh, Just ch) -> do
+                    Right (bh, Just ch) -> do
                         lift $ publish cdb ch
                         lift $ logMinedBlock lf bh payload
                         return solvedWorkState
 
                     -- Log Orphaned Block
-                    (_, Nothing) -> do
+                    Right (_, Nothing) -> do
                         throwError (Just solvedWorkState, Info, "orphaned; this block is for an older parent set")
+
+                    Left (InvalidSolvedHeader msg) -> do
+                        throwError (Just solvedWorkState, Warn, "invalid solved header: " <> msg)
 
     case stateOrErr of
         Right s' -> lf Info $ "updateForSolved: new block solved: " <> brief s'
