@@ -154,11 +154,11 @@ data WorkChange
 -- | This event triggers when the previous work got outdated
 --
 awaitWorkChange
-    :: TVar (Maybe WorkState)
+    :: TVar (Maybe ParentState)
     -> PayloadCache
     -> TVar Bool
         -- ^ Timer
-    -> TVar (Maybe (WorkState, NewPayload))
+    -> TVar (Maybe (ParentState, NewPayload))
     -> IO (Maybe WorkChange)
 awaitWorkChange var payloadCache timer prevVar = go
   where
@@ -172,11 +172,11 @@ awaitWorkChange var payloadCache timer prevVar = go
                 (workChange, curPayload) <- case (prev, cur) of
                     (Just _, Nothing) ->
                         return (WorkOutdated, Nothing)
-                    (old, Just newWorkState) -> do
-                        pload <- awaitLatestPayloadForWorkStateSTM payloadCache newWorkState
+                    (old, Just newParentState) -> do
+                        pload <- awaitLatestPayloadForParentStateSTM payloadCache newParentState
                         case old of
-                            Just (oldWorkState, oldPayload)
-                                | oldWorkState == newWorkState -> do
+                            Just (oldParentState, oldPayload)
+                                | oldParentState == newParentState -> do
                                     guard (pload /= oldPayload)
                                     return (WorkRefreshed, Just pload)
                             _ -> return (WorkOutdated, Just pload)
@@ -221,11 +221,11 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
     jitter <- randomRIO @Double (0.9, 1.1)
     timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
 
-    curWork <- atomically $ readTVar (_coordState mr ^?! ixg cid) >>= \case
+    curWork <- atomically $ readTVar (_coordParentState mr ^?! ixg cid) >>= \case
         Nothing -> return Nothing
-        Just workState -> do
-            pload <- awaitLatestPayloadForWorkStateSTM (_coordPayloadCache mr ^?! ixg cid) workState
-            return $ Just (workState, pload)
+        Just parentState -> do
+            pload <- awaitLatestPayloadForParentStateSTM (_coordPayloadCache mr ^?! ixg cid) parentState
+            return $ Just (parentState, pload)
 
     prevVar <- newTVarIO curWork
 
@@ -233,9 +233,9 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
-    go :: TVar Bool -> ChainId -> TVar (Maybe (WorkState, NewPayload)) -> IO ServerEvent
+    go :: TVar Bool -> ChainId -> TVar (Maybe (ParentState, NewPayload)) -> IO ServerEvent
     go timer cid prevVar = do
-        awaitWorkChange (_coordState mr ^?! ixg cid) (_coordPayloadCache mr ^?! ixg cid) timer prevVar >>= \case
+        awaitWorkChange (_coordParentState mr ^?! ixg cid) (_coordPayloadCache mr ^?! ixg cid) timer prevVar >>= \case
             Nothing -> do
                 logFunctionText logger Debug $
                     "sent close event to miner on chain " <> toText cid
