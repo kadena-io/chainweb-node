@@ -158,7 +158,7 @@ awaitWorkChange
     -> PayloadCache
     -> TVar Bool
         -- ^ Timer
-    -> TVar (Maybe (ParentState, NewPayload))
+    -> TVar (Maybe ParentState, Maybe NewPayload)
     -> IO (Maybe WorkChange)
 awaitWorkChange var payloadCache timer prevVar = go
   where
@@ -170,19 +170,31 @@ awaitWorkChange var payloadCache timer prevVar = go
                 prev <- readTVar prevVar
                 cur <- readTVar var
                 (workChange, curPayload) <- case (prev, cur) of
-                    (Just _, Nothing) ->
+                    ((Just _, _), Nothing) ->
+                        -- the parent state has been vacated;
+                        -- there are no longer parents to mine on,
+                        -- so stop mining
                         return (WorkOutdated, Nothing)
-                    (old, Just newParentState) -> do
-                        pload <- awaitLatestPayloadForParentStateSTM payloadCache newParentState
-                        case old of
-                            Just (oldParentState, oldPayload)
-                                | oldParentState == newParentState -> do
-                                    guard (pload /= oldPayload)
-                                    return (WorkRefreshed, Just pload)
-                            _ -> return (WorkOutdated, Just pload)
-                    (Nothing, Nothing) ->
+                    ((Nothing, _), Just _) ->
+                        -- the parent state has been populated;
+                        -- there are now parents to mine on,
+                        -- so start mining
+                        return (WorkOutdated, Nothing)
+                    ((Nothing, _), Nothing) ->
+                        -- the parent state is still empty
                         retry
-                writeTVar prevVar ((,) <$> cur <*> curPayload)
+                    ((old, oldMaybePayload), Just newParentState) -> do
+                        case (old, oldMaybePayload) of
+                            (Just oldParentState, oldPayload)
+                                | oldParentState == newParentState -> do
+                                    -- the parent state remains the same,
+                                    -- so we await a refreshed payload
+                                    newPayload <- awaitLatestPayloadForParentStateSTM payloadCache newParentState
+                                    guard (Just newPayload /= oldPayload)
+                                    return (WorkRefreshed, Just newPayload)
+                                | otherwise ->
+                                    return (WorkOutdated, Nothing)
+                writeTVar prevVar (cur, curPayload)
 
                 return $ Just workChange
 
@@ -222,10 +234,10 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
     timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
 
     curWork <- atomically $ readTVar (_coordParentState mr ^?! ixg cid) >>= \case
-        Nothing -> return Nothing
+        Nothing -> return (Nothing, Nothing)
         Just parentState -> do
             pload <- awaitLatestPayloadForParentStateSTM (_coordPayloadCache mr ^?! ixg cid) parentState
-            return $ Just (parentState, pload)
+            return (Just parentState, Just pload)
 
     prevVar <- newTVarIO curWork
 
@@ -233,7 +245,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
-    go :: TVar Bool -> ChainId -> TVar (Maybe (ParentState, NewPayload)) -> IO ServerEvent
+    go :: TVar Bool -> ChainId -> TVar (Maybe ParentState, Maybe NewPayload) -> IO ServerEvent
     go timer cid prevVar = do
         awaitWorkChange (_coordParentState mr ^?! ixg cid) (_coordPayloadCache mr ^?! ixg cid) timer prevVar >>= \case
             Nothing -> do
