@@ -231,9 +231,9 @@ awaitPayloadsNext caches c prevs = msum (awaitChain <$> itoList xs)
 -- @
 --
 data ParentState = ParentState
-    { workStateParents :: !WorkParents
+    { parentStateParents :: !WorkParents
     -- ^ Invariant: The work parents must match the ranked block hash.
-    , workStateSolved :: !(Maybe SolvedWork)
+    , parentStateSolved :: !(Maybe SolvedWork)
     -- ^ A block with these parents has already been solved and submitted to the
     --   cut pipeline - we don't want to mine it again. So we wait until the
     --   current cut is updated with a new parent header for this chain.
@@ -242,13 +242,13 @@ data ParentState = ParentState
 
 awaitLatestPayloadForParentStateSTM :: PayloadCache -> ParentState -> STM NewPayload
 awaitLatestPayloadForParentStateSTM payloadCache parentState = do
-    let parent = fmap (view rankedBlockHash) $ _workParent' $ workStateParents parentState
+    let parent = fmap (view rankedBlockHash) $ _workParent' $ parentStateParents parentState
     awaitLatestSTM payloadCache parent
 
 instance Brief ParentState where
     brief ParentState{..} =
-            "ParentState:" <> brief workStateParents
-            <> ":solved=" <> brief workStateSolved
+            "ParentState:" <> brief parentStateParents
+            <> ":solved=" <> brief parentStateSolved
 
 -- -------------------------------------------------------------------------- --
 -- Mining State
@@ -292,13 +292,13 @@ updateForCut lf hdb ms c = do
                 (_, Nothing) ->
                     writeTVar var Nothing
                 (Just oldParentState, Just newParents)
-                    | workStateParents oldParentState == newParents
+                    | parentStateParents oldParentState == newParents
                         -> return ()
                 (_, Just newParents) ->
                     writeTVar var $ Just
                         ParentState
-                            { workStateParents = newParents
-                            , workStateSolved = Nothing
+                            { parentStateParents = newParents
+                            , parentStateSolved = Nothing
                             }
 
 updateForSolved :: LogFunction -> CutDb -> PayloadCache -> TVar (Maybe ParentState) -> SolvedWork -> IO ()
@@ -307,12 +307,12 @@ updateForSolved lf cdb payloadCache var sw = do
         solvedParentState <- mapExceptT atomically $ do
             lift (readTVar var) >>= \case
                 Just parentState
-                    | solvedId sw /= parentsId (workStateParents parentState) ->
+                    | solvedId sw /= parentsId (parentStateParents parentState) ->
                         throwError (Just parentState, Info, "orphaned; this block is for an older parent set")
-                    | Just _ <- workStateSolved parentState ->
+                    | Just _ <- parentStateSolved parentState ->
                         throwError (Just parentState, Debug, "this block has already been solved")
                     | otherwise -> do
-                        let newState = parentState { workStateSolved = Just sw }
+                        let newState = parentState { parentStateSolved = Just sw }
                         -- speculatively set the work state's solved work. if we have
                         -- trouble integrating this block, we will revert this after.
                         lift (writeTVar var (Just newState))
@@ -322,13 +322,13 @@ updateForSolved lf cdb payloadCache var sw = do
                     throwError (Nothing, Info, "orphaned; this block is for a blocked chain")
 
         c <- lift $ _cut cdb
-        lift (lookupIO payloadCache (fmap (view rankedBlockHash) $ _workParent $ workStateParents solvedParentState) (_solvedPayloadHash sw)) >>= \case
+        lift (lookupIO payloadCache (fmap (view rankedBlockHash) $ _workParent $ parentStateParents solvedParentState) (_solvedPayloadHash sw)) >>= \case
             Nothing -> throwError (Just solvedParentState, Warn, "updateForSolved: missing payload in cache: " <> brief solvedParentState)
             Just payload -> do
                 let pld = _newPayloadEncodedPayloadData payload
                 let pwo = _newPayloadEncodedPayloadOutputs payload
 
-                try (extend c pld pwo (workStateParents solvedParentState) sw) >>= \case
+                try (extend c pld pwo (parentStateParents solvedParentState) sw) >>= \case
 
                     -- Publish CutHashes to CutDb and log success
                     Right (bh, Just ch) -> do
@@ -354,9 +354,9 @@ updateForSolved lf cdb payloadCache var sw = do
                 latestMaybeParentState <- readTVar var
                 case latestMaybeParentState of
                     Just latestParentState
-                        | parentsId (workStateParents staleParentState)
-                            == parentsId (workStateParents latestParentState)
-                        -> writeTVar var $ Just latestParentState { workStateSolved = Nothing }
+                        | parentsId (parentStateParents staleParentState)
+                            == parentsId (parentStateParents latestParentState)
+                        -> writeTVar var $ Just latestParentState { parentStateSolved = Nothing }
                     _ -> return ()
             now <- getCurrentTimeIntegral
             lf Info $ orphandMsg now err
@@ -600,9 +600,9 @@ randomWork logFun caches state = do
     awaitWorkReady :: ChainId -> TVar (Maybe ParentState) -> STM (WorkParents, NewPayload)
     awaitWorkReady cid var = do
         parentState <- maybe retry return =<< readTVar var
-        guard (isNothing $ workStateSolved parentState)
+        guard (isNothing $ parentStateSolved parentState)
         payload <- awaitLatestPayloadForParentStateSTM (caches ^?! atChain cid) parentState
-        return (workStateParents parentState, payload)
+        return (parentStateParents parentState, payload)
 
     go [] = do
 
