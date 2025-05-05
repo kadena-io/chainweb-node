@@ -732,7 +732,12 @@ solve
     -> SolvedWork
     -> IO ()
 solve mr solved =
-    updateForSolved lf (_coordCutDb mr) (_coordPayloadCache mr ^?! atChain cid) (_coordState mr ^?! atChain cid) solved
+    updateForSolved
+        lf
+        (_coordCutDb mr)
+        (_coordPayloadCache mr ^?! atChain cid)
+        (_coordState mr ^?! atChain cid)
+        solved
   where
     cid = _chainId solved
 
