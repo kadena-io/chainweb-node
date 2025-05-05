@@ -183,8 +183,8 @@ awaitWorkChange var payloadCache timer prevVar = go
                     ((Nothing, _), Nothing) ->
                         -- the parent state is still empty
                         retry
-                    ((old, oldMaybePayload), Just newParentState) -> do
-                        case (old, oldMaybePayload) of
+                    ((oldMaybeParentState, oldMaybePayload), Just newParentState) -> do
+                        case (oldMaybeParentState, oldMaybePayload) of
                             (Just oldParentState, oldPayload)
                                 | oldParentState == newParentState -> do
                                     -- the parent state remains the same,
