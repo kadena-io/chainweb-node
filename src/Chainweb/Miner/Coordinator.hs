@@ -600,6 +600,7 @@ randomWork logFun caches state = do
     awaitWorkReady :: ChainId -> TVar (Maybe WorkState) -> STM (WorkParents, NewPayload)
     awaitWorkReady cid var = do
         workState <- maybe retry return =<< readTVar var
+        guard (isNothing $ workStateSolved workState)
         payload <- awaitLatestPayloadForWorkStateSTM (caches ^?! atChain cid) workState
         return (workStateParents workState, payload)
 
@@ -644,16 +645,7 @@ randomWork logFun caches state = do
 
     go ((cid, var):t) = do
         readyCheck <- atomically $
-            (do
-                workState <- readTVar var >>= \case
-                    Just workState
-                        | Nothing <- workStateSolved workState ->
-                        -- ^ solved chains are not ready to mine on yet
-                        return workState
-                    _ -> retry
-                payload <- awaitLatestPayloadForWorkStateSTM (caches ^?! atChain cid) workState
-                return $ Just (workStateParents workState, payload)
-            ) <|> pure Nothing
+            Just <$> awaitWorkReady cid var <|> pure Nothing
         case readyCheck of
             Just (parents, payload) -> do
                 ct <- BlockCreationTime <$> getCurrentTimeIntegral
