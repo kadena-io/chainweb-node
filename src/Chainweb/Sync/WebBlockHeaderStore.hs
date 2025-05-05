@@ -54,6 +54,7 @@ import Chainweb.MinerReward (blockMinerReward)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.PayloadProvider
+import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.TreeDB
@@ -68,6 +69,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Data.Foldable
 import Data.Hashable
+import Data.HashSet qualified as HS
 import Data.LogMessage
 import Data.PQueue
 import Data.TaskMap
@@ -81,6 +83,7 @@ import Servant.Client
 import System.LogLevel
 import Utils.Logging.Trace
 import Chainweb.Parent
+import Streaming.Prelude qualified as S
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -462,12 +465,35 @@ getBlockHeaderInternal
         case providers ^?! atChain cid of
             ConfiguredPayloadProvider provider -> do
                 r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
-                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with :" <> sshow e
+                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with : " <> sshow e
                     throwM e
-                unless (r == _forkInfoTargetState finfo) $ do
-                    throwM $ GetBlockHeaderFailure $ "unexpected result state"
-                        <> "; expected: " <> sshow (_forkInfoTargetState finfo)
-                        <> "; actual: " <> sshow r
+                if r /= _forkInfoTargetState finfo
+                then do
+                    let ppBlock = _syncStateRankedBlockHash $ _consensusStateLatest r
+                    let targetBlock = _syncStateRankedBlockHash $ _consensusStateLatest $ _forkInfoTargetState finfo
+                    bhdb <- getWebBlockHeaderDb wdb cid
+                    let forkBlocksDescendingStream = getBranch bhdb
+                            (HS.singleton $ LowerBound (_ranked ppBlock))
+                            (HS.singleton $ UpperBound (_ranked targetBlock))
+                    -- TODO: what if this is empty?
+                    forkBlocksAscending <- fmap reverse $ S.toList_ forkBlocksDescendingStream
+                    let newTrace =
+                            zipWith
+                                (\prent child ->
+                                    ConsensusPayload (view blockPayloadHash child) Nothing <$
+                                        blockHeaderToEvaluationCtx (Parent prent))
+                                forkBlocksAscending
+                                (tail forkBlocksAscending)
+                    let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                    r' <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
+                        logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation retry for " <> sshow h <> " failed with: " <> sshow e
+                        throwM e
+                    unless (r' == _forkInfoTargetState finfo) $ do
+                        throwM $ GetBlockHeaderFailure $ "unexpected result state"
+                            <> "; expected: " <> sshow (_forkInfoTargetState finfo)
+                            <> "; actual: " <> sshow r
+                else
+                    return ()
             DisabledPayloadProvider -> do
                 logg Debug $ taskMsg k $ "getBlockHeaderInternal payload provider disabled"
 
