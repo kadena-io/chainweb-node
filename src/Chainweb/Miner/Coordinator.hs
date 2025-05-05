@@ -308,20 +308,22 @@ updateForSolved lf cdb payloadCache var sw = do
             lift (readTVar var) >>= \case
                 Just workState
                     | solvedId sw /= parentsId (workStateParents workState) ->
-                        throwError (Info, "orphaned; this block is for an older parent set")
+                        throwError (Just workState, Info, "orphaned; this block is for an older parent set")
                     | Just _ <- workStateSolved workState ->
-                        throwError (Debug, "this block has already been solved")
+                        throwError (Just workState, Debug, "this block has already been solved")
                     | otherwise -> do
                         let newState = workState { workStateSolved = Just sw }
+                        -- speculatively set the work state's solved work. if we have
+                        -- trouble integrating this block, we will revert this after.
                         lift (writeTVar var (Just newState))
                         return newState
                 -- orphaned by parent disappearance
                 Nothing ->
-                    throwError (Info, "orphaned; this block is for a blocked chain")
+                    throwError (Nothing, Info, "orphaned; this block is for a blocked chain")
 
         c <- lift $ _cut cdb
         lift (lookupIO payloadCache (fmap (view rankedBlockHash) $ _workParent $ workStateParents solvedWorkState) (_solvedPayloadHash sw)) >>= \case
-            Nothing -> throwError (Warn, "updateForSolved: missing payload in cache: " <> brief solvedWorkState)
+            Nothing -> throwError (Just solvedWorkState, Warn, "updateForSolved: missing payload in cache: " <> brief solvedWorkState)
             Just payload -> do
                 let pld = _newPayloadEncodedPayloadData payload
                 let pwo = _newPayloadEncodedPayloadOutputs payload
@@ -336,12 +338,23 @@ updateForSolved lf cdb payloadCache var sw = do
 
                     -- Log Orphaned Block
                     (_, Nothing) -> do
-                        throwError (Info, "orphaned; this block is for an older parent set")
+                        throwError (Just solvedWorkState, Info, "orphaned; this block is for an older parent set")
 
     case stateOrErr of
         Right s' -> lf Info $ "updateForSolved: new block solved: " <> brief s'
-        Left (level, err) -> do
+        Left (staleMaybeWorkState, level, err) -> do
             lf level $ "updateForSolved: block not solved: " <> err
+            -- an error has occurred when trying to integrate this block;
+            -- reset the work state's solved work, if the parents have not
+            -- changed since the failure.
+            forM_ staleMaybeWorkState $ \staleWorkState -> atomically $ do
+                latestMaybeWorkState <- readTVar var
+                case latestMaybeWorkState of
+                    Just latestWorkState
+                        | parentsId (workStateParents staleWorkState)
+                            == parentsId (workStateParents latestWorkState)
+                        -> writeTVar var $ Just latestWorkState { workStateSolved = Nothing }
+                    _ -> return ()
             now <- getCurrentTimeIntegral
             lf Info $ orphandMsg now err
     where
