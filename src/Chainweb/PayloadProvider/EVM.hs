@@ -90,6 +90,7 @@ import Control.Concurrent.STM
 import Control.Exception.Safe
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Trans.Resource hiding (throwM)
 import Control.Monad.Writer
 import Data.ByteString.Short qualified as BS
 import Data.List qualified as L
@@ -493,26 +494,25 @@ withEvmPayloadProvider
         --
         -- It is /not/ used for communication with the execution engine client.
     -> EvmProviderConfig
-    -> (EvmPayloadProvider logger -> IO a)
-    -> IO a
-withEvmPayloadProvider logger v c rdb mgr conf f
+    -> ResourceT IO (EvmPayloadProvider logger)
+withEvmPayloadProvider logger v c rdb mgr conf
     | FromSing @_ @p (SEvmProvider ecid) <- payloadProviderTypeForChain v c = do
-        engineCtx <- mkEngineCtx (_evmConfEngineJwtSecret conf) (_engineUri $ _evmConfEngineUri conf)
+        engineCtx <- liftIO $ mkEngineCtx (_evmConfEngineJwtSecret conf) (_engineUri $ _evmConfEngineUri conf)
 
         SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal v
         SomeChainIdT @c _ <- return $ someChainIdVal c
         let pldCli h = Rest.payloadClient @v @c @p h
 
-        genPld <- checkExecutionClient logger v c engineCtx (EVM.ChainId (fromSNat ecid))
-        logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
-        logFunctionText logger Debug $ "genesis payload from execution client: " <> sshow genPld
-        pdb <- initPayloadDb $ payloadDbConfiguration v c rdb genPld
-        store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb pldCli
-        pldVar <- newEmptyTMVarIO
-        pldIdVar <- newEmptyTMVarIO
-        candidates <- emptyTable
-        stateVar <- newTVarIO (T2 (genesisState v c) Nothing)
-        lock <- newMVar ()
+        genPld <- liftIO $ checkExecutionClient logger v c engineCtx (EVM.ChainId (fromSNat ecid))
+        liftIO $ logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
+        liftIO $ logFunctionText logger Debug $ "genesis payload from execution client: " <> sshow genPld
+        pdb <- liftIO $ initPayloadDb $ payloadDbConfiguration v c rdb genPld
+        store <- liftIO $ newPayloadStore mgr (logFunction pldStoreLogger) pdb pldCli
+        pldVar <- liftIO newEmptyTMVarIO
+        pldIdVar <- liftIO newEmptyTMVarIO
+        candidates <- liftIO $ emptyTable
+        stateVar <- liftIO $ newTVarIO (T2 (genesisState v c) Nothing)
+        lock <- liftIO $ newMVar ()
         let p = EvmPayloadProvider
                 { _evmChainwebVersion = _chainwebVersion v
                 , _evmChainId = _chainId c
@@ -527,13 +527,12 @@ withEvmPayloadProvider logger v c rdb mgr conf f
                 , _evmLock = lock
                 }
 
-        result <- race (payloadListener p) $ do
+        listenerAsync <- withAsyncR (payloadListener p)
+        liftIO $ link listenerAsync
+        liftIO $
             logg p Info $
                 "EVM payload provider started for Ethereum network id " <> sshow ecid
-            f p
-        case result of
-            Left () -> error "Chainweb.PayloadProvider.EVM.withEvmPayloadProvider: runForever (payloadListener p) exited unexpectedly"
-            Right x -> return x
+        return p
 
     | otherwise =
         error "Chainweb.PayloadProvider.Evm.configuration: chain does not use EVM provider"
