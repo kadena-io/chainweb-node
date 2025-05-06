@@ -85,6 +85,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI.Server as Mining
 -- import qualified Chainweb.Pact.RestAPI.Server as PactAPI
+import qualified Chainweb.Pact.Transaction as Pact
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
@@ -137,6 +138,8 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 data ChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe CutDb)
     , _chainwebServerBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
+    , _chainwebServerMempools :: !(ChainMap (MempoolBackend Pact.Transaction))
+    , _chainwebServerPayloads :: !(ChainMap SomeServer)
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
@@ -145,7 +148,9 @@ emptyChainwebServerDbs :: ChainwebServerDbs
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = mempty
-    , _chainwebServerPeerDbs = mempty
+    , _chainwebServerMempools = mempty
+    , _chainwebServerPayloads = mempty
+    , _chainwebServerPeerDbs = []
     }
 
 -- -------------------------------------------------------------------------- --
@@ -200,17 +205,17 @@ someChainwebServer
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    -- <> fold payloads
+    <> fold payloads
     <> someP2pBlockHeaderDbServers v blocks
-    -- <> Mempool.someMempoolServers v mempools
+    <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
   where
-    -- payloads = _chainwebServerPayloads dbs
+    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    -- mempools = _chainwebServerMempools dbs
+    mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
@@ -224,18 +229,18 @@ someChainwebServerWithHashesAndSpvApi
     -> SomeServer
 someChainwebServerWithHashesAndSpvApi config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    -- <> foldMap snd payloads
+    <> fold payloads
     <> someBlockHeaderDbServers v blocks
-    -- <> Mempool.someMempoolServers v mempools
+    <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
     <> maybe mempty (someSpvServers v) cuts
   where
-    -- payloads = _chainwebServerPayloads dbs
+    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    -- mempools = _chainwebServerMempools dbs
+    mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
@@ -343,11 +348,12 @@ someServiceApiServer v dbs mr (HeaderStream hs) backupEnv pbl =
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
-    -- <> mconcat (snd <$> payloads)
+    <> fold payloads
     <> someBlockHeaderDbServers v blocks
     <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
     cuts = _chainwebServerCutDb dbs
+    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
 
 serviceApiApplication
@@ -359,10 +365,10 @@ serviceApiApplication
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs mr hs be pbl
+serviceApiApplication v dbs mr hs benv pbl
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs mr hs be pbl
+    $ someServiceApiServer v dbs mr hs benv pbl
 
 serveServiceApiSocket
     :: Logger logger
@@ -376,5 +382,5 @@ serveServiceApiSocket
     -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs mr hs be pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs mr hs be pbl
+serveServiceApiSocket s sock v dbs mr hs benv pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs mr hs benv pbl

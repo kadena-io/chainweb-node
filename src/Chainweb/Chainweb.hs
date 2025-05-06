@@ -691,10 +691,44 @@ runChainweb cw nowServing = do
     logg :: LogFunctionText
     logg = logFunctionText $ _chainwebLogger cw
 
-    -- TODO use the peerDbs from the respective chains
-    -- (even though those are currently all the same)
-    -- payloadP2pPeersToServe :: [(NetworkId, PeerDb)]
-    -- payloadP2pPeersToServe = (\(i, _) -> (ChainNetwork i, peerDb)) <$> chains
+    -- chains
+    chains :: [(ChainId, ChainResources logger)]
+    chains = itoList (_chainwebChains cw)
+
+    chainVals :: [ChainResources logger]
+    chainVals = map snd chains
+
+    -- collect server resources
+    proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
+    proj f = chains & mapped . _2 %~ f
+
+    peerDb = _peerResDb (_chainwebPeer cw)
+
+    -- FIXME export the SomeServer instead of DBs?
+    -- I.e. the handler would be created in the chain resource.
+    -- Similar to how it is done with the payload provider APIs.
+    --
+    -- chainDbsToServe :: [(ChainId, BlockHeaderDb)]
+    -- chainDbsToServe = proj _chainResBlockHeaderDb
+    chainDbsToServe :: ChainMap BlockHeaderDb
+    chainDbsToServe = _chainResBlockHeaderDb <$> _chainwebChains cw
+
+    mempoolsToServe :: ChainMap (Mempool.MempoolBackend Pact.Transaction)
+    -- mempoolsToServe = proj _chainResMempool
+    mempoolsToServe = mempty
+
+    pactDbsToServe :: [(ChainId, PactServerData logger tbl)]
+    -- pactDbsToServe = _chainwebPactData cw
+    pactDbsToServe = []
+
+    -- As long as all Pact payload providers live within the consensus node, it
+    -- probably makes sense to serve the P2P network for mempools through the
+    -- consensus node API.
+    -- TODO: only include the mempools for enabled payload providers
+    --
+    memP2pPeersToServe :: [(NetworkId, PeerDb)]
+    -- memP2pToServe = (\(i, _) -> (MempoolNetwork i, peerDb)) <$> chains
+    memP2pPeersToServe = []
 
     loggServerError msg (Just r) e =
         "HTTP server error (" <> msg <> "): " <> sshow e <> ". Request: " <> sshow r
@@ -732,8 +766,14 @@ runChainweb cw nowServing = do
     chainwebServerDbs :: ChainwebServerDbs
     chainwebServerDbs = ChainwebServerDbs
         { _chainwebServerCutDb = Just cutDb
-        , _chainwebServerBlockHeaderDbs = _chainResBlockHeaderDb <$> _chainwebChains cw
-        , _chainwebServerPeerDbs = [(CutNetwork, cutPeerDb)]
+        , _chainwebServerBlockHeaderDbs = chainDbsToServe
+        , _chainwebServerMempools = mempoolsToServe
+        -- , _chainwebServerPayloads = payloadsToServeOnP2pApi chains
+        , _chainwebServerPayloads = ChainMap $ HM.fromList $ payloadsToServeOnP2pApi chains
+        , _chainwebServerPeerDbs
+            = (CutNetwork, cutPeerDb)
+            : memP2pPeersToServe
+            <> payloadP2pPeersToServe chains
         }
 
     serve :: Middleware -> IO ()
@@ -815,7 +855,9 @@ runChainweb cw nowServing = do
             (_chainwebVersion cw)
             ChainwebServerDbs
                 { _chainwebServerCutDb = Just cutDb
-                , _chainwebServerBlockHeaderDbs = _chainResBlockHeaderDb <$> _chainwebChains cw
+                , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                , _chainwebServerMempools = mempoolsToServe
+                , _chainwebServerPayloads = ChainMap $ HM.fromList $ payloadsToServeOnServiceApi chains
 
                 -- We do not want to serve peer APIs on the service API.
                 -- If at all we could serve the GET endpoints.

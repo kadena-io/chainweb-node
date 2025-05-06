@@ -117,15 +117,19 @@ someMempoolServer
 someMempoolServer ver (SomeMempool (mempool :: Mempool_ v c t))
   = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer ver mempool)
 
-
 someMempoolServers
     :: (Show t)
-    => ChainwebVersion -> ChainMap (MempoolBackend t) -> SomeServer
+    => ChainwebVersion
+    -> ChainMap (MempoolBackend t)
+    -> SomeServer
 someMempoolServers v = ifoldMap
     (\cid mempool -> someMempoolServer v (someMempoolVal v cid mempool))
 
-
-mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)
+mempoolServer
+    :: Show t
+    => ChainwebVersion
+    -> Mempool_ v c t
+    -> Server (MempoolApi v c)
 mempoolServer _v (Mempool_ mempool) =
     insertHandler mempool
     :<|> memberHandler mempool

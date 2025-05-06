@@ -35,6 +35,7 @@ module Chainweb.Chainweb.ChainResources
 , withChainResources
 , payloadsToServeOnP2pApi
 , payloadsToServeOnServiceApi
+, payloadP2pPeersToServe
 , payloadProvidersForAllChains
 , runP2pNodesOfAllChains
 
@@ -384,7 +385,7 @@ withChainResources logger v c rdb mgr _pactDbDir p2pConf myInfo peerDb rewindLim
         & setComponent "payload-provider"
         & addLabel ("provider", toText providerType)
 
--- | Return P2P Payload Servers for all chains
+-- | Return P2P Payload Servers for all enabled payload providers
 --
 payloadsToServeOnP2pApi
     :: [(ChainId, ChainResources logger)]
@@ -393,7 +394,7 @@ payloadsToServeOnP2pApi chains = catMaybes
     $ mapM (fmap _payloadResP2pServer . _chainResP2pApiResources)
     <$> chains
 
--- | Return Service API Payload Servers for all chains
+-- | Return Service API Payload Servers for all enabled payload providers
 --
 payloadsToServeOnServiceApi
     :: [(ChainId, ChainResources logger)]
@@ -402,7 +403,16 @@ payloadsToServeOnServiceApi chains = catMaybes
     $ mapM (fmap _payloadResServiceServer . _chainResServiceApiResources)
     <$> chains
 
--- | Return the payload providers for all chains
+payloadP2pPeersToServe
+    :: [(ChainId, ChainResources logger)]
+    -> [(NetworkId, PeerDb)]
+payloadP2pPeersToServe chains =
+    catMaybes
+    $ fmap sequence
+    $ (\(cid, x) -> (ChainNetwork cid, _payloadResPeerDb <$> _chainResP2pApiResources x))
+    <$> chains
+
+-- | Return the configured payload providers for all chains
 --
 payloadProvidersForAllChains
     :: ChainMap (ChainResources logger)
