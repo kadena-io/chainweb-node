@@ -12,10 +12,11 @@ module Chainweb.PayloadProvider.Pact.Genesis
 ) where
 
 import Chainweb.Version
-import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet04
 import Chainweb.Version.Development
+import Chainweb.Version.EvmDevelopment
+import Chainweb.Version.Mainnet
 import Chainweb.Version.RecapDevelopment
+import Chainweb.Version.Testnet04
 import Chainweb.Payload
 import Data.HashMap.Strict qualified as HM
 
@@ -68,6 +69,10 @@ genesisPayload v
         [ [(unsafeChainId 0, RDN0.payloadBlock)]
         , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
         , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
+        ]
+    | _versionCode v == _versionCode EvmDevelopment = ChainMap $ HM.fromList $ concat
+        [ [(unsafeChainId 0, DN0.payloadBlock)]
+        , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
         ]
 genesisPayload v = error $
     "Chainweb.PayloadProvider.Pact.Genesis.genesisPayload: unsupported chainweb version: " <> sshow v
