@@ -34,8 +34,10 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
-import Control.Exception (evaluate, mask_, throw)
+import Control.Exception (evaluate, mask_)
 import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
@@ -163,17 +165,12 @@ withInMemoryMempool
   => logger
   -> InMemConfig t
   -> ChainwebVersion
-  -> (MempoolBackend t -> IO a)
-  -> IO a
-withInMemoryMempool l cfg _v f = do
-    let action inMem = do
-          r <- race (monitor inMem) $ do
-            back <- toMempoolBackend l inMem
-            f $! back
-          case r of
-            Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
-            Right result -> return result
-    action =<< makeInMemPool cfg
+  -> ResourceT IO (MempoolBackend t)
+withInMemoryMempool l cfg _v = do
+  inMem <- liftIO $ makeInMemPool cfg
+  monitorAsync <- withAsyncR (monitor inMem)
+  liftIO $ link monitorAsync
+  liftIO $ toMempoolBackend l inMem
   where
     monitor m = do
         let lf = logFunction l

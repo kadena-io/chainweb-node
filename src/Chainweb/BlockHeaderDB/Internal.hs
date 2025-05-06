@@ -44,11 +44,12 @@ module Chainweb.BlockHeaderDB.Internal
 ) where
 
 import Control.Arrow
+import Control.Exception.Safe
 import Control.DeepSeq
 import Control.Lens hiding (children)
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson
 import Data.Function
@@ -249,9 +250,8 @@ withBlockHeaderDb
     :: RocksDb
     -> ChainwebVersion
     -> ChainId
-    -> (BlockHeaderDb -> IO b)
-    -> IO b
-withBlockHeaderDb db v cid = bracket start closeBlockHeaderDb
+    -> ResourceT IO BlockHeaderDb
+withBlockHeaderDb db v cid = snd <$> allocate start closeBlockHeaderDb
   where
     start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader v cid
@@ -381,4 +381,3 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
-
