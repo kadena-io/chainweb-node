@@ -135,13 +135,13 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
           # The first version in this list is the version to be used for release
-          "ghc": ["9.8.2", "9.10.1"],
+          "ghc": ["9.8.4", "9.10.2"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
-              "ghc": "9.8.2",
+              "ghc": "9.8.4",
               "cabal": "latest",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
@@ -153,14 +153,14 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.8.2", "9.10.1"],
+          "ghc": ["9.8.4", "9.10.2"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
-              "ghc": "9.8.2",
-              "cabal": "3.12",
+              "ghc": "9.8.4",
+              "cabal": "3.14",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
             }
@@ -379,6 +379,9 @@ jobs:
     #       test:multi-node-network-tests \
     #       test:remote-tests \
     #       test:chainweb-storage-tests
+    - name: Build chainweb applications
+      run: |
+        cabal build -j2 --ghc-options=-j2 exe:evm-genesis
     - name: Build chainweb-node application
       run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
@@ -404,6 +407,7 @@ jobs:
       run: |
         mkdir -p artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
+        cp $(cabal list-bin evm-genesis) artifacts/chainweb
         # cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
         # cp $(cabal list-bin chainweb-tests) artifacts/chainweb
         # cp $(cabal list-bin compact) artifacts/chainweb
@@ -762,10 +766,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.8.2"
+        - ghc: "9.8.4"
           os: "ubuntu-22.04"
           use-freeze-file: "true"
-        - ghc: "9.10.1"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "false"
     env:
