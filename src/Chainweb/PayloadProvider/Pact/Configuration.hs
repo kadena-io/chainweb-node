@@ -89,6 +89,7 @@ data PactProviderConfig = PactProviderConfig
 
     , _pactConfigEnableLocalTimeout :: !Bool
     , _pactConfigMiner :: !(Maybe Miner)
+    , _pactConfigDatabaseDirectory :: !(Maybe FilePath)
     }
     deriving (Show, Eq, Generic)
 
@@ -107,6 +108,7 @@ instance ToJSON PactProviderConfig where
         , "fullHistoricPactState" .= _pactConfigFullHistoricPactState o
         , "enableLocalTimeout" .= _pactConfigEnableLocalTimeout o
         , "miner" .= J.toJsonViaEncode (_pactConfigMiner o)
+        , "databaseDirectory" .= _pactConfigDatabaseDirectory o
         ]
 
 instance FromJSON (PactProviderConfig -> PactProviderConfig) where
@@ -122,6 +124,7 @@ instance FromJSON (PactProviderConfig -> PactProviderConfig) where
         <*< pactConfigFullHistoricPactState ..: "fullHistoricPactState" % o
         <*< pactConfigEnableLocalTimeout ..: "enableLocalTimeout" % o
         <*< pactConfigMiner ..: "miner" % o
+        <*< pactConfigDatabaseDirectory ..: "databaseDirectory" % o
 
 defaultPactProviderConfig :: PactProviderConfig
 defaultPactProviderConfig = PactProviderConfig
@@ -136,6 +139,7 @@ defaultPactProviderConfig = PactProviderConfig
     , _pactConfigFullHistoricPactState = True
     , _pactConfigEnableLocalTimeout = False
     , _pactConfigMiner = Nothing
+    , _pactConfigDatabaseDirectory = Nothing
     }
 
 pPactProviderConfig :: ChainId -> MParser PactProviderConfig
@@ -169,4 +173,6 @@ pPactProviderConfig cid = id
         % prefixLongCid cid "pact-enable-local-timeout"
         <> helpCid cid "Enable timeout support on /local endpoints"
     <*< pactConfigMiner .:: fmap Just % pMiner cid
-
+    <*< pactConfigDatabaseDirectory .:: fmap Just % fileOption
+        % prefixLongCid cid "pact-database-directory"
+        <> helpCid cid "the directory to store the pact database"

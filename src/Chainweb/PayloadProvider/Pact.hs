@@ -46,7 +46,10 @@ import qualified Data.Pool as Pool
 import Control.Monad.Trans.Resource (ResourceT, allocate)
 import Chainweb.Core.Brief
 
-data PactPayloadProvider logger tbl = PactPayloadProvider logger (ServiceEnv tbl)
+data PactPayloadProvider logger tbl = PactPayloadProvider
+    { pactPayloadProviderLogger :: logger
+    , pactPayloadProviderServiceEnv :: ServiceEnv tbl
+    }
 
 makePrisms ''PactPayloadProvider
 
