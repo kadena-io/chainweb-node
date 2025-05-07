@@ -292,20 +292,21 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
             -- initialize chains concurrently
             (\cid x -> do
                 -- Initialize all chain resources, including payload providers
-                withChainResources
-                    (chainLogger cid)
-                    v
-                    cid
-                    rocksDb
-                    (_peerResManager peerRes)
-                    pactDbDir
-                    (_peerResConfig peerRes)
-                    myInfo
-                    peerDb
-                    (_configReorgLimit conf)
-                    initialUnlimitedRewind
-                    (_configPayloadProviders conf)
-                    (\cr -> x cr)
+                runResourceT $ do
+                    cr <- withChainResources
+                        (chainLogger cid)
+                        v
+                        cid
+                        rocksDb
+                        (_peerResManager peerRes)
+                        pactDbDir
+                        (_peerResConfig peerRes)
+                        myInfo
+                        peerDb
+                        (_configReorgLimit conf)
+                        initialUnlimitedRewind
+                        (_configPayloadProviders conf)
+                    liftIO $ x cr
             )
 
             -- initialize global resources after all chain resources are initialized
