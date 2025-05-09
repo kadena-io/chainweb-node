@@ -82,7 +82,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Utils (sshow, T2)
 import Chainweb.Utils.Serialization (runPutS)
 import Chainweb.Version
-import Chainweb.Version.Guards (pact5Serialiser)
+import Chainweb.Version.Guards
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Exception.Safe
@@ -105,7 +105,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.Int
-import Data.List(sort)
+import Data.List(group, sort)
 import Data.Map.Strict qualified as M
 import Data.Maybe
 import Data.Singletons (Dict(..))
@@ -594,8 +594,14 @@ doKeys d = do
               Just v -> pure (v, Dict ())
               Nothing -> internalDbError $ "doKeys.DModuleSources: unexpected decoding"
     case ordDict of
-        Dict () ->
-            return $ sort (memKeys ++ parsedKeys)
+        Dict () -> do
+            v <- view blockHandlerVersion
+            cid <- view blockHandlerChainId
+            bh <- view blockHandlerBlockHeight
+            if chainweb230Pact v cid bh
+            -- the read-cache contains duplicate keys that we need to remove.
+            then return $ fmap head $ group $ sort (memKeys ++ parsedKeys)
+            else return $ sort (memKeys ++ parsedKeys)
 
     where
 
