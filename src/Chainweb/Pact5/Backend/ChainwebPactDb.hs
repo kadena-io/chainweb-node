@@ -130,6 +130,7 @@ import Pact.Core.Serialise qualified as Pact
 import Pact.Core.StableEncoding (encodeStable)
 import Pact.Types.Persistence qualified as Pact4
 import Prelude hiding (concat, log)
+import System.LogLevel
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -566,7 +567,8 @@ doWriteRow wt d k v = case d of
 doKeys
     :: forall k v logger
     -- ^ the highest block we should be reading writes from
-    . Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    . Logger logger
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> BlockHandler logger [k]
 doKeys d = do
     dbKeys <- getDbKeys
@@ -598,10 +600,16 @@ doKeys d = do
             v <- view blockHandlerVersion
             cid <- view blockHandlerChainId
             bh <- view blockHandlerBlockHeight
-            if chainweb230Pact v cid bh
+            let preResult = sort (memKeys ++ parsedKeys)
             -- the read-cache contains duplicate keys that we need to remove.
-            then return $ fmap head $ group $ sort (memKeys ++ parsedKeys)
-            else return $ sort (memKeys ++ parsedKeys)
+            let postResult = fmap head $ group $ sort (memKeys ++ parsedKeys)
+            when (postResult /= preResult) $ do
+                lgr <- view blockHandlerLogger
+                liftIO $ logFunctionText lgr Warn $ "duplicate keys in domain " <> sshow d
+            return $
+                if chainweb230Pact v cid bh
+                then postResult
+                else preResult
 
     where
 
