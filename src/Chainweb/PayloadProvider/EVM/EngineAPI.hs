@@ -1252,8 +1252,7 @@ mkSimpleEngineCtx :: JwtSecret -> IO JsonRpcHttpCtx
 mkSimpleEngineCtx secret = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     return $ JsonRpcHttpCtx
-        { _jsonRpcHttpCtxManager = mgr
-        , _jsonRpcHttpCtxURI = [uri|http://localhost:8551|]
+        { _jsonRpcHttpCtxExecuteRequest = jsonRpcExecuteRequestOnURI mgr [uri|http://localhost:8551|]
         , _jsonRpcHttpCtxMakeBearerToken = Just (getJwtToken secret)
         }
 
@@ -1266,8 +1265,7 @@ mkEngineCtx :: JwtSecret -> URI -> IO JsonRpcHttpCtx
 mkEngineCtx secret u = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     return $ JsonRpcHttpCtx
-        { _jsonRpcHttpCtxManager = mgr
-        , _jsonRpcHttpCtxURI = u
+        { _jsonRpcHttpCtxExecuteRequest = jsonRpcExecuteRequestOnURI mgr u
         , _jsonRpcHttpCtxMakeBearerToken = Just (getJwtToken secret)
         }
 

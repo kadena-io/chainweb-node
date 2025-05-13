@@ -203,8 +203,7 @@ mkRpcCtx :: IO JsonRpcHttpCtx
 mkRpcCtx = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     return $ JsonRpcHttpCtx
-        { _jsonRpcHttpCtxManager = mgr
-        , _jsonRpcHttpCtxURI = [uri|http://localhost:8545|]
+        { _jsonRpcHttpCtxExecuteRequest = jsonRpcExecuteRequestOnURI mgr [uri|http://localhost:8545|]
         , _jsonRpcHttpCtxMakeBearerToken = Nothing
         }
 

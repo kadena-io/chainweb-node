@@ -14,6 +14,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM.JsonRPC
@@ -45,6 +47,7 @@ module Chainweb.PayloadProvider.EVM.JsonRPC
 , type JsonRpcResponse
 , type JsonRpcMessage
 , JsonRpcHttpCtx(..)
+, jsonRpcExecuteRequestOnURI
 , methodText
 , callMethodHttp
 ) where
@@ -62,14 +65,14 @@ import Ethereum.Utils
 import GHC.Generics (Generic)
 import GHC.TypeLits
 import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Types as HTTP
 import qualified Data.ByteString.Lazy as BL
-import Chainweb.Utils (EncodingException(DecodeException))
+import Chainweb.Utils (EncodingException(DecodeException), (&))
 import Data.Typeable (Typeable)
 import System.Random (randomRIO)
 import Network.URI
 import qualified Data.Text.Encoding as T
 import Control.Applicative
+import qualified Network.HTTP.Types as HTTP
 
 -- -------------------------------------------------------------------------- --
 -- JSON RPC 2.0 Message
@@ -105,6 +108,7 @@ data Message v = Message
         -- during the invocation of the method. This member MAY be omitted.
     }
     deriving (Show, Eq, Generic)
+    deriving (Foldable, Traversable, Functor)
     deriving anyclass (NFData)
 
 instance ToJSON v => ToJSON (Message v) where
@@ -323,10 +327,30 @@ mkMessage i p = Message
 -- JSON RPC Context
 
 data JsonRpcHttpCtx = JsonRpcHttpCtx
-    { _jsonRpcHttpCtxManager :: HTTP.Manager
-    , _jsonRpcHttpCtxURI :: URI
+    { _jsonRpcHttpCtxExecuteRequest :: BL.ByteString -> HTTP.ResponseTimeout -> HTTP.RequestHeaders -> IO BL.ByteString
     , _jsonRpcHttpCtxMakeBearerToken :: Maybe (IO T.Text)
     }
+
+-- | An implementation of _jsonRpcHttpCtxExecuteRequest which uses a real HTTP
+-- manager and base URI for an eth node.
+jsonRpcExecuteRequestOnURI
+    :: HTTP.Manager -> URI
+    -> BL.ByteString -> HTTP.ResponseTimeout -> HTTP.RequestHeaders
+    -> IO BL.ByteString
+jsonRpcExecuteRequestOnURI mgr uri reqBody timeout extraHeaders = do
+    req <- HTTP.requestFromURI uri
+    let req' = req
+            { HTTP.method = "POST"
+            , HTTP.requestBody = HTTP.RequestBodyLBS reqBody
+            , HTTP.responseTimeout = timeout
+            , HTTP.requestHeaders =
+                [ ("Content-Type", "application/json")
+                , ("Accept", "application/json")
+                ]
+                <> extraHeaders
+            }
+            & HTTP.setRequestCheckStatus
+    HTTP.responseBody <$> HTTP.httpLbs req' mgr
 
 -- -------------------------------------------------------------------------- --
 
@@ -341,31 +365,15 @@ callMethodHttp
     -> MethodRequest m
     -> IO (MethodResponse m)
 callMethodHttp ctx m = do
-    req_ <- HTTP.requestFromURI (_jsonRpcHttpCtxURI ctx)
     mid <- randomRIO (1, maxBound)
     authHeader <- sequence (_jsonRpcHttpCtxMakeBearerToken ctx) >>= \case
         Nothing -> return []
         Just t -> return [("Authorization", "Bearer " <> T.encodeUtf8 t)]
     let msg = encode $ mkMessage @m mid m
-    let req = req_
-            { HTTP.method = "POST"
-            , HTTP.requestBody = HTTP.RequestBodyLBS msg
-            , HTTP.responseTimeout = timeout
-            , HTTP.requestHeaders =
-                [ ("Content-Type", "application/json")
-                , ("Accept", "application/json")
-                ]
-                <> authHeader
-            }
-    resp <- HTTP.httpLbs req (_jsonRpcHttpCtxManager ctx)
-    unless (HTTP.statusIsSuccessful $ HTTP.responseStatus resp) $
-        throwM
-            $ HTTP.HttpExceptionRequest req
-            $ HTTP.StatusCodeException resp { HTTP.responseBody = () }
-                (BL.toStrict $ HTTP.responseBody resp)
-    case eitherDecode $ HTTP.responseBody resp of
+    resp <- _jsonRpcHttpCtxExecuteRequest ctx msg timeout authHeader
+    case eitherDecode resp of
         Left e -> throwM $ DecodeException
-            $ T.pack e <> " -- " <> T.decodeUtf8 (BL.toStrict (HTTP.responseBody resp))
+            $ T.pack e <> " -- " <> T.decodeUtf8 (BL.toStrict resp)
         Right (Response _ r :: JsonRpcResponse m) -> case r of
             Left e -> throwM e
             Right v -> return v
