@@ -488,10 +488,15 @@ withEvmPayloadProvider
         --
         -- It is /not/ used for communication with the execution engine client.
     -> EvmProviderConfig
+    -> Maybe JsonRpcHttpCtx
+    -- ^ Mock JSON RPC context, used for testing.
     -> ResourceT IO (EvmPayloadProvider logger)
-withEvmPayloadProvider logger c rdb mgr conf
+withEvmPayloadProvider logger c rdb mgr conf mockHttpCtx
     | FromSing @_ @p (SEvmProvider ecid) <- payloadProviderTypeForChain c = do
-        engineCtx <- liftIO $ mkEngineCtx (_evmConfEngineJwtSecret conf) (_engineUri $ _evmConfEngineUri conf)
+        engineCtx <- maybe
+            (liftIO $ mkEngineCtx (_evmConfEngineJwtSecret conf) (_engineUri $ _evmConfEngineUri conf))
+            return
+            mockHttpCtx
 
         SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
         SomeChainIdT @c _ <- return $ someChainIdVal c

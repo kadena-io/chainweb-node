@@ -69,7 +69,6 @@ devnet = withVersion devnet $ ChainwebVersion
     , _versionCheats = VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
-        , _disablePact = False
         }
     , _versionDefaults = VersionDefaults
         { _disablePeerValidation = True

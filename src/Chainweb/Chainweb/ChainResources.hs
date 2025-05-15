@@ -349,7 +349,7 @@ withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLi
                 -- and answering API requests.
                 -- It also starts to awaiting and devlivering new payloads if mining
                 -- is enabled.
-                p <- withEvmPayloadProvider logger cid rdb (Just mgr) config
+                p <- withEvmPayloadProvider logger cid rdb (Just mgr) config Nothing
                 let pdb = view evmPayloadDb p
                 let queue = view evmPayloadQueue p
                 p2pRes <- liftIO $ payloadP2pResources @v' @c' @('EvmProvider n)

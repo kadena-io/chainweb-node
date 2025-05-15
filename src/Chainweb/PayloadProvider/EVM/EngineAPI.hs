@@ -1133,6 +1133,7 @@ type Engine_GetPayloadV4 = "engine_getPayloadV4"
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/prague.md#engine_getpayloadv4
 --
 instance JsonRpcMethod "engine_getPayloadV4" where
+    -- TODO: why does this work? this should only have a single PayloadId
     type MethodRequest "engine_getPayloadV4" = [PayloadId]
     type MethodResponse "engine_getPayloadV4" = GetPayloadV4Response
     type ServerErrors "engine_getPayloadV4" = EngineServerErrors
@@ -1163,7 +1164,7 @@ data GetPayloadV4Response = GetPayloadV4Response
     , _getPayloadV4ResponseShouldOverrideBuilder :: !Bool
         -- ^ shouldOverrideBuilder : BOOLEAN - Suggestion from the execution layer
         -- to use this executionPayload instead of an externally provided one
-    , _getjPayloadV4ResponseExecutionRequests :: ![ExecutionRequest]
+    , _getPayloadV4ResponseExecutionRequests :: ![ExecutionRequest]
         -- ^ executionRequests: Array of DATA - Execution layer triggered requests
         -- obtained from the executionPayload transaction execution.
     }
@@ -1178,7 +1179,7 @@ getPayloadV4ResponseProperties o =
     , "blockValue" .= _getPayloadV4ResponseBlockValue o
     , "blobsBundle" .= _getPayloadV4ResponseBlobsBundle o
     , "shouldOverrideBuilder" .= _getPayloadV4ResponseShouldOverrideBuilder o
-    , "executionRequests" .= _getjPayloadV4ResponseExecutionRequests o
+    , "executionRequests" .= _getPayloadV4ResponseExecutionRequests o
     ]
 
 instance ToJSON GetPayloadV4Response where

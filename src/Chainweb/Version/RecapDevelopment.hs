@@ -114,7 +114,6 @@ recapDevnet = withVersion recapDevnet ChainwebVersion
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = True
-        , _disablePact = False
         }
     , _versionDefaults = VersionDefaults
         { _disablePeerValidation = True

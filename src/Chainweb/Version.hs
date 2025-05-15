@@ -46,7 +46,6 @@ module Chainweb.Version
     , VersionDefaults(..)
     , disablePow
     , fakeFirstEpochStart
-    , disablePact
     , disablePeerValidation
     , disableMempoolSync
     , ChainwebVersionCode(..)
@@ -192,6 +191,7 @@ import Data.Singletons
 
 import P2P.Peer
 import GHC.Exts (WithDict(..))
+import Chainweb.PayloadProvider.EVM.JsonRPC
 
 -- -------------------------------------------------------------------------- --
 -- Forks
@@ -562,8 +562,6 @@ data VersionCheats = VersionCheats
         -- ^ should we stop checking proof of work?
     , _fakeFirstEpochStart :: Bool
         -- ^ should we fake the start time of the first epoch? See `Chainweb.BlockHeader.epochStart`.
-    , _disablePact :: Bool
-        -- ^ Should we replace the pact service with a dummy that always makes empty blocks?
     }
     deriving stock (Generic, Eq, Ord, Show)
     deriving anyclass (ToJSON, FromJSON, NFData)

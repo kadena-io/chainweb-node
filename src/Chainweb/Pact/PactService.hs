@@ -187,10 +187,7 @@ initialPayloadState
     => logger
     -> ServiceEnv tbl
     -> IO ()
-initialPayloadState logger serviceEnv
-    -- TODO PP: no more, once we can disable payload providers
-    | implicitVersion ^. versionCheats . disablePact = pure ()
-    | otherwise = runGenesisIfNeeded logger serviceEnv
+initialPayloadState logger serviceEnv = runGenesisIfNeeded logger serviceEnv
 
 runGenesisIfNeeded
     :: forall tbl logger. (CanPayloadCas tbl, Logger logger)

@@ -11,6 +11,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
@@ -73,6 +74,7 @@ import Network.URI
 import qualified Data.Text.Encoding as T
 import Control.Applicative
 import qualified Network.HTTP.Types as HTTP
+import Data.Proxy
 
 -- -------------------------------------------------------------------------- --
 -- JSON RPC 2.0 Message
@@ -327,7 +329,10 @@ mkMessage i p = Message
 -- JSON RPC Context
 
 data JsonRpcHttpCtx = JsonRpcHttpCtx
-    { _jsonRpcHttpCtxExecuteRequest :: BL.ByteString -> HTTP.ResponseTimeout -> HTTP.RequestHeaders -> IO BL.ByteString
+    { _jsonRpcHttpCtxExecuteRequest
+        :: forall m. JsonRpcMethod m
+        => Proxy m
+        -> MethodRequest m -> HTTP.ResponseTimeout -> HTTP.RequestHeaders -> IO (MethodResponse m)
     , _jsonRpcHttpCtxMakeBearerToken :: Maybe (IO T.Text)
     }
 
@@ -335,13 +340,14 @@ data JsonRpcHttpCtx = JsonRpcHttpCtx
 -- manager and base URI for an eth node.
 jsonRpcExecuteRequestOnURI
     :: HTTP.Manager -> URI
-    -> BL.ByteString -> HTTP.ResponseTimeout -> HTTP.RequestHeaders
-    -> IO BL.ByteString
-jsonRpcExecuteRequestOnURI mgr uri reqBody timeout extraHeaders = do
+    -> (forall m. JsonRpcMethod m => Proxy m -> MethodRequest m -> HTTP.ResponseTimeout -> HTTP.RequestHeaders -> IO (MethodResponse m))
+jsonRpcExecuteRequestOnURI mgr uri (Proxy @m) reqBody timeout extraHeaders = do
+    mid <- randomRIO (1, maxBound)
+    let msg = encode $ mkMessage @m mid reqBody
     req <- HTTP.requestFromURI uri
     let req' = req
             { HTTP.method = "POST"
-            , HTTP.requestBody = HTTP.RequestBodyLBS reqBody
+            , HTTP.requestBody = HTTP.RequestBodyLBS msg
             , HTTP.responseTimeout = timeout
             , HTTP.requestHeaders =
                 [ ("Content-Type", "application/json")
@@ -350,7 +356,14 @@ jsonRpcExecuteRequestOnURI mgr uri reqBody timeout extraHeaders = do
                 <> extraHeaders
             }
             & HTTP.setRequestCheckStatus
-    HTTP.responseBody <$> HTTP.httpLbs req' mgr
+    resp <- HTTP.httpLbs req' mgr
+    case eitherDecode (HTTP.responseBody resp) of
+        Left e -> throwM $ DecodeException
+            $ T.pack e <> " -- " <> T.decodeUtf8 (BL.toStrict $ HTTP.responseBody resp)
+        Right (Response _ r :: JsonRpcResponse m) -> case r of
+            Left e -> throwM e
+            Right v -> return v
+
 
 -- -------------------------------------------------------------------------- --
 
@@ -365,18 +378,10 @@ callMethodHttp
     -> MethodRequest m
     -> IO (MethodResponse m)
 callMethodHttp ctx m = do
-    mid <- randomRIO (1, maxBound)
     authHeader <- sequence (_jsonRpcHttpCtxMakeBearerToken ctx) >>= \case
         Nothing -> return []
         Just t -> return [("Authorization", "Bearer " <> T.encodeUtf8 t)]
-    let msg = encode $ mkMessage @m mid m
-    resp <- _jsonRpcHttpCtxExecuteRequest ctx msg timeout authHeader
-    case eitherDecode resp of
-        Left e -> throwM $ DecodeException
-            $ T.pack e <> " -- " <> T.decodeUtf8 (BL.toStrict resp)
-        Right (Response _ r :: JsonRpcResponse m) -> case r of
-            Left e -> throwM e
-            Right v -> return v
+    _jsonRpcHttpCtxExecuteRequest ctx (Proxy @m) m timeout authHeader
   where
     timeout = case responseTimeoutMs @m of
         Nothing -> HTTP.responseTimeoutDefault

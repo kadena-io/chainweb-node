@@ -531,6 +531,7 @@ library chainweb-test-utils
         , deepseq >= 1.4
         , direct-sqlite >= 2.3.27
         , directory >= 1.2
+        , ethereum ^>=0.1.0.2
         , exceptions
         , filepath >= 1.4
         , hashable

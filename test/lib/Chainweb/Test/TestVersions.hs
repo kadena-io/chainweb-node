@@ -148,7 +148,6 @@ barebonesTestVersion g = buildTestVersion $
         & versionCheats .~ VersionCheats
             { _disablePow = True
             , _fakeFirstEpochStart = True
-            , _disablePact = True
             }
         & versionDefaults .~ VersionDefaults
             { _disableMempoolSync = True
@@ -181,7 +180,6 @@ timedConsensusVersion g1 g2 = buildTestVersion $
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
-        , _disablePact = True
         }
     & versionDefaults .~ VersionDefaults
         { _disableMempoolSync = True
@@ -213,7 +211,6 @@ checkpointerTestVersion g1 = buildTestVersion $
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
-        , _disablePact = True
         }
     & versionDefaults .~ VersionDefaults
         { _disableMempoolSync = True
@@ -236,7 +233,6 @@ cpmTestVersion g =
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
-        , _disablePact = False
         }
     & versionDefaults .~ VersionDefaults
         { _disableMempoolSync = False
