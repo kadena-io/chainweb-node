@@ -277,10 +277,10 @@ updateForCut
     -> Cut
     -> IO ()
 updateForCut lf hdb ms c = do
-    iforM_ ms $ \cid var ->
-        forChain cid var
+    forM_ (HM.keys (c ^. cutMap)) forChain
   where
-    forChain cid var =  do
+    forChain cid = do
+        let var = ms ^?! atChain cid
         maybeNewParents <- workParents hdb c cid
         atomically $ do
             maybeOldParentState <- readTVar var
@@ -472,15 +472,15 @@ runCoordination mr = do
                 -- STM variable, too.
                 -- TODO: is there still?
 
-    -- FIXME: this is probably more aggressive than needed
     initializeState = do
         lf Info $ "initialize mining state"
-        forConcurrently_ (itoList caches) $ \(cid, cache) -> do
+        curCut <- _cut $ cdb
+        forConcurrently_ (HM.keys (curCut ^. cutMap)) $ \cid -> do
+            let cache = caches ^?! atChain cid
             lf Info $ "initialize mining state for chain " <> brief cid
             pld <- withProvider cid latestPayloadIO
             lf Info $ "got latest payload for chain " <> brief cid
             insertIO cache pld
-        curCut <- _cut $ cdb
         updateForCut lf f state curCut
         lf Info "done initializing mining state for all chains"
 
@@ -563,7 +563,7 @@ awaitEvent cdb caches c p =
 -- 4. some payload providers are very slow in producing new payloads.
 --
 randomWork :: HasVersion => LogFunction -> PayloadCaches -> ChainMap (TVar (Maybe ParentState)) -> IO MiningWork
-randomWork logFun caches state = do
+randomWork logFun caches parentStateVars = do
 
     -- Pick a random chain.
     --
@@ -577,7 +577,7 @@ randomWork logFun caches state = do
     -- that has work ready. We could prune the random range and search space,
     -- but at this, point the slight, temporary overhead seems acceptable.
     --
-    n <- randomRIO (0, length state)
+    n <- randomRIO (0, length parentStateVars)
 
     -- NOTE: it is tempting to search for a matching chain within a single STM
     -- transaction. However, that is problematic: the search restarts when the
@@ -590,7 +590,7 @@ randomWork logFun caches state = do
     -- towards chains for which block are produced more quickly, but we think,
     -- that it is negligible.
     --
-    let (s0, s1) = splitAt n (itoList state)
+    let (s0, s1) = splitAt n (itoList parentStateVars)
     go (s1 <> s0)
   where
     awaitWorkReady :: ChainId -> TVar (Maybe ParentState) -> STM (WorkParents, NewPayload)
@@ -632,7 +632,7 @@ randomWork logFun caches state = do
         --
         timeoutVar <- registerDelay (int staleMiningStateDelay)
         w <- atomically $
-            Right <$> msum (imap awaitWorkReady state) <|> awaitTimeout timeoutVar
+            Right <$> msum (imap awaitWorkReady parentStateVars) <|> awaitTimeout timeoutVar
         case w of
             Right (ps, npld) -> do
                 ct <- BlockCreationTime <$> getCurrentTimeIntegral
