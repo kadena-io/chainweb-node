@@ -470,7 +470,7 @@ hostAddressProperties o =
 {-# INLINE hostAddressProperties #-}
 
 instance ToJSON HostAddress where
-    toJSON = object. hostAddressProperties
+    toJSON = object . hostAddressProperties
     toEncoding = pairs . mconcat . hostAddressProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
