@@ -1120,7 +1120,7 @@ setBootstrapPeerInfo =
 
 host :: Hostname
 -- host = unsafeHostnameFromText "::1"
-host = unsafeHostnameFromText "localhost"
+host = unsafeHostnameFromText "127.0.0.1"
 
 interface :: W.HostPreference
 -- interface = "::1"
