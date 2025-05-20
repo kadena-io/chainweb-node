@@ -477,7 +477,7 @@ readHighestCutHeaders logg wbhdb cutHashesStore = withTableIterator (unCasify cu
     -- or iterate in increasinly larger steps?
     go it = iterValue it >>= \case
         Nothing -> do
-            logg Warn "No initial cut found in database or configuration, falling back to genesis cut"
+            logg Info "No initial cut found in database or configuration, falling back to genesis cut"
             return $ view cutMap genesisCut
         Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
             Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do

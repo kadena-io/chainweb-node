@@ -602,7 +602,7 @@ randomWork logFun caches parentStateVars = do
 
     go [] = do
 
-        logFun @T.Text Warn $ "randomWork: no work is ready. Awaiting work"
+        logFun @T.Text Info $ "randomWork: no work is ready. Awaiting work"
 
         -- We shall check for the following conditions:
         --

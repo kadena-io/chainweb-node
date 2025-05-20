@@ -173,7 +173,7 @@ withHost
     -> IO a
 withHost mgr conf logger f
     | null peers = do
-        logFunctionText logger Warn
+        logFunctionText logger Info
             $ "Unable to verify configured host " <> toText confHost <> ": No peers are available."
         f (set (p2pConfigPeer . peerConfigHost) confHost conf)
     | anyIpv4 == confHost = do
