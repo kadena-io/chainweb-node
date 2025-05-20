@@ -92,6 +92,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
+import Data.Text.IO qualified as T
 import Database.SQLite3.Direct (Database)
 import GHC.Generics
 import Numeric.Natural
@@ -236,7 +237,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
                 inner nid cw
   where
     logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel write
+    logger = addLabel ("node", toText nid) $ genericLogger loglevel T.putStrLn
 
     namespacedNodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
 
@@ -627,7 +628,7 @@ test
 test loglevel n seconds rdb pactDbDir step = do
     -- Count log messages and only print the first 60 messages
     let tastylog = step . T.unpack
-    let logFun = tastylog
+    let logFun = T.putStrLn
         maxLogMsgs = 60
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$

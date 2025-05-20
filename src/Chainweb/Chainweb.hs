@@ -213,7 +213,7 @@ withChainweb
     -> IO ()
 withChainweb c logger rocksDb pactDbDir backupDir inner =
     withVersion (c ^. configChainwebVersion) $
-        withPeerResources (view configP2p confWithBootstraps) logger $ \logger' peerRes ->
+        withPeerResources (view configP2p confWithBootstraps) logger $ \logger' peerRes -> do
             withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
                 let conf' = confWithBootstraps
                         & set configP2p (_peerResConfig peerRes)

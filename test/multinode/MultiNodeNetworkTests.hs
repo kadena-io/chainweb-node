@@ -21,6 +21,7 @@ import System.LogLevel
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Chainweb.Test.MultiNode
+import Chainweb.Version (withVersion)
 
 main :: IO ()
 main = defaultMain suite
@@ -34,7 +35,8 @@ suite = independentSequentialTestGroup "MultiNodeNetworkTests"
     [ testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-timedconsensus-petersen-twenty-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-timedconsensus-petersen-twenty-pact" $ \pactDbDir ->
-        Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersenChainGraph twentyChainGraph) 10 30 rdb pactDbDir step
+        withVersion (timedConsensusVersion petersenChainGraph twentyChainGraph) $
+            Chainweb.Test.MultiNode.test loglevel 10 30 rdb pactDbDir step
     -- , testCaseSteps "ConsensusNetwork - InstantTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
     --     withTempRocksDb "multinode-tests-instantcpm-single-rocks" $ \rdb ->
     --     withSystemTempDirectory "multinode-tests-instantcpm-single-pact" $ \pactDbDir ->

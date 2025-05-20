@@ -327,7 +327,7 @@ instance FromJSON Fork where
 instance FromJSONKey Fork where
     fromJSONKey = FromJSONKeyTextParser $ either fail return . eitherFromText
 
-data ForkHeight = ForkAtBlockHeight !BlockHeight | ForkAtGenesis | ForkNever
+data ForkHeight = ForkAtBlockHeight BlockHeight | ForkAtGenesis | ForkNever
     deriving stock (Generic, Eq, Ord, Show)
     deriving anyclass (Hashable, NFData)
 
@@ -401,7 +401,7 @@ makePrisms ''TxIdxInBlock
 -- sense one-offs which can't be expressed as upgrade transactions and must be
 -- preserved.
 data VersionQuirks = VersionQuirks
-    { _quirkGasFees :: !(ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas))
+    { _quirkGasFees :: (ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas))
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
