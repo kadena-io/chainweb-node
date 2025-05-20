@@ -453,7 +453,7 @@ runCoordination mr = do
         withProvider cid $ \provider ->
         runForever lf label $ do
         payloadStream provider
-            & S.chain (\_ -> lf Info $ "update cache on chain " <> toText cid)
+            & S.chain (\_ -> lf Debug $ "update cache on chain " <> toText cid)
             & S.mapM_ (insertIO cache)
         where
         label =  "miningCoordination.updateCache." <> toText cid
@@ -461,9 +461,9 @@ runCoordination mr = do
     -- Update the work state
     --
     updateWork = runForever lf "miningCoordination" $ do
-        lf Info "start updateWork event stream"
+        lf Debug "start updateWork event stream"
         eventStream cdb caches
-            & S.chain (\e -> lf Info $ "coordination event: " <> brief e)
+            & S.chain (\e -> lf Debug $ "coordination event: " <> brief e)
             & S.mapM_ \case
                 CutEvent c -> updateForCut lf f state c
                 NewPayloadEvent _ -> return ()
@@ -473,16 +473,16 @@ runCoordination mr = do
                 -- TODO: is there still?
 
     initializeState = do
-        lf Info $ "initialize mining state"
+        lf Debug $ "initialize mining state"
         curCut <- _cut $ cdb
         forConcurrently_ (HM.keys (curCut ^. cutMap)) $ \cid -> do
             let cache = caches ^?! atChain cid
-            lf Info $ "initialize mining state for chain " <> brief cid
+            lf Debug $ "initialize mining state for chain " <> brief cid
             pld <- withProvider cid latestPayloadIO
-            lf Info $ "got latest payload for chain " <> brief cid
+            lf Debug $ "got latest payload for chain " <> brief cid
             insertIO cache pld
         updateForCut lf f state curCut
-        lf Info "done initializing mining state for all chains"
+        lf Debug "done initializing mining state for all chains"
 
 -- | Note that this stream is lossy. It always delivers the latest available
 -- item and skips over any previous items that have not been consumed.
@@ -648,7 +648,7 @@ randomWork logFun caches parentStateVars = do
                 logFun @T.Text Debug $ "randomWork: picked chain " <> brief cid
                 return $ newWork ct parents (_newPayloadBlockPayloadHash payload)
             Nothing -> do
-                logFun @T.Text Info $ "randomWork: not ready for " <> brief cid
+                logFun @T.Text Debug $ "randomWork: not ready for " <> brief cid
                 go t
 
     awaitTimeout var = do
