@@ -152,7 +152,7 @@ timedConsensusVersion g1 g2 =
             , _genesisBlockTarget = maxTarget <$ cids
             , _genesisTime = BlockCreationTime epoch <$ cids
             }
-        & versionPayloadProviderTypes .~ (PactProvider <$ cids)
+        & versionPayloadProviderTypes .~ (MinimalProvider <$ cids)
     where
     gs = (BlockHeight 8, g2) `Above` Bottom (minBound, g1)
     cids = ChainMap $ HS.toMap $ graphChainIds $ snd $ ruleHead gs
