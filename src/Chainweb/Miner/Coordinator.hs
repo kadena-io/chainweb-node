@@ -473,14 +473,8 @@ runCoordination mr = do
                 -- TODO: is there still?
 
     initializeState = do
-        lf Debug $ "initialize mining state"
+        lf Debug "initialize mining state"
         curCut <- _cut $ cdb
-        forConcurrently_ (HM.keys (curCut ^. cutMap)) $ \cid -> do
-            let cache = caches ^?! atChain cid
-            lf Debug $ "initialize mining state for chain " <> brief cid
-            pld <- withProvider cid latestPayloadIO
-            lf Debug $ "got latest payload for chain " <> brief cid
-            insertIO cache pld
         updateForCut lf f state curCut
         lf Debug "done initializing mining state for all chains"
 
