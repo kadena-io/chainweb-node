@@ -214,7 +214,7 @@ instance HasChainId CutExtension where
 -- blocks for the new chains and move ahead. So steps in the new graph are not
 -- allowed.
 --
--- TODO: it is important that the semantics of this function corresponds to the
+-- NB: it is important that the semantics of this function corresponds to the
 -- respective validation in the module "Chainweb.Cut", in particular
 -- 'isMonotonicCutExtension'. It must not happen, that a cut passes validation
 -- that can't be further extended.
@@ -229,9 +229,9 @@ getCutExtension
     -> Maybe CutExtension
 getCutExtension c cid = do
 
-    -- In a graph transition we wait for all chains to do the transition to the
-    -- new graph before moving ahead. Blocks chains that reach the new graph
-    -- until all chains have reached the new graph.
+    -- If ANY chains in the graph have completed the graph transition (i.e.
+    -- reached the transition height) then we wait for ALL chains to complete
+    -- the transition before moving ahead on those chains.
     --
     guard (not $ isGraphTransitionCut && isGraphTransitionPost)
 
@@ -817,8 +817,6 @@ joinChains a b = (HM.union a c, HM.union b c)
 -- FIXME: this must conform with 'isBraidingOfCutPair'. Double check that we
 -- have test for this or check if the implementation can be shared.
 --
--- TODO: do we have to check that the correct graph is used?
---
 isMonotonicCutExtension
     :: (HasCallStack, HasVersion)
     => MonadThrow m
@@ -826,12 +824,15 @@ isMonotonicCutExtension
     -> BlockHeader
     -> m Bool
 isMonotonicCutExtension c h = do
-    checkBlockHeaderGraph h
-    return $! monotonic && validBraiding
+    case getCutExtension c (_chainId h) of
+        Just ext -> do
+            let cutParent = _cutExtensionParent' ext
+            let monotonic = view blockParent h == fmap (view blockHash) cutParent
+            checkBlockHeaderGraph h
+            return $! monotonic && validBraiding
+        Nothing -> return False
+
   where
-    monotonic = view blockParent h == case c ^? ixg (_chainId h) . blockHash of
-        Nothing -> error $ T.unpack $ "isMonotonicCutExtension.monotonic: missing parent in cut. " <> encodeToText h
-        Just x -> Parent x
     validBraiding = getAll $ ifoldMap
         (\cid -> All . validBraidingCid cid)
         (_getBlockHashRecord $ view blockAdjacentHashes h)
@@ -840,6 +841,7 @@ isMonotonicCutExtension c h = do
         | Just b <- c ^? ixg cid = Parent (view blockHash b) == a || view blockParent b == a
         | view blockHeight h == genesisHeight cid = a == genesisParentBlockHash cid
         | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> toText cid <> " in cut. " <> encodeToText h
+
 
 
 -- | Extend a cut with a block header. Throws 'InvalidCutExtension' if the block
