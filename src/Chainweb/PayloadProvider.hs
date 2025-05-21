@@ -9,6 +9,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider
@@ -49,6 +50,10 @@ module Chainweb.PayloadProvider
 
 -- * Fork Info
 , ForkInfo(..)
+, forkInfoNewBlockCtx
+, forkInfoBasePayloadHash
+, forkInfoTargetState
+, forkInfoTrace
 , PayloadProvider(..)
 , EncodedPayloadData(..)
 , EncodedPayloadOutputs(..)
@@ -1003,3 +1008,5 @@ genesisState c = ConsensusState
         , _syncStateBlockPayloadHash = view blockPayloadHash hdr
         }
     hdr = genesisBlockHeader c
+
+makeLenses ''ForkInfo

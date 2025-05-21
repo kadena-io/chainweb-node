@@ -397,7 +397,9 @@ getBlockHeaderInternal
         -- Get the Payload Provider and
         let hints = Hints <$> maybeOrigin'
         pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
-        finfo <- forkInfoForHeader wdb header pld
+        -- Do not produce payloads at this point; we may not stick around at
+        -- this block.
+        finfo <- forkInfoForHeader wdb header pld <&> forkInfoNewBlockCtx .~ Nothing
         let prefetchProviderPayloads = case providers ^?! atChain cid of
                 ConfiguredPayloadProvider provider ->
                     prefetchPayloads provider hints finfo
