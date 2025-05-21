@@ -48,7 +48,7 @@ import Servant.Server
 -- internal modules
 
 import Chainweb.BlockHeight
-import Chainweb.Cut
+import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
