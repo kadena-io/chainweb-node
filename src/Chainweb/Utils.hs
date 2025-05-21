@@ -1079,7 +1079,7 @@ runForever logfun name a = mask $ \umask -> do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Info (name <> " stopped")
+    void go `finally` logfun Debug (name <> " stopped")
 
 -- | Repeatedly run a computation 'forever' at the given rate until it is
 -- stopped by receiving 'SomeAsyncException'.
@@ -1107,7 +1107,7 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Info (name <> " stopped")
+    void go `finally` logfun Debug (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
