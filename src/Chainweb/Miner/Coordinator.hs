@@ -280,18 +280,18 @@ updateForCut lf hdb ms c = do
     forM_ (HM.keys (c ^. cutMap)) forChain
   where
     forChain cid = do
-        let var = ms ^?! atChain cid
+        let parentStateVar = ms ^?! atChain cid
         maybeNewParents <- workParents hdb c cid
         atomically $ do
-            maybeOldParentState <- readTVar var
+            maybeOldParentState <- readTVar parentStateVar
             case (maybeOldParentState, maybeNewParents) of
                 (_, Nothing) ->
-                    writeTVar var Nothing
+                    writeTVar parentStateVar Nothing
                 (Just oldParentState, Just newParents)
                     | parentStateParents oldParentState == newParents
                         -> return ()
                 (_, Just newParents) ->
-                    writeTVar var $ Just
+                    writeTVar parentStateVar $ Just
                         ParentState
                             { parentStateParents = newParents
                             , parentStateSolved = Nothing
@@ -456,7 +456,7 @@ runCoordination mr = do
             & S.chain (\_ -> lf Debug $ "update cache on chain " <> toText cid)
             & S.mapM_ (insertIO cache)
         where
-        label =  "miningCoordination.updateCache." <> toText cid
+        label = "miningCoordination.updateCache." <> toText cid
 
     -- Update the work state
     --
