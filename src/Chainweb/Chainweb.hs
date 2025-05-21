@@ -519,7 +519,10 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
 
     synchronizeProviders :: WebBlockHeaderDb -> ChainMap ConfiguredPayloadProvider -> Cut -> IO ()
     synchronizeProviders wbh providers c = do
-        mapConcurrently_ syncOne (_cutHeaders c)
+        let startHeaders = HM.unionWith (\startHeader _genesisHeader -> startHeader)
+                (_cutHeaders c)
+                (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
+        mapConcurrently_ syncOne startHeaders
       where
         syncOne hdr = forM_ (providers ^? atChain (_chainId hdr)) $ \case
             ConfiguredPayloadProvider provider -> do
