@@ -74,6 +74,7 @@ import Chainweb.Version
 import Data.LogMessage (LogFunction, LogFunctionText)
 import System.LogLevel
 import Control.Concurrent.STM
+import Data.Maybe (fromMaybe)
 
 --------------------------------------------------------------------------------
 -- Local Mining
@@ -96,8 +97,9 @@ localTest lf coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
         wh <- work coord
-        -- TODO: I've seen this error, why?
-        let height = c ^?! ixg (_miningWorkChainId wh) . blockHeight
+        let height = fromMaybe
+                (genesisHeight (_miningWorkChainId wh))
+                (c ^? ixg (_miningWorkChainId wh) . blockHeight)
 
         race (awaitNewCutByChainId cdb (_miningWorkChainId wh) c) (go height wh) >>= \case
             Left _ -> return ()
