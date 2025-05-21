@@ -292,12 +292,15 @@ getCutExtension c cid = do
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far ahead)."
             <> "\n Parent: " <> encodeToText (ObjectEncoded p)
             <> "\n Conflict: " <> encodeToText (ObjectEncoded b)
+            <> "\n Cut: " <> brief c
         | view blockHeight b + 1 < parentHeight = error $ T.unpack
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far behind)."
             <> "\n Parent: " <> encodeToText (ObjectEncoded  p)
             <> "\n Conflict: " <> encodeToText (ObjectEncoded b)
-        | otherwise = error
-            $ "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation"
+            <> "\n Cut: " <> brief c
+        | otherwise = error $ T.unpack
+            $ "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation:"
+            <> "\n Cut: " <> brief c
 
 -- -------------------------------------------------------------------------- --
 -- Mining Work
