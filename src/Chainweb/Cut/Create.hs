@@ -50,6 +50,29 @@ module Chainweb.Cut.Create
 , cutExtensionAdjacentHashes
 , getCutExtension
 
+-- * Limit cuts
+, limitCut
+, tryLimitCut
+, limitCutHeaders
+
+-- * Predicates
+, isMonotonicCutExtension
+, monotonicCutExtension
+, tryMonotonicCutExtension
+
+-- * Join
+, Join(..)
+, join
+, applyJoin
+, prioritizeHeavier
+, prioritizeHeavier_
+, joinIntoHeavier
+, joinIntoHeavier_
+
+-- * Meet
+, meet
+, forkDepth
+
 -- * WorkParents
 , WorkParents(..)
 , workParents
@@ -76,18 +99,18 @@ module Chainweb.Cut.Create
 
 import Control.DeepSeq
 import Control.Lens
-import Control.Monad
+import Control.Monad hiding (join)
 import Control.Monad.Catch
-
+import Control.Monad.State.Strict
 import Data.ByteString.Short qualified as SB
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
+import Data.Heap qualified as H
 import Data.Text qualified as T
-
+import Data.These
 import GHC.Generics (Generic)
 import GHC.Stack
-
--- internal modules
+import Numeric.Natural
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
@@ -100,11 +123,20 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.Parent
-import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs)
+import Chainweb.PayloadProvider (EncodedPayloadData (..), EncodedPayloadOutputs)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.WebBlockHeaderDB
+import Data.Monoid
+import Chainweb.TreeDB ( branchDiff_, forkEntry, seekAncestor )
+import Data.Function
+import qualified Streaming.Prelude as S
+import Data.Bifoldable
+import Data.Foldable
+import Data.Maybe
+import qualified Data.List as List
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -597,3 +629,458 @@ extendCut c ps s = do
     (bh,) <$> tryMonotonicCutExtension c bh
   where
     bh = newHeader ps s
+
+-- -------------------------------------------------------------------------- --
+-- Limit Cut Hashes By Height
+
+-- | Find a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is smaller or equal the given height.
+--
+-- If the requested limit is larger or equal to the current height, the given
+-- cut is returned.
+--
+-- Otherwise, the predecessor of the given cut at the given height on each chain
+-- is returned.
+--
+limitCut
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- ^ upper bound for the block height of each chain. This is not a tight
+        -- bound.
+    -> Cut
+    -> IO Cut
+limitCut wdb h c
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
+        return c
+    | otherwise = do
+        hdrs <- itraverse go $ view cutHeaders c
+        return $! unsafeMkCut $ projectChains $ HM.mapMaybe id hdrs
+  where
+
+    go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
+    go cid bh = do
+        if h >= view blockHeight bh
+        then return (Just bh)
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            seekAncestor db bh (min (int $ view blockHeight bh) (int h))
+        -- this is safe because it's guaranteed that the requested rank is
+        -- smaller then the block height of the argument
+
+-- | Find a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is as low as possible while not exceeding the given height and
+-- including all of the chains in the given cut.
+--
+-- If the requested limit is larger or equal to the current height, the given
+-- cut is returned.
+--
+tryLimitCut
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- upper bound for the block height of each chain. This is not a tight bound.
+    -> Cut
+    -> IO Cut
+tryLimitCut wdb h c
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
+        return c
+    | otherwise = do
+        hdrs <- itraverse go $ view cutHeaders c
+        return $! unsafeMkCut hdrs
+  where
+    go :: ChainId -> BlockHeader -> IO BlockHeader
+    go cid bh = do
+        if h >= view blockHeight bh
+        then return bh
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            -- this is safe because it's guaranteed that the requested rank is
+            -- smaller then the block height of the argument
+            let ancestorHeight = min (int $ view blockHeight bh) (int h)
+            if ancestorHeight <= fromIntegral (genesisHeight cid)
+            then return $ genesisBlockHeader cid
+            else fromJuste <$> seekAncestor db bh ancestorHeight
+
+-- | The resulting headers are valid cut headers only if the input headers are
+-- valid cut headers, too. The inverse is not true.
+--
+limitCutHeaders
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- ^ upper bound for the block height of each chain. This is not a tight bound.
+    -> HM.HashMap ChainId BlockHeader
+    -> IO (HM.HashMap ChainId BlockHeader)
+limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h (unsafeMkCut ch)
+
+-- -------------------------------------------------------------------------- --
+-- Tools for Graph Transitions
+--
+-- These functions are used to adjust the available chains during construction
+-- of new cuts:
+--
+-- * 'monotonicCutExtension' and 'tryMonotonicCutExtension': extend the
+--   resulting cut with genesis headers of new chains.
+--
+-- * 'limitCut': project out chains that don't exist in the result cut.
+--
+-- * 'join' and 'applyJoin': add chains from both cuts to the input cuts, so
+--   that all chains are available in the join base and can be restored during
+--   'applyJoin'; project out non-existing chains in the result.
+--
+-- The graph is determined by the /minimum/ height of the blocks in the cut.
+--
+-- The minimum is used to ensure that cuts in a new graph only exist when /all/
+-- blocks are on the new cut. This means the new chains are included only if all
+-- old chains have transitioned to the minimum block height of the new graph.
+
+cutHeadersMinHeight :: HM.HashMap ChainId BlockHeader -> BlockHeight
+cutHeadersMinHeight = minimum . fmap (view blockHeight)
+{-# INLINE cutHeadersMinHeight #-}
+
+
+-- | The function projects onto the chains available at the minimum block height
+-- in input headers.
+--
+-- At a graph change chains are considered blocked until "all" chains performed
+-- the transition to the new graph. Thus, a block in the new graph has all of
+-- its dependencies available.
+--
+-- This an internal function. The result is meaningful only if the input headers
+-- form a valid cut. In particular, the input must not be empty.
+--
+projectChains
+    :: HasVersion
+    => HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+projectChains m = HM.intersection m
+    $ HS.toMap
+    $ chainIdsAt (cutHeadersMinHeight m)
+{-# INLINE projectChains #-}
+
+cutProjectChains :: HasVersion => Cut -> Cut
+cutProjectChains c = unsafeMkCut $ projectChains $ _cutHeaders c
+{-# INLINE cutProjectChains #-}
+
+-- | Extend the chains for the graph at the minimum block height of the input
+-- headers. If a header for a chain is missing the genesis block header for that
+-- chain is added.
+--
+-- This an internal function. The result is meaningful only if the input headers
+-- form a valid cut. In particular, the input must not be empty.
+--
+extendChains
+    :: HasVersion
+    => HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+extendChains m = HM.union m
+    $ genesisBlockHeadersAtHeight (cutHeadersMinHeight m)
+{-# INLINE extendChains #-}
+
+-- | This function adds all chains that are available in either of the input
+-- headers. It is assumed that both input header maps are contain headers for
+-- all chains for the graph at the respective minimum height of the headers.
+--
+-- This function is used when dealing with joins that internally compute an
+-- intersection on the blocks on all chains, but the goal is to preserve blocks
+-- from all chains.
+--
+-- This an internal function. The result is meaningful only if the input headers
+-- form a valid cut. In particular, the input must not be empty.
+--
+joinChains
+    :: HasVersion
+    => HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+    -> (HM.HashMap ChainId BlockHeader, HM.HashMap ChainId BlockHeader)
+joinChains a b = (HM.union a c, HM.union b c)
+  where
+    c = genesisBlockHeader <$> a <> b
+{-# INLINE joinChains #-}
+
+-- -------------------------------------------------------------------------- --
+-- Extending Cuts
+
+-- | Extends a Cut monotonically, i.e. the replaced block header is the parent
+-- of the added block header.
+--
+-- Checks
+--
+-- * block header is from the ChainGraph of the Cut
+-- * result has valid braiding
+-- * result is a cut
+-- * update is monotonic
+--
+-- This includes a check that inductively maintains 'checkBraidingOfCut'.
+--
+-- FIXME: this must conform with 'isBraidingOfCutPair'. Double check that we
+-- have test for this or check if the implementation can be shared.
+--
+-- TODO: do we have to check that the correct graph is used?
+--
+isMonotonicCutExtension
+    :: (HasCallStack, HasVersion)
+    => MonadThrow m
+    => Cut
+    -> BlockHeader
+    -> m Bool
+isMonotonicCutExtension c h = do
+    checkBlockHeaderGraph h
+    return $! monotonic && validBraiding
+  where
+    monotonic = view blockParent h == case c ^? ixg (_chainId h) . blockHash of
+        Nothing -> error $ T.unpack $ "isMonotonicCutExtension.monotonic: missing parent in cut. " <> encodeToText h
+        Just x -> Parent x
+    validBraiding = getAll $ ifoldMap
+        (\cid -> All . validBraidingCid cid)
+        (_getBlockHashRecord $ view blockAdjacentHashes h)
+
+    validBraidingCid cid a
+        | Just b <- c ^? ixg cid = Parent (view blockHash b) == a || view blockParent b == a
+        | view blockHeight h == genesisHeight cid = a == genesisParentBlockHash cid
+        | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> toText cid <> " in cut. " <> encodeToText h
+
+
+-- | Extend a cut with a block header. Throws 'InvalidCutExtension' if the block
+-- header isn't a monotonic cut extension.
+--
+monotonicCutExtension
+    :: (MonadThrow m, HasVersion)
+    => Cut
+    -> BlockHeader
+    -> m Cut
+monotonicCutExtension c h = tryMonotonicCutExtension c h >>= \case
+    Nothing -> throwM $ InvalidCutExtension h
+    Just x -> return x
+
+-- | Extend a cut with a block header. Returns 'Nothing' the block header isn't
+-- a monotonic cut extension.
+--
+tryMonotonicCutExtension
+    :: (MonadThrow m, HasVersion)
+    => Cut
+    -> BlockHeader
+    -> m (Maybe Cut)
+tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
+    False -> return Nothing
+    True -> return $! Just
+        $! unsafeMkCut
+        $ extendChains
+        $ set (ix' (_chainId h)) h
+        $ _cutHeaders c
+
+-- -------------------------------------------------------------------------- --
+-- Join
+
+type DiffItem a = These a a
+
+type JoinQueue a = H.Heap (H.Entry (BlockHeight, a) BlockHeader)
+
+-- | This represents the Join of two cuts in an algorithmically convenient way.
+--
+data Join a = Join
+    { _joinBase :: !Cut
+        -- ^ the base of the join, the largest cut that is contained in both
+        -- cuts, or when viewed as sets, the intersection.
+    , _joinQueue :: !(JoinQueue a)
+        -- ^ a queue of block headers from both cuts that allows construct
+        -- the join cut from the join base.
+    }
+
+-- | This computes the join for cuts across all chains.
+--
+-- If you want to compute a join for cuts that include only a subset of all
+-- chains.
+--
+join
+    :: (Ord a, HasVersion)
+    => WebBlockHeaderDb
+    -> (DiffItem BlockHeader -> DiffItem (Maybe a))
+    -> Cut
+    -> Cut
+    -> IO (Join a)
+join wdb f = join_ wdb f `on` _cutHeaders
+
+-- | This merges two maps from ChainIds to BlockHeaders such that the result is
+-- a Cut. Note, however, that the resulting cut contains only the chain ids from
+-- the intersection of the input maps.
+--
+-- NOTE: For this to work as expected make sure that both inputs contain all
+-- chains that should be present in the output.
+--
+-- Adds genesis blocks for chains that are not yet active. This purpose of this
+-- is to make sure that all chains of both inputs are preserved in the join, so
+-- that the result of the join contains all chains of the original cuts.
+-- Otherwise the join would contain only the intersection of all chains and any
+-- information/blocks in the other chains would be lost when applying the join.
+--
+join_
+    :: forall a
+    . (Ord a, HasVersion)
+    => WebBlockHeaderDb
+    -> (DiffItem BlockHeader -> DiffItem (Maybe a))
+    -> HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+    -> IO (Join a)
+join_ wdb prioFun a b = do
+    (m, h) <- runStateT (HM.traverseWithKey f (HM.intersectionWith (,) a' b')) mempty
+    return $! Join (unsafeMkCut m) h
+  where
+    (a', b') = joinChains a b
+
+    f
+        :: ChainId
+        -> (BlockHeader, BlockHeader)
+        -> StateT (JoinQueue a) IO BlockHeader
+    f cid (x, y) = do
+        !q <- get
+        db <- getWebBlockHeaderDb wdb cid
+        (q' S.:> !h) <- liftIO $ S.fold g q id $ branchDiff_ db x y
+        put q'
+        return h
+
+    g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
+    g q x = foldl' maybeInsert q $ zip (biList x) (biList (prioFun x))
+
+    maybeInsert
+        :: H.Heap (H.Entry (BlockHeight, a) BlockHeader)
+        -> (BlockHeader, Maybe a)
+        -> H.Heap (H.Entry (BlockHeight, a) BlockHeader)
+    maybeInsert !q (_, Nothing) = q
+    maybeInsert !q (!h, (Just !p)) = H.insert (H.Entry (view blockHeight h, p) h) q
+
+-- This can't fail because of missing dependencies. It can't fail because
+-- of conflict.
+--
+-- Non-existing chains are stripped from the result.
+--
+applyJoin :: (MonadThrow m, HasVersion) => Join a -> m Cut
+applyJoin m = cutProjectChains
+    <$> foldM
+        (\c b -> fromMaybe c <$> tryMonotonicCutExtension c (H.payload b))
+        (_joinBase m)
+        (_joinQueue m)
+
+-- | Merge two Cuts. If at least one of the input cuts had a valid braiding the
+-- result is guaranteed to have a valid braiding for all blocks included in cut
+-- and their ancestors.
+--
+-- This is because the merge starts with the intersection of both cuts, using
+-- 'branchDiff_' on each chain, and constructs the merge cut using
+-- 'tryMonotonicCutExtension'. If one of the inputs is correctly braided, so is
+-- the intersection. 'tryMonotonicCutExtension' is guaranteed to maintain that
+-- property.
+--
+-- Chains that aren't yet initialized are included in the join and later
+-- stripped from the result.
+--
+-- If you want to compute a join for cuts that include only a subset of all
+-- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
+-- for those chains that you care about.
+--
+joinIntoHeavier
+    :: HasVersion
+    => WebBlockHeaderDb
+    -> Cut
+    -> Cut
+    -> IO Cut
+joinIntoHeavier wdb = joinIntoHeavier_ wdb `on` _cutHeaders
+
+-- | Chains that aren't yet initialized are included in the join and later
+-- stripped from the result.
+--
+-- If you want to compute a join for cuts that include only a subset of all
+-- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
+-- for those chains that you care about.
+--
+joinIntoHeavier_
+    :: HasVersion
+    => WebBlockHeaderDb
+    -> HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+    -> IO Cut
+joinIntoHeavier_ wdb a b = do
+    m <- join_ wdb (prioritizeHeavier_ a b) a b
+    applyJoin m
+
+prioritizeHeavier :: Cut -> Cut -> DiffItem BlockHeader -> DiffItem (Maybe Int)
+prioritizeHeavier = prioritizeHeavier_ `on` _cutHeaders
+
+-- | Note: consider the weight of the recursive dependencies for the
+-- priority of a block header. For that we would have to annotate the
+-- block headers before putting them in the queue. To traverse only once,
+-- we'd have to traverse the zipped cuts by height and not by chainid, which
+-- could easily be done by merging/zipping the branch-diff streams.
+--
+prioritizeHeavier_
+    :: Foldable f
+    => Eq (f BlockHeader)
+    => f BlockHeader
+    -> f BlockHeader
+    -> DiffItem BlockHeader
+    -> DiffItem (Maybe Int)
+prioritizeHeavier_ a b = f
+  where
+    heaviest = maxBy (compare `on` weight) a b
+    w c = if c == heaviest then 0 else 1
+
+    f (This _) = This (Just $ w a)
+    f (That _) = That (Just $ w b)
+    f (These _ _)
+        | heaviest == a = These (Just 0) Nothing
+        | otherwise = These Nothing (Just 0)
+
+    weight c =
+        ( sumOf (folded . blockWeight) c
+            -- first sort by weight
+        , sumOf (folded . blockHeight) c
+            -- for scenarios with trivial difficulty height is added as
+            -- secondary metrics
+
+        -- NOTE:
+        -- We could consider prioritizing the latest block in the cut here as
+        -- first-level tie breaker. That would further incentivize miners to use
+        -- a block creation time that is close to the real world time (note that
+        -- blocks from the future are rejected, so post-dating blocks is risky
+        -- for miners.)
+
+        , List.sort (toList c)
+            -- the block hashes of the cut are added as tie breaker in order
+            -- to guarantee commutativity.
+            --
+        )
+
+-- -------------------------------------------------------------------------- --
+-- Cut Meet
+
+-- | Intersection of cuts
+--
+meet
+    :: HasVersion
+    => WebBlockHeaderDb
+    -> Cut
+    -> Cut
+    -> IO Cut
+meet wdb a b = do
+    !r <- imapM f $ HM.intersectionWith (,) (_cutHeaders a) (_cutHeaders b)
+    return $! unsafeMkCut r
+  where
+    f !cid (!x, !y) = do
+        db <- getWebBlockHeaderDb wdb cid
+        forkEntry db x y
+
+forkDepth
+    :: HasVersion
+    => WebBlockHeaderDb
+    -> Cut
+    -> Cut
+    -> IO Natural
+forkDepth wdb a b = do
+    m <- meet wdb a b
+    return $! int $ max (maxDepth m a) (maxDepth m b)
+  where
+    maxDepth l u = maximum $ HM.intersectionWith
+        (\x y -> view blockHeight y - view blockHeight x)
+        (_cutHeaders l)
+        (_cutHeaders u)
