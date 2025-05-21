@@ -981,6 +981,11 @@ applyJoin m = cutProjectChains
 -- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
 -- for those chains that you care about.
 --
+-- This invariant is required during a chain graph transition to avoid producing
+-- an invalid cut that straddles the transition line: A cut that is ahead or
+-- equal in height on all chains and ahead in height on at least one chain must
+-- have a higher total weight.
+--
 joinIntoHeavier
     :: HasVersion
     => WebBlockHeaderDb
