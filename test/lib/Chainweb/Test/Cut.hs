@@ -14,6 +14,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 -- |
 -- Module: Chainweb.Test.Cut
@@ -66,12 +67,15 @@ import Control.Lens hiding ((:>), (??))
 import Control.Monad hiding (join)
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.State.Strict
 
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import Data.Maybe (isNothing)
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
@@ -97,12 +101,14 @@ import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Graph
 import Chainweb.Payload
+import Chainweb.Parent
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Test.Utils
-import Chainweb.Time (Micros(..), Time, TimeSpan)
+import Chainweb.Time (Micros(..), Time, TimeSpan, epoch)
 import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
+import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -530,35 +536,112 @@ prop_meetJoinAbsorption wdb = do
 
 properties_lattice
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> [(String, T.Property)]
-properties_lattice db v =
-    [ ("joinIdemPotent", ioTest db v prop_joinIdempotent)
-    , ("joinCommutative", ioTest db v prop_joinCommutative)
-    , ("joinAssociative", ioTest db v prop_joinAssociative) -- Fails
-    , ("joinIdentity", ioTest db v prop_joinIdentity)
+    => RocksDb -> [(String, T.Property)]
+properties_lattice db =
+    [ ("joinIdemPotent", ioTest db prop_joinIdempotent)
+    , ("joinCommutative", ioTest db prop_joinCommutative)
+    , ("joinAssociative", ioTest db prop_joinAssociative) -- Fails
+    , ("joinIdentity", ioTest db prop_joinIdentity)
 
-    , ("meetIdemPotent", ioTest db v prop_meetIdempotent)
-    , ("meetCommutative", ioTest db v prop_meetCommutative)
-    , ("meetAssociative", ioTest db v prop_meetAssociative)
-    , ("meetZeroAbsorption", ioTest db v prop_meetZeroAbsorption) -- Fails
+    , ("meetIdemPotent", ioTest db prop_meetIdempotent)
+    , ("meetCommutative", ioTest db prop_meetCommutative)
+    , ("meetAssociative", ioTest db prop_meetAssociative)
+    , ("meetZeroAbsorption", ioTest db prop_meetZeroAbsorption) -- Fails
 
-    , ("joinMeetAbsorption", ioTest db v prop_joinMeetAbsorption)
-    , ("meetJoinAbsorption", ioTest db  v prop_meetJoinAbsorption) -- Fails
+    , ("joinMeetAbsorption", ioTest db prop_joinMeetAbsorption)
+    , ("meetJoinAbsorption", ioTest db prop_meetJoinAbsorption) -- Fails
+    , ("noMixedTransitionalCuts", prop_noMixedTransitionalCuts db)
     ]
+
+prop_noMixedTransitionalCuts
+    :: RocksDb
+    -> T.Property
+prop_noMixedTransitionalCuts baseDb =
+    T.monadicIO $ withVersion v $ case implicitVersion ^. versionGraphs of
+        (transitionHeight, transitionGraph) `Above` Bottom (_, startGraph) -> do
+            db' <- liftIO $ testRocksDb "Chainweb.Test.Cut" baseDb
+            wdb <- liftIO (initWebBlockHeaderDb db')
+            let startCut = genesisCut
+            let startCids = graphChainIds startGraph
+            -- to start, mine until we are one block behind the transition on all chains.
+            preTransitionCut <- flip execStateT startCut $
+                replicateM_ (int $ transitionHeight - 1) $ do
+                    forM_ startCids $ \cid -> do
+                        c <- get
+                        Right (T2 _ c') <- lift $ mine wdb 0 c cid
+                        put c'
+            -- then, pick a breakout chain which we will attempt to mine beyond
+            -- the transition before the rest of the chains reach the
+            -- transition.
+            -- note that in order to do this, the transition chain *must* have
+            -- adjacent chains post-transition that all exist pre-transition,
+            -- otherwise we cannot continue to mine it past the transition.
+            (breakoutChain, breakoutChainAdjacents) <- T.pick $ do
+                T.suchThat
+                    (do
+                        breakoutChain <- T.oneof (return <$> toList startCids)
+                        let breakoutChainAdjacents = adjacentChainIds transitionGraph breakoutChain
+                        return (breakoutChain, breakoutChainAdjacents)
+                        )
+                    (\(_, breakoutChainAdjacents) ->
+                        breakoutChainAdjacents `HS.isSubsetOf` graphChainIds startGraph)
+            -- now we set up a dangerous situation: we mine the breakout chain
+            -- and its adjacents to get them to the transition height. unless
+            -- it's prevented, the breakout chain should be able to progress
+            -- beyond the transition.
+            dangerousCut <- flip execStateT preTransitionCut $
+                forM_ (breakoutChain : toList breakoutChainAdjacents) $ \cid -> do
+                    c <- get
+                    Right (T2 _ c') <- lift $ mine wdb 0 c cid
+                    put c'
+            let adjacentBlocks = HM.mapWithKey
+                    (\acid () -> Parent $ dangerousCut ^?! ixg acid)
+                    (HS.toMap breakoutChainAdjacents)
+            (_, ext) <- liftIO $
+                extend dangerousCut Nothing Nothing
+                    WorkParents
+                        { _workParent' = Parent $ dangerousCut ^?! ixg breakoutChain
+                        , _workAdjacentParents' = adjacentBlocks
+                        }
+                    SolvedWork
+                        { _solvedAdjacentHash =
+                            adjacentsHash $ BlockHashRecord (fmap (view blockHash) <$> adjacentBlocks)
+                        , _solvedChainId = breakoutChain
+                        , _solvedParentHash = Parent $
+                            dangerousCut ^?! ixg breakoutChain . blockHash
+                        , _solvedPayloadHash = _payloadWithOutputsPayloadHash $ testPayload
+                            $ B8.intercalate "," [ sshow (_versionName implicitVersion), sshow breakoutChain, "TEST PAYLOAD"]
+                        , _solvedWorkNonce = Nonce 0
+                        , _solvedWorkCreationTime = BlockCreationTime epoch
+                        }
+            liftIO $ deleteNamespaceRocksDb db'
+            -- there should be no such legal cut extension.
+            T.assert (isNothing ext)
+        _ -> error "timedConsensusVersion graphs have changed"
+    where
+    v = timedConsensusVersion petersenChainGraph twentyChainGraph
+    mine :: HasVersion => WebBlockHeaderDb -> Int -> Cut -> ChainId -> T.PropertyM IO (Either MineFailure (T2 BlockHeader Cut))
+    mine wdb seed c cid = do
+        n' <- T.pick $ Nonce . int . (* seed) <$> T.arbitrary
+        delay <- pickBlind $ arbitraryBlockTimeOffset Time.second (plus Time.second Time.second)
+        liftIO (testMine' wdb n' delay pay cid c)
+        where
+        pay = _payloadWithOutputsPayloadHash $ testPayload
+            $ B8.intercalate "," [ sshow (_versionName implicitVersion), sshow cid, "TEST PAYLOAD"]
 
 properties_lattice_passing
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> [(String, T.Property)]
-properties_lattice_passing db v =
-    [ ("joinIdemPotent", ioTest db v prop_joinIdempotent)
-    , ("joinCommutative", ioTest db v prop_joinCommutative)
-    , ("joinIdentity", ioTest db v prop_joinIdentity)
+    => RocksDb -> [(String, T.Property)]
+properties_lattice_passing db =
+    [ ("joinIdemPotent", ioTest db prop_joinIdempotent)
+    , ("joinCommutative", ioTest db prop_joinCommutative)
+    , ("joinIdentity", ioTest db prop_joinIdentity)
 
-    , ("meetIdemPotent", ioTest db v prop_meetIdempotent)
-    , ("meetCommutative", ioTest db v prop_meetCommutative)
-    , ("meetAssociative", ioTest db v prop_meetAssociative)
+    , ("meetIdemPotent", ioTest db prop_meetIdempotent)
+    , ("meetCommutative", ioTest db prop_meetCommutative)
+    , ("meetAssociative", ioTest db prop_meetAssociative)
 
-    , ("joinMeetAbsorption", ioTest db v prop_joinMeetAbsorption)
+    , ("joinMeetAbsorption", ioTest db prop_joinMeetAbsorption)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -598,8 +681,8 @@ prop_meetGenesisCut wdb = liftIO $
 
 prop_arbitraryForkBraiding
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> T.Property
-prop_arbitraryForkBraiding db v = ioTest db v $ \wdb -> do
+    => RocksDb -> T.Property
+prop_arbitraryForkBraiding db = ioTest db $ \wdb -> do
     TestFork b cl cr <- arbitraryFork wdb
     T.assert (prop_cutBraiding b)
     T.assert (prop_cutBraiding cl)
@@ -608,16 +691,16 @@ prop_arbitraryForkBraiding db v = ioTest db v $ \wdb -> do
 
 prop_joinBase
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> T.Property
-prop_joinBase db v = ioTest db v $ \wdb -> do
+    => RocksDb -> T.Property
+prop_joinBase db = ioTest db $ \wdb -> do
     TestFork b cl cr <- arbitraryFork wdb
     m <- liftIO $ join wdb (prioritizeHeavier cl cr) cl cr
     return (_joinBase m == b)
 
 prop_joinBaseMeet
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> T.Property
-prop_joinBaseMeet db v = ioTest db v $ \wdb -> do
+    => RocksDb -> T.Property
+prop_joinBaseMeet db = ioTest db $ \wdb -> do
     TestFork _ a b <- arbitraryFork wdb
     liftIO $ (==)
         <$> meet wdb a b
@@ -625,18 +708,19 @@ prop_joinBaseMeet db v = ioTest db v $ \wdb -> do
 
 properties_testMining
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> [(String, T.Property)]
-properties_testMining db v =
-    [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db v)]
+    => RocksDb -> [(String, T.Property)]
+properties_testMining db =
+    [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db)]
 
 properties_miscCut
     :: HasVersion
-    => RocksDb -> ChainwebVersion -> [(String, T.Property)]
-properties_miscCut db v =
-    [ ("prop_joinBase", prop_joinBase db v)
-    , ("prop_joinBaseMeet", prop_joinBaseMeet db v)
-    , ("prop_meetGenesisCut", ioTest db v prop_meetGenesisCut)
-    , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db v)
+    => RocksDb -> [(String, T.Property)]
+properties_miscCut db =
+    [ ("prop_joinBase", prop_joinBase db)
+    , ("prop_joinBaseMeet", prop_joinBaseMeet db)
+    , ("prop_meetGenesisCut", ioTest db prop_meetGenesisCut)
+    , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db)
+    , ("noMixedTransitionalCuts", prop_noMixedTransitionalCuts db)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -675,10 +759,10 @@ properties_misc =
 properties :: RocksDb -> [(String, T.Property)]
 properties db
     = withVersion v
-    $ properties_lattice_passing db v
+    $ properties_lattice_passing db
     <> withVersion v properties_cut
-    <> properties_testMining db v
-    <> properties_miscCut db v
+    <> properties_testMining db
+    <> properties_miscCut db
     <> properties_misc
   where
     v = barebonesTestVersion pairChainGraph
@@ -687,13 +771,13 @@ properties db
 -- TestTools
 
 ioTest
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> (WebBlockHeaderDb -> T.PropertyM IO Bool)
     -> T.Property
-ioTest baseDb v f = T.monadicIO $ do
+ioTest baseDb f = T.monadicIO $ do
     db' <- liftIO $ testRocksDb "Chainweb.Test.Cut" baseDb
-    liftIO (withVersion v initWebBlockHeaderDb db') >>= f >>= T.assert
+    liftIO (initWebBlockHeaderDb db') >>= f >>= T.assert
     liftIO $ deleteNamespaceRocksDb db'
 
 pickBlind :: T.Gen a -> T.PropertyM IO a

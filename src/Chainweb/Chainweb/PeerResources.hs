@@ -127,7 +127,6 @@ withPeerResources conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
     withPeerDb_ conf' $ \peerDb -> do
         (!mgr, !counter) <- connectionManager peerDb
         withHost mgr conf' logger $ \conf'' -> do
-
             peer <- unsafeCreatePeer $ _p2pConfigPeer conf''
 
             let pinf = _peerInfo peer
@@ -228,7 +227,7 @@ getHost mgr logger peers = do
 -- Allocate Socket
 
 withPeerSocket :: P2pConfiguration -> ((P2pConfiguration, Socket) -> IO a) -> IO a
-withPeerSocket conf act = withSocket port interface $ \(p, s) ->
+withPeerSocket conf act = withSocket port interface $ \(p, s) -> do
         act (set (p2pConfigPeer . peerConfigPort) p conf, s)
   where
     port = _peerConfigPort $ _p2pConfigPeer conf

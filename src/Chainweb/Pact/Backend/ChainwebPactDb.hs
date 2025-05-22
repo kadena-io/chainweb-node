@@ -409,8 +409,8 @@ withTableExistenceCheck tableName action = do
             case tableStatus of
                 TableDoesNotExist -> liftGas $ throwDbOpErrorGasM $ Pact.NoSuchTable tableName
                 TableCreationPending -> return Nothing
-                TableExists -> liftIO (putStrLn "WAT1") >> error (sshow err)
-        Left err -> liftIO (putStrLn "WAT2") >> error (sshow err)
+                TableExists -> error (sshow err)
+        Left err -> error (sshow err)
         Right result -> return (Just result)
     else do
         -- if we're rewound, we just check if the table exists first
