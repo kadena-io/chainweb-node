@@ -214,7 +214,7 @@ withChainweb
     -> IO ()
 withChainweb c logger rocksDb defaultPactDbDir backupDir inner =
     withVersion (c ^. configChainwebVersion) $
-        withPeerResources (view configP2p confWithBootstraps) logger $ \logger' peerRes ->
+        withPeerResources (view configP2p confWithBootstraps) logger $ \logger' peerRes -> do
             withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
                 let conf' = confWithBootstraps
                         & set configP2p (_peerResConfig peerRes)
@@ -520,7 +520,10 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
 
     synchronizeProviders :: WebBlockHeaderDb -> ChainMap ConfiguredPayloadProvider -> Cut -> IO ()
     synchronizeProviders wbh providers c = do
-        mapConcurrently_ syncOne (_cutHeaders c)
+        let startHeaders = HM.unionWith (\startHeader _genesisHeader -> startHeader)
+                (_cutHeaders c)
+                (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
+        mapConcurrently_ syncOne startHeaders
       where
         syncOne hdr = forM_ (providers ^? atChain (_chainId hdr)) $ \case
             ConfiguredPayloadProvider provider -> do
