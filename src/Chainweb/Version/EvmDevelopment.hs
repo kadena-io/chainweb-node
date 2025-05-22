@@ -38,13 +38,13 @@ pattern EvmDevelopment <- ((== evmDevnet) -> True) where
 -- import Chainweb.Version.EvmDevelopment
 --
 -- registerVersion EvmDevelopment
--- mapM_ (\i -> T.putStrLn (sshow i <> " " <>  encodeToText (view payloadHash $ genesisPayload EvmDevelopment $ unsafeChainId i))) [40..97]
+-- mapM_ (\i -> T.putStrLn (sshow i <> " " <>  encodeToText (view payloadHash $ genesisPayload EvmDevelopment $ unsafeChainId i))) [25..97]
 -- @
 --
 -- EVM Payload Provider:
 --
 -- @
--- cabal run evm-genesis -- 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+-- cabal run evm-genesis -- evm-development
 -- @
 --
 -- Pact Provider:
@@ -70,8 +70,8 @@ evmDevnet = withVersion evmDevnet $ ChainwebVersion
         { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 500_000)
         , _genesisTime = onChains
             $ [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [0..19] ]
-            <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) | i <- [20..39] ]
-            <> [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [40..97] ]
+            <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) | i <- [20..24] ]
+            <> [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [25..97] ]
         , _genesisBlockPayload = onChains $
             -- Pact Payload Provider
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
@@ -100,22 +100,22 @@ evmDevnet = withVersion evmDevnet $ ChainwebVersion
             , (unsafeChainId 22, unsafeFromText "IQLMke3si3QrlqKRyesUJr0iOdYFawl0UhPVXHYc6-M")
             , (unsafeChainId 23, unsafeFromText "-dc_2udXDNRodCsLAX02kKVsnI-gQMeBZdsZHjxEkbw")
             , (unsafeChainId 24, unsafeFromText "nWj_l1UK6k9hdMRV53WfNPEIHmUW2NFDpv0-iI2SnPQ")
-            , (unsafeChainId 25, unsafeFromText "8OH3La_FkKuK91jQZETYp_QnE2UhQHJnlyZdSql6nhs")
-            , (unsafeChainId 26, unsafeFromText "tHw2yo16N5wEyz2jsd53kplg2xeIi-5PwdzY0KlzzSM")
-            , (unsafeChainId 27, unsafeFromText "20Rw_Wl_AZl0BmsYPYkv6ghIL8jqGCUeOpUiLhCuS84")
-            , (unsafeChainId 28, unsafeFromText "_ThaCzgNd-zBRfzz3l-ggZT_XWPwR0OTrolGSUexdsA")
-            , (unsafeChainId 29, unsafeFromText "vi1Pgfd1Uyio0OUi1RHCHvRNNYIjEX9Z4-YY9Hkrjo4")
-            , (unsafeChainId 30, unsafeFromText "a0cPOU3F0WTHWrQXPJIGToEpVETRetRM4-FabZ3WhfU")
-            , (unsafeChainId 31, unsafeFromText "gRs2a2_sBlxwVABhjLkPqdBGY4jSOI-9FsYeLYZX42s")
-            , (unsafeChainId 32, unsafeFromText "-IFOzOxVR2-yusLt_W9ns_eURYgFsEYTmWBeqCiWowo")
-            , (unsafeChainId 33, unsafeFromText "_yCbWuqwwYEX_YbGxH8XJ5ZmCWoobO7WUyyMt1MGgxE")
-            , (unsafeChainId 34, unsafeFromText "cv9ZuWQvqVkPZAyaaVX-NUPpgrwxg23_K7vtD3CRqB8")
-            , (unsafeChainId 35, unsafeFromText "iNZJV9TWAEOB9W_4bCrEB0tpvSOcEz63K3NfSFbiDXw")
-            , (unsafeChainId 36, unsafeFromText "e4PE6KrZkxtncGRGS4sscjuq75JZ1S798-TJHja__Kg")
-            , (unsafeChainId 37, unsafeFromText "gj4cGxxI_maEK2yIXTE1JW-s10W8291mAZiEQQHevcs")
-            , (unsafeChainId 38, unsafeFromText "miWz2MqGFUUx_KsbYUHWmJ6HMEP0w5UlT83m6r7onLY")
-            , (unsafeChainId 39, unsafeFromText "KfnCJ-BsVoG7ae42M9STk2Y6FO8LKdsijDklbDhyUfo")
             -- Minimal Payload Provider
+            , (unsafeChainId 25, unsafeFromText "Gt116uJVwjUEM0f07u_x8-SUFHgGpoH1xf3sfPoe0ZY")
+            , (unsafeChainId 26, unsafeFromText "NLRP0OiqRldiZclvoKBGhv9m5wO0TrhNKaZZslZuZvw")
+            , (unsafeChainId 27, unsafeFromText "xAOBFMKZ_lSHNVhHW-GhbhiWh6sX48S2KPyyPMjAnZM")
+            , (unsafeChainId 28, unsafeFromText "eav79QetdNuKo1HDW27Aeqbxr8oAt6Fh2U6ZtSfVyYU")
+            , (unsafeChainId 29, unsafeFromText "jlcxQ4wXUrApJDUQRS8KxuSyoG7ZFEwLV4-92wmqLOQ")
+            , (unsafeChainId 30, unsafeFromText "odUxYpZ8ZeW0WuQcibJH3isuI045MuEEeQqLrkivWEk")
+            , (unsafeChainId 31, unsafeFromText "poJ65aDiZYYthbhrgUI2jJS_8vK1CTHRE2C6dLbjTXA")
+            , (unsafeChainId 32, unsafeFromText "SC3ol1uFOHAewfQrMQczKrvhE8Dw1Bp9fBzNi9l_zTw")
+            , (unsafeChainId 33, unsafeFromText "p38GsNdY-T8ULYN1OTpYyO1E7WOGwzE2g92aIPereUw")
+            , (unsafeChainId 34, unsafeFromText "1V0SzqA9fHDOMnfvXvSd57H0r-iycjjLu3CKkRLcjRk")
+            , (unsafeChainId 35, unsafeFromText "SeiRMENBv5XqR7wXUYSR2orjGHSUrtawx5gLrDCfZYA")
+            , (unsafeChainId 36, unsafeFromText "JpsiIjm8aZEbyrcsMqLDneT0BNoJAJunk4BYqDO_1Y0")
+            , (unsafeChainId 37, unsafeFromText "0yx4OFT3sbLS_wrqpULgPpgzzxmMRwM6VTmkasitTlA")
+            , (unsafeChainId 38, unsafeFromText "Z3LE9JHGpSYuR3SvoYWPae7zB9-X05vFLjwD4GnXX_A")
+            , (unsafeChainId 39, unsafeFromText "9ZHBlxeYPWjhvMySgVx3ThEyooYx724zjORClgmq8Lk")
             , (unsafeChainId 40, unsafeFromText "H3VBsNGh-SQE-0d_qlYSHnS2obzUeo6Zi1XDDvhndYo")
             , (unsafeChainId 41, unsafeFromText "N6hVHz6vo0frpS3eyqvtMeZg1eFbAMJ1CS315M-JpWw")
             , (unsafeChainId 42, unsafeFromText "9mo8CRwvTLLJ4cSQtErBfOIxzwpale-AwnbXPWQd184")
@@ -197,6 +197,6 @@ evmDevnet = withVersion evmDevnet $ ChainwebVersion
     -- FIXME make this safe for graph changes
     , _versionPayloadProviderTypes = onChains
         $ [ (unsafeChainId i, PactProvider) | i <- [0..19] ]
-        <> [ (unsafeChainId i, EvmProvider (1789 - 20 + int i)) | i <- [20..39] ]
-        <> [ (unsafeChainId i, MinimalProvider) | i <- [40..97] ]
+        <> [ (unsafeChainId i, EvmProvider (1789 - 20 + int i)) | i <- [20..24] ]
+        <> [ (unsafeChainId i, MinimalProvider) | i <- [25..97] ]
     }

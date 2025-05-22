@@ -40,15 +40,40 @@ import Control.Retry
 -- -------------------------------------------------------------------------- --
 -- Main
 
+-- | This program generates chain-spec files, genesis blocks, and the respective
+-- block hashes for EVMs on Chainweb networks.
+--
+-- The results can be used to define the genesis information for the respective
+-- networks in the chainweb-node code basis.
+--
 main :: IO ()
 main = do
-    cids <- traverse (fromText . T.pack) =<< getArgs
+
+    -- parse command line
+    (n, cids, spec) <- getArgs >>= \case
+        [] -> error "No argument for the chainweb version provided. The version must be one of: 'mainnet', 'testnet', 'evm-testnet', or 'evm-development'."
+        ["mainnet"] -> do
+            let cids = [20..25]
+            return ("mainnet", cids, mainnetSpecFile)
+        ["testnet"] -> do
+            let cids = [20..25]
+            return ("testnet", cids, testnetSpecFile)
+        ["evm-testnet"] -> do
+            let cids = [20..25]
+            return ("evm-testnet", cids, evmTestnetSpecFile)
+        ["evm-development"] -> do
+            let cids = [20..25]
+            return ("evm-development", cids, evmDevnetSpecFile)
+        _ -> error "Invalid argument for the chainweb version provided. The version must be one of: 'mainnet', 'testnet', 'evm-testnet', or 'evm-development'."
+
     hdrs <- forM cids $ \cid -> do
-        createDirectoryIfMissing True "./chain-specs"
-        let specFileName = "./chain-specs/chain-spec-" <> show cid <> ".json"
-        encodeFile specFileName $ specFile cid
+        let specFileDir = "./chain-specs/" <> n
+        createDirectoryIfMissing True specFileDir
+        let specFileName = specFileDir <> "/chain-spec-" <> show cid <> ".json"
+        encodeFile specFileName $ spec cid
         hdr <- queryNode cid specFileName
         return (cid, hdr)
+
     T.putStrLn $ encodeToText
         [ object
             [ "chainId" .= cid
@@ -128,8 +153,23 @@ mkRpcCtx u = do
 -- -------------------------------------------------------------------------- --
 -- Spec File For EVM Devnet
 
-specFile :: Natural -> Value
-specFile cid = object [
+-- | Intended only for local development and testing. It is not intended for use
+-- with public networks.
+--
+-- The keys for all allocations are publicly known.
+--
+-- The Ethereum network chain ids are not officially registered and overlap with
+-- the chain ids of other networks.
+--
+-- The configuration of the network may change at any time.
+--
+-- EVMs are available at block height 0.
+--
+evmDevnetSpecFile
+    :: Natural
+        -- numeric chainweb chain id
+    -> Value
+evmDevnetSpecFile cid = object [
     "config" .= object [
       "chainId" .= (1789 + cid - 20),
       "daoForkSupport" .= True,
@@ -166,6 +206,7 @@ specFile cid = object [
           "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
         ]
       ],
+      -- TODO: add native-x-chain system contract
       "0x8849BAbdDcfC1327Ad199877861B577cEBd8A7b6".= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
@@ -239,4 +280,227 @@ specFile cid = object [
 
     i :: Natural -> Natural
     i = id
+
+-- -------------------------------------------------------------------------- --
+-- Spec File For EVM Testnet
+
+-- | Used with the public Kadena EVM testnet. This is a temporary feature
+-- testnet in preparation for the launch of EVM chains on the Kadena mainet and
+-- the regular permanent Kadena testnet.
+--
+-- The network is expected to be decommissioned after EVM chains have been
+-- launched on the Kadena mainnet.
+--
+-- Funds on the network have no economic value.
+--
+-- The keys for the genesis allocations are held by the Kadena team.
+--
+-- The EVM chains are available at block height 0.
+--
+evmTestnetSpecFile
+    :: Natural
+        -- ^ numeric chainweb chain id
+    -> Value
+evmTestnetSpecFile cid = object [
+    "config" .= object [
+      "chainId" .= (1789 + cid - 20),
+      "daoForkSupport" .= True,
+      "terminalTotalDifficultyPassed" .= True,
+      "terminalTotalDifficulty" .= i 0,
+      "daoForkBlock" .= i 0,
+      "homesteadBlock" .= i 0,
+      "eip150Block" .= i 0,
+      "eip155Block" .= i 0,
+      "eip158Block" .= i 0,
+      "byzantiumBlock" .= i 0,
+      "constantinopleBlock" .= i 0,
+      "petersburgBlock" .= i 0,
+      "istanbulBlock" .= i 0,
+      "muirGlacierBlock" .= i 0,
+      "berlinBlock" .= i 0,
+      "londonBlock" .= i 0,
+      "arrowGlacierBlock" .= i 0,
+      "graphGlacierBlock" .= i 0,
+      "mergeForkBlock" .= i 0,
+      "mergeNetsplitBlock" .= i 0,
+      "shanghaiTime" .= i 0,
+      "cancunTime" .= i 0,
+      "pragueTime" .= i 0
+    ],
+    "timestamp".= t "0x6490fdd2",
+    "extraData".= t "0x",
+    "gasLimit".= t "0x1c9c380",
+    "alloc".= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
+        "balance".= t "0x0",
+        "code".= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
+        "storage".= object [
+          "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
+        ]
+      ]
+      -- TODO: Native-X-Chain System contract
+      -- TODO: funding of faucet
+      -- TODO: other allocations.
+    ],
+
+    "number" .= t "0x0",
+    "nonce" .= t "0x0",
+    "difficulty" .= t "0x0",
+    "mixHash" .= t "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "coinbase" .= t "0x0000000000000000000000000000000000000000"
+    ]
+  where
+    t :: T.Text -> T.Text
+    t = id
+
+    i :: Natural -> Natural
+    i = id
+
+-- -------------------------------------------------------------------------- --
+-- Spec File For Kadena Mainnet
+
+-- | Used with the public Kadena Mainnet.
+--
+-- Allocations are funded out of the platform share of the Kadena mainnet.
+-- The keys for the Allocations are not publicly known.
+--
+-- The EVM chains are launched at block height TODO.
+--
+-- TODO
+--
+mainnetSpecFile
+    :: Natural
+        -- ^ numeric chainweb chain id
+    -> Value
+mainnetSpecFile cid = object [
+    "config" .= object [
+      "chainId" .= (3789 + cid - 20),
+      "daoForkSupport" .= True,
+      "terminalTotalDifficultyPassed" .= True,
+      "terminalTotalDifficulty" .= i 0,
+      "daoForkBlock" .= i 0,
+      "homesteadBlock" .= i 0,
+      "eip150Block" .= i 0,
+      "eip155Block" .= i 0,
+      "eip158Block" .= i 0,
+      "byzantiumBlock" .= i 0,
+      "constantinopleBlock" .= i 0,
+      "petersburgBlock" .= i 0,
+      "istanbulBlock" .= i 0,
+      "muirGlacierBlock" .= i 0,
+      "berlinBlock" .= i 0,
+      "londonBlock" .= i 0,
+      "arrowGlacierBlock" .= i 0,
+      "graphGlacierBlock" .= i 0,
+      "mergeForkBlock" .= i 0,
+      "mergeNetsplitBlock" .= i 0,
+      "shanghaiTime" .= i 0,
+      "cancunTime" .= i 0,
+      "pragueTime" .= i 0
+    ],
+    "timestamp".= t "0x6490fdd2",
+    "extraData".= t "0x",
+    "gasLimit".= t "0x1c9c380",
+    "alloc".= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
+        "balance".= t "0x0",
+        "code".= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
+        "storage".= object [
+          "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
+        ]
+      ],
+      error "mainnetSpecFile: the EVM genesis allocations for mainnet are TBD"
+      -- TODO: Native-X-Chain System contract
+      -- TODO: other allocations.
+    ],
+
+    "number" .= error @_ @() "mainnetSpecFile: the initial block height is TBD", -- t "0x0",
+    "nonce" .= t "0x0",
+    "difficulty" .= t "0x0",
+    "mixHash" .= t "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "coinbase" .= t "0x0000000000000000000000000000000000000000"
+    ]
+  where
+    t :: T.Text -> T.Text
+    t = id
+
+    i :: Natural -> Natural
+    i = id
+
+
+-- -------------------------------------------------------------------------- --
+-- Spec File For Kadena Testnet
+
+-- | Used with the public Kadena testnet. This is a permament testnet that
+-- has the same features and properties of the Kadena mainnet. It has the
+-- purpose to facilitate testing of services and applications under the same
+-- conditions as on the Kadena mainnet.
+--
+-- Funds on the network have no economic value.
+--
+-- The keys for the genesis allocations are held by the Kadena team.
+--
+-- The EVM chains are launched at block height TODO.
+--
+-- TODO
+--
+testnetSpecFile
+    :: Natural
+        -- ^ numeric chainweb chain id
+    -> Value
+testnetSpecFile cid = object [
+    "config" .= object [
+      "chainId" .= (2789 + cid - 20),
+      "daoForkSupport" .= True,
+      "terminalTotalDifficultyPassed" .= True,
+      "terminalTotalDifficulty" .= i 0,
+      "daoForkBlock" .= i 0,
+      "homesteadBlock" .= i 0,
+      "eip150Block" .= i 0,
+      "eip155Block" .= i 0,
+      "eip158Block" .= i 0,
+      "byzantiumBlock" .= i 0,
+      "constantinopleBlock" .= i 0,
+      "petersburgBlock" .= i 0,
+      "istanbulBlock" .= i 0,
+      "muirGlacierBlock" .= i 0,
+      "berlinBlock" .= i 0,
+      "londonBlock" .= i 0,
+      "arrowGlacierBlock" .= i 0,
+      "graphGlacierBlock" .= i 0,
+      "mergeForkBlock" .= i 0,
+      "mergeNetsplitBlock" .= i 0,
+      "shanghaiTime" .= i 0,
+      "cancunTime" .= i 0,
+      "pragueTime" .= i 0
+    ],
+    "timestamp".= t "0x6490fdd2",
+    "extraData".= t "0x",
+    "gasLimit".= t "0x1c9c380",
+    "alloc".= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
+        "balance".= t "0x0",
+        "code".= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
+        "storage".= object [
+          "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
+        ]
+      ],
+      error "mainnetSpecFile: the EVM genesis allocations for mainnet are TBD"
+      -- TODO: Native-X-Chain System contract
+      -- TODO: other allocations.
+    ],
+
+    "number" .= error @_ @() "mainnetSpecFile: the initial block height is TBD", -- t "0x0",
+    "nonce" .= t "0x0",
+    "difficulty" .= t "0x0",
+    "mixHash" .= t "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "coinbase" .= t "0x0000000000000000000000000000000000000000"
+    ]
+  where
+    t :: T.Text -> T.Text
+    t = id
+
+    i :: Natural -> Natural
+    i = id
+
 
