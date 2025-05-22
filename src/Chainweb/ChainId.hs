@@ -101,7 +101,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Data.Singletons hiding (Index)
-import Configuration.Utils
+import Configuration.Utils hiding (Lens')
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -302,6 +302,8 @@ instance FunctorWithIndex ChainId ChainMap where
 
 instance FoldableWithIndex ChainId ChainMap where
     ifoldMap f (ChainMap a) = ifoldMap f a
+instance TraversableWithIndex ChainId ChainMap where
+    itraverse f (ChainMap a) = ChainMap <$> itraverse f a
 
 instance Semialign ChainMap where
     align (ChainMap l) (ChainMap r) = ChainMap $ align l r
@@ -339,7 +341,12 @@ type instance Index (ChainMap a) = ChainId
 type instance IxValue (ChainMap a) = a
 
 instance IxedGet (ChainMap a) where
-    ixg i = atChain i
+    ixg = atChain
+instance Ixed (ChainMap a) where
+    ix i = at i . _Just
+instance At (ChainMap a) where
+    at cid f = \case
+        ChainMap m -> ChainMap <$> at cid f m
 
 -- -------------------------------------------------------------------------- --
 -- Configuration Utils

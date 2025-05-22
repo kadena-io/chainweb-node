@@ -57,6 +57,7 @@ module Chainweb.Chainweb.ChainResources
 , payloadServiceApiResources
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
@@ -264,7 +265,7 @@ withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLi
                 , _providerResP2pApiResources = Just p2pRes
                 }
 
-        SPactProvider -> case HM.lookup cid (_payloadProviderConfigPact configs) of
+        SPactProvider -> case _payloadProviderConfigPact configs ^. at cid of
             Just conf -> do
                 -- , _pactGenesisPayload = Pact.genesisPayload v ^?! atChain chain
 
@@ -311,7 +312,7 @@ withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLi
                             pdb
                             pactDbDir
                             pactConfig
-                            (Pact.genesisPayload ^? atChain cid)
+                            (Pact.genesisPayload cid <|> _pactConfigGenesisPayload conf)
                     let mempoolConfig =
                             Mempool.validatingMempoolConfig
                                 cid
@@ -348,7 +349,7 @@ withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLi
 
             _ -> return $ ProviderResources DisabledPayloadProvider Nothing Nothing
 
-        SEvmProvider @n _ -> case HM.lookup cid (_payloadProviderConfigEvm configs) of
+        SEvmProvider @n _ -> case _payloadProviderConfigEvm configs ^. at cid of
             Just config -> do
                 -- This assumes that the respective execution client is available
                 -- and answering API requests.

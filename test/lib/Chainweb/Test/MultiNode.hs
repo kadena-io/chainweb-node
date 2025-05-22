@@ -48,6 +48,8 @@ module Chainweb.Test.MultiNode
 import Control.Concurrent
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload qualified as IN0
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload qualified as INN
 import Chainweb.BlockHeight
 import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
@@ -64,6 +66,7 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Calc
 import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
+import Chainweb.PayloadProvider.Pact.Configuration (defaultPactProviderConfig, PactProviderConfig (_pactConfigGenesisPayload), _pactConfigMiner)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
@@ -106,6 +109,7 @@ import System.IO.Temp
 import System.LogLevel
 import System.Timeout
 import Test.Tasty.HUnit
+import Chainweb.Miner.Pact
 
 -- -------------------------------------------------------------------------- --
 -- * Configuration
@@ -164,6 +168,16 @@ multiConfig n = defaultChainwebConfiguration implicitVersion
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
     & set (configCuts . cutFetchTimeout) 10_000_000
+    & set (configPayloadProviders . payloadProviderConfigPact)
+        (onChains $
+            [(cid, defaultPactProviderConfig
+                { _pactConfigGenesisPayload = Just gp
+                , _pactConfigMiner = Just noMiner
+                })
+            | (cid, gp) <-
+                (unsafeChainId 0, IN0.payloadBlock)
+                : [(unsafeChainId cid, INN.payloadBlock) | cid <- [1..19]]
+            ])
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True

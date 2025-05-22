@@ -1092,7 +1092,7 @@ config ver n = defaultChainwebConfiguration ver
     & set
         ( configPayloadProviders
         . payloadProviderConfigPact
-        . each
+        . traversed
         . pactConfigBlockGasLimit
         )
         (Pact.GasLimit $ Pact.Gas 1_000_000)
