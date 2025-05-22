@@ -61,6 +61,7 @@ module Chainweb.Chainweb
 , chainwebConfig
 , chainwebServiceSocket
 , chainwebBackup
+, chainwebManager
 , StartedChainweb(..)
 , ChainwebStatus(..)
 , NowServing(..)
@@ -211,7 +212,7 @@ withChainweb
     -> FilePath
     -> (StartedChainweb logger -> IO ())
     -> IO ()
-withChainweb c logger rocksDb pactDbDir backupDir inner =
+withChainweb c logger rocksDb defaultPactDbDir backupDir inner =
     withVersion (c ^. configChainwebVersion) $
         withPeerResources (view configP2p confWithBootstraps) logger $ \logger' peerRes ->
             withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
@@ -224,7 +225,7 @@ withChainweb c logger rocksDb pactDbDir backupDir inner =
                     peerRes
                     serviceSock
                     rocksDb
-                    pactDbDir
+                    defaultPactDbDir
                     backupDir
                     inner
   where
@@ -273,7 +274,7 @@ withChainwebInternal
     -> FilePath
     -> (StartedChainweb logger -> IO ())
     -> IO ()
-withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir inner = do
+withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir backupDir inner = do
     logFunctionJson logger Info InitializingChainResources
     txFailuresCounter <- newCounter @"txFailures"
     let monitorTxFailuresCounter =
@@ -282,7 +283,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                 logFunctionCounter logger Info . (:[]) =<<
                     roll txFailuresCounter
     logg Debug "start initializing chain resources"
-    logFunctionText logger Info $ "opening pact db in directory " <> sshow pactDbDir
+    logFunctionText logger Info $ "opening pact db in directory " <> sshow defaultPactDbDir
     withAsync monitorTxFailuresCounter $ \_ ->
         concurrentWith
             -- initialize chains concurrently
@@ -294,7 +295,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                         cid
                         rocksDb
                         (_peerResManager peerRes)
-                        pactDbDir
+                        defaultPactDbDir
                         (_peerResConfig peerRes)
                         myInfo
                         peerDb
@@ -511,7 +512,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
                                     , _chainwebBackup = BackupEnv
                                         { _backupRocksDb = rocksDb
                                         , _backupDir = backupDir
-                                        , _backupPactDbDir = pactDbDir
+                                        , _backupPactDbDir = defaultPactDbDir
                                         , _backupChainIds = cids
                                         , _backupLogger = backupLogger
                                         }
@@ -701,8 +702,6 @@ runChainweb cw nowServing = do
     -- I.e. the handler would be created in the chain resource.
     -- Similar to how it is done with the payload provider APIs.
     --
-    -- chainDbsToServe :: [(ChainId, BlockHeaderDb)]
-    -- chainDbsToServe = proj _chainResBlockHeaderDb
     chainDbsToServe :: ChainMap BlockHeaderDb
     chainDbsToServe = _chainResBlockHeaderDb <$> _chainwebChains cw
 
