@@ -171,6 +171,7 @@ import Pact.Core.Errors (pactErrorToOnChainError)
 import Pact.Core.Info (spanInfoToLineInfo)
 import Chainweb.PayloadProvider
 import Chainweb.Parent
+import Chainweb.Ranked
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -400,8 +401,8 @@ instance HasVersion => Arbitrary HeaderUpdate where
         <*> arbitrary
         <*> arbitrary
 
-instance Arbitrary BlockHashWithHeight where
-    arbitrary = BlockHashWithHeight <$> arbitrary <*> arbitrary
+instance Arbitrary (Ranked BlockHash) where
+    arbitrary = Ranked <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary CutHashes
