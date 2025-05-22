@@ -751,18 +751,19 @@ createVersionedTable tablename db = do
 
 setConsensusState :: SQ3.Database -> ConsensusState -> ExceptT LocatedSQ3Error IO ()
 setConsensusState db cs = do
-    exec' db
-        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-        \(?, ?, ?, ?);"
-        (toRow "final" $ _consensusStateFinal cs)
-    exec' db
-        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-        \(?, ?, ?, ?);"
-        (toRow "safe" $ _consensusStateSafe cs)
-    exec' db
-        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-        \(?, ?, ?, ?);"
-        (toRow "latest" $ _consensusStateLatest cs)
+    withSavepoint db SetConsensusSavePoint $ do
+        exec' db
+            "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+            \(?, ?, ?, ?);"
+            (toRow "final" $ _consensusStateFinal cs)
+        exec' db
+            "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+            \(?, ?, ?, ?);"
+            (toRow "safe" $ _consensusStateSafe cs)
+        exec' db
+            "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+            \(?, ?, ?, ?);"
+            (toRow "latest" $ _consensusStateLatest cs)
     where
     toRow safety SyncState {..} =
         [ SInt $ fromIntegral @BlockHeight @Int64 _syncStateHeight
