@@ -45,7 +45,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development (pattern Development)
 import Chainweb.Version.RecapDevelopment (pattern RecapDevelopment)
-import Chainweb.Version.Registry (registerVersion)
 import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad.Trans.Resource
@@ -81,8 +80,6 @@ import Pact.Core.StableEncoding
 
 main :: IO ()
 main = do
-    registerVersion RecapDevelopment
-    registerVersion Development
 
     mapConcurrently_ id
       [ devnet
@@ -141,7 +138,7 @@ mkPayload :: Genesis -> IO Text
 mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
     -- printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
     payloadModules <- for [l..u] $ \cid ->
-        genPayloadModule v (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
+        withVersion v $ genPayloadModule (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
     -- checks that the modules on each chain are the same
     evaluate $ the payloadModules
   where
@@ -154,14 +151,14 @@ mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> Chainweb.ChainId -> [Pact.Transaction] -> IO Text
-genPayloadModule v tag cid cwTxs = do
+genPayloadModule :: HasVersion => Text -> Chainweb.ChainId -> [Pact.Transaction] -> IO Text
+genPayloadModule tag cid cwTxs = do
     let logger = genericLogger Warn TIO.putStrLn
     pdb <- newPayloadDb
     withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> runResourceT $ do
         readWriteSql <- withSqliteDb cid logger pactDbDir False
         roPool <- withReadSqlitePool cid pactDbDir
-        serviceEnv <- withPactService v cid Nothing mempty logger Nothing pdb roPool readWriteSql defaultPactServiceConfig GeneratingGenesis
+        serviceEnv <- withPactService cid Nothing mempty logger Nothing pdb roPool readWriteSql defaultPactServiceConfig GeneratingGenesis
         payloadWO <- liftIO $ execNewGenesisBlock logger serviceEnv (V.fromList cwTxs)
         return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
