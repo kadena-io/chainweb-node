@@ -98,7 +98,6 @@ import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04 (testnet04)
-import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -198,7 +197,12 @@ runMonitorLoop actionLabel logger = runForeverThrottled
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
-runCutMonitor :: Logger logger => logger -> CutDb -> IO ()
+runCutMonitor
+    :: HasVersion
+    => Logger logger
+    => logger
+    -> CutDb
+    -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
         logFunctionJson l Info . cutToCutHashes Nothing
@@ -213,7 +217,7 @@ data BlockUpdate = BlockUpdate
     }
     deriving (Show, Eq, Ord, Generic, NFData)
 
-instance ToJSON BlockUpdate where
+instance HasVersion => ToJSON BlockUpdate where
     toEncoding o = pairs
         $ "header" .= _blockUpdateBlockHeader o
         <> "orphaned" .= _blockUpdateOrphaned o
@@ -308,7 +312,7 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
-node :: HasCallStack => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
+node :: HasCallStack => HasVersion => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
@@ -345,7 +349,8 @@ node conf logger = do
     cwConf = _nodeConfigChainweb conf
 
 withNodeLogger
-    :: LogConfig
+    :: HasVersion
+    => LogConfig
     -> ChainwebConfiguration
     -> ChainwebVersion
     -> (L.Logger SomeLogMessage -> IO ())
@@ -530,21 +535,20 @@ main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
-        let v = _configChainwebVersion $ _nodeConfigChainweb conf
-        registerVersion v
-        hSetBuffering stderr LineBuffering
-        withNodeLogger (_nodeConfigLog conf) (_nodeConfigChainweb conf) v $ \logger -> do
-            logFunctionJson logger Info ProcessStarted
-            handles
-                [ Handler $ \(e :: SomeAsyncException) ->
-                    logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e
-                , Handler $ \(e :: SomeException) ->
-                    logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
-                ] $ do
-                kt <- mapM iso8601ParseM (_versionServiceDate v)
-                withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
-                    race (node conf logger) (gcRunner (logFunctionText logger))
-    where
+        withVersion (_configChainwebVersion $ _nodeConfigChainweb conf) $ do
+            hSetBuffering stderr LineBuffering
+            withNodeLogger (_nodeConfigLog conf) (_nodeConfigChainweb conf) implicitVersion $ \logger -> do
+                logFunctionJson logger Info ProcessStarted
+                handles
+                    [ Handler $ \(e :: SomeAsyncException) ->
+                        logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e
+                    , Handler $ \(e :: SomeException) ->
+                        logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
+                    ] $ do
+                    kt <- mapM iso8601ParseM (_versionServiceDate implicitVersion)
+                    withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
+                        race (node conf logger) (gcRunner (logFunctionText logger))
+  where
     gcRunner lf = runForever lf "GarbageCollect" $ do
         performMajorGC
         threadDelay (30 * 1_000_000)
