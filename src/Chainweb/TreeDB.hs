@@ -523,15 +523,17 @@ getBranch
     -> HS.HashSet (UpperBound (DbKey db))
     -> S.Stream (Of (DbEntry db)) IO ()
 getBranch db lowerBounds upperBounds = do
-    lowers <- getEntriesHs $ HS.map _getLowerBound lowerBounds
-    uppers <- getEntriesHs $ HS.map _getUpperBound upperBounds
+    lowers <- liftIO $ getEntriesHs _getLowerBound lowerBounds
+    uppers <- liftIO $ getEntriesHs _getUpperBound upperBounds
 
-    let mar = L.maximum $ HS.map rank (lowers <> uppers)
+    let mar = getMax $ fromJuste $
+            foldMap' (foldMap' (Just . Max . rank)) [lowers, uppers]
 
     go mar (active mar lowers mempty) (active mar uppers mempty)
   where
-    getEntriesHs = lift . streamToHashSet_ . lookupStream db . S.each
-    getParentsHs = lift . streamToHashSet_ . lookupParentStreamM GenesisParentNone db . S.each
+    getEntriesHs :: (a -> Key (DbEntry db)) -> HS.HashSet a -> IO (HS.HashSet (DbEntry db))
+    getEntriesHs f = streamToHashSet_ . lookupStream db . S.map f . S.each
+    getParentsHs = streamToHashSet_ . lookupParentStreamM GenesisParentNone db . S.each
 
     -- prop> all ((==) r . rank) $ snd (active r s c)
     --
@@ -557,8 +559,8 @@ getBranch db lowerBounds upperBounds = do
         | otherwise = do
             let us1' = us1 `HS.difference` ls1
             mapM_ S.yield us1'
-            us1p <- getParentsHs us1'
-            ls1p <- getParentsHs ls1
+            us1p <- liftIO $ getParentsHs us1'
+            ls1p <- liftIO $ getParentsHs ls1
             let r' = pred r
             go r' (active r' ls0 ls1p) (active r' us0 us1p)
 
