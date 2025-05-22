@@ -57,7 +57,6 @@ module Chainweb.Chainweb.ChainResources
 , payloadServiceApiResources
 ) where
 
-import Control.Exception(evaluate)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
@@ -233,9 +232,13 @@ withPayloadProviderResources
         -- ^ the reorg limit for the payload providers
     -> Bool
         -- ^ whether to allow unlimited rewind on startup
+    -> FilePath
+        -- ^ default database directory for pact databases. As long as Pact
+        -- payload providers live within chainweb-consensus they inherit the
+        -- default db location from the chainweb configuration.
     -> PayloadProviderConfig
     -> ResourceT IO ProviderResources
-withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs = do
+withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind defaultPactDbDir configs = do
     SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal
     SomeChainIdT @c' _ <- return $ someChainIdVal cid
     withSomeSing provider $ \case
@@ -294,7 +297,9 @@ withPayloadProviderResources logger cid p2pConfig myInfo peerDb rdb mgr rewindLi
                         }
 
                 let pdb = newPayloadDb rdb
-                pactDbDir <- liftIO $ evaluate $ fromJuste $ _pactConfigDatabaseDirectory conf
+                let pactDbDir = case _pactConfigDatabaseDirectory conf of
+                        Just x -> x
+                        Nothing -> defaultPactDbDir
                 rec
                     pp <-
                         withPactPayloadProvider
@@ -400,7 +405,9 @@ withChainResources
     -> RocksDb
     -> HTTP.Manager
     -> FilePath
-        -- ^ database directory for pact databases
+        -- ^ default database directory for pact databases. As long as Pact
+        -- payload providers live within chainweb-consensus they inherit the
+        -- default db location from the chainweb configuration.
     -> P2pConfiguration
     -> PeerInfo
     -> PeerDb
@@ -410,7 +417,7 @@ withChainResources
         -- ^ whether to allow unlimited rewind on startup
     -> PayloadProviderConfig
     -> ResourceT IO (ChainResources logger)
-withChainResources logger cid rdb mgr _pactDbDir p2pConf myInfo peerDb rewindLimit initialUnlimitedRewind configs = do
+withChainResources logger cid rdb mgr defaultPactDbDir p2pConf myInfo peerDb rewindLimit initialUnlimitedRewind configs = do
 
     -- This uses the the CutNetwork for fetching block headers.
     cdb <- withBlockHeaderDb rdb cid
@@ -418,7 +425,7 @@ withChainResources logger cid rdb mgr _pactDbDir p2pConf myInfo peerDb rewindLim
     -- Payload Providers are using per chain payload networks for fetching
     -- block headers.
     provider <- withPayloadProviderResources
-        providerLogger cid p2pConf myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind configs
+        providerLogger cid p2pConf myInfo peerDb rdb mgr rewindLimit initialUnlimitedRewind defaultPactDbDir configs
 
     return ChainResources
         { _chainResBlockHeaderDb = cdb
