@@ -55,11 +55,7 @@ evmDevnet :: ChainwebVersion
 evmDevnet = withVersion evmDevnet $ ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x0000_000a
     , _versionName = ChainwebVersionName "evm-development"
-    , _versionForks = tabulateHashMap $ \case
-        -- TODO: for now, Pact 5 is never enabled on EVM devnet.
-        -- this will change as it stabilizes.
-        Pact5Fork -> onAllChains ForkNever
-        _ -> onAllChains ForkAtGenesis
+    , _versionForks = tabulateHashMap $ const $ onAllChains ForkAtGenesis
     , _versionUpgrades = onAllChains mempty
     , _versionGraphs = Bottom (minBound, d4k4ChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
