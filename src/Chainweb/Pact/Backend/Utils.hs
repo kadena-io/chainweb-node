@@ -194,7 +194,7 @@ rollbackSavepoint db name =
 
 -- | @abortSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and removes it from the savepoint stack.
-abortSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+abortSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
 abortSavepoint db name = do
   rollbackSavepoint db name
   commitSavepoint db name

@@ -425,9 +425,7 @@ runCoordination mr = do
     -- fail to start mining.
     initializeState
 
-    concurrentlies_
-        $ updateWork
-        : toList (imap updateCache caches)
+    updateWork
   where
     lf :: LogFunctionText
     lf = logFunction $ _coordLogger mr
@@ -449,17 +447,6 @@ runCoordination mr = do
         ConfiguredPayloadProvider p -> k p
         DisabledPayloadProvider ->
             error $ "payload provider disabled on chain " <> sshow cid <> ", which is illegal for miners"
-
-    -- Update the payload cache with the latest payloads from the the provider
-    --
-    updateCache cid cache =
-        withProvider cid $ \provider ->
-        runForever lf label $ do
-        payloadStream provider
-            & S.chain (\_ -> lf Debug $ "update cache on chain " <> toText cid)
-            & S.mapM_ (insertIO cache)
-        where
-        label = "miningCoordination.updateCache." <> toText cid
 
     -- Update the work state
     --
@@ -594,6 +581,11 @@ randomWork logFun cdb caches parentStateVars = do
     awaitWorkReady cid var = do
         parentState <- maybe retry return =<< readTVar var
         guard (isNothing $ parentStateSolved parentState)
+        case cdb ^?! cutDbPayloadProviders . atChain cid of
+            ConfiguredPayloadProvider pp ->
+                latestPayloadSTM pp >>= insertSTM (caches ^?! atChain cid)
+            DisabledPayloadProvider ->
+                error $ "payload provider disabled on chain " <> sshow cid <> ", which is illegal for miners"
         payload <- awaitLatestPayloadForParentStateSTM (caches ^?! atChain cid) parentState
         return (parentStateParents parentState, payload)
 

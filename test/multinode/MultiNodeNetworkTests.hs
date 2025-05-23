@@ -32,12 +32,12 @@ loglevel = Warn
 -- note that because these tests run in parallel they must all use distinct rocksdb and sqlite dirs.
 suite :: TestTree
 suite = independentSequentialTestGroup "MultiNodeNetworkTests"
-    -- [ testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
-    --     withTempRocksDb "multinode-tests-timedconsensus-petersen-twenty-rocks" $ \rdb ->
-    --     withSystemTempDirectory "multinode-tests-timedconsensus-petersen-twenty-pact" $ \pactDbDir ->
-    --     withVersion (timedConsensusVersion petersenChainGraph twentyChainGraph) $
-    --         Chainweb.Test.MultiNode.test loglevel 10 30 rdb pactDbDir step
-    [ testCaseSteps "ConsensusNetwork - InstantTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
+    [ testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
+        withTempRocksDb "multinode-tests-timedconsensus-petersen-twenty-rocks" $ \rdb ->
+        withSystemTempDirectory "multinode-tests-timedconsensus-petersen-twenty-pact" $ \pactDbDir ->
+        withVersion (timedConsensusVersion petersenChainGraph twentyChainGraph) $
+            Chainweb.Test.MultiNode.test loglevel 10 30 rdb pactDbDir step
+    , testCaseSteps "ConsensusNetwork - InstantTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-instantcpm-single-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-instantcpm-single-pact" $ \pactDbDir ->
         withVersion (instantCpmTestVersion singletonChainGraph) $
