@@ -519,7 +519,7 @@ syncToFork logger serviceEnv hints forkInfo = do
                 Nothing -> do
                     logFunctionText logger Info $
                         "impossible to move to " <> brief forkInfo._forkInfoTargetState
-                        <> " from " <> brief pactConsensusState
+                        <> " from " <> brief pactConsensusState <> " with trace " <> brief forkInfo._forkInfoTrace
                     -- error: we have no way to get to the target block. just report
                     -- our current state and do nothing else.
                     return (mempty, mempty, pactConsensusState)
