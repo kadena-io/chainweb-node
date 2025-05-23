@@ -1127,7 +1127,10 @@ instantCpmTestVersionGenesis chain
 
 mkFixture :: HasVersion => RocksDb -> ResourceT IO Fixture
 mkFixture baseRdb = do
-    fx <- CutFixture.mkFixture instantCpmTestVersionGenesis defaultPactServiceConfig { _pactBlockRefreshInterval = 10_000 } baseRdb
+    fx <- CutFixture.mkFixture
+        instantCpmTestVersionGenesis
+        defaultPactServiceConfig { _pactBlockRefreshInterval = 10_000 }
+        baseRdb
     logger <- liftIO getTestLogger
 
     let mkSomePactServerData cid = PactServerData

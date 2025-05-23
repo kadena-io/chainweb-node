@@ -27,7 +27,7 @@ main :: IO ()
 main = defaultMain suite
 
 loglevel :: LogLevel
-loglevel = Debug
+loglevel = Warn
 
 -- note that because these tests run in parallel they must all use distinct rocksdb and sqlite dirs.
 suite :: TestTree
@@ -37,10 +37,11 @@ suite = independentSequentialTestGroup "MultiNodeNetworkTests"
         withSystemTempDirectory "multinode-tests-timedconsensus-petersen-twenty-pact" $ \pactDbDir ->
         withVersion (timedConsensusVersion petersenChainGraph twentyChainGraph) $
             Chainweb.Test.MultiNode.test loglevel 10 30 rdb pactDbDir step
-    -- , testCaseSteps "ConsensusNetwork - InstantTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
-    --     withTempRocksDb "multinode-tests-instantcpm-single-rocks" $ \rdb ->
-    --     withSystemTempDirectory "multinode-tests-instantcpm-single-pact" $ \pactDbDir ->
-    --     Chainweb.Test.MultiNode.test loglevel (instantCpmTestVersion singletonChainGraph) 10 30 rdb pactDbDir step
+    , testCaseSteps "ConsensusNetwork - InstantTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
+        withTempRocksDb "multinode-tests-instantcpm-single-rocks" $ \rdb ->
+        withSystemTempDirectory "multinode-tests-instantcpm-single-pact" $ \pactDbDir ->
+        withVersion (instantCpmTestVersion singletonChainGraph) $
+            Chainweb.Test.MultiNode.test loglevel  10 30 rdb pactDbDir step
     -- , testCaseSteps "Replay - InstantTimedCPM - 6 nodes" $ \step ->
     --     withTempRocksDb "replay-test-instantcpm-pair-rocks" $ \rdb ->
     --     withSystemTempDirectory "replay-test-instantcpm-pair-pact" $ \pactDbDir ->

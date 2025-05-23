@@ -107,6 +107,9 @@ import Numeric.Natural
 import Streaming.Prelude qualified as S
 import System.LogLevel (LogLevel(..))
 import System.Random (randomRIO)
+import qualified Data.Aeson as Aeson
+import qualified Data.List as List
+import qualified Pact.JSON.Encode as J
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -280,18 +283,18 @@ updateForCut lf hdb ms c = do
     forM_ (HM.keys (c ^. cutMap)) forChain
   where
     forChain cid = do
-        let var = ms ^?! atChain cid
+        let parentStateVar = ms ^?! atChain cid
         maybeNewParents <- workParents hdb c cid
         atomically $ do
-            maybeOldParentState <- readTVar var
+            maybeOldParentState <- readTVar parentStateVar
             case (maybeOldParentState, maybeNewParents) of
                 (_, Nothing) ->
-                    writeTVar var Nothing
+                    writeTVar parentStateVar Nothing
                 (Just oldParentState, Just newParents)
                     | parentStateParents oldParentState == newParents
                         -> return ()
                 (_, Just newParents) ->
-                    writeTVar var $ Just
+                    writeTVar parentStateVar $ Just
                         ParentState
                             { parentStateParents = newParents
                             , parentStateSolved = Nothing
@@ -456,7 +459,7 @@ runCoordination mr = do
             & S.chain (\_ -> lf Debug $ "update cache on chain " <> toText cid)
             & S.mapM_ (insertIO cache)
         where
-        label =  "miningCoordination.updateCache." <> toText cid
+        label = "miningCoordination.updateCache." <> toText cid
 
     -- Update the work state
     --
@@ -473,14 +476,8 @@ runCoordination mr = do
                 -- TODO: is there still?
 
     initializeState = do
-        lf Debug $ "initialize mining state"
+        lf Debug "initialize mining state"
         curCut <- _cut $ cdb
-        forConcurrently_ (HM.keys (curCut ^. cutMap)) $ \cid -> do
-            let cache = caches ^?! atChain cid
-            lf Debug $ "initialize mining state for chain " <> brief cid
-            pld <- withProvider cid latestPayloadIO
-            lf Debug $ "got latest payload for chain " <> brief cid
-            insertIO cache pld
         updateForCut lf f state curCut
         lf Debug "done initializing mining state for all chains"
 
@@ -562,8 +559,8 @@ awaitEvent cdb caches c p =
 -- 3. some payload providers are deadlocked, or
 -- 4. some payload providers are very slow in producing new payloads.
 --
-randomWork :: HasVersion => LogFunction -> PayloadCaches -> ChainMap (TVar (Maybe ParentState)) -> IO MiningWork
-randomWork logFun caches parentStateVars = do
+randomWork :: HasVersion => LogFunction -> CutDb -> PayloadCaches -> ChainMap (TVar (Maybe ParentState)) -> IO MiningWork
+randomWork logFun cdb caches parentStateVars = do
 
     -- Pick a random chain.
     --
@@ -602,7 +599,7 @@ randomWork logFun caches parentStateVars = do
 
     go [] = do
 
-        logFun @T.Text Warn $ "randomWork: no work is ready. Awaiting work"
+        logFun @T.Text Info $ "randomWork: no work is ready. Awaiting work"
 
         -- We shall check for the following conditions:
         --
@@ -637,7 +634,7 @@ randomWork logFun caches parentStateVars = do
             Right (ps, npld) -> do
                 ct <- BlockCreationTime <$> getCurrentTimeIntegral
                 return $ newWork ct ps (_newPayloadBlockPayloadHash npld)
-            Left e -> error e -- FIXME: throw a proper exception and log what is going on
+            Left e -> error (T.unpack e) -- FIXME: throw a proper exception and log what is going on
 
     go ((cid, var):t) = do
         readyCheck <- atomically $
@@ -666,7 +663,26 @@ randomWork logFun caches parentStateVars = do
         -- This is clearly an error, probably even a bug.
         -- We should try to find out what happend.
         --
-        return $ Left "Chainweb.Miner.Coordinator.randomWork: timeout while waiting for work to become ready"
+        workStatusSummary <- summarizeWorkStatus
+        return $ Left $ "Chainweb.Miner.Coordinator.randomWork: timeout while waiting for work to become ready. " <> workStatusSummary
+
+    summarizeWorkStatus = do
+        parentStates <- forM parentStateVars readTVar
+        let chainsWithMissingParents =
+                [ cid | (cid, Nothing) <- itoList parentStates ]
+        let chainsWithParents = onChains
+                [ (cid, p) | (cid, Just p) <- itoList parentStates ]
+        payloads <- forM
+            (chainIntersect (,) chainsWithParents caches)
+            (\(parent, cache) -> Just <$> awaitLatestPayloadForParentStateSTM cache parent <|> return Nothing)
+        let chainsWithMissingPayloads =
+                [ cid | (cid, Nothing) <- itoList payloads ]
+        c <- _cutStm cdb
+        return $ J.encodeText $ J.object
+            [ "blocked" J..= J.array (List.sort (toText <$> chainsWithMissingParents))
+            , "stale" J..= J.array (List.sort (toText <$> chainsWithMissingPayloads))
+            , "cut" J..= brief c
+            ]
 
 staleMiningStateDelay :: Micros
 staleMiningStateDelay = 2_000_000
@@ -679,7 +695,7 @@ work
     => HasVersion
     => MiningCoordination l
     -> IO MiningWork
-work mr = randomWork lf (_coordPayloadCache mr) (_coordParentState mr)
+work mr = randomWork lf (_coordCutDb mr) (_coordPayloadCache mr) (_coordParentState mr)
   where
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr

@@ -131,8 +131,8 @@ import System.Directory
 --
 data PayloadProviderConfig = PayloadProviderConfig
     { _payloadProviderConfigMinimal :: !MinimalProviderConfig
-    , _payloadProviderConfigPact :: !(HM.HashMap ChainId PactProviderConfig)
-    , _payloadProviderConfigEvm :: !(HM.HashMap ChainId EvmProviderConfig)
+    , _payloadProviderConfigPact :: !(ChainMap PactProviderConfig)
+    , _payloadProviderConfigEvm :: !(ChainMap EvmProviderConfig)
     }
     deriving (Show, Eq, Generic)
 
@@ -150,8 +150,8 @@ defaultPayloadProviderConfig = PayloadProviderConfig
 
 validatePayloadProviderConfig :: HasVersion => ConfigValidation PayloadProviderConfig []
 validatePayloadProviderConfig conf = do
-    void $ HM.traverseWithKey checkPactProvider $ _payloadProviderConfigPact conf
-    void $ HM.traverseWithKey checkEvmProvider $ _payloadProviderConfigEvm conf
+    void $ itraverse checkPactProvider $ _payloadProviderConfigPact conf
+    void $ itraverse checkEvmProvider $ _payloadProviderConfigEvm conf
   where
     checkPactProvider cid _conf = case payloadProviderTypeForChain cid of
         PactProvider -> return () -- FIXME implement validation
@@ -179,11 +179,11 @@ instance ToJSON PayloadProviderConfig where
       where
         pacts =
             [ key c .= tag "pact" v
-            | (c, v) <- HM.toList (_payloadProviderConfigPact o)
+            | (c, v) <- itoList (_payloadProviderConfigPact o)
             ]
         evms =
             [ key c .= tag "evm" v
-            | (c, v) <- HM.toList (_payloadProviderConfigEvm o)
+            | (c, v) <- itoList (_payloadProviderConfigEvm o)
             ]
         others = L.sort $ pacts <> evms
 

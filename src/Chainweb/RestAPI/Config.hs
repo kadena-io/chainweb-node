@@ -58,12 +58,11 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
 
     -- Miner Info
     $ set (configPayloadProviders . payloadProviderConfigMinimal . mpcRedeemAccount) invalidAccount
-    $ set (configPayloadProviders . payloadProviderConfigPact . each . pactConfigMiner) Nothing
-    $ set (configPayloadProviders . payloadProviderConfigEvm . each . evmConfMinerAddress) Nothing
+    $ set (configPayloadProviders . payloadProviderConfigPact . traversed . pactConfigMiner) Nothing
+    $ set (configPayloadProviders . payloadProviderConfigEvm . traversed . evmConfMinerAddress) Nothing
 
     -- Service API port
     $ set (configServiceApi . serviceApiConfigPort) 0
     $ set (configServiceApi . serviceApiConfigInterface) "invalid"
     $ set configBackup defaultBackupConfig
     config
-

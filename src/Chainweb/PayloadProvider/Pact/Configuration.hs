@@ -35,6 +35,7 @@ import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Pact (Miner(..), MinerGuard(..), MinerId(..))
 import Chainweb.Pact.Types (defaultPreInsertCheckTimeout)
+import Chainweb.Payload (PayloadWithOutputs)
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
 import Chainweb.Version
@@ -90,6 +91,7 @@ data PactProviderConfig = PactProviderConfig
     , _pactConfigEnableLocalTimeout :: !Bool
     , _pactConfigMiner :: !(Maybe Miner)
     , _pactConfigDatabaseDirectory :: !(Maybe FilePath)
+    , _pactConfigGenesisPayload :: !(Maybe PayloadWithOutputs)
     }
     deriving (Show, Eq, Generic)
 
@@ -109,6 +111,7 @@ instance ToJSON PactProviderConfig where
         , "enableLocalTimeout" .= _pactConfigEnableLocalTimeout o
         , "miner" .= J.toJsonViaEncode (_pactConfigMiner o)
         , "databaseDirectory" .= _pactConfigDatabaseDirectory o
+        , "genesisPayload" .= _pactConfigGenesisPayload o
         ]
 
 instance FromJSON (PactProviderConfig -> PactProviderConfig) where
@@ -125,6 +128,7 @@ instance FromJSON (PactProviderConfig -> PactProviderConfig) where
         <*< pactConfigEnableLocalTimeout ..: "enableLocalTimeout" % o
         <*< pactConfigMiner ..: "miner" % o
         <*< pactConfigDatabaseDirectory ..: "databaseDirectory" % o
+        <*< pactConfigGenesisPayload ..: "genesisPayload" % o
 
 defaultPactProviderConfig :: PactProviderConfig
 defaultPactProviderConfig = PactProviderConfig
@@ -140,6 +144,7 @@ defaultPactProviderConfig = PactProviderConfig
     , _pactConfigEnableLocalTimeout = False
     , _pactConfigMiner = Nothing
     , _pactConfigDatabaseDirectory = Nothing
+    , _pactConfigGenesisPayload = Nothing
     }
 
 pPactProviderConfig :: ChainId -> MParser PactProviderConfig

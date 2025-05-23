@@ -96,6 +96,7 @@ localTest lf coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
         wh <- work coord
+        -- TODO: I've seen this error, why?
         let height = c ^?! ixg (_miningWorkChainId wh) . blockHeight
 
         race (awaitNewCutByChainId cdb (_miningWorkChainId wh) c) (go height wh) >>= \case

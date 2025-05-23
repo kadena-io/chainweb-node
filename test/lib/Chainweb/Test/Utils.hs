@@ -1092,7 +1092,7 @@ config ver n = defaultChainwebConfiguration ver
     & set
         ( configPayloadProviders
         . payloadProviderConfigPact
-        . each
+        . traversed
         . pactConfigBlockGasLimit
         )
         (Pact.GasLimit $ Pact.Gas 1_000_000)
@@ -1120,7 +1120,7 @@ setBootstrapPeerInfo =
 
 host :: Hostname
 -- host = unsafeHostnameFromText "::1"
-host = unsafeHostnameFromText "localhost"
+host = unsafeHostnameFromText "127.0.0.1"
 
 interface :: W.HostPreference
 -- interface = "::1"

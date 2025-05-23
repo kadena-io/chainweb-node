@@ -66,8 +66,8 @@ import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf (printf)
 import qualified Data.Pool as Pool
-import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 import Chainweb.PayloadProvider.Pact (pactMemPoolAccess)
 import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 import Chainweb.Pact.Backend.Types (throwIfNoHistory, Historical)

@@ -292,12 +292,15 @@ getCutExtension c cid = do
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far ahead)."
             <> "\n Parent: " <> encodeToText (ObjectEncoded p)
             <> "\n Conflict: " <> encodeToText (ObjectEncoded b)
+            <> "\n Cut: " <> brief c
         | view blockHeight b + 1 < parentHeight = error $ T.unpack
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far behind)."
             <> "\n Parent: " <> encodeToText (ObjectEncoded  p)
             <> "\n Conflict: " <> encodeToText (ObjectEncoded b)
-        | otherwise = error
-            $ "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation"
+            <> "\n Cut: " <> brief c
+        | otherwise = error $ T.unpack
+            $ "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation:"
+            <> "\n Cut: " <> brief c
 
 -- -------------------------------------------------------------------------- --
 -- Mining Work
@@ -980,6 +983,11 @@ applyJoin m = cutProjectChains
 -- If you want to compute a join for cuts that include only a subset of all
 -- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
 -- for those chains that you care about.
+--
+-- This invariant is required during a chain graph transition to avoid producing
+-- an invalid cut that straddles the transition line: A cut that is ahead or
+-- equal in height on all chains and ahead in height on at least one chain must
+-- have a higher total weight.
 --
 joinIntoHeavier
     :: HasVersion

@@ -18,7 +18,9 @@ import Chainweb.Version.Mainnet
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Testnet04
 import Chainweb.Payload
+import Control.Lens
 import Data.HashMap.Strict qualified as HM
+import GHC.Stack
 
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
 import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
@@ -40,9 +42,23 @@ import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDN
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
 import Chainweb.Utils
 
-genesisPayload :: HasVersion => ChainMap PayloadWithOutputs
 genesisPayload
-    | _versionCode implicitVersion == _versionCode Mainnet01 = ChainMap $ HM.fromList $ concat
+    :: (HasCallStack, HasVersion)
+    => ChainId -> Maybe PayloadWithOutputs
+genesisPayload cid
+    | _versionCode implicitVersion == _versionCode Mainnet01 =
+        mainnetPayloads ^. at cid
+    | _versionCode implicitVersion == _versionCode Testnet04 =
+        testnet04Payloads ^. at cid
+    | _versionCode implicitVersion == _versionCode Development =
+        devnetPayloads ^. at cid
+    | _versionCode implicitVersion == _versionCode RecapDevelopment =
+        recapDevnetPayloads ^. at cid
+    | _versionCode implicitVersion == _versionCode EvmDevelopment =
+        evmDevnetPayloads ^. at cid
+    | otherwise = Nothing
+    where
+    mainnetPayloads = ChainMap $ HM.fromList $ concat
         [
             [ (unsafeChainId 0, MN0.payloadBlock)
             , (unsafeChainId 1, MN1.payloadBlock)
@@ -57,22 +73,20 @@ genesisPayload
             ]
         , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
         ]
-    | _versionCode implicitVersion == _versionCode Testnet04 = ChainMap $ HM.fromList $ concat
+    testnet04Payloads = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, T04N0.payloadBlock)]
         , [(unsafeChainId i, T04NN.payloadBlock) | i <- [1..19]]
         ]
-    | _versionCode implicitVersion == _versionCode Development = ChainMap $ HM.fromList $ concat
+    devnetPayloads = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, DN0.payloadBlock)]
         , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
         ]
-    | _versionCode implicitVersion == _versionCode RecapDevelopment = ChainMap $ HM.fromList $ concat
+    recapDevnetPayloads = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, RDN0.payloadBlock)]
         , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
         , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
         ]
-    | _versionCode implicitVersion == _versionCode EvmDevelopment = ChainMap $ HM.fromList $ concat
+    evmDevnetPayloads = ChainMap $ HM.fromList $ concat
         [ [(unsafeChainId 0, DN0.payloadBlock)]
         , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
         ]
-    | otherwise = error $
-        "Chainweb.PayloadProvider.Pact.Genesis.genesisPayload: unsupported chainweb version: " <> sshow implicitVersion

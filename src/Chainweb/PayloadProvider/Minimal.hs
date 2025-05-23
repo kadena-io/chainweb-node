@@ -425,7 +425,9 @@ minimalSyncToBlock p h i = do
 
     -- Produce new block
     case _forkInfoNewBlockCtx i of
-        Nothing -> return ()
+        Nothing -> do
+            logg p Info $ "no new payload for sync state: " <> sshow latestState
+            return ()
         Just ctx -> do
             logg p Info $ "create new payload for sync state: " <> sshow latestState
             atomically
