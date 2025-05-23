@@ -85,6 +85,7 @@ module Chainweb.PayloadProvider.Minimal
 ) where
 
 import Configuration.Utils
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
@@ -350,16 +351,16 @@ instance PayloadProvider MinimalPayloadProvider where
 getPayloadForContext
     :: MinimalPayloadProvider
     -> Maybe Hints
-    -> EvaluationCtx ConsensusPayload
+    -> Ranked ConsensusPayload
     -> IO Payload
 getPayloadForContext p h ctx = do
-    insertPayloadData (_consensusPayloadData $ _evaluationCtxPayload ctx)
+    insertPayloadData (_consensusPayloadData $ _ranked ctx)
     pld <- Rest.getPayload
         (_minimalPayloadStore p)
         (_minimalCandidatePayloads p)
-        (Priority $ negate $ int $ unwrapParent $ _evaluationCtxParentHeight ctx)
+        (Priority $ negate $ int $ _rankedHeight ctx)
         (_hintsOrigin <$> h)
-        (_evaluationCtxRankedPayloadHash ctx)
+        (_consensusPayloadHash <$> ctx)
     casInsert (_minimalCandidatePayloads p) pld
     return pld
   where
@@ -383,11 +384,11 @@ minimalPrefetchPayloads
     :: HasVersion
     => MinimalPayloadProvider
     -> Maybe Hints
-    -> ForkInfo
+    -> [Ranked ConsensusPayload]
     -> IO ()
-minimalPrefetchPayloads p h i = do
+minimalPrefetchPayloads p h ps = do
     logg p Info "prefetch payloads"
-    mapConcurrently_ (getPayloadForContext p h) $ _forkInfoTrace i
+    mapConcurrently_ (try @_ @TaskException . getPayloadForContext p h) ps
 
 -- |
 --
@@ -482,10 +483,11 @@ validatePayloads
     -> Maybe Hints
     -> ForkInfo
     -> IO ()
-validatePayloads p h i= mapConcurrently_ go (_forkInfoTrace i)
+validatePayloads p h i = mapConcurrently_ go (_forkInfoTrace i)
   where
     go ctx = do
-        pld <- getPayloadForContext p h ctx
+        pld <- getPayloadForContext p h
+            (Ranked (_evaluationCtxCurrentHeight ctx) (_evaluationCtxPayload ctx))
         validatePayload p pld ctx
         casInsert (_minimalPayloadStore p) pld
 

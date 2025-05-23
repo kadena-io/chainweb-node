@@ -517,7 +517,9 @@ syncToFork logger serviceEnv hints forkInfo = do
                 <> " using trace blocks " <> brief traceBlockHashes
             findForkChain (zip forkInfo._forkInfoTrace traceBlockHashes) >>= \case
                 Nothing -> do
-                    logFunctionText logger Error $ "impossible to move to " <> brief forkInfo._forkInfoTargetState
+                    logFunctionText logger Warn $
+                        "impossible to move to " <> brief forkInfo._forkInfoTargetState
+                        <> " from " <> brief pactConsensusState
                     -- error: we have no way to get to the target block. just report
                     -- our current state and do nothing else.
                     return (mempty, mempty, pactConsensusState)

@@ -532,7 +532,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                     "sync payload provider to "
                         <> sshow (view blockHeight hdr)
                         <> ":" <> sshow (view blockHash hdr)
-                finfo <- forkInfoForHeader wbh hdr Nothing
+                finfo <- forkInfoForHeader wbh hdr Nothing Nothing
                 logFunctionText loggr Debug $ "syncToBlock with fork info " <> sshow finfo
                 r <- syncToBlock provider Nothing finfo `catch` \(e :: SomeException) -> do
                     logFunctionText loggr Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e

@@ -233,8 +233,9 @@ forkInfoForHeader
     => WebBlockHeaderDb
     -> BlockHeader
     -> Maybe EncodedPayloadData
+    -> Maybe (Parent BlockHeader)
     -> IO ForkInfo
-forkInfoForHeader wdb hdr pldData
+forkInfoForHeader wdb hdr pldData parentHdr
 
     -- FIXME do we need this case??? We never add genesis headers...
     | isGenesisBlockHeader hdr = do
@@ -247,7 +248,7 @@ forkInfoForHeader wdb hdr pldData
             }
 
     | otherwise = do
-        phdr <- lookupParentHeader wdb hdr
+        phdr <- maybe (lookupParentHeader wdb hdr) return parentHdr
         let consensusPayload = ConsensusPayload
                 { _consensusPayloadHash = pld
                 , _consensusPayloadData = pldData
@@ -378,11 +379,11 @@ getBlockHeaderInternal
             -- header. There's another complete pass of block header validations
             -- after payload validation when the header is finally added to the db.
             --
-            queryParent p = Concurrently $ void $ do
+            queryParent p = Concurrently $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisiteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
-                void $ getBlockHeaderInternal
+                parentHdr <- Parent <$> getBlockHeaderInternal
                     headerStore
                     candidateHeaderCas
                     candidatePldTbl
@@ -393,27 +394,26 @@ getBlockHeaderInternal
                     (unwrapParent <$> p)
                 chainDb <- getWebBlockHeaderDb wdb header
                 validateInductiveChainM (tableLookup chainDb) header
+                return $ fmap _chainValueValue parentHdr
 
         -- Get the Payload Provider and
         let hints = Hints <$> maybeOrigin'
         pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
-        -- Do not produce payloads at this point; we may not stick around at
-        -- this block.
-        finfo <- forkInfoForHeader wdb header pld <&> forkInfoNewBlockCtx .~ Nothing
         let prefetchProviderPayloads = case providers ^?! atChain cid of
-                ConfiguredPayloadProvider provider ->
-                    prefetchPayloads provider hints finfo
-                    -- TODO (_rankedBlockPayloadHash header)
+                ConfiguredPayloadProvider provider -> return ()
+                    -- TODO PP
+                    -- prefetchPayloads provider hints
+                    --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
                 DisabledPayloadProvider -> return ()
 
-        runConcurrently
+        parentHdr <- runConcurrently
             -- instruct the payload provider to fetch payload data and prepare
             -- validation.
             $ Concurrently prefetchProviderPayloads
 
             -- query parent (recursively)
             --
-            <* queryParent (view blockParent <$> chainValue header)
+            *> queryParent (view blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
             <* mconcat (queryAdjacentParent <$> adjParents header)
@@ -461,6 +461,10 @@ getBlockHeaderInternal
         -- isn't yet in the block header database and thus we still must
         -- validate the payload for this block header.
         --
+
+        -- Do not produce payloads at this point; we may not stick around at
+        -- this block.
+        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) <&> forkInfoNewBlockCtx .~ Nothing
 
         logg Debug $ taskMsg k $
             "getBlockHeaderInternal validate payload for " <> sshow h
