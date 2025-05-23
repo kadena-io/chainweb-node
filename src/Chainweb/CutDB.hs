@@ -217,7 +217,7 @@ defaultCutDbParams ft = CutDbParams
 --    intermediate steps instead of starting all over again.
 --
 -- For the latter to work it is important that the local node only pulls cuts
--- that are at most 'forAheadThreshold' blocks ahead. Otherwise the pulled
+-- that are at most 'farAheadThreshold' blocks ahead. Otherwise the pulled
 -- blocks would be immediately rejected by the cut processing pipeline
 -- 'processCuts' below in the module and the node would never be able to join
 -- the consensus of the network.
@@ -229,7 +229,7 @@ defaultCutDbParams ft = CutDbParams
 -- mining. It should be at least the diameter of the chain graph.
 --
 farAheadThreshold :: BlockHeight
-farAheadThreshold = 20
+farAheadThreshold = 2
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
