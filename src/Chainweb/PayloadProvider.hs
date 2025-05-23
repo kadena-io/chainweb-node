@@ -120,6 +120,7 @@ import Streaming.Prelude qualified as S
 import Data.Function
 import Data.Hashable
 import Data.Maybe
+import Chainweb.Ranked
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -764,11 +765,7 @@ class (HasChainId p) => PayloadProvider p where
         :: HasVersion
         => p
         -> Maybe Hints
-        -> ForkInfo
-            -- ^ TODO: do we really want to pass the full ForkInfo here? What is
-            -- the purpose of passing the full Consensus State? Maybe resolving
-            -- forks? Maybe a list of RankedBlockPayloadHashes (or
-            -- EvaluationCtx) would be sufficient here?
+        -> [Ranked ConsensusPayload]
         -> IO ()
 
     -- | Request that the payload provider updates its internal state to

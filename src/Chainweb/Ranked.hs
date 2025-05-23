@@ -10,6 +10,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -- |
 -- Module: Chainweb.Ranked
@@ -66,7 +67,7 @@ data Ranked a = Ranked
     { _rankedHeight :: !BlockHeight
     , _ranked :: !a
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving stock (Functor, Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 makeLenses ''Ranked
 
