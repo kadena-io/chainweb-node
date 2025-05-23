@@ -99,6 +99,12 @@ instance Brief (Parent BlockHeader) where brief = brief . unwrapParent
 deriving
     via (CryptoHash AdjacentsHashAlgorithm)
     instance Brief AdjacentsHash
+instance Brief ConsensusPayload where
+    brief = brief . _consensusPayloadHash
+instance Brief p => Brief (EvaluationCtx p) where
+    brief ec =
+        "payload:" <> brief (_evaluationCtxPayload ec)
+        <> ":parent:" <> brief (_evaluationCtxRankedParentHash ec)
 
 deriving
     via (BriefText (CryptoHash a))
