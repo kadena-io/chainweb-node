@@ -119,16 +119,17 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
   (blockInProgress', _newHandle) <- flip runStateT (_blockInProgressHandle blockInProgress) $ do
     -- update the mempool, ensuring that we reintroduce any transactions that
     -- were removed due to being completed in a block on a different fork.
-    liftIO $ case _bctxIsGenesis blockCtx of
-      True -> do
+    liftIO $
+      if _bctxIsGenesis blockCtx
+      then do
+        logFunctionText logger Info
+          "Continuing genesis block"
+      else do
         logFunctionText logger Info $
           T.unwords
             [ "(parent height = " <> sshow (_bctxParentHash blockCtx) <> ")"
             , "(parent hash = " <> sshow (_bctxParentHeight blockCtx) <> ")"
             ]
-      False ->
-        logFunctionText logger Info
-          "Continuing genesis block"
 
     let blockGasLimit = view psNewBlockGasLimit serviceEnv
     let mTxTimeLimit = view psNewPayloadTxTimeLimit serviceEnv
