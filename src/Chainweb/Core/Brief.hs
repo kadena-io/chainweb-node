@@ -65,6 +65,9 @@ toTextShort = T.take 6 . toText
 instance (Brief a, Brief b) => Brief (a,b) where
     brief (a,b) = "(" <> brief a <> "," <> brief b <> ")"
 
+instance (Brief a, Brief b, Brief c) => Brief (a,b,c) where
+    brief (a,b,c) = "(" <> brief a <> "," <> brief b <> "," <> brief c <> ")"
+
 instance (Brief a, Brief b) => Brief (Either a b) where
     brief (Left a) = "left:" <> brief a
     brief (Right b) = "right:" <> brief b
@@ -75,6 +78,9 @@ instance Brief a => Brief (Maybe a) where
 
 instance Brief a => Brief [a] where
     brief l = "[" <> (T.intercalate "," $ brief <$> l) <> "]"
+
+instance Brief Int where
+    brief = sshow
 
 instance Brief a => Brief (NonEmpty a) where
     brief = brief . toList
@@ -94,7 +100,11 @@ instance Brief CutId where brief = toTextShort
 instance Brief ChainId where brief = toText
 instance Brief BlockHash where brief = toTextShort
 instance Brief BlockPayloadHash where brief = toTextShort
-instance Brief BlockHeader where brief = brief . view blockHash
+instance Brief BlockHeader where
+    brief bh =
+        brief (view chainId bh) <> "@"
+        <> brief (view blockHeight bh)
+        <> ":" <> brief (view blockHash bh)
 instance Brief (Parent BlockHeader) where brief = brief . unwrapParent
 deriving
     via (CryptoHash AdjacentsHashAlgorithm)
