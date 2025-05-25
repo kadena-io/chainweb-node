@@ -135,15 +135,18 @@ type GenBlockTime = Cut -> ChainId -> Time Micros
 
 -- | Block time generation that offsets from previous chain block in cut.
 --
-offsetBlockTime :: TimeSpan Micros -> GenBlockTime
+offsetBlockTime :: HasVersion => TimeSpan Micros -> GenBlockTime
 offsetBlockTime offset cut cid = add offset
     $ maximum
     $ fmap (_bct . view blockCreationTime)
     $ HM.insert cid (cut ^?! ixg cid)
-    $ cutAdjs cut cid
+    $ HM.intersection
+        (cut ^. cutMap)
+        (HS.toMap $ adjacentChainIds (chainGraphAt (cut ^?! ixg cid . blockHeight)) cid)
 
 arbitraryBlockTimeOffset
-    :: TimeSpan Micros
+    :: HasVersion
+    => TimeSpan Micros
     -> TimeSpan Micros
     -> T.Gen GenBlockTime
 arbitraryBlockTimeOffset lower upper = do
