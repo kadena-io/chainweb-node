@@ -14,6 +14,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Cut.Create
@@ -49,6 +50,7 @@ module Chainweb.Cut.Create
 , _cutExtensionAdjacentHashes
 , cutExtensionAdjacentHashes
 , getCutExtension
+, cutMixedTransition
 
 -- * Limit cuts
 , limitCut
@@ -137,6 +139,7 @@ import Data.Bifoldable
 import Data.Foldable
 import Data.Maybe
 import qualified Data.List as List
+import qualified Data.Set as Set
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -1013,6 +1016,17 @@ joinIntoHeavier_
 joinIntoHeavier_ wdb a b = do
     m <- join_ wdb (prioritizeHeavier_ a b) a b
     applyJoin m
+
+cutMixedTransition :: HasVersion => CutHashes -> Bool
+cutMixedTransition (view cutHashes -> c) =
+    let
+        cutChainGraphs =
+            foldMap (Set.singleton . chainGraphAt . _bhwhHeight) c
+        allChainsTransitioned =
+            all (isGraphChange . _bhwhHeight) c
+    in
+        any ((> 8) . _bhwhHeight) c && any ((< 8) . _bhwhHeight) c
+        -- Set.size cutChainGraphs > 1 && not allChainsTransitioned
 
 prioritizeHeavier :: Cut -> Cut -> DiffItem BlockHeader -> DiffItem (Maybe Int)
 prioritizeHeavier = prioritizeHeavier_ `on` _cutHeaders

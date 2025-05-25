@@ -118,6 +118,7 @@ import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
 import Numeric.AffineSpace
+import Chainweb.Cut.CutHashes (cutToCutHashes)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -553,13 +554,68 @@ properties_lattice db =
 
     , ("joinMeetAbsorption", ioTest db prop_joinMeetAbsorption)
     , ("meetJoinAbsorption", ioTest db prop_meetJoinAbsorption) -- Fails
-    , ("noMixedTransitionalCuts", prop_noMixedTransitionalCuts db)
     ]
 
-prop_noMixedTransitionalCuts
+prop_joinNoMixedTransitionalCuts :: RocksDb -> T.Property
+prop_joinNoMixedTransitionalCuts baseDb =
+    T.monadicIO $ withVersion v $ case implicitVersion ^. versionGraphs of
+        (transitionHeight, transitionGraph) `Above` Bottom (_, startGraph) -> do
+            db' <- liftIO $ testRocksDb "Chainweb.Test.Cut" baseDb
+            wdb <- liftIO (initWebBlockHeaderDb db')
+            let startCut = genesisCut
+            let startCids = graphChainIds startGraph
+            -- to start, mine until we are one block behind the transition on
+            -- all chains.
+            preTransitionCut <- flip execStateT startCut $
+                replicateM_ (int $ transitionHeight - 1) $ do
+                    forM_ startCids $ \cid -> do
+                        c <- get
+                        c' <- lift $ mine wdb 0 cid c
+                        put c'
+            -- then, pick a chain on which each cut will differ, and mine all
+            -- others into the transition.
+            differingChain <- T.pick $ T.oneof (return <$> toList startCids)
+            meetCut <- flip execStateT preTransitionCut $
+                forM_ (differingChain `HS.delete` startCids) $ \cid -> do
+                    c <- get
+                    c' <- lift $ mine wdb 0 cid c
+                    put c'
+            -- then make two cuts on top of meetCut which differ on one chain,
+            -- at the transition height.
+            oneTransitionedCut <- mine wdb 0 differingChain meetCut
+            otherTransitionedCut <- mine wdb 0 differingChain meetCut
+            -- now that both cuts are transitioned, we can mine each on one
+            -- extra chain. the most important case here is that the differing
+            -- chain is an adjacent to this chain pre-transition and not
+            -- post-transition.
+            minedChain <- T.pick
+                $ T.oneof
+                    (return <$> toList
+                        (adjacentChainIds startGraph differingChain `HS.difference` adjacentChainIds transitionGraph differingChain)
+                    )
+            oneDangerousCut <- mine wdb 0 minedChain oneTransitionedCut
+            let otherDangerousCut = unsafeMkCut ((otherTransitionedCut ^. cutMap) & at minedChain .~ Just (oneDangerousCut ^?! ixg minedChain))
+            m <- liftIO $ joinIntoHeavier wdb
+                oneDangerousCut otherDangerousCut
+            T.assert (not $ cutMixedTransition $ cutToCutHashes Nothing m)
+        _ -> error "timedConsensusVersion graphs have changed"
+    where
+    v = timedConsensusVersion petersenChainGraph twentyChainGraph
+    mine :: HasVersion => WebBlockHeaderDb -> Int -> ChainId -> Cut -> T.PropertyM IO Cut
+    mine wdb seed cid c = do
+        n' <- T.pick $ Nonce . int . (* seed) <$> T.arbitrary
+        delay <- pickBlind $ arbitraryBlockTimeOffset Time.second (plus Time.second Time.second)
+        Right (T2 _bh c') <- liftIO (testMine' wdb n' delay pay cid c)
+        return c'
+        where
+        pay = _payloadWithOutputsPayloadHash $ testPayload
+            $ B8.intercalate "," [ sshow (_versionName implicitVersion), sshow cid, "TEST PAYLOAD"]
+
+
+prop_extendNoMixedTransitionalCuts
     :: RocksDb
     -> T.Property
-prop_noMixedTransitionalCuts baseDb =
+prop_extendNoMixedTransitionalCuts baseDb =
     T.monadicIO $ withVersion v $ case implicitVersion ^. versionGraphs of
         (transitionHeight, transitionGraph) `Above` Bottom (_, startGraph) -> do
             db' <- liftIO $ testRocksDb "Chainweb.Test.Cut" baseDb
@@ -571,7 +627,7 @@ prop_noMixedTransitionalCuts baseDb =
                 replicateM_ (int $ transitionHeight - 1) $ do
                     forM_ startCids $ \cid -> do
                         c <- get
-                        Right (T2 _ c') <- lift $ mine wdb 0 c cid
+                        Right (T2 _ c') <- lift $ mine wdb 0 cid c
                         put c'
             -- then, pick a breakout chain which we will attempt to mine beyond
             -- the transition before the rest of the chains reach the
@@ -595,12 +651,12 @@ prop_noMixedTransitionalCuts baseDb =
             dangerousCut <- flip execStateT preTransitionCut $
                 forM_ (breakoutChain : toList breakoutChainAdjacents) $ \cid -> do
                     c <- get
-                    Right (T2 _ c') <- lift $ mine wdb 0 c cid
+                    Right (T2 _ c') <- lift $ mine wdb 0 cid c
                     put c'
             let adjacentBlocks = HM.mapWithKey
                     (\acid () -> Parent $ dangerousCut ^?! ixg acid)
                     (HS.toMap breakoutChainAdjacents)
-            (_, ext) <- liftIO $
+            (_, ext) <- T.run $
                 extend dangerousCut Nothing Nothing
                     WorkParents
                         { _workParent' = Parent $ dangerousCut ^?! ixg breakoutChain
@@ -623,8 +679,8 @@ prop_noMixedTransitionalCuts baseDb =
         _ -> error "timedConsensusVersion graphs have changed"
     where
     v = timedConsensusVersion petersenChainGraph twentyChainGraph
-    mine :: HasVersion => WebBlockHeaderDb -> Int -> Cut -> ChainId -> T.PropertyM IO (Either MineFailure (T2 BlockHeader Cut))
-    mine wdb seed c cid = do
+    mine :: HasVersion => WebBlockHeaderDb -> Int -> ChainId -> Cut -> T.PropertyM IO (Either MineFailure (T2 BlockHeader Cut))
+    mine wdb seed cid c = do
         n' <- T.pick $ Nonce . int . (* seed) <$> T.arbitrary
         delay <- pickBlind $ arbitraryBlockTimeOffset Time.second (plus Time.second Time.second)
         liftIO (testMine' wdb n' delay pay cid c)
@@ -723,7 +779,8 @@ properties_miscCut db =
     , ("prop_joinBaseMeet", prop_joinBaseMeet db)
     , ("prop_meetGenesisCut", ioTest db prop_meetGenesisCut)
     , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db)
-    , ("noMixedTransitionalCuts", prop_noMixedTransitionalCuts db)
+    , ("extendNoMixedTransitionalCuts", prop_extendNoMixedTransitionalCuts db)
+    , ("joinNoMixedTransitionalCuts", prop_joinNoMixedTransitionalCuts db)
     ]
 
 -- -------------------------------------------------------------------------- --
