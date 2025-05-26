@@ -132,14 +132,17 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Data.Monoid
-import Chainweb.TreeDB ( branchDiff_, forkEntry, seekAncestor )
+import Chainweb.TreeDB hiding (parent)
 import Data.Function
 import qualified Streaming.Prelude as S
-import Data.Bifoldable
 import Data.Foldable
 import Data.Maybe
 import qualified Data.List as List
-import qualified Data.Set as Set
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import qualified Streaming as S
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -636,89 +639,6 @@ extendCut c ps s = do
   where
     bh = newHeader ps s
 
--- -------------------------------------------------------------------------- --
--- Limit Cut Hashes By Height
-
--- | Find a `Cut` that is a predecessor of the given one, and that has a block
--- height that is smaller or equal the given height.
---
--- If the requested limit is larger or equal to the current height, the given
--- cut is returned.
---
--- Otherwise, the predecessor of the given cut at the given height on each chain
--- is returned.
---
-limitCut
-    :: (HasCallStack, HasVersion)
-    => WebBlockHeaderDb
-    -> BlockHeight
-        -- ^ upper bound for the block height of each chain. This is not a tight
-        -- bound.
-    -> Cut
-    -> IO Cut
-limitCut wdb h c
-    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
-        return c
-    | otherwise = do
-        hdrs <- itraverse go $ view cutHeaders c
-        return $! unsafeMkCut $ projectChains $ HM.mapMaybe id hdrs
-  where
-
-    go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
-    go cid bh = do
-        if h >= view blockHeight bh
-        then return (Just bh)
-        else do
-            !db <- getWebBlockHeaderDb wdb cid
-            seekAncestor db bh (min (int $ view blockHeight bh) (int h))
-        -- this is safe because it's guaranteed that the requested rank is
-        -- smaller then the block height of the argument
-
--- | Find a `Cut` that is a predecessor of the given one, and that has a block
--- height that is as low as possible while not exceeding the given height and
--- including all of the chains in the given cut.
---
--- If the requested limit is larger or equal to the current height, the given
--- cut is returned.
---
-tryLimitCut
-    :: (HasCallStack, HasVersion)
-    => WebBlockHeaderDb
-    -> BlockHeight
-        -- upper bound for the block height of each chain. This is not a tight bound.
-    -> Cut
-    -> IO Cut
-tryLimitCut wdb h c
-    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
-        return c
-    | otherwise = do
-        hdrs <- itraverse go $ view cutHeaders c
-        return $! unsafeMkCut hdrs
-  where
-    go :: ChainId -> BlockHeader -> IO BlockHeader
-    go cid bh = do
-        if h >= view blockHeight bh
-        then return bh
-        else do
-            !db <- getWebBlockHeaderDb wdb cid
-            -- this is safe because it's guaranteed that the requested rank is
-            -- smaller then the block height of the argument
-            let ancestorHeight = min (int $ view blockHeight bh) (int h)
-            if ancestorHeight <= fromIntegral (genesisHeight cid)
-            then return $ genesisBlockHeader cid
-            else fromJuste <$> seekAncestor db bh ancestorHeight
-
--- | The resulting headers are valid cut headers only if the input headers are
--- valid cut headers, too. The inverse is not true.
---
-limitCutHeaders
-    :: (HasCallStack, HasVersion)
-    => WebBlockHeaderDb
-    -> BlockHeight
-        -- ^ upper bound for the block height of each chain. This is not a tight bound.
-    -> HM.HashMap ChainId BlockHeader
-    -> IO (HM.HashMap ChainId BlockHeader)
-limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h (unsafeMkCut ch)
 
 -- -------------------------------------------------------------------------- --
 -- Tools for Graph Transitions
@@ -883,15 +803,15 @@ tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
 
 type DiffItem a = These a a
 
-type JoinQueue a = H.Heap (H.Entry (BlockHeight, a) BlockHeader)
+type JoinQueue = H.Heap (H.Entry (BlockHeight, ChainId) (NonEmpty BlockHeader))
 
 -- | This represents the Join of two cuts in an algorithmically convenient way.
 --
-data Join a = Join
+data Join = Join
     { _joinBase :: !Cut
         -- ^ the base of the join, the largest cut that is contained in both
         -- cuts, or when viewed as sets, the intersection.
-    , _joinQueue :: !(JoinQueue a)
+    , _joinQueue :: !JoinQueue
         -- ^ a queue of block headers from both cuts that allows construct
         -- the join cut from the join base.
     }
@@ -902,12 +822,12 @@ data Join a = Join
 -- chains.
 --
 join
-    :: (Ord a, HasVersion)
+    :: (HasVersion)
     => WebBlockHeaderDb
-    -> (DiffItem BlockHeader -> DiffItem (Maybe a))
+    -> (DiffItem BlockHeader -> NonEmpty BlockHeader)
     -> Cut
     -> Cut
-    -> IO (Join a)
+    -> IO Join
 join wdb f = join_ wdb f `on` _cutHeaders
 
 -- | This merges two maps from ChainIds to BlockHeaders such that the result is
@@ -924,49 +844,56 @@ join wdb f = join_ wdb f `on` _cutHeaders
 -- information/blocks in the other chains would be lost when applying the join.
 --
 join_
-    :: forall a
-    . (Ord a, HasVersion)
+    :: (HasVersion)
     => WebBlockHeaderDb
-    -> (DiffItem BlockHeader -> DiffItem (Maybe a))
+    -> (DiffItem BlockHeader -> NonEmpty BlockHeader)
     -> HM.HashMap ChainId BlockHeader
     -> HM.HashMap ChainId BlockHeader
-    -> IO (Join a)
+    -> IO Join
 join_ wdb prioFun a b = do
-    (m, h) <- runStateT (HM.traverseWithKey f (HM.intersectionWith (,) a' b')) mempty
-    return $! Join (unsafeMkCut m) h
+    (base, queue) <- flip runStateT mempty $ do
+        unsafeJoinBase <- unsafeMkCut <$> HM.traverseWithKey joinChain (HM.intersectionWith (,) a' b')
+        if cutMixedTransition (cutToCutHashes Nothing unsafeJoinBase)
+        then
+            -- mixed transition cuts cannot be extended safely. so, we push back the
+            -- join base in that case, until it's not post-transition on any chains.
+            limitCut_ wdb (lastGraphChangeInCut $ cutToCutHashes Nothing unsafeJoinBase) unsafeJoinBase
+        else
+            return unsafeJoinBase
+
+    return $! Join base queue
   where
     (a', b') = joinChains a b
 
-    f
+    joinChain
         :: ChainId
         -> (BlockHeader, BlockHeader)
-        -> StateT (JoinQueue a) IO BlockHeader
-    f cid (x, y) = do
-        !q <- get
+        -> StateT JoinQueue IO BlockHeader
+    joinChain cid (x, y) = do
         db <- getWebBlockHeaderDb wdb cid
-        (q' S.:> !h) <- liftIO $ S.fold g q id $ branchDiff_ db x y
-        put q'
-        return h
+        branchDiff_ db x y
+            & S.hoist liftIO
+            & S.mapM_ (enqueueHeaders . prioFun)
 
-    g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
-    g q x = foldl' maybeInsert q $ zip (biList x) (biList (prioFun x))
-
-    maybeInsert
-        :: H.Heap (H.Entry (BlockHeight, a) BlockHeader)
-        -> (BlockHeader, Maybe a)
-        -> H.Heap (H.Entry (BlockHeight, a) BlockHeader)
-    maybeInsert !q (_, Nothing) = q
-    maybeInsert !q (!h, (Just !p)) = H.insert (H.Entry (view blockHeight h, p) h) q
+enqueueHeaders :: NonEmpty BlockHeader -> StateT JoinQueue IO ()
+enqueueHeaders hs =
+    modify' (\q ->
+        H.insert (H.Entry (height, chain) hs) q
+    )
+    where
+    height = view blockHeight (NE.head hs)
+    chain = view chainId (NE.head hs)
 
 -- This can't fail because of missing dependencies. It can't fail because
 -- of conflict.
 --
 -- Non-existing chains are stripped from the result.
 --
-applyJoin :: (MonadThrow m, HasVersion) => Join a -> m Cut
+applyJoin :: (MonadThrow m, HasVersion) => Join -> m Cut
 applyJoin m = cutProjectChains
-    <$> foldM
-        (\c b -> fromMaybe c <$> tryMonotonicCutExtension c (H.payload b))
+    <$> foldlMOf (folded . folded . folded)
+        (\c b ->
+            fromMaybe c <$> tryMonotonicCutExtension c b)
         (_joinBase m)
         (_joinQueue m)
 
@@ -1017,18 +944,126 @@ joinIntoHeavier_ wdb a b = do
     m <- join_ wdb (prioritizeHeavier_ a b) a b
     applyJoin m
 
-cutMixedTransition :: HasVersion => CutHashes -> Bool
-cutMixedTransition (view cutHashes -> c) =
-    let
-        cutChainGraphs =
-            foldMap (Set.singleton . chainGraphAt . _bhwhHeight) c
-        allChainsTransitioned =
-            all (isGraphChange . _bhwhHeight) c
-    in
-        any ((> 8) . _bhwhHeight) c && any ((< 8) . _bhwhHeight) c
-        -- Set.size cutChainGraphs > 1 && not allChainsTransitioned
+-- -------------------------------------------------------------------------- --
+-- Limit Cut Hashes By Height
 
-prioritizeHeavier :: Cut -> Cut -> DiffItem BlockHeader -> DiffItem (Maybe Int)
+limitCut_
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+    -> Cut
+    -> StateT JoinQueue IO Cut
+limitCut_ wdb h c
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
+        return c
+    | otherwise = do
+        hdrs <- itraverse go $ view cutHeaders c
+        return $! unsafeMkCut $ projectChains $ HM.mapMaybe id hdrs
+  where
+    go :: ChainId -> BlockHeader -> StateT JoinQueue IO (Maybe BlockHeader)
+    go cid bh = do
+        if h < genesisBlockHeight cid
+        then return Nothing
+        else if h >= view blockHeight bh
+        then return (Just bh)
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            ancestor <-
+                S.mapM_ (enqueueHeaders . NE.singleton) $
+                -- this is safe because it's guaranteed that the requested rank is
+                -- smaller then the block height of the argument
+                getAncestors db (min (int $ view blockHeight bh) (int h)) (ancestors db (key bh))
+            return (Just ancestor)
+    getAncestors db b strm = liftIO (S.next strm) >>= \case
+        Left () -> error "reached end"
+        Right (anc, strm')
+            | rank anc == b ->
+                return anc
+            | otherwise -> do
+                S.yield anc
+                getAncestors db b strm'
+
+-- | Find a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is smaller or equal the given height.
+--
+-- If the requested limit is larger or equal to the current height, the given
+-- cut is returned.
+--
+-- Otherwise, the predecessor of the given cut at the given height on each chain
+-- is returned.
+--
+limitCut
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- ^ upper bound for the block height of each chain. This is not a tight
+        -- bound.
+    -> Cut
+    -> IO Cut
+limitCut wdb h c = evalStateT (limitCut_ wdb h c) mempty
+
+-- | Find a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is as low as possible while not exceeding the given height and
+-- including all of the chains in the given cut.
+--
+-- If the requested limit is larger or equal to the current height, the given
+-- cut is returned.
+--
+tryLimitCut
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- upper bound for the block height of each chain. This is not a tight bound.
+    -> Cut
+    -> IO Cut
+tryLimitCut wdb h c
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
+        return c
+    | otherwise = do
+        hdrs <- itraverse go $ view cutHeaders c
+        return $! unsafeMkCut hdrs
+  where
+    go :: ChainId -> BlockHeader -> IO BlockHeader
+    go cid bh = do
+        if h >= view blockHeight bh
+        then return bh
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            -- this is safe because it's guaranteed that the requested rank is
+            -- smaller then the block height of the argument
+            let ancestorHeight = min (int $ view blockHeight bh) (int h)
+            if ancestorHeight <= fromIntegral (genesisHeight cid)
+            then return $ genesisBlockHeader cid
+            else fromJuste <$> seekAncestor db bh ancestorHeight
+
+-- | The resulting headers are valid cut headers only if the input headers are
+-- valid cut headers, too. The inverse is not true.
+--
+limitCutHeaders
+    :: (HasCallStack, HasVersion)
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- ^ upper bound for the block height of each chain. This is not a tight bound.
+    -> HM.HashMap ChainId BlockHeader
+    -> IO (HM.HashMap ChainId BlockHeader)
+limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h (unsafeMkCut ch)
+
+lastGraphChangeInCut :: HasVersion => CutHashes -> BlockHeight
+lastGraphChangeInCut c =
+    maximum $
+        lastGraphChange . _bhwhHeight <$> (_cutHashes c)
+
+-- | This is a mixed transition cut, and thus has no unique chain graph.  Such a
+-- cut may have invalid braiding according to *either* the pre- or post-
+-- transition graph.
+cutMixedTransition :: HasVersion => CutHashes -> Bool
+cutMixedTransition c =
+    let
+        lgc = lastGraphChangeInCut c
+    in
+        any ((< lgc) . _bhwhHeight) (_cutHashes c)
+
+prioritizeHeavier :: Cut -> Cut -> DiffItem BlockHeader -> NonEmpty BlockHeader
 prioritizeHeavier = prioritizeHeavier_ `on` _cutHeaders
 
 -- | Note: consider the weight of the recursive dependencies for the
@@ -1043,17 +1078,16 @@ prioritizeHeavier_
     => f BlockHeader
     -> f BlockHeader
     -> DiffItem BlockHeader
-    -> DiffItem (Maybe Int)
+    -> NonEmpty BlockHeader
 prioritizeHeavier_ a b = f
   where
     heaviest = maxBy (compare `on` weight) a b
-    w c = if c == heaviest then 0 else 1
 
-    f (This _) = This (Just $ w a)
-    f (That _) = That (Just $ w b)
-    f (These _ _)
-        | heaviest == a = These (Just 0) Nothing
-        | otherwise = These Nothing (Just 0)
+    f (This bh) = NE.singleton bh
+    f (That bh) = NE.singleton bh
+    f (These bha bhb )
+        | heaviest == a = bha NE.:| [bhb]
+        | otherwise = bhb NE.:| [bha]
 
     weight c =
         ( sumOf (folded . blockWeight) c

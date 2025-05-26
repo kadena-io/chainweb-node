@@ -376,7 +376,7 @@ data TestFork = TestFork
 arbitraryJoin
     :: HasVersion
     => WebBlockHeaderDb
-    -> T.PropertyM IO (Join Int)
+    -> T.PropertyM IO Join
 arbitraryJoin wdb = do
     TestFork _ cl cr <- arbitraryFork wdb
     liftIO $ join wdb (prioritizeHeavier cl cr) cl cr
