@@ -63,8 +63,9 @@ evmDevnet = withVersion evmDevnet $ ChainwebVersion
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 500_000)
+        { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 100_000)
         , _genesisTime = onChains
+            -- FIXME: is the creation time for the pact headers correct?
             $ [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [0..19] ]
             <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) | i <- [20..24] ]
             <> [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [25..97] ]
