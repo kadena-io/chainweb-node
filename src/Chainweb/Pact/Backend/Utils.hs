@@ -161,7 +161,6 @@ withSavepoint db name action = fmap fst $ generalBracket
     (liftIO $ beginSavepoint db name)
     (\_ -> liftIO . \case
         ExitCaseSuccess {} -> commitSavepoint db name
-        ExitCaseException e -> appendFile "BAD" (show (name, e) <> "\n") >> abortSavepoint db name
         _ -> abortSavepoint db name
     ) $ \_ -> action
 
