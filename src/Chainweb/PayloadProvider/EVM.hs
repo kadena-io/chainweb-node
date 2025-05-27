@@ -532,17 +532,6 @@ withEvmPayloadProvider logger c rdb mgr conf
   where
     pldStoreLogger = addLabel ("sub-component", "payloadStore") logger
 
-payloadListener :: (Logger logger, HasVersion) => EvmPayloadProvider logger -> IO ()
-payloadListener p = case (_evmMinerAddress p) of
-    Nothing -> do
-        lf Info "New payload creation is disabled."
-        return ()
-    Just addr -> runForeverThrottled lf "EVM Provider Payload Listener" 5 10000 $ do
-        lf Info $ "Start payload listener with miner address " <> toText addr
-        awaitNewPayload p
-  where
-    lf = loggS p "payloadListener"
-
 -- | Checks the availability of the Execution Client
 --
 -- - asserts API availability
@@ -581,6 +570,48 @@ checkExecutionClient logger c ctx expectedEcid = do
             return h
   where
     expectedGenesisHeader = genesisBlockPayloadHash (_chainId c)
+
+-- -------------------------------------------------------------------------- --
+-- Payload Listener
+
+-- | Base rate for new payload requests.
+--
+newPayloadRate :: Int
+newPayloadRate = 1_000_000
+
+newPayloadBurst :: Int
+newPayloadBurst = 4
+
+-- | minimum delay between requests for new payloads
+--
+newPayloadMinDelay :: Int
+newPayloadMinDelay = 10_000
+
+-- | If we don't receive a new payload ID with this time, we assume that the
+-- EVM is not available and log an error. This is implemented in the
+-- 'awaitNewPayload' function.
+--
+-- FIXME: consider raising an actual error.
+--
+newPayloadTimeout :: Int
+newPayloadTimeout = 30_000_000
+
+-- | Scheduler for listening for new payloads.
+--
+payloadListener :: (Logger logger, HasVersion) => EvmPayloadProvider logger -> IO ()
+payloadListener p = case (_evmMinerAddress p) of
+    Nothing -> do
+        lf Info "New payload creation is disabled."
+        return ()
+    Just addr -> runForeverThrottled lf "EVM Provider Payload Listener" 5 (int newPayloadRate) $ do
+        lf Info $ "Start payload listener with miner address " <> toText addr
+
+        -- This is small delay compared to the base rate. So we just always add
+        -- it. It is only relevant during bursts.
+        threadDelay $ int newPayloadMinDelay
+        awaitNewPayload p
+  where
+    lf = loggS p "payloadListener"
 
 -- -------------------------------------------------------------------------- --
 -- Engine Calls
@@ -827,12 +858,6 @@ data EvmNewPayloadExeception
 
 instance Exception EvmNewPayloadExeception
 
-newPayloadRate :: Int
-newPayloadRate = 1_000_000
-
-newPayloadTimeout :: Int
-newPayloadTimeout = 30_000_000
-
 -- | If a payload id is available, new payloads for it.
 --
 -- This is called only if payload creation is enabled in the configuration.
@@ -842,14 +867,16 @@ awaitNewPayload p = do
     lf Debug "await new payload ID"
     awaitPid >>= \case
         Nothing -> do
-            lf Warn "timeout while waiting for new payloadID"
+            lf Error "timeout while waiting for new payloadID"
 
             -- DEBUG
             T2 state bctx <- stateIO p
             pld <- latestPayloadIO p
-            lf Warn $ briefJson state
-            lf Warn $ briefJson bctx
-            lf Warn $ briefJson pld
+
+            lf Warn $ "timeout while waiting for new payloadID"
+                <> "consensus state: " <> briefJson state
+                <> "new block ctx: " <> briefJson bctx
+                <> "latest payload: " <> briefJson pld
             -- FIXME
             -- We are probalby stuck. What can we do? Call forkchoiceUpdate
             -- again? Or we just do nothing? Maybe it should be the job of
@@ -909,7 +936,6 @@ awaitNewPayload p = do
             Just (T2 curEvmBlockHash _)
                 | curEvmBlockHash == newEvmBlockHash -> do
                     lf Info $ "the new execution payload is the same as the current payload. No update."
-                    return ()
             x -> do
                 lf Debug $ "checking new execution payload for " <> toText pid
                     <> "; execution payload: " <> briefJson resp
@@ -949,7 +975,7 @@ awaitNewPayload p = do
                 lf Info $ "got new payload " <> briefJson pld
 
                 -- The actual payload header is included in the NewBlock
-                -- structure in as EncodedPayloadData.
+                -- structure as EncodedPayloadData.
                 lf Debug $ "write new payload to payload var for evm hash " <> briefJson newEvmBlockHash
                 atomically $ writeTMVar (_evmPayloadVar p) $ T2 newEvmBlockHash NewPayload
                     { _newPayloadTxCount = int $ length (_executionPayloadV1Transactions v1)
@@ -965,7 +991,6 @@ awaitNewPayload p = do
                     , _newPayloadEncodedPayloadData = Just (EncodedPayloadData $ putRlpByteString pld)
                     , _newPayloadChainId = cid
                     }
-        threadDelay newPayloadRate
 
 executionPayloadV3ToHeader
     :: Chainweb.BlockHash
