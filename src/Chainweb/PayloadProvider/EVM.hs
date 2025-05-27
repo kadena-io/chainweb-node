@@ -649,6 +649,7 @@ forkchoiceUpdate
     -> IO (Maybe PayloadId)
 forkchoiceUpdate p t fcs attr = go t
   where
+    request = ForkchoiceUpdatedV3Request fcs attr
     lf = loggS p "forkchoiceUpdate"
     waitTime = Micros 500_000
     go remaining
@@ -656,10 +657,13 @@ forkchoiceUpdate p t fcs attr = go t
             lf Warn $ "forkchoiceUpdate timed out while EVM is syncing"
             throwM $ ForkchoiceUpdatedTimeoutException t
         | otherwise = do
-            lf Info $ briefJson (ForkchoiceUpdatedV3Request fcs attr)
+            lf Info $ briefJson $ object
+                [ "remainingTime" .= remaining
+                , "request" .= request
+                ]
             r <- try @_ @(RPC.Error EngineServerErrors EngineErrors) $
                 RPC.callMethodHttp @Engine_ForkchoiceUpdatedV3 (_evmEngineCtx p)
-                    (ForkchoiceUpdatedV3Request fcs attr)
+                    request
             case r of
                 Right s -> case _forkchoiceUpdatedV1ResponsePayloadStatus s of
 
@@ -692,7 +696,8 @@ forkchoiceUpdate p t fcs attr = go t
                     -- latest hash will be the requested hash and payload production
                     -- is initiated if it was requested.
                     --
-                    PayloadStatusV1 Valid (Just _) Nothing ->
+                    PayloadStatusV1 Valid (Just _) Nothing -> do
+                        lf Info "forkchoiceUpdate succeeded with VALID status"
                         return (_forkchoiceUpdatedV1ResponsePayloadId s)
 
                     -- FIXME:
