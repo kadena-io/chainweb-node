@@ -117,15 +117,7 @@ withPactPayloadProvider
     -> ResourceT IO (PactPayloadProvider logger tbl)
 withPactPayloadProvider cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
-    (_, readOnlySqlPool) <- allocate
-        (Pool.newPool $ Pool.defaultPoolConfig
-            (startReadSqliteDb cid logger pactDbDir)
-            stopSqliteDb
-            10 -- seconds to keep them around unused
-            2 -- connections at most
-            & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
-        )
-        Pool.destroyAllResources
+    readOnlySqlPool <- withReadSqlitePool cid pactDbDir
     PactPayloadProvider logger <$>
         PactService.withPactService cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
         (maybe GenesisNotNeeded GenesisPayload maybeGenesisPayload)

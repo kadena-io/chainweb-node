@@ -51,15 +51,12 @@ module Chainweb.Pact.Backend.Utils
   , convSavepointName
   -- * SQLite runners
   , withSqliteDb
-  , withReadSqliteDb
   , withReadSqlitePool
   , startSqliteDb
-  , startReadSqliteDb
   , stopSqliteDb
   , withSQLiteConnection
   , openSQLiteConnection
   , closeSQLiteConnection
-  , withTempSQLiteConnection
   -- * SQLite
   , chainwebPragmas
   , LocatedSQ3Error(..)
@@ -164,6 +161,7 @@ withSavepoint db name action = fmap fst $ generalBracket
     (liftIO $ beginSavepoint db name)
     (\_ -> liftIO . \case
         ExitCaseSuccess {} -> commitSavepoint db name
+        ExitCaseException e -> appendFile "BAD" (show (name, e) <> "\n") >> abortSavepoint db name
         _ -> abortSavepoint db name
     ) $ \_ -> action
 
@@ -263,20 +261,10 @@ withSqliteDb cid logger dbDir resetDb = snd <$> allocate
     (startSqliteDb cid logger dbDir resetDb)
     stopSqliteDb
 
-withReadSqliteDb
-    :: Logger logger
-    => ChainId
-    -> logger
-    -> FilePath
-    -> ResourceT IO SQLiteEnv
-withReadSqliteDb cid logger dbDir = snd <$> allocate
-    (startReadSqliteDb cid logger dbDir)
-    stopSqliteDb
-
 withReadSqlitePool :: ChainId -> FilePath -> ResourceT IO (Pool.Pool SQLiteEnv)
 withReadSqlitePool cid pactDbDir = snd <$> allocate
     (Pool.newPool $ Pool.defaultPoolConfig
-        (openSQLiteConnection (pactDbDir </> chainDbFileName cid) chainwebPragmas)
+        (openSQLiteConnection (pactDbDir </> chainDbFileName cid) [sqlite_open_readonly, sqlite_open_fullmutex] chainwebPragmas)
         stopSqliteDb
         30 -- seconds to keep them around unused
         2 -- connections at most
@@ -294,21 +282,9 @@ startSqliteDb cid logger dbDir doResetDb = do
     when doResetDb resetDb
     createDirectoryIfMissing True dbDir
     logFunctionText logger Debug $ "opening sqlitedb named " <> T.pack sqliteFile
-    openSQLiteConnection sqliteFile chainwebPragmas
+    openSQLiteConnection sqliteFile [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex] chainwebPragmas
   where
     resetDb = removeDirectoryRecursive dbDir
-    sqliteFile = dbDir </> chainDbFileName cid
-
-startReadSqliteDb
-    :: Logger logger
-    => ChainId
-    -> logger
-    -> FilePath
-    -> IO SQLiteEnv
-startReadSqliteDb cid logger dbDir = do
-    logFunctionText logger Debug $ "(read-only) opening sqlitedb named " <> T.pack sqliteFile
-    openSQLiteConnection sqliteFile chainwebPragmas
-  where
     sqliteFile = dbDir </> chainDbFileName cid
 
 chainDbFileName :: ChainId -> FilePath
@@ -321,12 +297,12 @@ chainDbFileName cid = fold
 stopSqliteDb :: SQLiteEnv -> IO ()
 stopSqliteDb = closeSQLiteConnection
 
-withSQLiteConnection :: String -> [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withSQLiteConnection :: String -> [Pact4.Pragma] -> ResourceT IO SQLiteEnv
 withSQLiteConnection file ps =
-    bracket (openSQLiteConnection file ps) closeSQLiteConnection
+    snd <$> allocate (openSQLiteConnection file [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex] ps) closeSQLiteConnection
 
-openSQLiteConnection :: String -> [Pact4.Pragma] -> IO SQLiteEnv
-openSQLiteConnection file ps = open2 file >>= \case
+openSQLiteConnection :: String -> [SQLiteFlag] -> [Pact4.Pragma] -> IO SQLiteEnv
+openSQLiteConnection file flags ps = open2 file flags >>= \case
     Left (err, msg) ->
       error $
       "withSQLiteConnection: Can't open db with "
@@ -338,19 +314,10 @@ openSQLiteConnection file ps = open2 file >>= \case
 closeSQLiteConnection :: SQLiteEnv -> IO ()
 closeSQLiteConnection c = void $ close_v2 c
 
--- passing the empty string as filename causes sqlite to use a temporary file
--- that is deleted when the connection is closed. In practice, unless the database becomes
--- very large, the database will reside memory and no data will be written to disk.
---
--- Cf. https://www.sqlite.org/inmemorydb.html
---
-withTempSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
-withTempSQLiteConnection = withSQLiteConnection ""
-
-open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
-open2 file = open_v2
+open2 :: String -> [SQLiteFlag] -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
+open2 file flags = open_v2
     (fromString file)
-    (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex])
+    (collapseFlags flags)
     Nothing -- Nothing corresponds to the nullPtr
 
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
@@ -358,9 +325,11 @@ collapseFlags xs =
     if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
     else Prelude.foldr1 (.|.) xs
 
-sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
+sqlite_open_readwrite, sqlite_open_readonly, sqlite_open_create, sqlite_open_fullmutex, sqlite_open_nomutex :: SQLiteFlag
+sqlite_open_readonly = 0x00000001
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
+sqlite_open_nomutex = 0x00008000
 sqlite_open_fullmutex = 0x00010000
 
 tbl :: HasCallStack => Utf8 -> Utf8
