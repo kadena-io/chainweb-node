@@ -621,12 +621,15 @@ randomWork logFun cdb caches parentStateVars = do
         --
         timeoutVar <- registerDelay (int staleMiningStateDelay)
         w <- atomically $
-            Right <$> msum (imap awaitWorkReady parentStateVars) <|> awaitTimeout timeoutVar
+            Right <$> msum (imap awaitWorkReady parentStateVars)
+            <|> awaitTimeout timeoutVar
         case w of
             Right (ps, npld) -> do
                 ct <- BlockCreationTime <$> getCurrentTimeIntegral
                 return $ newWork ct ps (_newPayloadBlockPayloadHash npld)
-            Left e -> error (T.unpack e) -- FIXME: throw a proper exception and log what is going on
+            Left e -> error $
+                "Chainweb.Miner.Coordinator.randomWork: " <> T.unpack e
+                -- FIXME: throw a proper exception and log what is going on
 
     go ((cid, var):t) = do
         readyCheck <- atomically $
