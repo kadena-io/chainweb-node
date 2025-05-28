@@ -64,7 +64,7 @@ import GHC.TypeLits
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Types as HTTP
 import qualified Data.ByteString.Lazy as BL
-import Chainweb.Utils (EncodingException(DecodeException))
+import Chainweb.Utils (EncodingException(DecodeException), encodeB64UrlNoPaddingText)
 import Data.Typeable (Typeable)
 import System.Random (randomRIO)
 import Network.URI
@@ -365,7 +365,9 @@ callMethodHttp ctx m = do
                 (BL.toStrict $ HTTP.responseBody resp)
     case eitherDecode $ HTTP.responseBody resp of
         Left e -> throwM $ DecodeException
-            $ T.pack e <> " -- " <> T.decodeUtf8 (BL.toStrict (HTTP.responseBody resp))
+            $ T.pack e <> " -- " <> case T.decodeUtf8' (BL.toStrict (HTTP.responseBody resp)) of
+                Left _ -> "binary response body: " <> encodeB64UrlNoPaddingText (BL.toStrict $ HTTP.responseBody resp)
+                Right t -> "response body: " <> t
         Right (Response _ r :: JsonRpcResponse m) -> case r of
             Left e -> throwM e
             Right v -> return v
