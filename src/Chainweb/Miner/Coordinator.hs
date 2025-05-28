@@ -246,8 +246,8 @@ awaitLatestPayloadForParentStateSTM payloadCache parentState = do
 
 instance Brief ParentState where
     brief ParentState{..} =
-            "ParentState:" <> brief parentStateParents
-            <> ":solved=" <> brief parentStateSolved
+        "ParentState:" <> brief parentStateParents
+        <> ":solved=" <> brief parentStateSolved
 
 -- -------------------------------------------------------------------------- --
 -- Mining State
@@ -300,7 +300,14 @@ updateForCut lf hdb ms c = do
                             , parentStateSolved = Nothing
                             }
 
-updateForSolved :: HasVersion => LogFunction -> CutDb -> PayloadCache -> TVar (Maybe ParentState) -> SolvedWork -> IO ()
+updateForSolved
+    :: HasVersion
+    => LogFunction
+    -> CutDb
+    -> PayloadCache
+    -> TVar (Maybe ParentState)
+    -> SolvedWork
+    -> IO ()
 updateForSolved lf cdb payloadCache var sw = do
     stateOrErr <- runExceptT $ do
         solvedParentState <- mapExceptT atomically $ do
@@ -542,11 +549,17 @@ awaitEvent cdb caches c p =
 --
 -- 1.  mining is disableled for some payload providers,
 -- 2.  consensus did not request new payloads from providers in the latest
---    'syncToBlock' calls,
--- 3. some payload providers are deadlocked, or
--- 4. some payload providers are very slow in producing new payloads.
+--     'syncToBlock' calls,
+-- 3.  some payload providers are deadlocked, or
+-- 4.  some payload providers are very slow in producing new payloads.
 --
-randomWork :: HasVersion => LogFunction -> CutDb -> PayloadCaches -> ChainMap (TVar (Maybe ParentState)) -> IO MiningWork
+randomWork
+    :: HasVersion
+    => LogFunction
+    -> CutDb
+    -> PayloadCaches
+    -> ChainMap (TVar (Maybe ParentState))
+    -> IO MiningWork
 randomWork logFun cdb caches parentStateVars = do
 
     -- Pick a random chain.
@@ -577,7 +590,10 @@ randomWork logFun cdb caches parentStateVars = do
     let (s0, s1) = splitAt n (itoList parentStateVars)
     go (s1 <> s0)
   where
-    awaitWorkReady :: ChainId -> TVar (Maybe ParentState) -> STM (WorkParents, NewPayload)
+    awaitWorkReady
+        :: ChainId
+        -> TVar (Maybe ParentState)
+        -> STM (WorkParents, NewPayload)
     awaitWorkReady cid var = do
         parentState <- maybe retry return =<< readTVar var
         guard (isNothing $ parentStateSolved parentState)
