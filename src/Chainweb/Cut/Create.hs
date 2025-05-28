@@ -143,6 +143,7 @@ import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Streaming as S
+import Chainweb.Ranked (Ranked(_rankedHeight))
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -1051,7 +1052,7 @@ limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h (unsafeMkCut ch)
 lastGraphChangeInCut :: HasVersion => CutHashes -> BlockHeight
 lastGraphChangeInCut c =
     maximum $
-        lastGraphChange . _bhwhHeight <$> (_cutHashes c)
+        lastGraphChange . _rankedHeight <$> (_cutHashes c)
 
 -- | This is a mixed transition cut, and thus has no unique chain graph.  Such a
 -- cut may have invalid braiding according to *either* the pre- or post-
@@ -1061,7 +1062,7 @@ cutMixedTransition c =
     let
         lgc = lastGraphChangeInCut c
     in
-        any ((< lgc) . _bhwhHeight) (_cutHashes c)
+        any ((< lgc) ._rankedHeight) (_cutHashes c)
 
 prioritizeHeavier :: Cut -> Cut -> DiffItem BlockHeader -> NonEmpty BlockHeader
 prioritizeHeavier = prioritizeHeavier_ `on` _cutHeaders

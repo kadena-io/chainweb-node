@@ -246,6 +246,7 @@ import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Hash as Pact5
 import qualified Pact.Core.Gas as Pact
+import Chainweb.Ranked (Ranked(_rankedHeight))
 
 -- -------------------------------------------------------------------------- --
 
@@ -964,7 +965,7 @@ awaitBlockHeight cenv i = do
     case result of
         Left e -> throwM e
         Right x
-            | all (\bh -> _bhwhHeight bh >= i) (_cutHashes x) -> return ()
+            | all (\bh -> _rankedHeight bh >= i) (_cutHashes x) -> return ()
             | otherwise -> error
                 $ "retries exhausted: waiting for cut height " <> sshow i
                 <> " but only got " <> sshow (_cutHashesHeight x)
@@ -972,7 +973,7 @@ awaitBlockHeight cenv i = do
     checkRetry _ (Left _)
         = return True
     checkRetry _ (Right c)
-        = return $ any (\bh -> _bhwhHeight bh < i) (_cutHashes c)
+        = return $ any (\bh -> _rankedHeight bh < i) (_cutHashes c)
 
 runTestNodes
     :: Logger logger

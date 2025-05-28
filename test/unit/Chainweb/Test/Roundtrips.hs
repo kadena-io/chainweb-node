@@ -297,7 +297,7 @@ jsonTestCases f =
     , testProperty "Probability" $ f @Probability
     , testProperty "LogFilterRule" $ f @LogFilterRule
     , testProperty "LogFilter" $ f @LogFilter
-    , testProperty "BlockHashWithHeight" $ f @BlockHashWithHeight
+    , testProperty "Ranked BlockHash" $ f @(Ranked BlockHash)
     , testProperty "CutId" $ f @CutId
     -- , testProperty "CutHashes" $ withVersion mainnet $ f @CutHashes
     , testProperty "NodeVersion" $ f @NodeVersion

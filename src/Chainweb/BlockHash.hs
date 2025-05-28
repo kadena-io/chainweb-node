@@ -77,12 +77,12 @@ module Chainweb.BlockHash
 ) where
 
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
 
 import Data.Aeson
-    (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
+    (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText, object, KeyValue, withObject, (.=), pairs, (.:))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bifoldable
 import Data.ByteString.Short qualified as SB
@@ -336,3 +336,22 @@ encodeRankedBlockHash = encodeRanked encodeBlockHash
 
 decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = decodeRanked decodeBlockHash
+
+blockHashWithHeightProperties :: KeyValue e kv => RankedBlockHash -> [kv]
+blockHashWithHeightProperties o =
+    [ "height" .= _rankedBlockHashHeight o
+    , "hash" .= _rankedBlockHashHash o
+    ]
+{-# INLINE blockHashWithHeightProperties #-}
+
+instance ToJSON RankedBlockHash where
+    toJSON = object . blockHashWithHeightProperties
+    toEncoding = pairs . mconcat . blockHashWithHeightProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON RankedBlockHash where
+    parseJSON = withObject "HashWithHeight" $ \o -> RankedBlockHash
+        <$> o .: "height"
+        <*> o .: "hash"
+    {-# INLINE parseJSON #-}

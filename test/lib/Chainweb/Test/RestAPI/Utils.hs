@@ -45,11 +45,12 @@ import Servant.Client
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
+import Chainweb.Cut.CutHashes (_cutHashes)
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Types
+import Chainweb.Ranked
 import Chainweb.Version
 import Chainweb.Test.Utils
 
@@ -257,7 +258,7 @@ getCurrentBlockHeight :: HasVersion => ClientEnv -> ChainId -> IO BlockHeight
 getCurrentBlockHeight cenv cid =
   runClientM cutGetClient cenv >>= \case
     Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
-    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
+    Right cuts -> return $ fromJust $ _rankedHeight <$> HM.lookup cid (_cutHashes cuts)
 
 clientErrorStatusCode :: ClientError -> Maybe Int
 clientErrorStatusCode = \case

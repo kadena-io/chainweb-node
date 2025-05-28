@@ -120,9 +120,6 @@ deriving
     via (BriefText (CryptoHash a))
     instance (IncrementalHash a, Coercible a BS.ShortByteString) => Brief (CryptoHash a)
 
-instance Brief BlockHashWithHeight where
-    brief a = brief (_bhwhHeight a) <> ":" <> brief (_bhwhHash a)
-
 instance Brief CutHashes where
     brief c = T.intercalate ":"
         [ brief (_cutHashesId c)

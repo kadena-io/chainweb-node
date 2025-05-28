@@ -71,6 +71,7 @@ data Ranked a = Ranked
     deriving anyclass (Hashable, NFData)
 makeLenses ''Ranked
 
+
 encodeRanked :: (a -> Put) -> Ranked a -> Put
 encodeRanked putA (Ranked r a) = do
     encodeBlockHeightBe r -- big endian encoding for lexicographical order

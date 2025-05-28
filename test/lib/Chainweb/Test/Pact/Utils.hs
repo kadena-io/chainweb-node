@@ -83,14 +83,6 @@ withBlockDbs rdb = do
     let payloadDb = newPayloadDb rdb
     return (payloadDb, webBHDb)
 
--- | Internal. See https://www.sqlite.org/c3ref/open.html
-withSQLiteResource
-    :: String
-    -> ResourceT IO SQLiteEnv
-withSQLiteResource file = snd <$> allocate
-    (openSQLiteConnection file chainwebPragmas)
-    closeSQLiteConnection
-
 withMempool
     :: (Logger logger)
     => HasVersion

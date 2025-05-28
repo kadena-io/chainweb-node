@@ -160,6 +160,7 @@ import Data.TaskMap qualified as TM
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
+import Chainweb.Ranked
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -520,7 +521,7 @@ lookupCutHashes
     -> CutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
 lookupCutHashes wbhdb hs =
-    flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
+    flip itraverse (_cutHashes hs) $ \cid (Ranked _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
 
 cutAvgBlockHeight :: HasVersion => Cut -> BlockHeight
@@ -653,7 +654,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
     --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
+        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _rankedHeight) . _cutHashes)) curHashes x
         when r $ loggCutId logFun Debug x "skip old cut"
         return r
 
@@ -810,8 +811,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
         let localPayload = _cutHashesLocalPayload hs
 
         (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-            & S.map (fmap _bhwhHash)
-            & S.mapM (tryGetBlockHeader hdrs plds localPayload)
+            & S.mapM (\(cid, bh) -> tryGetBlockHeader hdrs plds localPayload $ (cid, bh))
             & S.partitionEithers
             & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
             & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -844,6 +844,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
             cid
             priority
             origin
+            . _ranked
         `catch` \case
             (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                 return (Left cv)

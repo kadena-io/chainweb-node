@@ -41,7 +41,6 @@ module Chainweb.Cut.CutHashes
 , HasCutId(..)
 
 -- * CutHashes
-, BlockHashWithHeight(..)
 , CutHashes(..)
 , cutHashes
 , cutHashesId
@@ -95,12 +94,12 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs(..))
+import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.Registry
-import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs(..))
 
 import P2P.Peer
 
@@ -222,32 +221,6 @@ instance HasCutId CutId where
 -- -------------------------------------------------------------------------- --
 -- Cut Hashes
 
-data BlockHashWithHeight = BlockHashWithHeight
-    { _bhwhHeight :: !BlockHeight
-    , _bhwhHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-
-blockHashWithHeightProperties :: KeyValue e kv => BlockHashWithHeight -> [kv]
-blockHashWithHeightProperties o =
-    [ "height" .= _bhwhHeight o
-    , "hash" .= _bhwhHash o
-    ]
-{-# INLINE blockHashWithHeightProperties #-}
-
-instance ToJSON BlockHashWithHeight where
-    toJSON = object . blockHashWithHeightProperties
-    toEncoding = pairs . mconcat . blockHashWithHeightProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
-
-instance FromJSON BlockHashWithHeight where
-    parseJSON = withObject "HashWithHeight" $ \o -> BlockHashWithHeight
-        <$> o .: "height"
-        <*> o .: "hash"
-    {-# INLINE parseJSON #-}
-
 -- | This data structure is used to inform other components and chainweb nodes
 -- about new cuts along with some properties of the cut.
 --
@@ -269,7 +242,7 @@ instance FromJSON BlockHashWithHeight where
 -- though.
 --
 data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId BlockHashWithHeight)
+    { _cutHashes :: !(HM.HashMap ChainId RankedBlockHash)
     , _cutOrigin :: !(Maybe PeerInfo)
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
@@ -300,7 +273,7 @@ makeLenses ''CutHashes
 -- | Complexity is linear in the number of chains
 --
 _cutHashesMaxHeight :: CutHashes -> BlockHeight
-_cutHashesMaxHeight = maximum . fmap _bhwhHeight . _cutHashes
+_cutHashesMaxHeight = maximum . fmap _rankedHeight . _cutHashes
 {-# INLINE _cutHashesMaxHeight #-}
 
 cutHashesMaxHeight :: Getter CutHashes BlockHeight
@@ -310,7 +283,7 @@ cutHashesMaxHeight = to _cutHashesMaxHeight
 -- | Complexity is linear in the number of chains
 --
 _cutHashesMinHeight :: CutHashes -> BlockHeight
-_cutHashesMinHeight = minimum . fmap _bhwhHeight . _cutHashes
+_cutHashesMinHeight = minimum . fmap _rankedHeight . _cutHashes
 {-# INLINE _cutHashesMinHeight #-}
 
 cutHashesMinHeight :: Getter CutHashes BlockHeight
@@ -381,7 +354,7 @@ instance HasVersion => FromJSON CutHashes where
 --
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
-    { _cutHashes = (\x -> BlockHashWithHeight (view blockHeight x) (view blockHash x)) <$> _cutMap c
+    { _cutHashes = view rankedBlockHash <$> _cutMap c
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c
