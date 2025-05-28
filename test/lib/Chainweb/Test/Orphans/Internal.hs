@@ -42,18 +42,18 @@ module Chainweb.Test.Orphans.Internal
 , arbitraryMerkleHeaderProof
 , arbitraryMerkleBodyProof
 
--- ** Output Proofs
-, arbitraryOutputMerkleProof
-, arbitraryOutputProof
-, mkTestOutputProof
-, arbitraryOutputEvents
-, arbitraryPayloadWithStructuredOutputs
+-- -- ** Output Proofs
+-- , arbitraryOutputMerkleProof
+-- , arbitraryOutputProof
+-- , mkTestOutputProof
+-- , arbitraryOutputEvents
+-- -- , arbitraryPayloadWithStructuredOutputs
 
 -- ** Events Proofs
-, mkTestEventsProof
-, arbitraryEventsProof
-, EventPactValue(..)
-, ProofPactEvent(..)
+-- , mkTestEventsProof
+-- , arbitraryEventsProof
+-- , EventPactValue(..)
+-- , ProofPactEvent(..)
 
 -- ** Misc
 , arbitraryPage
@@ -691,69 +691,69 @@ hasHeader mlog = case go (sing @N @i) mlog of
 -- -------------------------------------------------------------------------- --
 -- Output MerkleProofs / Netsted Merkle Proof
 
-arbitraryPayloadWithStructuredOutputs :: Gen (V.Vector RequestKey, PayloadWithOutputs)
-arbitraryPayloadWithStructuredOutputs = resize 10 $ do
-    txs <- V.fromList . L.nubBy ((==) `on` _crReqKey . snd)
-        <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
-    payloads <- newPayloadWithOutputs
-        <$> arbitrary
-        <*> arbitrary
-        -- TODO: PP
-        <*> pure (fmap (TransactionOutput . J.encodeStrict . fmap (pactErrorToOnChainError . fmap spanInfoToLineInfo)) <$> txs)
-    return (_crReqKey . snd <$> txs, payloads)
-  where
-    genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
+-- arbitraryPayloadWithStructuredOutputs :: Gen (V.Vector RequestKey, PayloadWithOutputs)
+-- arbitraryPayloadWithStructuredOutputs = resize 10 $ do
+--     txs <- V.fromList . L.nubBy ((==) `on` _crReqKey . snd)
+--         <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
+--     payloads <- newPayloadWithOutputs
+--         <$> arbitrary
+--         <*> arbitrary
+--         -- TODO: PP
+--         <*> pure (fmap (TransactionOutput . J.encodeStrict . fmap (pactErrorToOnChainError . fmap spanInfoToLineInfo)) <$> txs)
+--     return (_crReqKey . snd <$> txs, payloads)
+--   where
+--     genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
 
--- | This creates proof over payloads that contain arbitrary bytestrings.
---
-arbitraryOutputMerkleProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => Gen (MerkleProof a)
-arbitraryOutputMerkleProof = do
-    (p, s) <- genPayload
-    idx <- choose (0, s - 1)
-    case outputMerkleProofByIdx @a p idx of
-        Left e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryBlockOutputsMerkleProof: " <> show e
-        Right x -> return x
-  where
-    -- this uses the default chainweb hash
-    genPayload = suchThatMap (arbitrary @PayloadWithOutputs) $ \p ->
-        let s = V.length (_payloadWithOutputsTransactions p)
-        in (p, s) <$ guard (s > 0)
+-- -- | This creates proof over payloads that contain arbitrary bytestrings.
+-- --
+-- arbitraryOutputMerkleProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => Gen (MerkleProof a)
+-- arbitraryOutputMerkleProof = do
+--     (p, s) <- genPayload
+--     idx <- choose (0, s - 1)
+--     case outputMerkleProofByIdx @a p idx of
+--         Left e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryBlockOutputsMerkleProof: " <> show e
+--         Right x -> return x
+--   where
+--     -- this uses the default chainweb hash
+--     genPayload = suchThatMap (arbitrary @PayloadWithOutputs) $ \p ->
+--         let s = V.length (_payloadWithOutputsTransactions p)
+--         in (p, s) <$ guard (s > 0)
 
-arbitraryOutputProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => Gen (PayloadProof a)
-arbitraryOutputProof = do
-    (ks, p) <- genPayload
-    k <- elements $ V.toList ks
-    return $ mkTestOutputProof p k
-  where
-    -- this uses the default chainweb hash
-    genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
-        V.length (_payloadWithOutputsTransactions p) > 0
+-- arbitraryOutputProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => Gen (PayloadProof a)
+-- arbitraryOutputProof = do
+--     (ks, p) <- genPayload
+--     k <- elements $ V.toList ks
+--     return $ mkTestOutputProof p k
+--   where
+--     -- this uses the default chainweb hash
+--     genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
+--         V.length (_payloadWithOutputsTransactions p) > 0
 
-mkTestOutputProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => HasCallStack
-    => PayloadWithOutputs
-    -> RequestKey
-    -> PayloadProof a
-mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
+-- mkTestOutputProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => HasCallStack
+--     => PayloadWithOutputs
+--     -> RequestKey
+--     -> PayloadProof a
+-- mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
 
-instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
-    arbitrary = arbitraryOutputProof
+-- instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
+--     arbitrary = arbitraryOutputProof
 
--- | This creates proof over payloads that contain arbitrary bytestrings.
---
--- TODO: use a more complex nested proof here, like the ones that occur in
--- cross chain SPV proofs.
---
-instance MerkleHashAlgorithm a => Arbitrary (MerkleProof a) where
-    arbitrary = arbitraryOutputMerkleProof
+-- -- | This creates proof over payloads that contain arbitrary bytestrings.
+-- --
+-- -- TODO: use a more complex nested proof here, like the ones that occur in
+-- -- cross chain SPV proofs.
+-- --
+-- instance MerkleHashAlgorithm a => Arbitrary (MerkleProof a) where
+--     arbitrary = arbitraryOutputMerkleProof
 
 -- -------------------------------------------------------------------------- --
 -- Events Merkle Proofs
@@ -767,18 +767,18 @@ mkTestEventsProof
     -> PayloadProof a
 mkTestEventsProof p reqKey = unsafePerformIO $ createEventsProof_ @a p reqKey
 
-arbitraryEventsProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => Gen (PayloadProof a)
-arbitraryEventsProof = do
-    (ks, p) <- genPayload
-    k <- elements $ V.toList ks
-    return $ mkTestEventsProof p k
-  where
-    -- this uses the default chainweb hash
-    genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
-        V.length (_payloadWithOutputsTransactions p) > 0
+-- arbitraryEventsProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => Gen (PayloadProof a)
+-- arbitraryEventsProof = do
+--     (ks, p) <- genPayload
+--     k <- elements $ V.toList ks
+--     return $ mkTestEventsProof p k
+--   where
+--     -- this uses the default chainweb hash
+--     genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
+--         V.length (_payloadWithOutputsTransactions p) > 0
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -851,22 +851,22 @@ arbitraryEventPactValue = oneof
     , PLiteral . LInteger <$> (int256ToInteger <$> arbitrary)
     ]
 
--- | Arbitrary Pact events that are supported in events proofs
---
-arbitraryProofPactEvent :: Gen (PactEvent PactValue)
-arbitraryProofPactEvent = PactEvent
-    <$> arbitrary
-    <*> listOf arbitraryEventPactValue
-    <*> arbitrary
-    <*> arbitrary
+-- -- | Arbitrary Pact events that are supported in events proofs
+-- --
+-- arbitraryProofPactEvent :: Gen (PactEvent PactValue)
+-- arbitraryProofPactEvent = PactEvent
+--     <$> arbitrary
+--     <*> listOf arbitraryEventPactValue
+--     <*> arbitrary
+--     <*> arbitrary
 
-arbitraryOutputEvents :: Gen OutputEvents
-arbitraryOutputEvents = OutputEvents
-    <$> arbitrary
-    <*> (V.fromList <$> listOf arbitraryProofPactEvent)
+-- arbitraryOutputEvents :: Gen OutputEvents
+-- arbitraryOutputEvents = OutputEvents
+--     <$> arbitrary
+--     <*> (V.fromList <$> listOf arbitraryProofPactEvent)
 
-instance Arbitrary OutputEvents where
-    arbitrary = arbitraryOutputEvents
+-- instance Arbitrary OutputEvents where
+--     arbitrary = arbitraryOutputEvents
 
 -- | Events that are supported in proofs
 --
@@ -880,8 +880,8 @@ instance ToJSON ProofPactEvent where
     toJSON = J.toJsonViaEncode . getProofPactEvent
     {-# INLINEABLE toJSON #-}
 
-instance Arbitrary ProofPactEvent where
-    arbitrary = ProofPactEvent . StableEncoding <$> arbitraryProofPactEvent
+-- instance Arbitrary ProofPactEvent where
+--     arbitrary = ProofPactEvent . StableEncoding <$> arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -903,26 +903,26 @@ instance Arbitrary EventPactValue where
 instance Arbitrary SpvAlgorithm where
     arbitrary = elements [SpvSHA512t_256, SpvKeccak_256]
 
-instance Arbitrary SpvSubjectIdentifier where
-    arbitrary = SpvSubjectIdentifier <$> arbitrary <*> arbitrary <*> arbitrary
+-- instance Arbitrary SpvSubjectIdentifier where
+--     arbitrary = SpvSubjectIdentifier <$> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary SpvSubjectType where
     arbitrary = elements [SpvSubjectResult, SpvSubjectEvents]
 
-instance Arbitrary SpvRequest where
-    arbitrary = SpvRequest <$> arbitrary <*> arbitrary
+-- instance Arbitrary SpvRequest where
+--     arbitrary = SpvRequest <$> arbitrary <*> arbitrary
 
-instance Arbitrary Spv2Request where
-    arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
+-- instance Arbitrary Spv2Request where
+--     arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
 
-instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
-    arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
+-- instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
+--     arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
 
-instance Arbitrary SomePayloadProof where
-    arbitrary = oneof
-        [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
-        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak256)
-        ]
+-- instance Arbitrary SomePayloadProof where
+--     arbitrary = oneof
+--         [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
+--         , SomePayloadProof <$> arbitrary @(PayloadProof Keccak256)
+--         ]
 
 -- Equality for SomePayloadProof is only used for testing. Using 'unsafeCoerce'
 -- is a bit ugly, but efficient and doesn't require changing production code.
@@ -939,11 +939,11 @@ instance Eq SomePayloadProof where
 instance Arbitrary MinerId where
     arbitrary = MinerId <$> arbitrary
 
-instance Arbitrary MinerGuard where
-    arbitrary = MinerGuard <$> arbitrary
+-- instance Arbitrary MinerGuard where
+--     arbitrary = MinerGuard <$> arbitrary
 
-instance Arbitrary Miner where
-    arbitrary = Miner <$> arbitrary <*> arbitrary
+-- instance Arbitrary Miner where
+--     arbitrary = Miner <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Mempool

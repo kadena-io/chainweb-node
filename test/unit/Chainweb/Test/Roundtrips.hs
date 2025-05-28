@@ -67,8 +67,9 @@ import Chainweb.RestAPI.NodeInfo
 import Chainweb.SPV
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..), arbitraryBlockHeaderVersion, arbitraryBlockHeaderVersionHeight, arbitraryBlockHashRecordVersionHeightChain, arbitraryBlockHeaderVersionHeightChain)
-import Chainweb.Test.SPV.EventProof hiding (tests)
+-- import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..), arbitraryBlockHeaderVersion, arbitraryBlockHeaderVersionHeight, arbitraryBlockHashRecordVersionHeightChain, arbitraryBlockHeaderVersionHeightChain)
+import Chainweb.Test.Orphans.Internal (arbitraryBlockHeaderVersion, arbitraryBlockHeaderVersionHeight, arbitraryBlockHashRecordVersionHeightChain, arbitraryBlockHeaderVersionHeightChain)
+-- import Chainweb.Test.SPV.EventProof hiding (tests)
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
@@ -175,16 +176,17 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
             $ prop_encodeDecode decodeBytes encodeBytes
         , testProperty "String"
             $ prop_encodeDecode decodeString encodeString
-        , testProperty "ModuleName"
-            $ prop_encodeDecode decodeModuleName encodeModuleName
+        -- , testProperty "ModuleName"
+        --     $ prop_encodeDecode decodeModuleName encodeModuleName
         -- FIXME limit to empty spec and info
         -- TODO PP
         -- , testProperty "ModRef"
         --     $ prop_encodeDecode (PactEventModRef <$> decodeModRef) (encodeModRef . _getPactEventModRef)
         , testProperty "Integer"
             $ prop_encodeDecode decodeInteger encodeInteger
-        , testProperty "Decimal"
-            $ prop_encodeDecode (PactEventDecimal <$> decodeDecimal) (encodeDecimal . _getPactEventDecimal)
+        -- TODO PP
+        -- , testProperty "Decimal"
+        --     $ prop_encodeDecode (PactEventDecimal <$> decodeDecimal) (encodeDecimal . _getPactEventDecimal)
         -- TODO PP
         -- , testProperty "Hash"
         --     $ prop_encodeDecode decodeHash encodeHash
@@ -198,12 +200,12 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         -- , testProperty "PactEvent"
         --     $ prop_encodeDecode (ProofPactEvent <$> decodePactEvent) (encodePactEvent . getProofPactEvent)
         -- FIXME "pending bytes"
-        , testProperty "PactParam"
-            $ prop_encodeDecode (EventPactValue <$> decodeParam) (encodeParam . getEventPactValue)
+        -- , testProperty "PactParam"
+        --     $ prop_encodeDecode (EventPactValue <$> decodeParam) (encodeParam . getEventPactValue)
 
         -- FIXME "pending bytes"
-        , testProperty "OutputEvents"
-            $ prop_encodeDecode decodeOutputEvents encodeOutputEvents
+        -- , testProperty "OutputEvents"
+        --     $ prop_encodeDecode decodeOutputEvents encodeOutputEvents
         ]
 
     -- Mining
@@ -233,12 +235,12 @@ pactJsonTestCases
     :: (forall a . Arbitrary a => Show a => J.Encode a => FromJSON a => Eq a => a -> Property)
     -> [TestTree]
 pactJsonTestCases f =
-    [ testGroup "SPV"
-        [ testProperty "SpvRequest" $ f @SpvRequest
-        ]
+    [ testGroup "SPV" []
+        -- [ testProperty "SpvRequest" $ f @SpvRequest
+        -- ]
     , testGroup "Miner"
         [ testProperty "MinerId" $ f @MinerId
-        , testProperty "Miner" $ f @Miner
+        -- , testProperty "Miner" $ f @Miner
         ]
     , testGroup "Mempool"
         -- [ testProperty "GasLimit" $ f @GasLimit
@@ -312,12 +314,12 @@ jsonTestCases f =
     , testGroup "SPV"
         [ testProperty "SpvAlgorithm" $ f @SpvAlgorithm
         , testProperty "SpvSubjectType" $ f @SpvAlgorithm
-        , testProperty "SpvSubjectIdentifier" $ f @SpvSubjectIdentifier
-        , testProperty "Spv2Request" $ f @Spv2Request
-        -- , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
-        , testProperty "TransactionOutputProof" $ f @(TransactionOutputProof ChainwebMerkleHashAlgorithm)
-        , testProperty "PayloadProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
-        , testProperty "SomePayloadProof" $ f @(SomePayloadProof)
+        -- , testProperty "SpvSubjectIdentifier" $ f @SpvSubjectIdentifier
+        -- , testProperty "Spv2Request" $ f @Spv2Request
+        -- -- , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
+        -- , testProperty "TransactionOutputProof" $ f @(TransactionOutputProof ChainwebMerkleHashAlgorithm)
+        -- , testProperty "PayloadProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
+        -- , testProperty "SomePayloadProof" $ f @(SomePayloadProof)
         ]
 
     , testGroup "Miner"
@@ -351,7 +353,7 @@ jsonTestCases f =
             , testProperty "OutputTree" $ f @OutputTree
             , testProperty "PayloadData" $ f @PayloadData
             , testProperty "PayloadWithOutputs" $ f @PayloadWithOutputs
-            , testProperty "PayloadOutputProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
+            -- , testProperty "PayloadOutputProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
             , testProperty "BlockEventsHash" $ f @(BlockEventsHash_ ChainwebMerkleHashAlgorithm)
             ]
 

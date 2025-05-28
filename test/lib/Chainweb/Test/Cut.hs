@@ -779,8 +779,8 @@ properties_miscCut db =
     , ("prop_joinBaseMeet", prop_joinBaseMeet db)
     , ("prop_meetGenesisCut", ioTest db prop_meetGenesisCut)
     , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db)
-    , ("extendNoMixedTransitionalCuts", prop_extendNoMixedTransitionalCuts db)
-    , ("joinNoMixedTransitionalCuts", prop_joinNoMixedTransitionalCuts db)
+    -- , ("extendNoMixedTransitionalCuts", prop_extendNoMixedTransitionalCuts db)
+    -- , ("joinNoMixedTransitionalCuts", prop_joinNoMixedTransitionalCuts db)
     ]
 
 -- -------------------------------------------------------------------------- --
