@@ -524,7 +524,7 @@ withEvmPayloadProvider logger c rdb mgr conf
         liftIO $ link listenerAsync
         liftIO $
             logg p Info $
-                "EVM payload provider started for Ethereum network id " <> sshow ecid
+                "EVM payload provider started for Ethereum network id " <> sshow (fromSNat ecid)
         return p
 
     | otherwise =
@@ -659,7 +659,8 @@ forkchoiceUpdate p t fcs attr = go t
         | otherwise = do
             lf Info $ briefJson $ object
                 [ "remainingTime" .= remaining
-                , "request" .= request
+                , "forkchoiceState" .= fcs
+                , "payloadAttributes" .= attr
                 ]
             r <- try @_ @(RPC.Error EngineServerErrors EngineErrors) $
                 RPC.callMethodHttp @Engine_ForkchoiceUpdatedV3 (_evmEngineCtx p)
@@ -743,9 +744,9 @@ forkchoiceUpdate p t fcs attr = go t
 
                 Left e -> throwM e
 
--- | Calls forkchoiceUpdate and update the provider state.
+-- | Calls forkchoiceUpdate and updates the provider state.
 --
--- NOTE: This must be called only for consensus state that have been validated
+-- NOTE: This must be called only for consensus states that have been validated
 -- against the evaluation context. In particular, this is the case for the
 -- @_evmState@ and for any payload in the payload db.
 --
@@ -774,6 +775,8 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
             lf Info $ "Consensus state lookup returned nothing for" <> briefJson state
             return ()
         Just fcs -> do
+            lf Info $ "Calling forkChoiceUpdate on state "
+                <> briefJson state <> " with " <> briefJson fcs
             pt <- parentTimestamp
             pid <- forkchoiceUpdate p forkchoiceUpdatedTimeout fcs (attr pt)
 
@@ -787,7 +790,12 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
             -- There is a race here: If we fail updating the variable
             -- the EVM is ahead. That could cause payload updates to
             -- fail and possibly stale mining.
-            lf Info "update state and payload ID variable"
+            lf Info $ "update state and payload ID variable"
+            lf Debug $ briefJson $ object
+                    [ "newState" .= state
+                    , "newBlockCtx" .= nctx
+                    , "newPayloadId" .= pid
+                    ]
             void $ atomically $ do
                 -- update state
                 writeTVar (_evmState p) (T2 state nctx)
