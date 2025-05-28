@@ -603,7 +603,7 @@ payloadListener p = case (_evmMinerAddress p) of
     Nothing -> do
         lf Info "New payload creation is disabled."
         return ()
-    Just addr -> runForeverThrottled lf "EVM Provider Payload Listener" 5 (int newPayloadRate) $ do
+    Just addr -> runForeverThrottled lf "EVM Provider Payload Listener" (int newPayloadBurst) (int newPayloadRate) $ do
         lf Info $ "Start payload listener with miner address " <> toText addr
 
         -- This is small delay compared to the base rate. So we just always add
