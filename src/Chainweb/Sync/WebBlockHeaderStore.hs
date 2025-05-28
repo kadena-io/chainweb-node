@@ -466,7 +466,8 @@ getBlockHeaderInternal
 
         -- Do not produce payloads at this point; we may not stick around at
         -- this block.
-        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) <&> forkInfoNewBlockCtx .~ Nothing
+        -- finfo <- forkInfoForHeader wdb header pld (Just parentHdr) <&> forkInfoNewBlockCtx .~ Nothing
+        finfo <- forkInfoForHeader wdb header pld (Just parentHdr)
 
         logg Debug $ taskMsg k $
             "getBlockHeaderInternal validate payload for " <> sshow h
