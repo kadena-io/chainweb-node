@@ -135,16 +135,16 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs = ChainwebServerDbs
+data ChainwebServerDbs t = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe CutDb)
     , _chainwebServerBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
-    , _chainwebServerMempools :: !(ChainMap (MempoolBackend Pact.Transaction))
+    , _chainwebServerMempools :: !(ChainMap (MempoolBackend t))
     , _chainwebServerPayloads :: !(ChainMap SomeServer)
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs
+emptyChainwebServerDbs :: ChainwebServerDbs t
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = mempty
@@ -201,8 +201,9 @@ chainwebServiceMiddlewares
 
 someChainwebServer
     :: HasVersion
+    => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer cutPeerDb) cuts
@@ -225,8 +226,9 @@ someChainwebServer config dbs =
 --
 someChainwebServerWithHashesAndSpvApi
     :: HasVersion
+    => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> SomeServer
 someChainwebServerWithHashesAndSpvApi config dbs =
     maybe mempty (someCutServer cutPeerDb) cuts
@@ -249,8 +251,9 @@ someChainwebServerWithHashesAndSpvApi config dbs =
 
 chainwebApplication
     :: HasVersion
+    => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> Application
 chainwebApplication config dbs
     = chainwebP2pMiddlewares
@@ -263,8 +266,9 @@ chainwebApplication config dbs
 --
 chainwebApplicationWithHashesAndSpvApi
     :: HasVersion
+    => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> Application
 chainwebApplicationWithHashesAndSpvApi config dbs
     = chainwebP2pMiddlewares
@@ -273,26 +277,29 @@ chainwebApplicationWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
     :: HasVersion
+    => Show t
     => Port
     -> ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> IO ()
 serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: HasVersion
+    => Show t
     => Settings
     -> ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> IO ()
 serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
     :: HasVersion
+    => Show t
     => Settings
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> Middleware
     -> IO ()
 serveChainwebSocket settings sock c dbs m =
@@ -300,12 +307,13 @@ serveChainwebSocket settings sock c dbs m =
 
 serveChainwebSocketTls
     :: HasVersion
+    => Show t
     => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
@@ -338,7 +346,7 @@ servePeerDbSocketTls settings certChain key sock nid pdb m =
 someServiceApiServer
     :: Logger logger
     => HasVersion
-    => ChainwebServerDbs
+    => ChainwebServerDbs t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
@@ -364,7 +372,7 @@ someServiceApiServer dbs mr (HeaderStream hs) backupEnv pbl =
 serviceApiApplication
     :: Logger logger
     => HasVersion
-    => ChainwebServerDbs
+    => ChainwebServerDbs t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
@@ -380,7 +388,7 @@ serveServiceApiSocket
     => HasVersion
     => Settings
     -> Socket
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)

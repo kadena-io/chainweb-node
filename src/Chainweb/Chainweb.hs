@@ -758,7 +758,7 @@ runChainweb cw nowServing = do
             logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
                 roll clientClosedConnectionsCounter
 
-    chainwebServerDbs :: ChainwebServerDbs
+    chainwebServerDbs :: ChainwebServerDbs Pact.Transaction
     chainwebServerDbs = ChainwebServerDbs
         { _chainwebServerCutDb = Just cutDb
         , _chainwebServerBlockHeaderDbs = chainDbsToServe
