@@ -48,12 +48,18 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 -- internal modules
 
 import Pact.Parse (ParsedDecimal(..))
+import Pact.Core.Gas.Types
 
 import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (T2(..))
+import Chainweb.PayloadProvider
+import Chainweb.MinerReward
+import Chainweb.Parent
+import Chainweb.BlockCreationTime
+import Control.Lens (from, view)
 
 ------------------------------------------------------------------------------
 -- | Several operations (reintroduce, validate, confirm) can only be performed
@@ -122,7 +128,7 @@ instance Arbitrary MockTx where
   arbitrary = MockTx
       <$> chooseAny
       <*> arbitraryGasPrice
-      <*> pure (mockBlockGasLimit `div` 50_000)
+      <*> pure (GasLimit $ Gas $ view (_GasLimit . _Gas) mockBlockGasLimit `div` 50_000)
       <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
@@ -187,7 +193,7 @@ propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
-    setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
+    setOverlarge = map (\x -> x { mockGasLimit = GasLimit $ Gas $ view (_GasLimit . _Gas) mockBlockGasLimit + 100 })
 
 propBadlistPreblock
     :: ([MockTx], [MockTx])
@@ -202,7 +208,8 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
 
     -- once we call mempoolGetBlock, the bad txs should be badlisted
-    liftIO $ void $ mempoolGetBlock mempool mockBlockFill preblockCheck (EvaluationCtx 1 nullBlockHash)
+    liftIO $ void $ mempoolGetBlock mempool mockBlockFill preblockCheck
+      (EvaluationCtx (Parent $ BlockCreationTime Time.epoch) (Parent nullBlockHash) (Parent 1) (MinerReward 0) ())
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     liftIO $ insert badTxs
@@ -211,7 +218,7 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
   where
     badHashes = HashSet.fromList $ map hash badTxs
 
-    preblockCheck _ _ ts = return $
+    preblockCheck _ ts = return $
       V.map
         (\tx -> if hash tx `HashSet.member` badHashes then Left InsertErrorBadlisted else Right tx)
         ts
@@ -246,7 +253,8 @@ propAddToBadList tx _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     getBlock = liftIO
-      $ V.toList <$> mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck 1 nullBlockHash
+      $ V.toList <$> mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck
+        (EvaluationCtx (Parent $ BlockCreationTime Time.epoch) (Parent nullBlockHash) (Parent 1) (MinerReward 0) ())
 
 -- TODO Does this need to be updated?
 propPreInsert
@@ -303,7 +311,8 @@ propTrivial txs _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck 0 nullBlockHash
+    getBlock = mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck
+        (EvaluationCtx (Parent $ BlockCreationTime Time.epoch) (Parent nullBlockHash) (Parent 0) (MinerReward 0) ())
     onFees x = (Down (mockGasPrice x))
 
 

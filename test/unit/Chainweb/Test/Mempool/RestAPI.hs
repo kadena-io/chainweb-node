@@ -54,7 +54,7 @@ newTestServer :: IO TestServer
 newTestServer = withVersion version $ mask_ $ do
     let chain = someChainId
     checkMv <- newMVar (pure . V.map Right)
-    let inMemCfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMvFunc checkMv) (1024 * 10)
+    let inMemCfg = InMemConfig txcfg mockBlockGasLimit (GasPrice 0) 2048 Right (checkMvFunc checkMv) (1024 * 10)
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
     tid <- forkIOWithUnmask $ \u -> server chain inMemCfg inmemMv envMv u
@@ -83,7 +83,7 @@ newTestServer = withVersion version $ mask_ $ do
     host = "127.0.0.1"
 
     mkApp :: ChainId -> MempoolBackend MockTx -> Application
-    mkApp chain mp = withVersion version $ chainwebApplication conf (serverMempools [(chain, mp)])
+    mkApp chain mp = withVersion version $ chainwebApplication conf (serverMempools (onChain chain mp))
 
     conf = defaultChainwebConfiguration version
 
@@ -106,8 +106,8 @@ newPool = Pool.newPool $ Pool.defaultPoolConfig
 ------------------------------------------------------------------------------
 
 serverMempools
-    :: [(ChainId, MempoolBackend t)]
-    -> ChainwebServerDbs t RocksDbTable {- ununsed -}
+    :: ChainMap (MempoolBackend t)
+    -> ChainwebServerDbs t
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

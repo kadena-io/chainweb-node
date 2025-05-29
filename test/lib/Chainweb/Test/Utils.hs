@@ -671,7 +671,7 @@ clientEnvWithChainwebTestServer
     => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> ChainwebServerDbs
+    -> ChainwebServerDbs t
     -> ResourceT IO (TestClientEnv t)
 clientEnvWithChainwebTestServer shouldValidateSpec tls dbs = do
     -- FIXME: Hashes API got removed from the P2P API. We use an application that

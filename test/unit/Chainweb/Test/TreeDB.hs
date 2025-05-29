@@ -376,7 +376,7 @@ prop_getBranchIncreasing_parents f (SparseTree t0) = forAll (int <$> choose (0,m
     ioProperty $ withTreeDb f t $ \db _ -> do
         e <- maxEntry db
         branch <- getBranchIncreasing db e i $ \s -> P.toList_ $ P.map (view isoBH) s
-        return $ and $ zipWith (\a b -> view blockHash a == view blockParent b) branch (drop 1 branch)
+        return $ and $ zipWith (\a b -> Parent (view blockHash a) == view blockParent b) branch (drop 1 branch)
   where
     m = length $ levels t0
     t = fmap (^. from isoBH) t0

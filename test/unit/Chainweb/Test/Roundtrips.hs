@@ -87,6 +87,7 @@ import Utils.Logging
 import Control.Lens (view)
 import Chainweb.Version.Mainnet (mainnet)
 import Pact.Core.Gas
+import Chainweb.Ranked
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests

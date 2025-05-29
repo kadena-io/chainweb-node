@@ -61,19 +61,19 @@ tests baseRdb = testGroup "Pact5 HyperlanePluginTests"
     ]
 
 v :: ChainwebVersion
-v = pact5InstantCpmTestVersion petersenChainGraph
+v = instantCpmTestVersion petersenChainGraph
 
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
 hyperlaneValidatorAnnouncementTest :: RocksDb -> Step -> IO ()
-hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneValidatorAnnouncementTest baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         let pluginName = "hyperlane_v3_announcement"
 
         step "deploy contract"
-        deploy <- buildTextCmd v
+        deploy <- buildTextCmd
             $ set cbGasLimit (GasLimit (Gas 100000))
             $ set cbRPC (mkExec' $ mconcat
                 [ "(namespace 'free)"
@@ -83,16 +83,16 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                 , "(defun x () (with-capability (K \"storagelocation\" \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"
                 ])
             $ defaultCmd chain0
-        send fx v chain0 [deploy]
+        send fx chain0 [deploy]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey deploy]
+        poll fx chain0 [cmdToRequestKey deploy]
             >>= P.list [P.match _Just successfulTx]
 
         step "use successfully"
         let cap =
                 CapToken (QualifiedName "K" (ModuleName "m" (Just (NamespaceName "free"))) )
                     [PString "storagelocation", PString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", PString "kb-mailbox"]
-        usePlugin <- buildTextCmd v
+        usePlugin <- buildTextCmd
             $ set cbRPC (mkExec' "(free.m.x)")
             $ set cbVerifiers
                 [Verifier
@@ -108,9 +108,9 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                     [SigCapability cap]]
             $ set cbGasLimit (GasLimit (Gas 100000))
             $ defaultCmd chain0
-        send fx v chain0 [usePlugin]
+        send fx chain0 [usePlugin]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey usePlugin]
+        poll fx chain0 [cmdToRequestKey usePlugin]
             >>= P.list
                 [P.match _Just ? P.checkAll
                     [ successfulTx
@@ -119,7 +119,7 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                 ]
 
         step "use with bad signature"
-        useBadSignature <- buildTextCmd v
+        useBadSignature <- buildTextCmd
             $ set cbRPC (mkExec' "(free.m.x)")
             $ set cbVerifiers
                 [Verifier
@@ -135,9 +135,9 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                     [SigCapability cap]]
             $ set cbGasLimit (GasLimit (Gas 100000))
             $ defaultCmd chain0
-        send fx v chain0 [useBadSignature]
+        send fx chain0 [useBadSignature]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey useBadSignature]
+        poll fx chain0 [cmdToRequestKey useBadSignature]
             >>= P.list
                 [ P.match _Just ? P.checkAll
                     [ P.fun _crResult ? P.match _PactResultErr ? P.checkAll
@@ -149,7 +149,7 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                 ]
 
         step "deploy with different signer"
-        deployDifferentSigner <- buildTextCmd v
+        deployDifferentSigner <- buildTextCmd
             $ set cbGasLimit (GasLimit (Gas 100000))
             $ set cbRPC (mkExec' $ mconcat
                 [ "(namespace 'free)"
@@ -159,9 +159,9 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                 , "(defun x () (with-capability (K \"storagelocation\" \"0x5c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"
                 ])
             $ defaultCmd chain0
-        send fx v chain0 [deployDifferentSigner]
+        send fx chain0 [deployDifferentSigner]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey deployDifferentSigner]
+        poll fx chain0 [cmdToRequestKey deployDifferentSigner]
             >>= P.list [P.match _Just successfulTx]
 
         let capWrongSigner =
@@ -170,7 +170,7 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
             -- bad signer (same as from the previous test but the different first symbol)
 
         step "use with wrong signer"
-        useWrongSigner <- buildTextCmd v
+        useWrongSigner <- buildTextCmd
             $ set cbRPC (mkExec' "(free.m.x)")
             $ set cbVerifiers
                 [Verifier
@@ -186,9 +186,9 @@ hyperlaneValidatorAnnouncementTest baseRdb step = runResourceT $ do
                     [SigCapability capWrongSigner]]
             $ set cbGasLimit (GasLimit (Gas 100000))
             $ defaultCmd chain0
-        send fx v chain0 [useWrongSigner]
+        send fx chain0 [useWrongSigner]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey useWrongSigner]
+        poll fx chain0 [cmdToRequestKey useWrongSigner]
             >>= P.list
                 [ P.match _Just ? P.checkAll
                     [ P.fun _crResult ? P.match _PactResultErr ? P.checkAll
@@ -255,7 +255,7 @@ validSignature :: T.Text
 validSignature = "0xfabe80dd5bf4440e5e7fbc3cdf12325df9c00beb1281c5ddf12e77177046790c49f531ccebb29ba9c9664a581ed1870873850e0cf0c231b779e21f48a1d0dcea1b"
 
 -- | Deploys a contract with a valid signer
-deployContractWith :: Fixture -> [T.Text] -> Integer -> IO ()
+deployContractWith :: HasVersion => Fixture -> [T.Text] -> Integer -> IO ()
 deployContractWith fx signers threshold = do
     let deployCode =
             [ "(namespace 'free)"
@@ -303,18 +303,18 @@ deployContractWith fx signers threshold = do
             , ")"
             , " \"succeeded\")))"
             ]
-    deployCmd <- buildTextCmd v
+    deployCmd <- buildTextCmd
         $ set cbRPC (mkExec' $ mconcat deployCode)
         $ set cbGasLimit (GasLimit $ Gas 70000)
         $ defaultCmd chain0
-    send fx v chain0 [deployCmd]
+    send fx chain0 [deployCmd]
     advanceAllChains_ fx
-    poll fx v chain0 [cmdToRequestKey deployCmd] >>=
+    poll fx chain0 [cmdToRequestKey deployCmd] >>=
         P.list [P.match _Just ? successfulTx]
 
 -- | Calls '(free.m.x)' from 'deployContractWithValidSigner'
-mkMerkleMetadataCallWithGas :: GasLimit -> B.ByteString -> [T.Text] -> [T.Text] -> Integer -> IO (Command T.Text)
-mkMerkleMetadataCallWithGas gas merkleProof signatures signersText threshold = buildTextCmd v
+mkMerkleMetadataCallWithGas :: HasVersion => GasLimit -> B.ByteString -> [T.Text] -> [T.Text] -> Integer -> IO (Command T.Text)
+mkMerkleMetadataCallWithGas gas merkleProof signatures signersText threshold = buildTextCmd
     $ set cbGasLimit gas
     $ set cbVerifiers
         [Verifier
@@ -345,15 +345,15 @@ mkMerkleMetadataCallWithGas gas merkleProof signatures signersText threshold = b
         $ CapToken (QualifiedName "K" (ModuleName "m" (Just (NamespaceName "free"))) )
             [messageId, message, signers, PInteger threshold]
 
-mkMerkleMetadataCall :: B.ByteString -> [T.Text] -> [T.Text] -> Integer -> IO (Command T.Text)
+mkMerkleMetadataCall :: HasVersion => B.ByteString -> [T.Text] -> [T.Text] -> Integer -> IO (Command T.Text)
 mkMerkleMetadataCall = mkMerkleMetadataCallWithGas (GasLimit $ Gas 20000)
 
-checkVerifierNotInTx :: Fixture -> T.Text -> IO ()
+checkVerifierNotInTx :: HasVersion => Fixture -> T.Text -> IO ()
 checkVerifierNotInTx fx pluginName = do
-    cmd <- buildTextCmd v $ set cbRPC (mkExec' "(free.m.x)") $ defaultCmd chain0
-    send fx v chain0 [cmd]
+    cmd <- buildTextCmd $ set cbRPC (mkExec' "(free.m.x)") $ defaultCmd chain0
+    send fx chain0 [cmd]
     advanceAllChains_ fx
-    poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+    poll fx chain0 [cmdToRequestKey cmd] >>= P.list
         [ P.match _Just
             ? P.fun _crResult
             ? P.match _PactResultErr
@@ -365,8 +365,8 @@ checkVerifierNotInTx fx pluginName = do
         ]
 
 hyperlaneVerifySuccess :: RocksDb -> Step -> IO ()
-hyperlaneVerifySuccess baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifySuccess baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         let threshold = 1
         step "deploy contract"
@@ -374,9 +374,9 @@ hyperlaneVerifySuccess baseRdb step = runResourceT $ do
         checkVerifierNotInTx fx "hyperlane_v3_message"
         step "use verifier"
         cmd <- mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] [validSigner] threshold
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [P.match _Just
                 ? P.checkAll
                     [ successfulTx
@@ -386,8 +386,8 @@ hyperlaneVerifySuccess baseRdb step = runResourceT $ do
 
 
 hyperlaneVerifyMoreValidatorsSuccess :: RocksDb -> Step -> IO ()
-hyperlaneVerifyMoreValidatorsSuccess baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyMoreValidatorsSuccess baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let threshold = 1
@@ -396,9 +396,9 @@ hyperlaneVerifyMoreValidatorsSuccess baseRdb step = runResourceT $ do
         checkVerifierNotInTx fx "hyperlane_v3_message"
         step "use verifier"
         cmd <- mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] signers threshold
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just ? P.checkAll
                 [ successfulTx
                 , P.fun _crGas ? P.equals (Gas 16398)
@@ -406,8 +406,8 @@ hyperlaneVerifyMoreValidatorsSuccess baseRdb step = runResourceT $ do
             ]
 
 hyperlaneVerifyThresholdZeroError :: RocksDb -> Step -> IO ()
-hyperlaneVerifyThresholdZeroError baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyThresholdZeroError baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let code = mconcat
@@ -433,20 +433,20 @@ hyperlaneVerifyThresholdZeroError baseRdb step = runResourceT $ do
                 , ")"
                 , " \"succeeded\")))"
                 ]
-        deployCmd <- buildTextCmd v
+        deployCmd <- buildTextCmd
             $ set cbRPC (mkExec' code)
             $ set cbGasLimit (GasLimit $ Gas 70000)
             $ defaultCmd chain0
-        send fx v chain0 [deployCmd]
+        send fx chain0 [deployCmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey deployCmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey deployCmd] >>= P.list
             [ P.match _Just ? successfulTx ]
         checkVerifierNotInTx fx "hyperlane_v3_message"
         step "use verifier"
         cmd <- mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [] [] 0
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
@@ -460,8 +460,8 @@ hyperlaneVerifyThresholdZeroError baseRdb step = runResourceT $ do
             ]
 
 hyperlaneVerifyWrongSignersFailure :: RocksDb -> Step -> IO ()
-hyperlaneVerifyWrongSignersFailure baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyWrongSignersFailure baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let threshold = 1
@@ -469,9 +469,9 @@ hyperlaneVerifyWrongSignersFailure baseRdb step = runResourceT $ do
         checkVerifierNotInTx fx "hyperlane_v3_message"
         step "use verifier"
         cmd <- mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] ["wrongSigner"] threshold
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
@@ -485,8 +485,8 @@ hyperlaneVerifyWrongSignersFailure baseRdb step = runResourceT $ do
             ]
 
 hyperlaneVerifyNotEnoughRecoveredSignaturesFailure :: RocksDb -> Step -> IO ()
-hyperlaneVerifyNotEnoughRecoveredSignaturesFailure baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyNotEnoughRecoveredSignaturesFailure baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let threshold = 1
@@ -496,9 +496,9 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure baseRdb step = runResourceT $
         step "use verifier"
         cmd <- mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [] ["wrongSigner"] threshold
 
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
@@ -512,8 +512,8 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure baseRdb step = runResourceT $
             ]
 
 hyperlaneVerifyNotEnoughCapabilitySignaturesFailure :: RocksDb -> Step -> IO ()
-hyperlaneVerifyNotEnoughCapabilitySignaturesFailure baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyNotEnoughCapabilitySignaturesFailure baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let threshold = 2
@@ -526,9 +526,9 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure baseRdb step = runResourceT 
             [validSignature, validSignature]
             [validSigner]
             threshold
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
@@ -542,8 +542,8 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure baseRdb step = runResourceT 
             ]
 
 hyperlaneVerifyMerkleIncorrectProofFailure :: RocksDb -> Step -> IO ()
-hyperlaneVerifyMerkleIncorrectProofFailure baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyMerkleIncorrectProofFailure baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let threshold = 1
@@ -555,9 +555,9 @@ hyperlaneVerifyMerkleIncorrectProofFailure baseRdb step = runResourceT $ do
             [validSignature]
             [validSigner]
             threshold
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult
@@ -573,8 +573,8 @@ hyperlaneVerifyMerkleIncorrectProofFailure baseRdb step = runResourceT $ do
 -- | We pass 2 signatures, 1st one matches to the correct validator,
 -- but there is no second valid validator for the 2nd signature, and the verification fails.
 hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold :: RocksDb -> Step -> IO ()
-hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold baseRdb step = runResourceT $ do
-    fx <- mkFixture v baseRdb
+hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold baseRdb step = withVersion v $ runResourceT $ do
+    fx <- mkFixture baseRdb
     liftIO $ do
         step "deploy contract"
         let threshold = 2
@@ -587,9 +587,9 @@ hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold baseRdb step = runResou
             (GasLimit $ Gas 40000)
             hyperlaneMerkleTreeCorrectProof
             [validSignature, validSignature] signers threshold
-        send fx v chain0 [cmd]
+        send fx chain0 [cmd]
         advanceAllChains_ fx
-        poll fx v chain0 [cmdToRequestKey cmd] >>= P.list
+        poll fx chain0 [cmdToRequestKey cmd] >>= P.list
             [ P.match _Just
             ? P.checkAll
                 [ P.fun _crResult

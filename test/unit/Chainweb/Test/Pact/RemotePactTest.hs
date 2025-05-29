@@ -30,17 +30,17 @@
 
 module Chainweb.Test.Pact.RemotePactTest
     ( tests
-    -- , mkFixture
-    -- , Fixture(..)
-    -- , HasFixture(..)
-    -- , poll
-    -- , pollWithDepth
-    -- , PollException(..)
-    -- , ClientException(..)
-    -- , _FailureResponse
-    -- , send
-    -- , local
-    -- , textContains
+    , mkFixture
+    , Fixture(..)
+    , HasFixture(..)
+    , poll
+    , pollWithDepth
+    , PollException(..)
+    , ClientException(..)
+    , _FailureResponse
+    , send
+    , local
+    , textContains
     ) where
 
 import Control.Concurrent.Async hiding (poll)
