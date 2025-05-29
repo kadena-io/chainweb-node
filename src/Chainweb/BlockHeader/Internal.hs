@@ -1214,7 +1214,8 @@ workSizeBytes
     -> Natural
 workSizeBytes h
     | hashedAdjacentRecord (unsafeChainId 0) h =
-        headerSizeBytes (unsafeChainId 0) 0 - 32
+        _versionHeaderBaseSizeBytes implicitVersion + 36 * 3 + 2 - 32
+    | otherwise = headerSizeBytes (unsafeChainId 0) h - 32
 
 _rankedBlockHash :: BlockHeader -> RankedBlockHash
 _rankedBlockHash h = RankedBlockHash

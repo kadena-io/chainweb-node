@@ -143,7 +143,7 @@ prop_workSizeBytes = property $ do
     if (view blockHeight h == genesisHeight (_chainId h))
       then discard
       else do
-        let l = int $ B.length $ runPutS $ encodeBlockHeaderWithoutHash h
+        let expectedSize = int $ B.length $ runPutS (encodeAsMiningWork h)
         return
             $ counterexample ("header: " <> sshow h)
-            $ workSizeBytes (view blockHeight h) === l
+            $ workSizeBytes (view blockHeight h) === expectedSize
