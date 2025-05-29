@@ -114,6 +114,7 @@ barebonesTestVersion g =
             { _quirkGasFees = HM.empty <$ cids
             }
         & versionUpgrades .~ (HM.empty <$ cids)
+        & versionPayloadProviderTypes .~ (MinimalProvider <$ cids)
     where
     gs = Bottom (minBound, g)
     cids = ChainMap $ HS.toMap $ graphChainIds $ snd $ ruleHead gs

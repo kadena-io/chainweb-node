@@ -6,6 +6,8 @@
 
 {-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-imports #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeAbstractions #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -73,6 +75,14 @@ import Chainweb.Storage.Table.RocksDB
 
 import Servant.Client_
 import Chainweb.Parent
+import Chainweb.PayloadProvider.Minimal
+import qualified Network.HTTP.Client as HTTP
+import Chainweb.PayloadProvider.P2P.RestAPI.Server (somePayloadServer)
+import Chainweb.PayloadProvider.P2P.RestAPI (PayloadBatchLimit(PayloadBatchLimit))
+import Chainweb.Logger
+import Chainweb.Chainweb.ChainResources (payloadP2pResources)
+import P2P.Node.Configuration (defaultP2pConfiguration)
+import System.LogLevel
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -131,18 +141,36 @@ version = barebonesTestVersion singletonChainGraph
 --
 type TestClientEnv_ = TestClientEnv MockTx
 
-mkEnv :: HasVersion => RocksDb -> Bool -> ChainMap BlockHeaderDb -> ResourceT IO TestClientEnv_
-mkEnv rdb tls dbs = do
-    let pdb = newPayloadDb rdb
+mkEnv
+    :: (Logger logger, HasVersion)
+    => logger
+    -> HTTP.Manager
+    -> RocksDb
+    -> Bool
+    -> ChainMap BlockHeaderDb
+    -> ResourceT IO TestClientEnv_
+mkEnv logger mgr rdb tls dbs = do
+    let mkPayloadServer cid = do
+            pp <- newMinimalPayloadProvider logger cid rdb (Just mgr) defaultMinimalProviderConfig
+            let pdb = view minimalPayloadDb pp
+            let queue = view minimalPayloadQueue pp
+            SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal
+            SomeChainIdT @c' _ <- return $ someChainIdVal cid
+            -- let serv = liftIO $ somePayloadServer @_ @v' @c' @'MinimalProvider
+            --     logger defaultP2pConfiguration myInfo peerDb pdb queue mgr
+            return $! somePayloadServer @_ @v' @c' @'MinimalProvider (PayloadBatchLimit 1000) pdb
+    payloadServers <- liftIO $ tabulateChainsM mkPayloadServer
     clientEnvWithChainwebTestServer ValidateSpec tls emptyChainwebServerDbs
         { _chainwebServerBlockHeaderDbs = dbs
-        , _chainwebServerPayloads = undefined -- onAllChains pdb
+        , _chainwebServerPayloads = payloadServers
         }
 
 simpleSessionTests :: RocksDb -> Bool -> TestTree
 simpleSessionTests rdb tls = withVersion version $
+    withResource' (HTTP.newManager HTTP.defaultManagerSettings) $ \mgrIO ->
     withResource' (testBlockHeaderDbs rdb) $ \dbsIO ->
-        withResourceT (mkEnv rdb tls =<< liftIO dbsIO)
+        let neverLogger = genericLogger Error (\_ -> return ())
+        in withResourceT (do { mgr <- liftIO mgrIO; dbs <- liftIO dbsIO; mkEnv neverLogger mgr rdb tls dbs})
         $ \env -> testGroup "client session tests"
             $ [httpHeaderTests env (head $ toList chainIds)]
             -- : (simpleClientSession env <$> toList chainIds)

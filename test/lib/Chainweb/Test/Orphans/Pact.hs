@@ -19,11 +19,11 @@
 --
 -- Orphand Arbitrary Instances for Pact Types
 --
-module Chainweb.Test.Orphans.Pact
+module Chainweb.Test.Orphans.Pact where
 -- ( arbitraryJsonValue
-( arbitraryCommandResultWithEvents
-, arbitraryMaybe
-) where
+-- ( arbitraryCommandResultWithEvents
+-- , arbitraryMaybe
+-- ) where
 
 -- import qualified Data.Aeson as A
 -- import qualified Data.Vector as V
@@ -60,46 +60,46 @@ import qualified Pact.Core.Guards as Pact
 --         , A.Number <$> arbitrary
 --         ]
 
--- | Generates only successful results without continuations.
---
-arbitraryCommandResultWithEvents :: Gen (PactEvent PactValue) -> Gen (CommandResult Hash PactErrorI)
-arbitraryCommandResultWithEvents genEvent = CommandResult
-    <$> undefined -- (RequestKey <$> arbitrary) -- _crReqKey
-    <*> (fmap TxId <$> arbitrary) -- _crTxId
-    <*> undefined -- arbitrary -- _crResult -- TODO: PP
-    <*> undefined -- (Gas <$> arbitrary) -- _crGas
-    <*> undefined -- arbitrary -- _crLogs
-    <*> pure Nothing -- _crContinuation
-    <*> undefined -- arbitraryMaybe (resize 5 arbitraryJsonValue) -- _crMetaData
-    <*> (resize 10 (listOf genEvent)) -- _crEvents
+-- -- | Generates only successful results without continuations.
+-- --
+-- arbitraryCommandResultWithEvents :: Gen (PactEvent PactValue) -> Gen (CommandResult Hash PactErrorI)
+-- arbitraryCommandResultWithEvents genEvent = CommandResult
+--     <$> undefined -- (RequestKey <$> arbitrary) -- _crReqKey
+--     <*> (fmap TxId <$> arbitrary) -- _crTxId
+--     <*> undefined -- arbitrary -- _crResult -- TODO: PP
+--     <*> undefined -- (Gas <$> arbitrary) -- _crGas
+--     <*> undefined -- arbitrary -- _crLogs
+--     <*> pure Nothing -- _crContinuation
+--     <*> undefined -- arbitraryMaybe (resize 5 arbitraryJsonValue) -- _crMetaData
+--     <*> (resize 10 (listOf genEvent)) -- _crEvents
 
-instance Arbitrary ModuleName where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance Arbitrary ModuleName where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-instance Arbitrary ModuleHash where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance Arbitrary ModuleHash where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-instance Arbitrary RequestKey where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance Arbitrary RequestKey where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-instance Arbitrary Pact.ChainId where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance Arbitrary Pact.ChainId where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-instance Arbitrary QualifiedName where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance Arbitrary QualifiedName where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-instance Arbitrary PactValue where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance Arbitrary PactValue where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-instance (Arbitrary n, Arbitrary v) => Arbitrary (Pact.Guard n v) where
-    -- TODO: PP
-    arbitrary = undefined
+-- instance (Arbitrary n, Arbitrary v) => Arbitrary (Pact.Guard n v) where
+--     -- TODO: PP
+--     arbitrary = undefined
 
-arbitraryMaybe :: Gen a -> Gen (Maybe a)
-arbitraryMaybe gen = arbitrary >>= mapM (const @_ @() gen)
+-- arbitraryMaybe :: Gen a -> Gen (Maybe a)
+-- arbitraryMaybe gen = arbitrary >>= mapM (const @_ @() gen)

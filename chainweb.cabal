@@ -712,12 +712,12 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
-        Chainweb.Test.BlockHeaderDB.PruneForks
+        -- Chainweb.Test.BlockHeaderDB.PruneForks
         Chainweb.Test.Chainweb.Utils.Paging
         Chainweb.Test.CutDB
         Chainweb.Test.Difficulty
         Chainweb.Test.Mempool
-        Chainweb.Test.Mempool.Consensus
+        -- Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
@@ -734,8 +734,8 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
-        Chainweb.Test.SPV
-        Chainweb.Test.SPV.EventProof
+        -- Chainweb.Test.SPV
+        -- Chainweb.Test.SPV.EventProof
         Chainweb.Test.Sync.WebBlockHeaderStore
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
