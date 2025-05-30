@@ -76,6 +76,7 @@ import qualified Data.Test.Word.Encoding (properties)
 import qualified P2P.Test.Node (properties)
 import qualified P2P.Test.TaskQueue (properties)
 import Chainweb.Version (withVersion)
+import qualified Test.Chainweb.SPV.Argument
 
 setTestLogLevel :: LogLevel -> IO ()
 setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
@@ -144,5 +145,8 @@ suite rdb =
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
+        ]
+    , testGroup "Chainweb Payload Provider Unit Tests"
+        [ Test.Chainweb.SPV.Argument.tests
         ]
     ]

@@ -81,8 +81,7 @@ test_jsonRoundtrip a = assertEqual
     (eitherDecode (encode a))
 
 test_jsonRoundtrips :: IO ()
-test_jsonRoundtrips = do
-    registerVersion EvmDevelopment
+test_jsonRoundtrips = withVersion evmDevnet $ do
     test_jsonRoundtrip testHeader
     test_jsonRoundtrip testPayload
     test_jsonRoundtrip testRpcReceipt
@@ -90,10 +89,13 @@ test_jsonRoundtrips = do
 -- -------------------------------------------------------------------------- --
 -- Test Data
 
-genesisData :: ChainwebVersion -> ChainId -> IO (BlockHeader, PayloadWithOutputs)
-genesisData version cid = do
-    let hdr = genesisBlockHeader version cid
-    pwo <- case preview (ixg cid) (Pact.genesisPayload Mainnet01) of
+pactMainnetGenesisPayload :: ChainId -> Maybe PayloadWithOutputs
+pactMainnetGenesisPayload = withVersion Mainnet01 Pact.genesisPayload
+
+genesisData :: HasVersion => ChainId -> IO (BlockHeader, PayloadWithOutputs)
+genesisData cid = do
+    let hdr = genesisBlockHeader cid
+    pwo <- case pactMainnetGenesisPayload cid of
         Just x -> return x
         Nothing -> error "genesis block for chain 0 not found"
     assertEqual "block payload hash of header and payload match"
@@ -117,8 +119,8 @@ genesisData version cid = do
 -- Tests
 
 test_pactOutputArgument :: IO ()
-test_pactOutputArgument = do
-    (hdr, pwo) <- genesisData Mainnet01 (unsafeChainId 0)
+test_pactOutputArgument = withVersion mainnet $ do
+    (hdr, pwo) <- genesisData (unsafeChainId 0)
     hdrArg <- test_hdr hdr
 
     let txCount = length $ _payloadWithOutputsTransactions pwo
@@ -141,8 +143,8 @@ test_pactOutputArgument = do
             claim
 
 test_legacyPactOutputArgument :: IO ()
-test_legacyPactOutputArgument = do
-    (hdr, pwo) <- genesisData Mainnet01 (unsafeChainId 0)
+test_legacyPactOutputArgument = withVersion mainnet $ do
+    (hdr, pwo) <- genesisData (unsafeChainId 0)
 
     -- create tx output proof for tx 0
     let outs = snd $ payloadWithOutputsToBlockObjects pwo
@@ -179,7 +181,8 @@ test_legacyPactOutputArgument = do
             claim
 
 test_hdr
-    :: BlockHeader
+    :: HasVersion
+    => BlockHeader
     -> IO (Argument BlockPayloadHash BlockHash)
 test_hdr hdr = do
     hdrProof <- headerProofV2 @BlockPayloadHash @ChainwebMerkleHashAlgorithm hdr
@@ -240,7 +243,7 @@ data ReceiptTestData = ReceiptTestData
     }
     deriving (Show, Eq)
 
-simpleTestData :: ReceiptTestData
+simpleTestData :: HasVersion => ReceiptTestData
 simpleTestData = ReceiptTestData
     { _receiptTestDataHeader = testHeader
     , _receiptTestDataPayload = testPayload
@@ -249,9 +252,9 @@ simpleTestData = ReceiptTestData
 
 test_evmHeaderArguments :: IO ()
 test_evmHeaderArguments =
-    test_evmHeaderArgument simpleTestData 0
+    withVersion evmDevnet $ test_evmHeaderArgument simpleTestData 0
 
-test_evmHeaderArgument :: ReceiptTestData -> Natural -> IO ()
+test_evmHeaderArgument :: HasVersion => ReceiptTestData -> Natural -> IO ()
 test_evmHeaderArgument d idx = do
     let trieProof = EVM.rpcReceiptTrieProof rs (EVM.TransactionIndex 0)
     trieProofRoot <- validateTrieProof trieProof
@@ -383,6 +386,7 @@ testPayload = case eitherDecodeStrictText payloadStr of
     Left err -> error $ "failed to decode payload: " <> show err
     Right x -> x
   where
+    -- TODO: the below is not a valid Pectra header, so the test fails
     payloadStr :: T.Text
     payloadStr = [r|
         {
@@ -406,11 +410,11 @@ testPayload = case eitherDecodeStrictText payloadStr of
         "blobGasUsed": "0x0",
         "excessBlobGas": "0x0",
         "parentBeaconBlockRoot": "0x80af8b91b32cae2e3c3b17ef0b6ce9124e01176bf953f192633a6cc718f129ba",
-        "hash": "0x47c1944c382527f82044276c04a9e0d642da58316d1b963e7a623e03ac085d4f"
+        "hash": "0x47c1944c382527f82044276c04a9e0d642da58316d1b963e7a623e03ac085d4f",
         }
     |]
 
-testHeader :: BlockHeader
+testHeader :: HasVersion => BlockHeader
 testHeader = case eitherDecodeStrictText headerStr of
     Left err -> error $ "failed to decode header: " <> show err
     Right (ObjectEncoded x) -> x
@@ -534,4 +538,3 @@ testHeader = case eitherDecodeStrictText headerStr of
 --   "featureFlags": 0,
 --   "hash": "9NDFjt_VVE2_fJD54eLcybRfbp_BAOR2T2HxavWe7ho"
 -- }
-
