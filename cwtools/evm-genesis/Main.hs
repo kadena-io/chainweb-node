@@ -118,12 +118,12 @@ withRethNode cid specfile act =
         , "-t"
         , "-p", rethPort <> ":" <> rethPort
         , "--volume=" <> specfile <> ":/spec.json"
-        , "ghcr.io/kadena-io/evm-devnet-kadena-reth"
+        , "ghcr.io/kadena-io/kadena-reth:latest"
         ]
     rethArgs =
-        [ "--chain=/spec.json"
-        , "-q"
+        [ "-q"
         , "node"
+        , "--chain=/spec.json"
         , "--http"
         , "--http.addr=0.0.0.0"
         , "--http.port=" <> rethPort
@@ -505,5 +505,3 @@ testnetSpecFile cid = object [
 
     i :: Natural -> Natural
     i = id
-
-
