@@ -61,7 +61,7 @@ benchmarks = bgroup "JSONEncoding"
         , group "1000" (payloadPage 1000)
         , group "5000" (payloadPage 5000)
         ]
-    , bgroup "header page"
+    , withVersion mainnet $ bgroup "header page"
         [ group "5" (headerPage 5)
         , group "10" (headerPage 10)
         , group "50" (headerPage 50)
@@ -70,7 +70,7 @@ benchmarks = bgroup "JSONEncoding"
         , group "1000" (headerPage 1000)
         , group "5000" (headerPage 5000)
         ]
-    , bgroup "object encoded header page"
+    , withVersion mainnet $ bgroup "object encoded header page"
         [ group "5" (objHeaderPage 5)
         , group "10" (objHeaderPage 10)
         , group "50" (objHeaderPage 50)
