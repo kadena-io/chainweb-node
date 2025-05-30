@@ -41,9 +41,10 @@ suite = independentSequentialTestGroup "MultiNodeNetworkTests"
         withTempRocksDb "multinode-tests-instantcpm-single-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-instantcpm-single-pact" $ \pactDbDir ->
         withVersion (instantCpmTestVersion singletonChainGraph) $
-            Chainweb.Test.MultiNode.test loglevel  10 30 rdb pactDbDir step
-    -- , testCaseSteps "Replay - InstantTimedCPM - 6 nodes" $ \step ->
-    --     withTempRocksDb "replay-test-instantcpm-pair-rocks" $ \rdb ->
-    --     withSystemTempDirectory "replay-test-instantcpm-pair-pact" $ \pactDbDir ->
-    --     Chainweb.Test.MultiNode.replayTest loglevel (instantCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
+            Chainweb.Test.MultiNode.test loglevel 10 30 rdb pactDbDir step
+    , testCaseSteps "Replay - InstantTimedCPM - 6 nodes" $ \step ->
+        withTempRocksDb "replay-test-instantcpm-pair-rocks" $ \rdb ->
+        withSystemTempDirectory "replay-test-instantcpm-pair-pact" $ \pactDbDir ->
+        withVersion (instantCpmTestVersion pairChainGraph) $
+            Chainweb.Test.MultiNode.replayTest loglevel 6 rdb pactDbDir step
     ]
