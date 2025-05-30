@@ -524,10 +524,10 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                 (_cutHeaders c)
                 (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
         mapConcurrently_ syncOne startHeaders
-      where
+        where
         syncOne hdr = forM_ (providers ^? atChain (_chainId hdr)) $ \case
             ConfiguredPayloadProvider provider -> do
-                let loggr = (providerLogger provider(chainLogger hdr))
+                let loggr = (providerLogger provider (chainLogger hdr))
                 logFunctionText loggr Info $
                     "sync payload provider to "
                         <> sshow (view blockHeight hdr)
