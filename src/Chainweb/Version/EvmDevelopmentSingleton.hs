@@ -64,9 +64,8 @@ evmDevnetSingleton = withVersion evmDevnetSingleton $ ChainwebVersion
         { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 100_000)
         , _genesisTime = onChains
             -- FIXME: is the creation time for the pact headers correct?
-            $ [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [0..19] ]
-            <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) | i <- [20..24] ]
-            <> [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [25..97] ]
+            $ [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [0] ]
+            <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) | i <- [1] ]
         , _genesisBlockPayload = onChains $
             -- Pact Payload Provider
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
