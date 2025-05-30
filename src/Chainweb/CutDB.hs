@@ -575,15 +575,18 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
             -- ensure that payload providers are in sync with the *merged*
             -- cut, so that they produce payloads on the correct parents.
             iforM_ (_cutMap resultCut) $ \cid bh -> do
-                case providers ^?! atChain cid of
-                    ConfiguredPayloadProvider provider -> do
-                        finfo <- forkInfoForHeader hdrStore bh Nothing Nothing
-                        r <- syncToBlock provider Nothing finfo
-                        unless (r == _forkInfoTargetState finfo) $ do
-                            error $ "unexpected result state"
-                                <> "; expected: " <> sshow (_forkInfoTargetState finfo)
-                                <> "; actual: " <> sshow r
-                    _ -> return ()
+                -- avoid asking for syncToBlock when we know that we're already
+                -- in sync, otherwise some payload providers misbehave.
+                when (Just bh /= curCut ^? ixg cid) $
+                    case providers ^?! atChain cid of
+                        ConfiguredPayloadProvider provider -> do
+                            finfo <- forkInfoForHeader hdrStore bh Nothing Nothing
+                            r <- syncToBlock provider Nothing finfo
+                            unless (r == _forkInfoTargetState finfo) $ do
+                                error $ "unexpected result state"
+                                    <> "; expected: " <> sshow (_forkInfoTargetState finfo)
+                                    <> "; actual: " <> sshow r
+                        _ -> return ()
             let cutDiff = cutDiffToTextShort curCut resultCut
             let currentCutIdMsg = T.unwords
                     [ "current cut is now"
