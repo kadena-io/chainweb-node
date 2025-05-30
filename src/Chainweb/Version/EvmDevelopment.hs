@@ -33,12 +33,10 @@ pattern EvmDevelopment <- ((== evmDevnet) -> True) where
 --
 -- @
 -- -- create dummy payload hashes
--- import Chainweb.Payload.Provider.Minimal.Payload
--- import Chainweb.Version.Registry
+-- import Chainweb.PayloadProvider.Minimal.Payload
 -- import Chainweb.Version.EvmDevelopment
 --
--- registerVersion EvmDevelopment
--- mapM_ (\i -> T.putStrLn (sshow i <> " " <>  encodeToText (view payloadHash $ genesisPayload EvmDevelopment $ unsafeChainId i))) [25..97]
+-- mapM_ (\i -> T.putStrLn (sshow i <> " " <> encodeToText (view payloadHash $ genesisPayload EvmDevelopment $ unsafeChainId i))) [25..97]
 -- @
 --
 -- EVM Payload Provider:

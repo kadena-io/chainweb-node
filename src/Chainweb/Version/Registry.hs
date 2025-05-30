@@ -42,6 +42,7 @@ import GHC.Stack
 import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.EvmDevelopment
+import Chainweb.Version.EvmDevelopmentSingleton
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
@@ -80,7 +81,7 @@ validateVersion v = do
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet04, recapDevnet, devnet, evmDevnet]
+knownVersions = [mainnet, testnet04, recapDevnet, devnet, evmDevnet, evmDevnetSingleton]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.
