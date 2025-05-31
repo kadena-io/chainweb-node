@@ -457,9 +457,31 @@ instance Exception ForkchoiceUpdatedTimeoutException
 
 -- | Thrown on an invalid payload status.
 --
-data InvalidPayloadException = InvalidPayloadException !EVM.BlockHash !(Maybe T.Text)
+-- The semantics of the first paramter depends on the context:
+--
+-- In case block validation was attempted and failed, the second parameter is
+-- the latest valid payload hash that is an ancestor of the payload hash for
+-- which validation failed.
+--
+-- In case of a newPayload request, if the new payload is not on the canonical
+-- chain, no validation is attempted and the latest valid hash parameter is
+-- 'Nothing'.
+--
+data InvalidPayloadException = InvalidPayloadException
+    { _invalidPayloadExceptionLatestValidHash :: !(Maybe EVM.BlockHash)
+    , _invalidPayloadExceptionMessage :: !(Maybe T.Text)
+    }
     deriving (Eq, Show, Generic)
 instance Exception InvalidPayloadException
+
+newtype UnexpectedNewPayloadResponseException
+    = UnexpectedNewPayloadResponseException PayloadStatusV1
+    deriving (Eq, Show, Generic)
+instance Exception UnexpectedNewPayloadResponseException
+
+newtype NewPayloadTimeoutException = NewPayloadTimeoutException Micros
+    deriving (Eq, Show, Generic)
+instance Exception NewPayloadTimeoutException
 
 -- -------------------------------------------------------------------------- --
 
@@ -576,16 +598,16 @@ checkExecutionClient logger c ctx expectedEcid = do
 
 -- | Base rate for new payload requests.
 --
-newPayloadRate :: Int
-newPayloadRate = 1_000_000
+getPayloadRate :: Int
+getPayloadRate = 1_000_000
 
-newPayloadBurst :: Int
-newPayloadBurst = 4
+getPayloadBurst :: Int
+getPayloadBurst = 4
 
 -- | minimum delay between requests for new payloads
 --
-newPayloadMinDelay :: Int
-newPayloadMinDelay = 10_000
+getPayloadMinDelay :: Int
+getPayloadMinDelay = 10_000
 
 -- | If we don't receive a new payload ID with this time, we assume that the
 -- EVM is not available and log an error. This is implemented in the
@@ -593,8 +615,8 @@ newPayloadMinDelay = 10_000
 --
 -- FIXME: consider raising an actual error.
 --
-newPayloadTimeout :: Int
-newPayloadTimeout = 30_000_000
+getPayloadTimeout :: Int
+getPayloadTimeout = 30_000_000
 
 -- | Scheduler for listening for new payloads.
 --
@@ -603,12 +625,12 @@ payloadListener p = case (_evmMinerAddress p) of
     Nothing -> do
         lf Info "New payload creation is disabled."
         return ()
-    Just addr -> runForeverThrottled lf "EVM Provider Payload Listener" (int newPayloadBurst) (int newPayloadRate) $ do
+    Just addr -> runForeverThrottled lf "EVM Provider Payload Listener" (int getPayloadBurst) (int getPayloadRate) $ do
         lf Info $ "Start payload listener with miner address " <> toText addr
 
         -- This is small delay compared to the base rate. So we just always add
         -- it. It is only relevant during bursts.
-        threadDelay $ int newPayloadMinDelay
+        threadDelay $ int getPayloadMinDelay
         awaitNewPayload p
   where
     lf = loggS p "payloadListener"
@@ -701,16 +723,33 @@ forkchoiceUpdate p t fcs attr = go t
                         lf Info "forkchoiceUpdate succeeded with VALID status"
                         return (_forkchoiceUpdatedV1ResponsePayloadId s)
 
-                    -- FIXME:
+                    -- Validation failed permenently.
                     --
-                    -- If the status is INVALID the latest valid hash is always
-                    -- returned. The validationError message is optional.
+                    -- FIXME: list precise list of possible reasons.
                     --
                     PayloadStatusV1 Invalid (Just h) e ->
-                        throwM $ InvalidPayloadException h e
+                        throwM $ InvalidPayloadException (Just h) e
 
-                    -- This includes
-                    -- - PayloadStatusV1 Invalid Nothing _
+
+                    -- If the status is INVALID and no latest valid predecessor
+                    -- can be determined.
+                    --
+                    -- This means probably means that the block for which
+                    -- the upddate is requested is detached from the canonical
+                    -- history.
+                    --
+                    -- FIXME: We should probably point that out in the exception
+                    -- and possibly react to this scenario by banning the source
+                    -- of the block.
+                    --
+                    -- (Note this could possibly also happen for shallow nodes
+                    -- that are not yet fully synced.)
+                    --
+                    PayloadStatusV1 Invalid Nothing e ->
+                        throwM $ UnexpectedForkchoiceUpdatedResponseException e
+
+                    -- Something else when wrong.
+                    --
                     e ->
                         throwM $ UnexpectedForkchoiceUpdatedResponseException e
 
@@ -741,6 +780,129 @@ forkchoiceUpdate p t fcs attr = go t
                         , "response" .= r
                         ]
                     return Nothing
+
+                Left e -> throwM e
+
+-- | Engine NewPayloadV4
+--
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/paris.md#engine_newpayloadv1
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#engine_newpayloadv2
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/cancun.md#engine_newpayloadv3
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/prague.md#engine_newpayloadv4
+--
+newPayload
+    :: Logger logger
+    => EvmPayloadProvider logger
+    -> Micros
+        -- ^ Global Timeout in microseconds
+    -> Payload
+    -> IO ()
+newPayload p t pld = go t
+  where
+    request = NewPayloadV4Request
+        { _newPayloadV4RequestExecutionPayload = error "TODO"
+        , _newPayloadV4RequestExpectedBlobVersionedHashes = error "TODO"
+        , _newPayloadV4RequestParentBeaconBlockRoot = error "TODO"
+        , _newPayloadV4RequestExecutionRequests = error "TODO"
+        }
+    lf = loggS p "forkchoiceUpdate"
+    waitTime = Micros 500_000
+    go remaining
+        | remaining <= 0 = do
+            lf Warn $ "newPayload timed out while EVM is syncing"
+            throwM $ NewPayloadTimeoutException t
+        | otherwise = do
+            lf Info $ briefJson $ object
+                [ "remainingTime" .= remaining
+                , "request" .= request
+                ]
+            r <- try @_ @(RPC.Error EngineServerErrors EngineErrors) $
+                RPC.callMethodHttp @Engine_NewPayloadV4 (_evmEngineCtx p)
+                    request
+            case r of
+                -- If the status is VALID, the latest hash is what was requested.
+                --
+                -- In particular, if the status is VALID the return latest hash
+                -- is never an ancestor of the requested hash.
+                --
+                -- The payload *MUST* be validated if the payload extends the
+                -- canonical chain and all requisite data is available.
+                --
+                -- IMPORTANT NOTE:
+                --
+                -- The Engine API specification demands that, if the requested
+                -- hash was not the latest hash on the (selected) canonical
+                -- chain this returns the latest hash on the canonical chain. It
+                -- will not initiate payload creation. This behavior is not
+                -- acceptable for Chainweb consensus.
+                --
+                -- Therefore will have to patch the EVM client such that the
+                -- latest hash will be the requested hash and payload production
+                -- is initiated if it was requested.
+                --
+                Right (PayloadStatusV1 Valid (Just _) Nothing) -> do
+                    lf Info "newPayload succeeded with VALID status"
+
+                -- The following conditions are met:
+                --
+                -- - all transactions have non-zero length
+                -- - the blockHash of the payload is valid
+                -- - the payload doesn't extend the canonical chain
+                -- - the payload hasn't been fully validated
+                -- - ancestors of a payload are known and comprise a well-formed chain.
+                -- - the versioned block hashes match the values in the block
+                -- - the request commitments match the values in the block
+                --
+                Right (PayloadStatusV1 Accepted Nothing Nothing) ->
+                    lf Info "newPayload succeeded with ACCEPTED status"
+
+                -- Syncing: retry
+                --
+                -- A sync process *MAY* be initiated if requesite data for
+                -- payload validation is missing.
+                --
+                -- Certain checks are performed before a sync process is
+                -- initiated. However, the specification is not clear with
+                -- respect to this.
+                --
+                Right (PayloadStatusV1 Syncing Nothing Nothing) -> do
+                    -- wait 500ms
+                    lf Warn $ "newPayload: EVM is SYNCING. Waiting for " <> sshow waitTime <> " microseconds"
+                    threadDelay $ int waitTime
+                    go (remaining - waitTime)
+
+                -- The new payload is invalid. This includes
+                --
+                -- - transactions contains zero length or invalid entries
+                -- - block hash validation fails
+                -- - the versioned blob hashes do not match
+                -- - the request commitments do not match
+                -- - Validation was attempted but failed and the EL cannot determine
+                --   the latest valid hash that is an ancestor of the payload.
+                --
+                Right (PayloadStatusV1 Invalid Nothing e) ->
+                    throwM $ InvalidPayloadException Nothing e
+
+                -- Validation was attempted but failed.
+                --
+                -- The latest valid hash is the latest valid ancestor of the
+                -- payload hash.
+                --
+                Right (PayloadStatusV1 Invalid (Just h) e) ->
+                    throwM $ InvalidPayloadException h e
+
+                Right e ->
+                    throwM $ UnexpectedNewPayloadResponseException e
+
+                Left (RPC.Error (RPC.ApplicationError InvalidPayloadAttributes) msg Nothing) -> do
+                    T2 cur _ <- stateIO p
+                    lf Error $ msg <> ": newPayload succeeded but no payload is produced, because of invalid payload attributes. This is most likely due to a non-increasing timestamp"
+                    lf Error $ encodeToText $ object
+                        [ "method" .= "newPayloadV4"
+                        , "request" .= request
+                        , "response" .= r
+                        , "currentConsensusState" .= cur
+                        ]
 
                 Left e -> throwM e
 
@@ -919,7 +1081,7 @@ awaitNewPayload p = do
     -- Wait for payload from the execution client
     -- FIXME not sure if the timeout is a good idea...
     awaitPid = do
-        timeout <- registerDelay newPayloadTimeout
+        timeout <- registerDelay getPayloadTimeout
         atomically $
             Nothing <$ (readTVar timeout >>= guard)
             <|>
