@@ -24,6 +24,8 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM.EngineAPI
@@ -105,6 +107,9 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 , GetPayloadV3Response(..)
 , GetPayloadV4Response(..)
 
+-- * New Paylaod Request
+, NewPayloadV4Request(..)
+
 -- * Authentication and Client Context
 , JwtSecret(..)
 , jwtToken
@@ -117,6 +122,7 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 , type Engine_GetPayloadV3
 , type Engine_GetPayloadV4
 , type Engine_ForkchoiceUpdatedV3
+, type Engine_NewPayloadV4
 ) where
 
 import Chainweb.PayloadProvider.EVM.Header
@@ -135,10 +141,11 @@ import Data.Hashable (Hashable)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Time.Clock.POSIX (getPOSIXTime, POSIXTime)
+import Data.Word
 import Ethereum.Misc qualified as E
 import Ethereum.RLP (RLP (..), putRlpByteString, getRlpL, putRlpL, label)
 import Ethereum.Trie
-import Ethereum.Utils hiding (int)
+import Ethereum.Utils hiding (int, natVal_)
 import Foreign.Storable (Storable)
 import GHC.Generics (Generic)
 import GHC.TypeLits
@@ -146,7 +153,6 @@ import Network.HTTP.Client qualified as HTTP
 import Network.URI
 import Network.URI.Static (uri)
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Word
 
 -- -------------------------------------------------------------------------- --
 -- Forkchoice State V1
@@ -348,6 +354,22 @@ withdrawlsRoot l = unsafePerformIO $ do
 -- -------------------------------------------------------------------------- --
 -- Blobs Bundle V1
 
+type BYTES_PER_FIELD_ELEMENT :: Natural
+type BYTES_PER_FIELD_ELEMENT = 32
+
+type FIELD_ELEMENTS_PER_BLOB :: Natural
+type FIELD_ELEMENTS_PER_BLOB = 4096
+
+type BLOB_SIZE :: Natural
+type BLOB_SIZE = FIELD_ELEMENTS_PER_BLOB GHC.TypeLits.* BYTES_PER_FIELD_ELEMENT
+
+-- | EIP-4844 Versioned Hash
+--
+newtype VersionedHash = VersionedHash { _versionedHash :: E.BytesN 32 }
+    deriving (Show, Eq, Ord)
+    deriving newtype (RLP, E.Bytes, Storable, Hashable)
+    deriving (ToJSON, FromJSON) via (HexBytes (E.BytesN 32))
+
 -- | EIP-4844 KZG Commitment
 --
 newtype KzgCommitment = KzgCommitment { _kzgCommitment :: E.BytesN 48 }
@@ -364,12 +386,10 @@ newtype KzgProof = KzgProof { _kzgProof :: E.BytesN 48 }
 
 -- | EIP-4844 Blob
 --
--- size: FIELD_ELEMENTS_PER_BLOB * BYTES_PER_FIELD_ELEMENT = 4096 * 32 = 131072
---
-newtype Blob = Blob { _blob :: E.BytesN 131072 }
+newtype Blob = Blob { _blob :: E.BytesN BLOB_SIZE }
     deriving (Show, Eq, Ord)
     deriving newtype (RLP, E.Bytes, Storable, Hashable)
-    deriving (ToJSON, FromJSON) via (HexBytes (E.BytesN 131072))
+    deriving (ToJSON, FromJSON) via (HexBytes (E.BytesN BLOB_SIZE))
 
 -- | Blobs Bundle V1
 --
@@ -1208,6 +1228,86 @@ instance FromJSON GetPayloadV4Response where
 -- validation.
 --
 -- timeout: 8s
+
+-- -------------------------------------------------------------------------- --
+-- Engine New Payload V4 (Prague / Pectra)
+
+type Engine_NewPayloadV4 = "engine_newPayloadV4"
+
+-- | Engine New Payload V4 Response
+--
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/prague.md#response
+--
+-- This is the same type as PayloadStatusV1, with:
+--
+-- result: PayloadStatusV1, values of the status field are restricted in the
+-- following way: INVALID_BLOCK_HASH status value is supplanted by INVALID.
+--
+-- error: code and message set in case an exception happens while processing the
+-- payload.
+--
+instance JsonRpcMethod "engine_newPayloadV4" where
+    type MethodRequest "engine_newPayloadV4" = NewPayloadV4Request
+    type MethodResponse "engine_newPayloadV4" = PayloadStatusV1
+    type ServerErrors "engine_newPayloadV4" = EngineServerErrors
+    type ApplicationErrors "engine_newPayloadV4" = EngineErrors
+    responseTimeoutMs = Just 8000
+    methodErrors =
+        [ InvalidParams
+        , ApplicationError UnsupportedFork
+        ]
+
+-- | Engine New Payload V4 Request
+--
+-- Method parameter list is extended with executionRequests.
+--
+-- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/prague.md#request
+--
+data NewPayloadV4Request = NewPayloadV4Request
+    { _newPayloadV4RequestExecutionPayload :: !ExecutionPayloadV3
+    , _newPayloadV4RequestExpectedBlobVersionedHashes :: ![VersionedHash]
+        -- ^ Array of DATA, 32 Bytes - Array of expected blob versioned hashes
+        -- to validate.
+    , _newPayloadV4RequestParentBeaconBlockRoot :: !ParentBeaconBlockRoot
+        -- ^ DATA, 32 Bytes - Root of the parent beacon block.
+    , _newPayloadV4RequestExecutionRequests :: ![ExecutionRequest]
+        -- ^ Array of DATA - List of execution layer triggered requests. Each
+        -- list element is a requests byte array as defined by EIP-7685. The
+        -- first byte of each element is the request_type and the remaining
+        -- bytes are the request_data. Elements of the list MUST be ordered by
+        -- request_type in ascending order. Elements with empty request_data
+        -- MUST be excluded from the list. If the list has no elements, the
+        -- expected array MUST be []. If any element is out of order, has a
+        -- length of 1-byte or shorter, or more than one element has the same
+        -- type byte, or the param is null, client software MUST return -32602:
+        -- Invalid params error.
+    }
+    deriving (Show, Eq, Generic)
+
+newPayloadV4RequestProperties
+    :: KeyValue e kv
+    => NewPayloadV4Request
+    -> [kv]
+newPayloadV4RequestProperties o =
+    [ "executionPayload" .= _newPayloadV4RequestExecutionPayload o
+    , "expectedBlobVersionedHashes" .= _newPayloadV4RequestExpectedBlobVersionedHashes o
+    , "parentPeaconBlockRoot" .= _newPayloadV4RequestParentBeaconBlockRoot o
+    , "executionRequests" .= _newPayloadV4RequestExecutionRequests o
+    ]
+
+instance ToJSON NewPayloadV4Request where
+    toEncoding = pairs . mconcat . newPayloadV4RequestProperties
+    toJSON = object . newPayloadV4RequestProperties
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+instance FromJSON NewPayloadV4Request where
+    parseJSON = withObject "NewPayloadV4Request" $ \o -> NewPayloadV4Request
+        <$> o .: "executionPayload"
+        <*> o .: "expectedBlobVersionedHashes"
+        <*> o .: "parentBeaconBlockRoot"
+        <*> o .: "executionRequests"
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Authentication
