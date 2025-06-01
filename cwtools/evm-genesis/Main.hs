@@ -65,8 +65,11 @@ main = do
             let cids = [20..25]
             return ("evm-development", cids, evmDevnetSpecFile)
         ["evm-development-singleton"] -> do
-            let cids = [20]
+            let cids = [0]
             return ("evm-development-singleton", cids, evmDevnetSpecFile)
+        ["evm-development-pair"] -> do
+            let cids = [1]
+            return ("evm-development-pair", cids, evmDevnetSpecFile)
         _ -> error "Invalid argument for the chainweb version provided. The version must be one of: 'mainnet', 'testnet', 'evm-testnet', or 'evm-development'."
 
     hdrs <- forM cids $ \cid -> do

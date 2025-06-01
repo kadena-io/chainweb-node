@@ -81,7 +81,7 @@ validateVersion v = do
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet04, recapDevnet, devnet, evmDevnet, evmDevnetSingleton]
+knownVersions = [mainnet, testnet04, recapDevnet, devnet, evmDevnet, evmDevnetSingleton, evmDevnetPair]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.
