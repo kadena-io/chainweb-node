@@ -51,7 +51,6 @@ module Chainweb.PayloadProvider.EVM
 
 -- * Payload Provider API
 , evmSyncToBlock
-
 ) where
 
 import Chainweb.BlockHash qualified as Chainweb
@@ -66,8 +65,9 @@ import Chainweb.Parent
 import Chainweb.PayloadProvider hiding (TransactionIndex)
 import Chainweb.PayloadProvider.EVM.EngineAPI
 import Chainweb.PayloadProvider.EVM.EthRpcAPI
+import Chainweb.PayloadProvider.EVM.ExecutionPayload
 import Chainweb.PayloadProvider.EVM.Header qualified as EVM
-import Chainweb.PayloadProvider.EVM.HeaderDB qualified as EvmDB
+import Chainweb.PayloadProvider.EVM.PayloadDB qualified as EvmDB
 import Chainweb.PayloadProvider.EVM.JsonRPC (JsonRpcHttpCtx, callMethodHttp)
 import Chainweb.PayloadProvider.EVM.JsonRPC qualified as RPC
 import Chainweb.PayloadProvider.EVM.SPV
@@ -114,31 +114,21 @@ import P2P.TaskQueue
 import System.LogLevel
 
 -- -------------------------------------------------------------------------- --
--- Types (to keep the code clean and avoid confusion)
+-- Payload Database
 
--- Might be a usecase for backpack, if we want to go down that route ...
---
--- Though doing it directly is fine, too.
+type PayloadDb tbl = EvmDB.PayloadDb tbl
 
-type Payload = EVM.Header
-type PayloadDb tbl = EvmDB.HeaderDb tbl
-
-initPayloadDb :: EvmDB.Configuration -> IO (EvmDB.HeaderDb_ a RocksDbTable)
-initPayloadDb = EvmDB.initHeaderDb
+initPayloadDb :: EvmDB.Configuration -> IO (EvmDB.PayloadDb_ a RocksDbTable)
+initPayloadDb = EvmDB.initPayloadDb
 
 payloadDbConfiguration
     :: HasVersion
     => HasChainId c
     => c
     -> RocksDb
-    -> Payload
+    -> EVM.Header
     -> EvmDB.Configuration
-payloadDbConfiguration = EvmDB.configuration
-
--- Or maybe we could bring into scope the IsPayloadProviderClass? That would
--- help with other issues, too.
---
--- type Payload = PayloadType EvmPayloadProvider
+payloadDbConfiguration c rdb hdr = EvmDB.configuration c rdb hdr
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -386,9 +376,9 @@ lookupConsensusState p cs plds = do
         [Nothing, _, _] -> do
             return Nothing
         [Just l, Just s, Just f] -> return $ Just ForkchoiceStateV1
-            { _forkchoiceHeadBlockHash = EVM._hdrHash l
-            , _forkchoiceSafeBlockHash = EVM._hdrHash s
-            , _forkchoiceFinalizedBlockHash = EVM._hdrHash f
+            { _forkchoiceHeadBlockHash = EVM._hdrHash $ _payloadHeader l
+            , _forkchoiceSafeBlockHash = EVM._hdrHash $ _payloadHeader s
+            , _forkchoiceFinalizedBlockHash = EVM._hdrHash $ _payloadHeader f
             }
         x -> error $ "corrupted database: " <> sshow x
             -- FIXME throw proper error
@@ -571,7 +561,7 @@ checkExecutionClient
     -> JsonRpcHttpCtx
     -> EVM.ChainId
         -- ^ expected Ethereum Network ID
-    -> IO Payload
+    -> IO EVM.Header
 checkExecutionClient logger c ctx expectedEcid = do
     ecid <- try @_ @SomeException (callMethodHttp @Eth_ChainId ctx Nothing) >>= \case
         Left err -> do
@@ -745,7 +735,7 @@ forkchoiceUpdate p t fcs attr = go t
                     -- (Note this could possibly also happen for shallow nodes
                     -- that are not yet fully synced.)
                     --
-                    PayloadStatusV1 Invalid Nothing e ->
+                    e@(PayloadStatusV1 Invalid Nothing _) ->
                         throwM $ UnexpectedForkchoiceUpdatedResponseException e
 
                     -- Something else when wrong.
@@ -795,16 +785,11 @@ newPayload
     => EvmPayloadProvider logger
     -> Micros
         -- ^ Global Timeout in microseconds
-    -> Payload
+    -> NewPayloadV4Request
+        -- ^ The request to the EVM Engine API.
     -> IO ()
-newPayload p t pld = go t
+newPayload p t request = go t
   where
-    request = NewPayloadV4Request
-        { _newPayloadV4RequestExecutionPayload = error "TODO"
-        , _newPayloadV4RequestExpectedBlobVersionedHashes = error "TODO"
-        , _newPayloadV4RequestParentBeaconBlockRoot = error "TODO"
-        , _newPayloadV4RequestExecutionRequests = error "TODO"
-        }
     lf = loggS p "forkchoiceUpdate"
     waitTime = Micros 500_000
     go remaining
@@ -889,7 +874,7 @@ newPayload p t pld = go t
                 -- payload hash.
                 --
                 Right (PayloadStatusV1 Invalid (Just h) e) ->
-                    throwM $ InvalidPayloadException h e
+                    throwM $ InvalidPayloadException (Just h) e
 
                 Right e ->
                     throwM $ UnexpectedNewPayloadResponseException e
@@ -898,7 +883,7 @@ newPayload p t pld = go t
                     T2 cur _ <- stateIO p
                     lf Error $ msg <> ": newPayload succeeded but no payload is produced, because of invalid payload attributes. This is most likely due to a non-increasing timestamp"
                     lf Error $ encodeToText $ object
-                        [ "method" .= "newPayloadV4"
+                        [ "method" .= ("newPayloadV4" :: T.Text)
                         , "request" .= request
                         , "response" .= r
                         , "currentConsensusState" .= cur
@@ -933,38 +918,38 @@ updateEvm
         --
     -> IO ()
 updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
-        Nothing -> do
-            lf Info $ "Consensus state lookup returned nothing for" <> briefJson state
-            return ()
-        Just fcs -> do
-            lf Info $ "Calling forkChoiceUpdate on state "
-                <> briefJson state <> " with " <> briefJson fcs
-            pt <- parentTimestamp
-            pid <- forkchoiceUpdate p forkchoiceUpdatedTimeout fcs (attr pt)
+    Nothing -> do
+        lf Info $ "Consensus state lookup returned nothing for" <> briefJson state
+        return ()
+    Just fcs -> do
+        lf Info $ "Calling forkChoiceUpdate on state "
+            <> briefJson state <> " with " <> briefJson fcs
+        pt <- parentTimestamp
+        pid <- forkchoiceUpdate p forkchoiceUpdatedTimeout fcs (attr pt)
 
-            -- forkchoiceUpdate throws if it does not succeed.
+        -- forkchoiceUpdate throws if it does not succeed.
 
-            -- add new payloads to payload database
-            lf Info $ "new payloads added to database: " <> sshow (length plds)
-            mapM_ (uncurry (tableInsert (_evmPayloadStore p))) plds
+        -- add new payloads to payload database
+        lf Info $ "new payloads added to database: " <> sshow (length plds)
+        mapM_ (uncurry (tableInsert (_evmPayloadStore p))) plds
 
-            -- Update State and Payload Id:
-            -- There is a race here: If we fail updating the variable
-            -- the EVM is ahead. That could cause payload updates to
-            -- fail and possibly stale mining.
-            lf Info $ "update state and payload ID variable"
-            lf Debug $ briefJson $ object
-                    [ "newState" .= state
-                    , "newBlockCtx" .= nctx
-                    , "newPayloadId" .= pid
-                    ]
-            void $ atomically $ do
-                -- update state
-                writeTVar (_evmState p) (T2 state nctx)
-                -- update payloadId
-                case pid of
-                    Nothing -> void $ tryTakeTMVar (_evmPayloadId p)
-                    Just x -> writeTMVar (_evmPayloadId p) x
+        -- Update State and Payload Id:
+        -- There is a race here: If we fail updating the variable
+        -- the EVM is ahead. That could cause payload updates to
+        -- fail and possibly stale mining.
+        lf Info $ "update state and payload ID variable"
+        lf Debug $ briefJson $ object
+                [ "newState" .= state
+                , "newBlockCtx" .= nctx
+                , "newPayloadId" .= pid
+                ]
+        void $ atomically $ do
+            -- update state
+            writeTVar (_evmState p) (T2 state nctx)
+            -- update payloadId
+            case pid of
+                Nothing -> void $ tryTakeTMVar (_evmPayloadId p)
+                Just x -> writeTMVar (_evmPayloadId p) x
   where
     lf = loggS p "updateEvm"
     attr pt = mkPayloadAttributes (_latestBlockHash state) pt
@@ -976,12 +961,12 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
     -- respect to the evaluation context.
     parentTimestamp = do
         let lrh = latestRankedBlockPayloadHash state
-        hdr <- case lookup lrh plds of
+        pld <- case lookup lrh plds of
             Just x -> return x
             Nothing -> tableLookup p lrh >>= \case
                 Nothing -> error $ "Chainweb.PayloadProvider.EVM.updateEvm: failed to find EVM payload header for target " <> sshow lrh
                 Just x -> return x
-        return $ EVM._hdrTimestamp hdr
+        return $ EVM._hdrTimestamp $ _payloadHeader pld
 
 mkPayloadAttributes
     :: Chainweb.BlockHash
@@ -1104,7 +1089,6 @@ awaitNewPayload p = do
             v1 = _executionPayloadV1 v2
             h = EVM.numberToHeight $ _executionPayloadV1BlockNumber v1
             newEvmBlockHash = _executionPayloadV1BlockHash v1
-            reqs = _getjPayloadV4ResponseExecutionRequests resp
 
         -- check that this is a new payload
         atomically (tryReadTMVar (_evmPayloadVar p)) >>= \case
@@ -1116,6 +1100,15 @@ awaitNewPayload p = do
                     <> "; execution payload: " <> briefJson resp
 
                 sstate <- latestStateIO p
+
+                -- FIXME is this ok the get the parent from the state? What if
+                -- the pid and the state are not in sync? Can that happen?
+                -- Should we store the parent along with the pid
+                let phdr = _syncStateBlockHash sstate
+                    pheight = _syncStateHeight sstate
+                    pbhdr = EVM.chainwebBlockHashToBeaconBlockRoot phdr
+                    pld = getPayloadV4ResponseToPayload pbhdr resp
+                    pldHdr = _payloadHeader pld
 
                 -- get revision number (zero if this is the first payload)
                 let n = maybe 0 (succ . _newPayloadNumber . ssnd) x
@@ -1137,15 +1130,13 @@ awaitNewPayload p = do
                 --         , _inconsistentPayloadFees = fees v1
                 --         }
 
-                let pld = executionPayloadV3ToHeader (_syncStateBlockHash sstate) v3 reqs
-
                 -- Check that the computed block hash matches the hash from the
                 -- response
-                unless (newEvmBlockHash == EVM._hdrHash pld) $ do
-                    lf Warn $ brief (_syncStateBlockHash sstate, _syncStateHeight sstate)
+                unless (newEvmBlockHash == EVM._hdrHash pldHdr) $ do
+                    lf Warn $ "Inconsitent new payload hash for " <> brief (phdr, pheight)
                     throwM $ InconsistenNewPayloadHash
                         (Expected newEvmBlockHash)
-                        (Actual (EVM._hdrHash pld))
+                        (Actual (EVM._hdrHash pldHdr))
 
                 lf Info $ "got new payload " <> briefJson pld
 
@@ -1158,7 +1149,7 @@ awaitNewPayload p = do
                             <$> (_executionPayloadV1Transactions v1)
                     , _newPayloadParentHeight = Parent $ _syncStateHeight sstate
                     , _newPayloadParentHash = Parent $ _syncStateBlockHash sstate
-                    , _newPayloadBlockPayloadHash = EVM._hdrPayloadHash pld
+                    , _newPayloadBlockPayloadHash = EVM._hdrPayloadHash pldHdr
                     , _newPayloadOutputSize = 0
                     , _newPayloadNumber = n
                     , _newPayloadFees = fees v1
@@ -1166,44 +1157,6 @@ awaitNewPayload p = do
                     , _newPayloadEncodedPayloadData = Just (EncodedPayloadData $ putRlpByteString pld)
                     , _newPayloadChainId = cid
                     }
-
-executionPayloadV3ToHeader
-    :: Chainweb.BlockHash
-    -> ExecutionPayloadV3
-    -> [Utils.ExecutionRequest]
-    -> Payload
-executionPayloadV3ToHeader phdr v3 reqs = hdr
-    { EVM._hdrHash = EVM.computeBlockHash hdr
-    , EVM._hdrPayloadHash = EVM.computeBlockPayloadHash hdr
-    }
-  where
-    v2 = _executionPayloadV2 v3
-    v1 = _executionPayloadV1 v2
-    hdr = EVM.Header
-        { _hdrParentHash = _executionPayloadV1ParentHash v1
-        , _hdrOmmersHash = EVM.ommersHash
-        , _hdrBeneficiary = _executionPayloadV1FeeRecipient v1
-        , _hdrStateRoot = _executionPayloadV1StateRoot v1
-        , _hdrTransactionsRoot = transactionsRoot (_executionPayloadV1Transactions v1)
-        , _hdrReceiptsRoot = _executionPayloadV1ReceiptsRoot v1
-        , _hdrLogsBloom = _executionPayloadV1LogsBloom v1
-        , _hdrDifficulty = EVM.difficulty
-        , _hdrNumber = _executionPayloadV1BlockNumber v1
-        , _hdrGasLimit = _executionPayloadV1GasLimit v1
-        , _hdrGasUsed = _executionPayloadV1GasUsed v1
-        , _hdrTimestamp = _executionPayloadV1Timestamp v1
-        , _hdrExtraData = _executionPayloadV1ExtraData v1
-        , _hdrPrevRandao = _executionPayloadV1PrevRandao v1
-        , _hdrNonce = EVM.nonce
-        , _hdrBaseFeePerGas = _executionPayloadV1BaseFeePerGas v1
-        , _hdrWithdrawalsRoot = withdrawlsRoot (_executionPayloadV2Withdrawals v2)
-        , _hdrBlobGasUsed = _executionPayloadV3BlobGasUsed v3
-        , _hdrExcessBlobGas = _executionPayloadV3ExcessBlobGas v3
-        , _hdrParentBeaconBlockRoot = EVM.chainwebBlockHashToBeaconBlockRoot phdr
-        , _hdrRequestsHash = EVM.requestsHash reqs
-        , _hdrHash = error "Chainweb.PayloadProvider.EVM.executionPayloadV3ToHeader: _hdrHash"
-        , _hdrPayloadHash = error "Chainweb.PayloadProvider.executionPayloadV3ToHeader: _hdrPayloadHash"
-        }
 
 -- -------------------------------------------------------------------------- --
 -- Sync To Block
@@ -1439,17 +1392,52 @@ getPayloadForContext p h ctx = do
     lf :: LogFunctionText
     lf = loggS p "getPayloadForContext"
 
+newPayloadTimeout :: Micros
+newPayloadTimeout = 30_000_000
+
 -- | FIXME:
 --
 -- Do the actual validation. In particular, validate the whole chain of payloads
 -- from the context in one go.
 --
 validatePayload
-    :: EvmPayloadProvider logger
+    :: Logger logger
+    => EvmPayloadProvider logger
     -> Payload
     -> EvaluationCtx ConsensusPayload
     -> IO ()
-validatePayload p pld ctx = return ()
+validatePayload p pld ctx = do
+
+    -- FIXME: this requires that we have the full evaluation context available,
+    -- which includes all transactions. This is potentially expensive.
+    --
+    -- Announce the payload to the EVM via new Payload. This does some EVM
+    -- specific validation.
+    --
+    -- If the new block extends the canonical chain and all requisites are
+    -- available the EVM will fully validate the payload.
+    --
+    -- If the call returns and the block is *not* fully validated it is accepted
+    -- by the EVM which guarantees that the payload header is valid and the
+    -- payload is syntactically correct.
+    --
+    -- The forkchoice state is *NOT* updated.
+    --
+    -- This call may take a some time (the timeout is 8 seconds)
+    --
+    -- FIXME: It is not clear if this is the best place to make this call.
+    -- FXIME: It may make sense to issue this call asynchronously -- but it
+    -- would complicate the overall validation logic. So, we keep that as future
+    -- work.
+    --
+    -- For now this throws if we get a timeout or any other error.
+    --
+    _ <- case payloadToNewPayloadV4Request pld of
+        Nothing -> return ()
+        Just epld -> do
+            newPayload p newPayloadTimeout epld
+
+    return ()
 
 -- -------------------------------------------------------------------------- --
 -- Payload Provider API Instance
@@ -1581,7 +1569,7 @@ getHashByNumber ctx p = fmap EVM._hdrHash <$>
 getBlockByHash
     :: EvmPayloadProvider pdf
     -> EVM.BlockHash
-    -> IO Payload
+    -> IO EVM.Header
 getBlockByHash p h = do
     r <- RPC.callMethodHttp
         @Eth_GetBlockByHash (_evmEngineCtx p) (h, False)
@@ -1603,7 +1591,7 @@ getBlockByHash p h = do
 getBlockAtNumber
     :: EvmPayloadProvider pdf
     -> EVM.BlockNumber
-    -> IO Payload
+    -> IO EVM.Header
 getBlockAtNumber p n = do
     r <- RPC.callMethodHttp
         @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockNumber n, False)
@@ -1623,7 +1611,7 @@ getBlockAtNumber p n = do
 --
 getGenesisHeader
     :: EvmPayloadProvider pdf
-    -> IO Payload
+    -> IO EVM.Header
 getGenesisHeader p = try (getBlockAtNumber p 0) >>= \case
     Left (EvmHeaderNotFoundByNumber _) -> throwM EvmGenesisHeaderNotFound
     Left e -> throwM e
@@ -1647,7 +1635,7 @@ getGenesisHeader p = try (getBlockAtNumber p 0) >>= \case
 getLatestHdr
     :: EvmPayloadProvider pdb
     -> ConsensusState
-    -> IO Payload
+    -> IO EVM.Header
 getLatestHdr p s = do
     hdr <- getBlockAtNumber p (_latestNumber s)
     unless (view EVM.hdrPayloadHash hdr == _latestPayloadHash s) $
@@ -1671,7 +1659,7 @@ getLatestHdr p s = do
 getSafeHdr
     :: EvmPayloadProvider pdb
     -> ConsensusState
-    -> IO Payload
+    -> IO EVM.Header
 getSafeHdr p s = do
     hdr <- getBlockAtNumber p (_safeNumber s)
     unless (view EVM.hdrPayloadHash hdr == _safePayloadHash s) $
@@ -1695,7 +1683,7 @@ getSafeHdr p s = do
 getFinalHdr
     :: EvmPayloadProvider pdb
     -> ConsensusState
-    -> IO Payload
+    -> IO EVM.Header
 getFinalHdr p s = do
     hdr <- getBlockAtNumber p (_finalNumber s)
     unless (view EVM.hdrPayloadHash hdr == _finalPayloadHash s) $

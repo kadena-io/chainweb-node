@@ -228,10 +228,12 @@ library
         , Chainweb.PayloadProvider.EVM
         , Chainweb.PayloadProvider.EVM.EngineAPI
         , Chainweb.PayloadProvider.EVM.EthRpcAPI
+        , Chainweb.PayloadProvider.EVM.ExecutionPayload
         , Chainweb.PayloadProvider.EVM.Genesis
         , Chainweb.PayloadProvider.EVM.Header
         , Chainweb.PayloadProvider.EVM.HeaderDB
         , Chainweb.PayloadProvider.EVM.JsonRPC
+        , Chainweb.PayloadProvider.EVM.PayloadDB
         , Chainweb.PayloadProvider.EVM.Receipt
         , Chainweb.PayloadProvider.EVM.SPV
         , Chainweb.PayloadProvider.EVM.Utils

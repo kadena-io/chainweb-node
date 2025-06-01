@@ -56,7 +56,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.ChainId
 import Chainweb.Payload qualified as Pact
-import Chainweb.PayloadProvider.EVM.Header qualified as EVM
+import Chainweb.PayloadProvider.EVM.ExecutionPayload qualified as EVM
 import Chainweb.PayloadProvider.Minimal.Payload qualified as Minimal
 import Chainweb.Ranked
 import Chainweb.RestAPI.Orphans ()
@@ -317,27 +317,27 @@ instance IsPayloadProvider PactProvider where
 -- | IsPayloadProvider instance for the Pact Payload provider
 --
 instance IsPayloadProvider (EvmProvider n) where
-    type PayloadType (EvmProvider n) = EVM.Header
-    type PayloadBatchType (EvmProvider n) = HeaderList
+    type PayloadType (EvmProvider n) = EVM.Payload
+    type PayloadBatchType (EvmProvider n) = PayloadList
     p2pPayloadBatchLimit = 20 -- FIXME
-    batch = HeaderList . catMaybes
+    batch = PayloadList . catMaybes
 
-newtype HeaderList = HeaderList { _headerList :: [EVM.Header] }
+newtype PayloadList = PayloadList { _headerList :: [EVM.Payload] }
     deriving (Show, Eq, Generic)
     deriving newtype (ToJSON, FromJSON, EVM.RLP)
 
-instance MimeRender OctetStream EVM.Header where
+instance MimeRender OctetStream EVM.Payload where
     mimeRender _ = EVM.putRlpLazyByteString
     {-# INLINE mimeRender #-}
 
-instance MimeUnrender OctetStream EVM.Header where
+instance MimeUnrender OctetStream EVM.Payload where
     mimeUnrender _ = EVM.getLazy EVM.getRlp
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender OctetStream HeaderList where
+instance MimeRender OctetStream PayloadList where
     mimeRender _ = EVM.putRlpLazyByteString
     {-# INLINE mimeRender #-}
 
-instance MimeUnrender OctetStream HeaderList where
+instance MimeUnrender OctetStream PayloadList where
     mimeUnrender _ = EVM.getLazy EVM.getRlp
     {-# INLINE mimeUnrender #-}

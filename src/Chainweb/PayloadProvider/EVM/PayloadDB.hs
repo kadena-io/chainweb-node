@@ -17,7 +17,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
--- Module: Chainweb.PayloadProvider.EVM.HeaderDB
+-- Module: Chainweb.PayloadProvider.EVM.PayloadDB
 -- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -26,28 +26,28 @@
 -- FIXME: this module is very similar to the respective module for the minimal
 -- payload provider. Maybe we can unify both?
 --
-module Chainweb.PayloadProvider.EVM.HeaderDB
+module Chainweb.PayloadProvider.EVM.PayloadDB
 (
 -- * EVM Header DB
   Configuration(..)
 , configuration
-, type HeaderDb
-, HeaderDb_(..)
-, initHeaderDb
-, closeHeaderDb
-, withHeaderDb
+, type PayloadDb
+, PayloadDb_(..)
+, initPayloadDb
+, closePayloadDb
+, withPayloadDb
 
-, type RankedHeaderCas
+, type RankedPayloadCas
 
 -- * Insertion
-, insertHeaderDb
-, unsafeInsertHeaderDb
+, insertPayloadDb
+, unsafeInsertPayloadDb
 
 -- * Internal Types
-, RankedHeader(..)
+, RankedPayload(..)
 , BlockRank(..)
-, encodeRankedHeader
-, decodeRankedHeader
+, encodeRankedPayload
+, decodeRankedPayload
 ) where
 
 import Chainweb.BlockHeight
@@ -75,6 +75,7 @@ import Numeric.Additive
 import Prelude hiding (lookup)
 import GHC.Stack
 import Chainweb.PayloadProvider.EVM.Utils (decodeRlpM)
+import Chainweb.PayloadProvider.EVM.ExecutionPayload
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -122,19 +123,19 @@ instance HasChainId Configuration where
     _chainId = _configChainId
 
 -- -------------------------------------------------------------------------- --
--- Ranked Block Header (only used internally)
+-- Ranked Block Payload (only used internally)
 
-newtype RankedHeader = RankedHeader { _getRankedHeader :: Header }
+newtype RankedPayload = RankedPayload { _getRankedPayload :: Payload }
     deriving (Show, Generic)
     deriving newtype (Eq, Ord, Hashable, ToJSON, FromJSON, RLP)
 
-instance IsCasValue RankedHeader where
-    type CasKeyType RankedHeader = RankedBlockPayloadHash
-    casKey (RankedHeader bh)
-        = RankedBlockPayloadHash (view hdrHeight bh) (view hdrPayloadHash bh)
+instance IsCasValue RankedPayload where
+    type CasKeyType RankedPayload = RankedBlockPayloadHash
+    casKey (RankedPayload pld)
+        = RankedBlockPayloadHash (view pldHeight pld) (view pldPayloadHash pld)
     {-# INLINE casKey #-}
 
-type RankedHeaderCas tbl = Cas tbl RankedHeader
+type RankedPayloadCas tbl = Cas tbl RankedPayload
 
 -- -------------------------------------------------------------------------- --
 -- BlockRank (only used internally)
@@ -151,35 +152,35 @@ newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
 -- -------------------------------------------------------------------------- --
 -- Internal
 
-encodeRankedHeader :: RankedHeader -> B.ByteString
-encodeRankedHeader = putRlpByteString . _getRankedHeader
-{-# INLINE encodeRankedHeader #-}
+encodeRankedPayload :: RankedPayload -> B.ByteString
+encodeRankedPayload = putRlpByteString . _getRankedPayload
+{-# INLINE encodeRankedPayload #-}
 
-decodeRankedHeader :: MonadThrow m => B.ByteString -> m RankedHeader
-decodeRankedHeader = decodeRlpM
-{-# INLINE decodeRankedHeader #-}
+decodeRankedPayload :: MonadThrow m => B.ByteString -> m RankedPayload
+decodeRankedPayload = decodeRlpM
+{-# INLINE decodeRankedPayload #-}
 
 -- -------------------------------------------------------------------------- --
 -- Header DB
 
-type HeaderDb tbl = HeaderDb_ ChainwebMerkleHashAlgorithm tbl
+type PayloadDb tbl = PayloadDb_ ChainwebMerkleHashAlgorithm tbl
 
-data HeaderDb_ a tbl = HeaderDb
-    { _headerDbChainId :: !ChainId
-    , _headerDbTable :: !(tbl RankedBlockPayloadHash RankedHeader)
+data PayloadDb_ a tbl = PayloadDb
+    { _payloadDbChainId :: !ChainId
+    , _payloadDbTable :: !(tbl RankedBlockPayloadHash RankedPayload)
     }
 
-instance HasChainId (HeaderDb_ a tbl) where
-    _chainId = _headerDbChainId
+instance HasChainId (PayloadDb_ a tbl) where
+    _chainId = _payloadDbChainId
     {-# INLINE _chainId #-}
 
-instance ReadableTable1 tbl => ReadableTable (HeaderDb_ a tbl) RankedBlockPayloadHash Header where
-    tableLookup db k = fmap _getRankedHeader <$> tableLookup (_headerDbTable db) k
+instance ReadableTable1 tbl => ReadableTable (PayloadDb_ a tbl) RankedBlockPayloadHash Payload where
+    tableLookup db k = fmap _getRankedPayload <$> tableLookup (_payloadDbTable db) k
     {-# INLINE tableLookup #-}
 
-instance Table1 tbl => Table (HeaderDb_ a tbl) RankedBlockPayloadHash Header where
-    tableInsert db k v = tableInsert (_headerDbTable db) k (RankedHeader v)
-    tableDelete db k = tableDelete @_ @_ @RankedHeader (_headerDbTable db) k
+instance Table1 tbl => Table (PayloadDb_ a tbl) RankedBlockPayloadHash Payload where
+    tableInsert db k v = tableInsert (_payloadDbTable db) k (RankedPayload v)
+    tableDelete db k = tableDelete @_ @_ @RankedPayload (_payloadDbTable db) k
     {-# INLINE tableInsert #-}
     {-# INLINE tableDelete #-}
 
@@ -188,67 +189,67 @@ instance Table1 tbl => Table (HeaderDb_ a tbl) RankedBlockPayloadHash Header whe
 
 -- | Initialize a database handle
 --
-initHeaderDb :: Configuration -> IO (HeaderDb_ a RocksDbTable)
-initHeaderDb config = do
-    dbAddChecked db (_configGenesis config)
+initPayloadDb :: Configuration -> IO (PayloadDb_ a RocksDbTable)
+initPayloadDb config = do
+    dbAddChecked db (Payload (_configGenesis config) Nothing)
     return db
   where
     cid = _configChainId config
     cidNs = T.encodeUtf8 (toText cid)
 
-    headerTable = newTable
+    payloadTable = newTable
         (_configRocksDb config)
-        (Codec encodeRankedHeader decodeRankedHeader)
+        (Codec encodeRankedPayload decodeRankedPayload)
         (Codec (runPutS . encodeRankedBlockPayloadHash) (runGetS decodeRankedBlockPayloadHash))
-        ["EvmHeader", cidNs, "header"]
+        ["EvmPayload", cidNs, "payload"]
 
-    !db = HeaderDb
-        { _headerDbChainId = cid
-        , _headerDbTable = headerTable
+    !db = PayloadDb
+        { _payloadDbChainId = cid
+        , _payloadDbTable = payloadTable
         }
 
 -- | Close a database handle and release all resources
 --
-closeHeaderDb :: HeaderDb_ a tbl -> IO ()
-closeHeaderDb _ = return ()
+closePayloadDb :: PayloadDb_ a tbl -> IO ()
+closePayloadDb _ = return ()
 
-withHeaderDb
+withPayloadDb
     :: RocksDb
     -> ChainId
     -> Header
-    -> (HeaderDb_ a RocksDbTable -> IO b)
+    -> (PayloadDb_ a RocksDbTable -> IO b)
     -> IO b
-withHeaderDb db cid genesisHeader = bracket start closeHeaderDb
+withPayloadDb db cid genesisHeader = bracket start closePayloadDb
   where
-    start = initHeaderDb Configuration
+    start = initPayloadDb Configuration
         { _configChainId = cid
         , _configGenesis = genesisHeader
         , _configRocksDb = db
         }
 
 -- -------------------------------------------------------------------------- --
--- Validated Header
+-- Validated Payloads
 
 -- NOTE: the constructor of this type is intentionally NOT exported. Value of
 -- this type must be only created via functions from this module.
 --
-newtype ValidatedHeader = ValidatedHeader Header
+newtype ValidatedPayload = ValidatedPayload Payload
     deriving (Show, Eq, Generic)
 
-_validatedHeader :: ValidatedHeader -> Header
-_validatedHeader (ValidatedHeader h) = h
-{-# INLINE _validatedHeader #-}
+_validatedPayload :: ValidatedPayload -> Payload
+_validatedPayload (ValidatedPayload h) = h
+{-# INLINE _validatedPayload #-}
 
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertHeaderDb :: Table1 tbl => HeaderDb_ a tbl -> ValidatedHeader -> IO ()
-insertHeaderDb db = dbAddChecked db . _validatedHeader
-{-# INLINE insertHeaderDb #-}
+insertPayloadDb :: Table1 tbl => PayloadDb_ a tbl -> ValidatedPayload -> IO ()
+insertPayloadDb db = dbAddChecked db . _validatedPayload
+{-# INLINE insertPayloadDb #-}
 
-unsafeInsertHeaderDb :: Table1 tbl => HeaderDb_ a tbl -> Header -> IO ()
-unsafeInsertHeaderDb = dbAddChecked
-{-# INLINE unsafeInsertHeaderDb #-}
+unsafeInsertPayloadDb :: Table1 tbl => PayloadDb_ a tbl -> Payload -> IO ()
+unsafeInsertPayloadDb = dbAddChecked
+{-# INLINE unsafeInsertPayloadDb #-}
 
 -- -------------------------------------------------------------------------- --
 -- Insert
@@ -260,14 +261,14 @@ unsafeInsertHeaderDb = dbAddChecked
 -- Updates all indices.
 --
 dbAddChecked
-    :: Table1 tbl -- Cas (tbl RankedBlockPayloadHash Header) Header
-    => HeaderDb_ a tbl
-    -> Header
+    :: Table1 tbl -- Cas (tbl RankedBlockPayloadHash Payload) Payload
+    => PayloadDb_ a tbl
+    -> Payload
     -> IO ()
 dbAddChecked db e =
     unlessM (tableMember db ek) dbAddCheckedInternal
   where
-    ek = RankedBlockPayloadHash (int $ _hdrNumber e) (view hdrPayloadHash e)
+    ek = RankedBlockPayloadHash (view pldHeight e) (view pldPayloadHash e)
 
     -- Internal helper methods
 
@@ -279,4 +280,4 @@ dbAddChecked db e =
     --
     -- * Item is not yet in database
     --
-    dbAddCheckedInternal = casInsert (_headerDbTable db) (RankedHeader e)
+    dbAddCheckedInternal = casInsert (_payloadDbTable db) (RankedPayload e)
