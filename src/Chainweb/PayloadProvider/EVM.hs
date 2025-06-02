@@ -1034,9 +1034,9 @@ awaitNewPayload p = do
             pld <- latestPayloadIO p
 
             lf Warn $ "timeout while waiting for new payloadID"
-                <> "consensus state: " <> briefJson state
-                <> "new block ctx: " <> briefJson bctx
-                <> "latest payload: " <> briefJson pld
+                <> ": consensus state: " <> briefJson state
+                <> ", new block ctx: " <> briefJson bctx
+                <> ", latest payload: " <> briefJson pld
             -- FIXME
             -- We are probalby stuck. What can we do? Call forkchoiceUpdate
             -- again? Or we just do nothing? Maybe it should be the job of
@@ -1063,7 +1063,7 @@ awaitNewPayload p = do
         EVM.BaseFeePerGas bf = _executionPayloadV1BaseFeePerGas v1
         GasUsed gu = _executionPayloadV1GasUsed v1
 
-    -- Wait for payload from the execution client
+    -- Wait for payload from the exeution client
     -- FIXME not sure if the timeout is a good idea...
     awaitPid = do
         timeout <- registerDelay getPayloadTimeout
