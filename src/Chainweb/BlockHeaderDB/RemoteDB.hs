@@ -22,7 +22,7 @@ module Chainweb.BlockHeaderDB.RemoteDB
   ) where
 
 import Control.Error.Util (hush)
-import Control.Lens (view)
+import Control.Lens
 import Control.Monad.Catch (handle, throwM)
 
 import qualified Data.Text as T
@@ -63,7 +63,8 @@ instance HasVersion => TreeDb RemoteDb where
     maxEntry = error "Chainweb.TreeDB.RemoteDB.RemoteDb.maxEntry: not implemented"
 
     -- If other default functions rely on this, it could be quite inefficient.
-    lookup (RemoteDb env alog cid) k = hush <$> runClientM client env
+    lookup (RemoteDb env alog cid) k = do
+      over _Left (\e -> "client error: " <> sshow e) <$> runClientM client env
       where
         client = logServantError alog "failed to query tree db entry"
             $ headerClient cid k

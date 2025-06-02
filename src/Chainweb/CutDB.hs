@@ -79,7 +79,6 @@ module Chainweb.CutDB
 -- * Membership Queries
 , member
 , memberOfHeader
-, memberOfM
 
 -- * Some CutDb
 , CutDbT(..)
@@ -481,7 +480,7 @@ readHighestCutHeaders logg wbhdb cutHashesStore = withTableIterator (unCasify cu
             logg Info "No initial cut found in database or configuration, falling back to genesis cut"
             return $ view cutMap genesisCut
         Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
-            Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
+            Left (e@TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
                 logg Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
                     <> " from database."
@@ -849,8 +848,8 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
             origin
             . _ranked
         `catch` \case
-            (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                return (Left cv)
+            (TreeDbKeyNotFound e msg :: TreeDbException BlockHeaderDb) ->
+                return (Left (cv, (e, msg)))
             e -> throwM e
 
 -- -------------------------------------------------------------------------- --
@@ -867,25 +866,10 @@ memberOfHeader
     -> IO Bool
 memberOfHeader db cid h ctx = do
     lookup chainDb h >>= \case
-        Nothing -> return False
-        Just lh -> seekAncestor chainDb ctx (int $ view blockHeight lh) >>= \case
+        Left{} -> return False
+        Right lh -> seekAncestor chainDb ctx (int $ view blockHeight lh) >>= \case
             Nothing -> return False
             Just x -> return $ view blockHash x == h
-  where
-    chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
-
-memberOfM
-    :: HasVersion
-    => CutDb
-    -> ChainId
-    -> BlockHash
-        -- ^ the block hash to look up (the member)
-    -> BlockHash
-        -- ^ the context, i.e. the branch of the chain that contains the member
-    -> IO Bool
-memberOfM db cid h ctx = do
-    th <- lookupM chainDb ctx
-    memberOfHeader db cid h th
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 

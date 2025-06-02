@@ -73,6 +73,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import qualified Data.Text as Text
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -86,11 +87,12 @@ checkKey
     -> DbKey db
     -> m (DbKey db)
 checkKey !db !k = liftIO (lookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
-        [ "reason" .= ("key not found" :: String)
-        , "key" .= k
+    Left m -> throwError $ err404Msg $ object $ concat
+        [ ["reason" .= ("key not found" :: String)]
+        , ("details" .= m) <$ guard (not (Text.null m))
+        , ["key" .= k]
         ]
-    Just _ -> pure k
+    Right _ -> pure k
 
 err404Msg :: ToJSON msg => msg -> ServerError
 err404Msg msg = setErrJSON msg err404
@@ -262,11 +264,12 @@ headerHandler
     -> DbKey db
     -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
-        [ "reason" .= ("key not found" :: String)
-        , "key" .= k
+    Left m -> throwError $ err404Msg $ object $ concat
+        [ ["reason" .= ("key not found" :: String)]
+        , ("details" .= m) <$ guard (not (Text.null m))
+        , ["key" .= k]
         ]
-    Just e -> pure e
+    Right e -> pure e
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server

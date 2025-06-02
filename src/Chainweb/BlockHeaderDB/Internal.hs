@@ -80,6 +80,8 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
+import Control.Monad.Except
+import Control.Monad.IO.Class
 
 -- -------------------------------------------------------------------------- --
 -- | Configuration of the chain DB.
@@ -159,7 +161,7 @@ instance HasChainId BlockHeaderDb where
     {-# INLINE _chainId #-}
 
 instance (k ~ CasKeyType BlockHeader, HasVersion) => ReadableTable BlockHeaderDb k BlockHeader where
-    tableLookup = lookup
+    tableLookup db k = either (\_ -> Nothing) Just <$> lookup db k
     {-# INLINE tableLookup #-}
 
 -- -------------------------------------------------------------------------- --
@@ -189,7 +191,7 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
     dbAddCheckedInternal = case parent e of
         Nothing -> add
         Just p -> tableLookup (_chainDbCas db) (RankedBlockHash (r - 1) p) >>= \case
-            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
+            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e "dbAddCheckedInternal"
             Just (RankedBlockHeader pe) -> do
                 unless (rank e == rank pe + 1)
                     $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
@@ -259,14 +261,18 @@ withBlockHeaderDb db cid = snd <$> allocate start closeBlockHeaderDb
 instance HasVersion => TreeDb BlockHeaderDb where
     type DbEntry BlockHeaderDb = BlockHeader
 
-    lookup db h = runMaybeT $ do
+    lookup db h = runExceptT $ do
         -- lookup rank
-        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
-        MaybeT $ lookupRanked db (int r) h
+        r <- liftIO (tableLookup (_chainDbRankTable db) h) >>= \case
+            Nothing -> throwError ""
+            Just v -> return v
+        ExceptT $ lookupRanked db (int r) h
     {-# INLINEABLE lookup #-}
 
-    lookupRanked db r h = runMaybeT $ do
-        rh <- MaybeT $ tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)
+    lookupRanked db r h = runExceptT $ do
+        rh <- liftIO (tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)) >>= \case
+            Nothing -> throwError ""
+            Just v -> return v
         return $! _getRankedBlockHeader rh
     {-# INLINEABLE lookupRanked #-}
 
@@ -343,14 +349,14 @@ seekTreeDb db k mir it = do
             -- Seek to cursor
             let x = _getNextItem a
             r <- tableLookup (_chainDbRankTable db) x >>= \case
-                Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
+                Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x "seekTreeDb.lookup"
                 (Just !b) -> return b
             iterSeek it (RankedBlockHash r x)
 
             -- if we don't find the cursor, throw exception
             iterKey it >>= \case
                 Just (RankedBlockHash _ b) | b == x -> return ()
-                _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
+                _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x "seekTreeDb.iterKey"
 
             -- If the cursor is exclusive, then advance the iterator
             when (isExclusive a) $ iterNext it

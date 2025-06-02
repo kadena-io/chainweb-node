@@ -16,6 +16,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Sync.WebBlockHeaderStore
@@ -582,8 +583,14 @@ getBlockHeaderInternal
         logg Debug $ taskMsg ck "lookup origin"
         !r <- trace logfun (traceLabel "pullOrigin") k 0
             $ TDB.lookup (rDb cid originEnv) k
-        logg Debug $ taskMsg ck "received from origin"
-        return r
+        case r of
+            Left err -> do
+                logg Warn $ taskMsg k
+                    $ "failed to pull from origin " <> sshow origin <> " with " <> err
+                return Nothing
+            Right v -> do
+                logg Debug $ taskMsg ck "received from origin"
+                return $ Just v
 
     -- pullOriginDeps _ Nothing = return ()
     -- pullOriginDeps ck@(ChainValue cid k) (Just origin) = do
@@ -635,7 +642,7 @@ getBlockHeader
     -> IO BlockHeader
 getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
-        `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
+        `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h (sshow es)
   where
     go = getBlockHeaderInternal
         headerStore
@@ -652,7 +659,7 @@ instance (HasVersion, CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable 
     tableLookup (WebBlockHeaderCas db) (ChainValue cid h) =
         (Just . ChainValue cid <$> lookupWebBlockHeaderDb db cid h)
             `catch` \e -> case e of
-                TDB.TreeDbKeyNotFound _ -> return Nothing
+                TDB.TreeDbKeyNotFound _ _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
     {-# INLINE tableLookup #-}
 
