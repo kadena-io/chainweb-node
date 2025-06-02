@@ -654,7 +654,7 @@ lookupRankedM
     -> DbKey db
     -> IO (DbEntry db)
 lookupRankedM db r k = lookupRanked db r k >>= \case
-    Left e -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM: " <> e
+    Left e -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM (" <> sshow r <> "): " <> e
     Right !x -> return x
 {-# INLINEABLE lookupRankedM #-}
 
