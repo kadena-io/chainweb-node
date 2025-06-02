@@ -260,6 +260,7 @@ library
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.SPV
+        , Chainweb.SPV.XChan
         , Chainweb.SPV.Argument
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.EventProof
