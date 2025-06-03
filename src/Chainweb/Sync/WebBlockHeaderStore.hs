@@ -218,8 +218,11 @@ consensusState wdb hdr
     | otherwise = do
         db <- getWebBlockHeaderDb wdb hdr
         Parent phdr <- lookupParentHeader wdb hdr
-        safeHdr <- fromJuste <$> seekAncestor db phdr safeHeight
-        finalHdr <- fromJuste <$> seekAncestor db phdr finalHeight
+        safeHdr <-
+            if int safeHeight == view blockHeight hdr then return hdr
+            else fromJuste <$> seekAncestor db phdr safeHeight
+        finalHdr <- if int finalHeight == view blockHeight hdr then return hdr
+            else fromJuste <$> seekAncestor db phdr finalHeight
         return ConsensusState
             { _consensusStateLatest = syncStateOfBlockHeader hdr
             , _consensusStateSafe = syncStateOfBlockHeader safeHdr
@@ -240,6 +243,7 @@ consensusState wdb hdr
 --
 forkInfoForHeader
     :: HasVersion
+    => HasCallStack
     => WebBlockHeaderDb
     -> BlockHeader
     -> Maybe EncodedPayloadData
@@ -481,7 +485,7 @@ getBlockHeaderInternal
         case providers ^?! atChain cid of
             ConfiguredPayloadProvider provider -> do
                 r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
-                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with : " <> sshow e
+                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> brief header <> " failed with : " <> sshow e
                     throwM e
                 if r /= _forkInfoTargetState finfo
                 then do
