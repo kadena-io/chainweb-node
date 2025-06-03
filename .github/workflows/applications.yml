@@ -783,6 +783,7 @@ jobs:
     - name: Extract artifacts
       run: |
         tar -xzf "$ARTIFACTS_ARCHIVE"
+        ls -haltrR
 
     # ubuntu-22.04 only include libssl3. ubuntu-20.04 uses libssl1.1
     - name: Create Dockerfile
@@ -798,21 +799,22 @@ jobs:
         LABEL com.chainweb.docker.image.eventlog="${{ needs.config.outputs.eventlog }}"
         LABEL com.chainweb.docker.image.revision="${{ needs.config.outputs.git-sha-short }}"
         RUN <<EOF
-        apt-get update &&
-        apt-get install -y \
-          ca-certificates \
-          libgmp10 \
-          libssl3 \
-          libsnappy1v5 \
-          zlib1g \
-          liblz4-1 \
-          libbz2-1.0 \
-          libgflags2.2 \
-          zstd \
-          libmpfr6 \
-          locales &&
-          rm -rf /var/lib/apt/lists/* &&
-          locale-gen en_US.UTF-8 &&
+          apt-get update && \
+          apt-get install -y --no-install-recommends \
+            ca-certificates \
+            libgmp10 \
+            libssl3 \
+            libsnappy1v5 \
+            zlib1g \
+            liblz4-1 \
+            libbz2-1.0 \
+            libgflags2.2 \
+            zstd \
+            libmpfr6 \
+            locales && \
+          apt-get clean && \
+          rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+          locale-gen en_US.UTF-8 && \
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         EOF
         ENV LANG=en_US.UTF-8
