@@ -49,6 +49,7 @@ import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text qualified as T
 import Numeric.Natural
+import Data.These
 
 -- -------------------------------------------------------------------------- --
 -- Adhoc class for brief logging output
@@ -71,6 +72,11 @@ instance (Brief a, Brief b, Brief c) => Brief (a,b,c) where
 instance (Brief a, Brief b) => Brief (Either a b) where
     brief (Left a) = "left:" <> brief a
     brief (Right b) = "right:" <> brief b
+
+instance (Brief a, Brief b) => Brief (These a b) where
+    brief (This a) = "this:" <> brief a
+    brief (That b) = "that:" <> brief b
+    brief (These a b) = "these:(" <> brief a <> "):(" <> brief b <> ")"
 
 instance Brief a => Brief (Maybe a) where
     brief (Just a) = brief a
