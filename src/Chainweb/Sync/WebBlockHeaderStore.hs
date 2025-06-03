@@ -217,20 +217,9 @@ consensusState wdb hdr
         }
     | otherwise = do
         db <- getWebBlockHeaderDb wdb hdr
-        -- `hdr` is not in the database as it's not been validated yet.
-        -- its parent is though, so we need to look up its ancestors via
-        -- its parent.
         Parent phdr <- lookupParentHeader wdb hdr
-        safeHdr <-
-            -- seekAncestor ordinarily returns its argument if it already has
-            -- the requested height. however we are looking up the ancestor
-            -- based on the parent of the latest header, so if the safe height
-            -- is the height of the latest header, we would not find it.  thus
-            -- we have an extra case for it here.
-            if int safeHeight == view blockHeight hdr then return hdr
-            else fromJuste <$> seekAncestor db phdr safeHeight
-        finalHdr <- if int finalHeight == view blockHeight hdr then return hdr
-            else fromJuste <$> seekAncestor db phdr finalHeight
+        safeHdr <- fromJuste <$> seekAncestor db phdr safeHeight
+        finalHdr <- fromJuste <$> seekAncestor db phdr finalHeight
         return ConsensusState
             { _consensusStateLatest = syncStateOfBlockHeader hdr
             , _consensusStateSafe = syncStateOfBlockHeader safeHdr
@@ -251,7 +240,6 @@ consensusState wdb hdr
 --
 forkInfoForHeader
     :: HasVersion
-    => HasCallStack
     => WebBlockHeaderDb
     -> BlockHeader
     -> Maybe EncodedPayloadData
@@ -493,7 +481,7 @@ getBlockHeaderInternal
         case providers ^?! atChain cid of
             ConfiguredPayloadProvider provider -> do
                 r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
-                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> brief header <> " failed with : " <> sshow e
+                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with : " <> sshow e
                     throwM e
                 if r /= _forkInfoTargetState finfo
                 then do
