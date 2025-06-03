@@ -209,15 +209,22 @@ consensusState
     => WebBlockHeaderDb
     -> BlockHeader
     -> IO ConsensusState
-consensusState wdb hdr = do
-    db <- getWebBlockHeaderDb wdb hdr
-    safeHdr <- fromJuste <$> seekAncestor db hdr safeHeight
-    finalHdr <- fromJuste <$> seekAncestor db hdr finalHeight
-    return ConsensusState
+consensusState wdb hdr
+    | isGenesisBlockHeader hdr = return ConsensusState
         { _consensusStateLatest = syncStateOfBlockHeader hdr
-        , _consensusStateSafe = syncStateOfBlockHeader safeHdr
-        , _consensusStateFinal = syncStateOfBlockHeader finalHdr
+        , _consensusStateSafe = syncStateOfBlockHeader hdr
+        , _consensusStateFinal = syncStateOfBlockHeader hdr
         }
+    | otherwise = do
+        db <- getWebBlockHeaderDb wdb hdr
+        Parent phdr <- lookupParentHeader wdb hdr
+        safeHdr <- fromJuste <$> seekAncestor db phdr safeHeight
+        finalHdr <- fromJuste <$> seekAncestor db phdr finalHeight
+        return ConsensusState
+            { _consensusStateLatest = syncStateOfBlockHeader hdr
+            , _consensusStateSafe = syncStateOfBlockHeader safeHdr
+            , _consensusStateFinal = syncStateOfBlockHeader finalHdr
+            }
   where
     WindowWidth w = _versionWindow implicitVersion
     cid = _chainId hdr
