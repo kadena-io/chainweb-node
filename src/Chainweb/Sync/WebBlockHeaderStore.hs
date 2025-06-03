@@ -85,7 +85,7 @@ import System.LogLevel
 import Utils.Logging.Trace
 import Chainweb.Parent
 import Streaming.Prelude qualified as S
-import Data.These (partitionHereThere)
+import Data.These (partitionHereThere, These (..))
 import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
@@ -499,12 +499,15 @@ getBlockHeaderInternal
                 then do
                     bhdb <- getWebBlockHeaderDb wdb cid
                     let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
-                    let targetRBH = _syncStateRankedBlockHash $ _consensusStateLatest $ _forkInfoTargetState finfo
-                    ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH)
-                    targetBlock <- lookupRankedM bhdb (int $ _rankedHeight targetRBH) (_ranked targetRBH)
+                    ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) `catch` \case
+                        e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
+                            logfun Warn $ "PP block is missing: " <> brief ppRBH
+                            throwM e
+                        e -> throwM e
+
                     (forkBlocksDescendingStream S.:> forkPoint) <-
-                            S.toList $ branchDiff_ bhdb ppBlock targetBlock
-                    let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
+                            S.toList $ branchDiff_ bhdb ppBlock (unwrapParent parentHdr)
+                    let forkBlocksAscending = reverse $ snd $ partitionHereThere (That header : forkBlocksDescendingStream)
                     let newTrace =
                             zipWith
                                 (\prent child ->
@@ -520,7 +523,10 @@ getBlockHeaderInternal
                         throwM $ GetBlockHeaderFailure $ "unexpected result state"
                             <> "; expected: " <> brief (_forkInfoTargetState finfo)
                             <> "; actual: " <> brief r
-                            <> "fork blocks: " <> brief forkBlocksAscending
+                            <> "; PP latest block: " <> brief ppBlock
+                            <> "; target block: " <> brief header
+                            <> "; target block parent: " <> brief (unwrapParent parentHdr)
+                            <> "; fork blocks: " <> brief forkBlocksAscending
                 else
                     return ()
             DisabledPayloadProvider -> do

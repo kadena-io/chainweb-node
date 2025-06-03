@@ -121,6 +121,8 @@ import qualified Data.List.NonEmpty as NEL
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact.NoCoinbase as Pact
 import Chainweb.Core.Brief
+import Data.Align
+import qualified Data.List.NonEmpty as NE
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -509,21 +511,22 @@ syncToFork logger serviceEnv hints forkInfo = do
             Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
             return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
         else do
-            let traceBlockHashes =
+            let traceBlockHashesAscending =
                     drop 1 (unwrapParent . _evaluationCtxRankedParentHash <$> forkInfo._forkInfoTrace) <>
                     [_syncStateRankedBlockHash forkInfo._forkInfoTargetState._consensusStateLatest]
             logFunctionText logger Debug $
                 "playing blocks to move to " <> brief forkInfo._forkInfoTargetState
-                <> " using trace blocks " <> brief traceBlockHashes
-            findForkChain (zip forkInfo._forkInfoTrace traceBlockHashes) >>= \case
+                <> " using trace blocks " <> brief traceBlockHashesAscending
+            findForkChainAscending (reverse $ zip forkInfo._forkInfoTrace traceBlockHashesAscending) >>= \case
                 Nothing -> do
                     logFunctionText logger Info $
                         "impossible to move to " <> brief forkInfo._forkInfoTargetState
-                        <> " from " <> brief pactConsensusState <> " with trace " <> brief forkInfo._forkInfoTrace
+                        <> " from " <> brief pactConsensusState <> " with trace " <> brief (align forkInfo._forkInfoTrace traceBlockHashesAscending)
                     -- error: we have no way to get to the target block. just report
                     -- our current state and do nothing else.
                     return (mempty, mempty, pactConsensusState)
                 Just forkChainBottomToTop -> do
+                    logFunctionText logger Debug $ "fork chain found: " <> brief forkChainBottomToTop
                     rewoundTxs <- getRewoundTxs (Parent $ forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
                     -- the happy case: we can find a way to get to the target block
                     -- look up all of the payloads to see if we've run them before
@@ -591,14 +594,16 @@ syncToFork logger serviceEnv hints forkInfo = do
     pdb = view psPdb serviceEnv
     cid = _chainId serviceEnv
 
-    findForkChain
-        :: [(EvaluationCtx p, RankedBlockHash)]
+    findForkChainAscending
+        :: Brief p
+        => [(EvaluationCtx p, RankedBlockHash)]
         -> IO (Maybe (NEL.NonEmpty (EvaluationCtx p, RankedBlockHash)))
-    findForkChain [] = return Nothing
-    findForkChain (tip:chain) = go [] (tip:chain)
+    findForkChainAscending [] = return Nothing
+    findForkChainAscending (tip:chain) = go [] (tip:chain)
         where
         go
-            :: [(EvaluationCtx p, RankedBlockHash)]
+            :: Brief p
+            => [(EvaluationCtx p, RankedBlockHash)]
             -> [(EvaluationCtx p, RankedBlockHash)]
             -> IO (Maybe (NEL.NonEmpty (EvaluationCtx p, RankedBlockHash)))
         go !acc (tip':chain') = do
@@ -618,11 +623,11 @@ syncToFork logger serviceEnv hints forkInfo = do
                     <> brief (printable tip')
                 go (tip' : acc) chain'
         go _ [] = do
-            logFunctionText logger Debug $
+            logFunctionText logger Info $
                 "no fork point found for chain: "
                 <> brief (printable <$> (tip:chain))
             return Nothing
-        printable (a, b) = (_evaluationCtxRankedParentHash a, b)
+        printable (a, b) = (a, b)
 
     -- remember to call this *before* executing the actual rewind,
     -- and only alter the mempool *after* the db transaction is done.
