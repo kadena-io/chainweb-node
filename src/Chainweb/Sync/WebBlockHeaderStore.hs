@@ -217,8 +217,16 @@ consensusState wdb hdr
         }
     | otherwise = do
         db <- getWebBlockHeaderDb wdb hdr
+        -- `hdr` is not in the database as it's not been validated yet.
+        -- its parent is though, so we need to look up its ancestors via
+        -- its parent.
         Parent phdr <- lookupParentHeader wdb hdr
         safeHdr <-
+            -- seekAncestor ordinarily returns its argument if it already has
+            -- the requested height. however we are looking up the ancestor
+            -- based on the parent of the latest header, so if the safe height
+            -- is the height of the latest header, we would not find it.  thus
+            -- we have an extra case for it here.
             if int safeHeight == view blockHeight hdr then return hdr
             else fromJuste <$> seekAncestor db phdr safeHeight
         finalHdr <- if int finalHeight == view blockHeight hdr then return hdr
