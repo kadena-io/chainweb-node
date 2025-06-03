@@ -229,7 +229,7 @@ consensusState wdb hdr
     WindowWidth w = _versionWindow implicitVersion
     cid = _chainId hdr
     finalHeight = int @Int @_ $ max (int $ genesisHeight cid) (int height - int w * 4)
-    safeHeight = int @Int @_ $ max (int $ genesisHeight cid) (int height - 6 * int diam)
+    safeHeight = int @Int @_ $ max (int $ genesisHeight cid) (int height - 6 * (int diam + 1))
     height = view blockHeight hdr
     diam = diameterAt height
 
