@@ -601,6 +601,11 @@ randomWork logFun cdb caches parentStateVars = do
     go [] = do
 
         logFun @T.Text Info $ "randomWork: no work is ready. Awaiting work"
+        cacheSizes <- forM (itoList caches) $ \(cid, cache) -> do
+            size <- sizeIO cache
+            return (cid, size)
+        logFun @T.Text Info $ sshow cacheSizes
+
 
         -- We shall check for the following conditions:
         --
