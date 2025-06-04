@@ -154,9 +154,11 @@ import Chainweb.OpenAPIValidation qualified as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Types (PactServiceConfig(..))
 import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Parent
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.PayloadProvider
+import Chainweb.Ranked
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Storage.Table.RocksDB
@@ -173,6 +175,10 @@ import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
 import qualified Pact.Core.Gas as Pact
 import qualified Chainweb.PayloadProvider.Pact.Genesis as Pact
+import qualified Streaming.Prelude as S
+import Chainweb.TreeDB
+import Data.These
+import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -537,13 +543,43 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                 r <- syncToBlock provider Nothing finfo `catch` \(e :: SomeException) -> do
                     logFunctionText loggr Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e
                     throwM e
-                unless (r == _forkInfoTargetState finfo) $ do
-                    logFunctionText loggr Error $ "unexpectedResult"
-                    error "Chainweb.Chainweb.synchronizeProviders: unexpected result state"
-                    -- FIXME
+                when (r /= _forkInfoTargetState finfo) $ do
+                    logFunctionText loggr Info
+                        $ "resolving fork on startup, from " <> brief r
+                        <> " to " <> brief (_forkInfoTargetState finfo)
+                    bhdb <- getWebBlockHeaderDb wbh cid
+                    let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
+                    ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) `catch` \case
+                        e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
+                            logFunctionText loggr Warn $ "PP block is missing: " <> brief ppRBH
+                            throwM e
+                        e -> throwM e
+
+                    (forkBlocksDescendingStream S.:> forkPoint) <-
+                            S.toList $ branchDiff_ bhdb ppBlock hdr
+                    let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
+                    let newTrace =
+                            zipWith
+                                (\prent child ->
+                                    ConsensusPayload (view blockPayloadHash child) Nothing <$
+                                        blockHeaderToEvaluationCtx (Parent prent))
+                                (forkPoint : forkBlocksAscending)
+                                forkBlocksAscending
+                    let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                    r' <- syncToBlock provider Nothing newForkInfo
+                    unless (r' == _forkInfoTargetState finfo) $ do
+                        error $ T.unpack
+                            $ "unexpected result state"
+                            <> "; expected: " <> brief (_forkInfoTargetState finfo)
+                            <> "; actual: " <> brief r
+                            <> "; PP latest block: " <> brief ppBlock
+                            <> "; target block: " <> brief hdr
+                            <> "; fork blocks: " <> brief forkBlocksAscending
             DisabledPayloadProvider -> do
                 logFunctionText logger Info $
                     "payload provider disabled, not synced, on chain: " <> toText (_chainId hdr)
+            where
+            cid = _chainId hdr
 
     -- synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> Cut -> IO ()
     -- synchronizePactDb cs targetCut = do
