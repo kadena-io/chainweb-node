@@ -65,7 +65,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Core.Brief
-import Chainweb.Cut hiding (join)
+import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -79,35 +79,28 @@ import Chainweb.Storage.Table
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Control.Applicative
-import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically, STM, retry)
 import Control.Concurrent.STM.TVar
-import Control.Concurrent.STM.TMVar
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
-import Data.Foldable
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Hashable
 import Data.LogMessage (JsonLog(..), LogFunction, LogFunctionText)
-import Data.Map.Strict qualified as M
 import Data.Maybe
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import GHC.Generics (Generic)
-import GHC.Stack
 import Numeric.Natural
 import Streaming.Prelude qualified as S
 import System.LogLevel (LogLevel(..))
 import System.Random (randomRIO)
-import qualified Data.Aeson as Aeson
 import qualified Data.List as List
 import qualified Pact.JSON.Encode as J
 
@@ -786,5 +779,5 @@ logMinedBlock lf bh np = do
         , _minedBlockDiscoveredAt = now
         }
 
-publish :: CutDb -> CutHashes -> IO ()
+publish :: HasVersion => CutDb -> CutHashes -> IO ()
 publish cdb ch = addCutHashes cdb ch

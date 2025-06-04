@@ -73,7 +73,7 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
     return $! cutToCutHashes Nothing c'
 
-cutPutHandler :: PeerDb -> CutDb -> CutHashes -> Handler NoContent
+cutPutHandler :: HasVersion => PeerDb -> CutDb -> CutHashes -> Handler NoContent
 cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
     Nothing -> throwError $ setErrText "Cut is missing an origin entry" err400
     Just addr -> do

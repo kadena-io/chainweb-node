@@ -19,6 +19,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -97,7 +98,6 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad
-import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
@@ -228,6 +228,9 @@ defaultCutDbParams ft = CutDbParams
 -- This number should also be sufficiently large to accomodate for parallel
 -- mining. It should be at least the diameter of the chain graph.
 --
+-- FIXME: check that we have unit tests for checking the invariants associated
+-- with this and the related constants.
+--
 farAheadThreshold :: BlockHeight
 farAheadThreshold = 20
 
@@ -259,7 +262,13 @@ instance Exception CutDbStopped where
 --
 data CutDb = CutDb
     { _cutDbCut :: !(TVar Cut)
+    , _cutDbPrecheckQueue :: !(PQueue (Down CutHashes))
+        -- ^ queue for incoming cuts that are not yet processed. The purpose of
+        -- this queue is to filter out redundant cuts and cuts are are not
+        -- passing pre-checks
     , _cutDbQueue :: !(PQueue (Down CutHashes))
+        -- ^ queue for cuts that have been processed and are awaiting full
+        -- validation.
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -304,8 +313,10 @@ _cut = readTVarIO . _cutDbCut
 cut :: Getter CutDb (IO Cut)
 cut = to _cut
 
-addCutHashes :: CutDb -> CutHashes -> IO ()
-addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) . Down
+addCutHashes :: HasVersion => CutDb -> CutHashes -> IO ()
+addCutHashes db ch = do
+    x <- heightChecks (_cutDbLogFunction db) (_cutDbCut db) ch
+    when x $ pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) (Down ch)
 
 -- | An 'STM' version of '_cut'.
 --
@@ -431,10 +442,12 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
     c <- readTVarIO cutVar
     logg Info $ T.unlines $
         "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
+    precheckQueue <- newEmptyPQueue
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     return CutDb
         { _cutDbCut = cutVar
+        , _cutDbPrecheckQueue = precheckQueue
         , _cutDbQueue = queue
         , _cutDbAsync = cutAsync
         , _cutDbLogFunction = logfun
@@ -526,6 +539,95 @@ lookupCutHashes wbhdb hs =
 cutAvgBlockHeight :: HasVersion => Cut -> BlockHeight
 cutAvgBlockHeight = BlockHeight . round . avgBlockHeightAtCutHeight . _cutHeight
 
+-- preProcessCuts
+--     :: HasVersion
+--     => CutDbParams
+--     -> LogFunction
+--     -> WebBlockHeaderStore
+--     -> ChainMap ConfiguredPayloadProvider
+--     -> Casify RocksDbTable CutHashes
+--     -> PQueue (Down CutHashes)
+--     -> TVar Cut
+--     -> IO ()
+-- preProcessCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
+--     queueToStream
+--         & S.chain (\c -> loggCutId logFun Debug c "start processing")
+--         & S.filterM (fmap not . isVeryOld)
+--   where
+--     hdrStore = _webBlockHeaderStoreCas headerStore
+--
+--     queueToStream = do
+--         Down a <- liftIO (pQueueRemove queue)
+--         S.yield a
+--         queueToStream
+
+heightChecks
+    :: HasVersion
+    => LogFunction
+    -> TVar Cut
+    -> CutHashes
+    -> IO Bool
+heightChecks logFun cutVar x = readTVarIO cutVar >>= \cur -> case go cur of
+    Just msg -> do
+        loggCutId logFun Debug x msg
+        return False
+    Nothing -> return True
+  where
+    go cur
+        -- skip same cut
+        | isSame = Just "skip current cut"
+        -- skip current cut
+        | isCurrent = Just "skip current cut"
+        -- skip far ahead cuts
+        | farAhead = Just
+            $ "skip far ahead cut. Current maximum block height: " <> sshow curMax
+            <> ", got: " <> sshow newMax
+        -- skip very old cuts
+        | isVeryOld = Just "skip very old cut"
+        -- skip old cuts
+        | isOld = Just "skip old cut"
+        | otherwise = Nothing
+      where
+        curMax = _cutMaxHeight cur
+        newMax = _cutHashesMaxHeight x
+        curMin = _cutMinHeight cur
+        diam = diameter $ chainGraphAt curMin
+        newMin = _cutHashesMinHeight x
+        curHashes = cutToCutHashes Nothing cur
+
+        -- FIXME: this is problematic. We should drop these much earlier before
+        -- they are even added to the queue, to prevent the queue from becoming
+        -- stale. Although its probably low risk, since the processing pipeline
+        -- is probably faster in removing these from the queue than the network
+        -- stack can add them.
+        --
+        -- Note that _cutHashesMaxHeight is linear in the number of chains. If
+        -- that's not acceptable any more, it would also be fine to just pick
+        -- the height from some arbitrary chain, e.g. 0, in which case the
+        -- result would be off by at most the diameter of the graph.
+        --
+        farAhead = newMax >= curMax + farAheadThreshold
+
+
+        -- This could be problematic if there is a very lightweight fork that is
+        -- far ahead. Otherwise, there should be no fork that has 2*diam less
+        -- blocks and exceeds the current fork in weight.
+        --
+        -- Note that _cutHashesMaxHeight is linear in the number of chains. If
+        -- that's not acceptable any more, it would also be fine to just pick
+        -- the height from some arbitrary chain, e.g. 0, in which case the
+        -- result would be off by at most the diameter of the graph.
+        --
+        isVeryOld = newMin + 2 * (1 + int diam) <= curMin
+
+        -- This should be based on weight
+        --
+        isOld = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _rankedHeight) . _cutHashes)) curHashes x
+
+        isSame = _cutId cur == _cutHashesId x
+
+        isCurrent = _cutHashes curHashes == _cutHashes x
+
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
 --
@@ -550,9 +652,6 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
     rng <- Prob.createSystemRandom
     queueToStream
         & S.chain (\c -> loggCutId logFun Debug c "start processing")
-        & S.filterM (fmap not . isVeryOld)
-        & S.filterM (fmap not . farAhead)
-        & S.filterM (fmap not . isOld)
         & S.filterM (fmap not . isCurrent)
 
         & S.chain (\c -> loggCutId logFun Info c "fetching all prerequisites")
@@ -612,53 +711,6 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
         Down a <- liftIO (pQueueRemove queue)
         S.yield a
         queueToStream
-
-    -- FIXME: this is problematic. We should drop these much earlier before they
-    -- are even added to the queue, to prevent the queue from becoming stale.
-    -- Although its probably low risk, since the processing pipeline is probably
-    -- faster in removing these from the queue than the network stack can add
-    -- them.
-    --
-    -- Note that _cutHashesMaxHeight is linear in the number of chains. If
-    -- that's not acceptable any more, it would also be fine to just pick the
-    -- height from some arbitrary chain, e.g. 0, in which case the result would
-    -- be off by at most the diameter of the graph.
-    --
-    farAhead x = do
-        curMax <- _cutMaxHeight <$> readTVarIO cutVar
-        let newMax = _cutHashesMaxHeight x
-        let r = newMax >= curMax + farAheadThreshold
-        when r $ loggCutId logFun Debug x
-            $ "skip far ahead cut. Current maximum block height: " <> sshow curMax
-            <> ", got: " <> sshow newMax
-            -- log at debug level because this is a common case during catchup
-        return r
-
-    -- This could be problematic if there is a very lightweight fork that is far
-    -- ahead. Otherwise, there should be no fork that has 2*diam less blocks and
-    -- exceeds the current fork in weight.
-    --
-    -- Note that _cutHashesMaxHeight is linear in the number of chains. If
-    -- that's not acceptable any more, it would also be fine to just pick the
-    -- height from some arbitrary chain, e.g. 0, in which case the result would
-    -- be off by at most the diameter of the graph.
-    --
-    isVeryOld x = do
-        curMin <- _cutMinHeight <$> readTVarIO cutVar
-        let diam = diameter $ chainGraphAt curMin
-            newMin = _cutHashesMinHeight x
-        let r = newMin + 2 * (1 + int diam) <= curMin
-        when r $ loggCutId logFun Debug x "skip very old cut"
-            -- log at debug level because this is a common case during catchup
-        return r
-
-    -- This should be based on weight
-    --
-    isOld x = do
-        curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _rankedHeight) . _cutHashes)) curHashes x
-        when r $ loggCutId logFun Debug x "skip old cut"
-        return r
 
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
