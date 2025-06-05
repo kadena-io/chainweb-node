@@ -134,7 +134,7 @@ instance Exception ChainIdException
 newtype ChainId :: Type where
     ChainId' :: Word32 -> ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
+    deriving newtype (Hashable, ToJSON, FromJSON, NFData)
 
 pattern ChainId :: Word32 -> ChainId
 pattern ChainId n <- ChainId' n
