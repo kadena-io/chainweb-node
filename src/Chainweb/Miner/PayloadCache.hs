@@ -217,12 +217,13 @@ insertSTM
     -> NewPayload
     -> STM ()
 insertSTM pc pld =
-    modifyTVar' (_payloadCacheMap pc) $
-        M.insert key pld . prune (_payloadCacheDepth pc) h
+    modifyTVar' (_payloadCacheMap pc) $ \c -> M.insert key pld
+        $ if doPrune then prune (_payloadCacheDepth pc) h c else c
   where
     Parent h = _newPayloadParentHeight pld
     Parent p = _newPayloadParentHash pld
     key = (Parent (RankedBlockHash h p), _newPayloadNumber pld)
+    doPrune = rem h 10 == 0
 
 -- | Insert a new payload into the cache. The cache is pruned before the new
 -- item is inserted.
@@ -239,7 +240,7 @@ insertIO pc = atomically . insertSTM pc
 pruneSTM
     :: PayloadCache
     -> BlockHeight
-    -> STM()
+    -> STM ()
 pruneSTM pc h = modifyTVar' (_payloadCacheMap pc) $!
     prune (_payloadCacheDepth pc) h
 

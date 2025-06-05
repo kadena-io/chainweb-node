@@ -243,7 +243,7 @@ data WorkState
     -- ^ Chain is blocked and no payload has yet been produced
 
   | WorkStale !(Parent RankedBlockHash) !WorkParents
-    -- ^ The chain is unblocked but no payload has produced yet.
+    -- ^ The chain is unblocked but no payload has been produced yet.
     --
     -- Invariant: The work parents must match the ranked block hash.
 
