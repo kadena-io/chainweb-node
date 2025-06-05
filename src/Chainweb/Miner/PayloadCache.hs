@@ -223,6 +223,11 @@ insertSTM pc pld =
     Parent h = _newPayloadParentHeight pld
     Parent p = _newPayloadParentHash pld
     key = (Parent (RankedBlockHash h p), _newPayloadNumber pld)
+
+    -- This is possibly a little too relaxed. It also has to problem that it
+    -- can cause spikes when many blocks are mined at the same height.
+    --
+    -- So, we probably should prune only when the max height changes.
     doPrune = rem h 10 == 0
 
 -- | Insert a new payload into the cache. The cache is pruned before the new

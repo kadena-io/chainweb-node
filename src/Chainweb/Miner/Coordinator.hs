@@ -103,6 +103,7 @@ import System.LogLevel (LogLevel(..))
 import System.Random (randomRIO)
 import GHC.Stack (HasCallStack)
 import qualified Data.Map.Strict as M
+import Control.Concurrent (threadDelay)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -753,16 +754,6 @@ randomWork logFun state = do
     go [] = do
 
         logFun @T.Text Info $ "randomWork: no work is ready. Awaiting work"
-        -- cacheSizes <- forM (itoList caches) $ \(cid, cache) -> do
-        --     size <- sizeIO cache
-        --     parentState <- readTVarIO (parentStateVars ^?! atChain cid)
-        --     return $ object
-        --         [ "chain" .= toText cid
-        --         , "cacheSize" .= size
-        --         , "parentState" .= maybe "Nothing" brief parentState
-        --         ]
-        -- logFun @T.Text Info $ sshow cacheSizes
-
 
         -- We shall check for the following conditions:
         --
@@ -790,16 +781,21 @@ randomWork logFun state = do
         -- that blocks are produced means other mining nodes can keep up. This
         -- node will recover, once DA causes the system to cool down.
         --
-        timeoutVar <- registerDelay (int staleMiningStateDelay)
-        w <- atomically $
-            Right <$> awaitAnyReady state <|> awaitTimeout timeoutVar
-        case w of
-            Right (ps, npld) -> do
-                ct <- BlockCreationTime <$> getCurrentTimeIntegral
-                return $ newWork ct ps (_newPayloadBlockPayloadHash npld)
-            Left e -> error $
-                "Chainweb.Miner.Coordinator.randomWork: " <> T.unpack e
-                -- FIXME: throw a proper exception and log what is going on
+
+        -- timeoutVar <- registerDelay (int staleMiningStateDelay)
+        -- w <- atomically $
+        --     Right <$> awaitAnyReady state <|> awaitTimeout timeoutVar
+        -- case w of
+        --     Right (ps, npld) -> do
+        --         ct <- BlockCreationTime <$> getCurrentTimeIntegral
+        --         return $ newWork ct ps (_newPayloadBlockPayloadHash npld)
+        --     Left e -> error $
+        --         "Chainweb.Miner.Coordinator.randomWork: " <> T.unpack e
+        --         -- FIXME: throw a proper exception and log what is going on
+
+        -- Let's try the following instead (it's probably a stupid idea):
+        threadDelay 500_000
+        randomWork logFun state
 
     go ((cid, var):t) = readTVarIO var >>= \case
         WorkReady _ npld ps -> do
