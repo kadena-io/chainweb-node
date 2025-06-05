@@ -39,11 +39,10 @@ module Chainweb.Miner.Coordinator
 , work
 , solve
 
--- * Internal
+-- * WorkState
+, WorkState(..)
 
--- * ParentState
-, ParentState(..)
-, awaitLatestPayloadForParentStateSTM
+-- * Internal
 
 -- ** Payload Caches
 , type PayloadCaches
@@ -51,7 +50,9 @@ module Chainweb.Miner.Coordinator
 , awaitPayloadsNext
 
 -- ** MiningState
+, MiningState
 , updateForCut
+, updateForPayload
 , updateForSolved
 
 -- ** Delivery
@@ -84,14 +85,13 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, STM, retry)
 import Control.Concurrent.STM.TVar
 import Control.Exception.Safe
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Hashable
+import Data.Foldable
 import Data.LogMessage (JsonLog(..), LogFunction, LogFunctionText)
 import Data.Maybe
 import Data.Text qualified as T
@@ -101,11 +101,27 @@ import Numeric.Natural
 import Streaming.Prelude qualified as S
 import System.LogLevel (LogLevel(..))
 import System.Random (randomRIO)
-import qualified Data.List as List
-import qualified Pact.JSON.Encode as J
+import GHC.Stack (HasCallStack)
+import qualified Data.Map.Strict as M
 
 -- -------------------------------------------------------------------------- --
 -- Utils
+
+-- | Lookup a 'BlockHeader' for a 'ChainId' in a cut and raise a meaningfull
+-- error if the lookup fails.
+--
+-- Generally, failing lookup in a cut is a code invariant violation. In almost
+-- all circumstances there should be a invariant in scope that guarantees that
+-- the lookup succeeds. This function is useful when debugging corner cases of
+-- new code logic, like graph changes.
+--
+lookupInCut :: HasCallStack => HasVersion => HasChainId cid => Cut -> cid -> BlockHeader
+lookupInCut c cid
+    | Just x <- lookupCutM cid c = x
+    | otherwise = error $ T.unpack
+        $ "Chainweb.Miner.Coordinator.lookupInCut: failed to lookup chain in cut."
+        <> " Chain: " <> sshow (_chainId cid) <> "."
+        <> " Cut Hashes: " <> encodeToText (cutToCutHashes Nothing c) <> "."
 
 type WorkParentsId = (Parent BlockHash, AdjacentsHash)
 
@@ -222,39 +238,196 @@ awaitPayloadsNext caches c prevs = msum (awaitChain <$> itoList xs)
 --   Solved -> Solved [label=payload];
 -- @
 --
-data ParentState = ParentState
-    { parentStateParents :: !WorkParents
-    -- ^ Invariant: The work parents must match the ranked block hash.
-    , parentStateSolved :: !(Maybe SolvedWork)
-    -- ^ A block with these parents has already been solved and submitted to the
-    --   cut pipeline - we don't want to mine it again. So we wait until the
-    --   current cut is updated with a new parent header for this chain.
-    }
-    deriving stock (Show, Eq, Generic)
+data WorkState
+  = WorkNotReady !(Parent RankedBlockHash)
+    -- ^ Chain is blocked and no payload has yet been produced
 
-awaitLatestPayloadForParentStateSTM :: PayloadCache -> ParentState -> STM NewPayload
-awaitLatestPayloadForParentStateSTM payloadCache parentState = do
-    let parent = fmap (view rankedBlockHash) $ _workParent' $ parentStateParents parentState
-    awaitLatestSTM payloadCache parent
+  | WorkStale !(Parent RankedBlockHash) !WorkParents
+    -- ^ The chain is unblocked but no payload has produced yet.
+    --
+    -- Invariant: The work parents must match the ranked block hash.
 
-instance Brief ParentState where
-    brief ParentState{..} =
-        "ParentState:" <> brief parentStateParents
-        <> ":solved=" <> brief parentStateSolved
+  | WorkBlocked !(Parent RankedBlockHash) !NewPayload
+    -- ^ A payload is ready but the chain is still blocked
+    --
+    -- Invariant: The payload must match the ranked block hash.
+
+  | WorkReady !(Parent RankedBlockHash) !NewPayload !WorkParents
+    -- ^ The chain is ready for mining
+    --
+    -- Invariant: The payload, parents, work header must match the ranked block
+    -- hash.
+
+  | WorkSolved !(Parent RankedBlockHash) !NewPayload !WorkParents
+  deriving stock (Show, Eq, Generic)
+
+_workRankedHash :: WorkState -> Parent RankedBlockHash
+_workRankedHash (WorkNotReady rh) = rh
+_workRankedHash (WorkStale rh _) = rh
+_workRankedHash (WorkBlocked rh _) = rh
+_workRankedHash (WorkReady rh _ _) = rh
+_workRankedHash (WorkSolved rh _ _) = rh
+
+_workStateHash :: WorkState -> Parent BlockHash
+_workStateHash = fmap _rankedBlockHashHash . _workRankedHash
+
+_workStateHeight :: WorkState -> Parent BlockHeight
+_workStateHeight = fmap _rankedBlockHashHeight . _workRankedHash
+
+workReady
+    :: Parent RankedBlockHash
+    -> NewPayload
+    -> WorkParents
+    -> WorkState
+workReady rbh pld ps' = WorkReady rbh pld ps'
+
+_newPayloadRankedHash :: NewPayload -> RankedBlockHash
+_newPayloadRankedHash p =
+    RankedBlockHash (unwrapParent $ _newPayloadParentHeight p) (unwrapParent $ _newPayloadParentHash p)
+
+instance Brief WorkState where
+    brief (WorkNotReady rh) = "WorkNotReady" <> ":" <> brief rh
+    brief (WorkStale rh _) = "WorkStale" <> ":" <> brief rh
+    brief (WorkBlocked rh _) = "WorkBlocked" <> ":" <> brief rh
+    brief (WorkReady rh _ _) = "WorkReady" <> ":" <> brief rh
+    brief (WorkSolved rh _ _) = "WorkSolved" <> ":" <> brief rh
+
+-- -------------------------------------------------------------------------- --
+-- WorkState Transition Function
+
+-- | Called on headers event
+--
+onHeader
+    :: Parent RankedBlockHash
+    -> WorkState
+    -> Maybe WorkState
+onHeader rh cur
+    | rh == _workRankedHash cur = Nothing
+    | otherwise = Just $ WorkNotReady rh
+
+-- | Called on a work headers event.
+--
+-- If the parent header changes, 'onHeader' is called first, which also resets
+-- the payload. For that reason it should be also checked whether there is a
+-- payload available for the new header.
+--
+onParents
+    :: Maybe WorkParents
+        -- Just the work parents or 'Nothing' when the chain is blocked.
+    -> WorkState
+    -> Maybe WorkState
+onParents (Just ps) cur | psRankedHash /= _workRankedHash cur =
+    onHeader psRankedHash cur >>= onParents (Just ps)
+  where
+    psRankedHash = _rankedBlockHash <$> _workParent ps
+onParents (Just ps') (WorkNotReady rh) = Just $ WorkStale rh ps'
+onParents (Just ps') (WorkBlocked rh pld) = Just $ workReady rh pld ps'
+onParents (Just ps') (WorkStale rh ps)
+    | ps /= ps' = Just $ WorkStale rh ps'
+    | otherwise = Nothing
+onParents (Just ps') (WorkReady rh pld ps)
+    | ps /= ps' = Just $ workReady rh pld ps'
+    | otherwise =  Nothing
+onParents (Just ps') (WorkSolved rh pld ps)
+    | ps /= ps' = Just $ workReady rh pld ps'
+    | otherwise = Nothing
+onParents Nothing WorkNotReady{} = Nothing
+onParents Nothing WorkBlocked{} = Nothing
+onParents Nothing (WorkStale rh _) = Just $ WorkNotReady rh
+onParents Nothing (WorkReady rh pld _) = Just $ WorkBlocked rh pld
+onParents Nothing (WorkSolved rh pld _) = Just $ WorkBlocked rh pld
+
+-- | Called on a new payload event.
+--
+-- If the parent header of the new payload does not match the current parent
+-- header, it is ignored. Only an 'onParents' event can update the current
+-- parent header.
+--
+onPayload
+    :: NewPayload
+    -> WorkState
+    -> Maybe WorkState
+onPayload pld' cur | _newPayloadRankedParentHash pld' /= _workRankedHash cur = Nothing
+onPayload pld' (WorkNotReady rh) = Just $ WorkBlocked rh pld'
+onPayload pld' (WorkStale rh ps) = Just $ workReady rh pld' ps
+onPayload pld' (WorkBlocked rh pld)
+    | pld /= pld' = Just $ WorkBlocked rh pld'
+    | otherwise = Nothing
+onPayload pld' (WorkReady rh pld ps)
+    | pld /= pld' = Just $ workReady rh pld' ps
+    | otherwise = Nothing
+onPayload _ WorkSolved{} = Nothing
+
+-- | Called when work is solved for the chain.
+--
+onSolved
+    :: SolvedWork
+    -> WorkState
+    -> Maybe WorkState
+onSolved s (WorkReady rh pld ps)
+    -- If work is currently ready for this header in this cut, we mark it solved.
+    -- We checked that before, when we processed the solution. But we have to do
+    -- it again, since the state is updated asynchronously and there could be a
+    -- race.
+    | solvedId s == parentsId ps = Just $ WorkSolved rh pld ps
+-- otherwise do not change the state.
+-- If we solved this header in this cut before we do not change the work
+-- state, even if the payload differs.
+onSolved _ _ = Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Mining State
 
-newMiningState :: HasVersion => Cut -> IO (ChainMap (TVar (Maybe ParentState)))
+
+-- | Current Mining State on each chain. It is updated
+--
+-- 1. each time a new cut is received
+-- 2. each time a block is solved
+-- 3. each time a new payload is received for a chain
+--
+newtype MiningState = MiningState
+    { _miningState :: M.Map ChainId (TVar WorkState)
+    }
+    deriving stock (Generic)
+    deriving newtype (Semigroup, Monoid)
+
+makeLenses ''MiningState
+
+type instance Index MiningState = ChainId
+type instance IxValue MiningState = TVar WorkState
+
+instance Ixed MiningState where
+    ix i = miningState . ix i
+
+instance IxedGet MiningState
+
+instance Each MiningState MiningState (TVar WorkState) (TVar WorkState) where
+    each f = fmap MiningState . each f . _miningState
+
+newMiningState :: HasVersion => Cut -> IO MiningState
 newMiningState c = do
     states <- forM cids $ \cid -> do
-        var <- newTVarIO Nothing
+        var <- newTVarIO
+            $ WorkNotReady
+            $ Parent
+            $ _rankedBlockHash
+            $ fromMaybe (genesisBlockHeader cid) (HM.lookup cid (_cutMap c))
         return (cid, var)
-    return $! onChains states
+    return $ MiningState $! M.fromList states
   where
 
     cids :: [ChainId]
     cids = HS.toList chainIds
+
+updateStateVar :: LogFunctionText -> ChainId -> TVar WorkState -> WorkState -> IO ()
+updateStateVar lf cid var new = do
+    -- Logging. This can race, but we don't care
+    cur <- readTVarIO var
+    lf Debug $ "update work state"
+        <> "; chain: " <> toText cid
+        <> "; cur: " <> brief cur
+        <> "; new: " <> brief new
+    atomically $ writeTVar var new
 
 -- TODO: consider storing the mining state more efficiently:
 --
@@ -269,104 +442,80 @@ updateForCut
     :: HasVersion
     => LogFunctionText
     -> (ChainValue BlockHash -> IO BlockHeader)
-    -> (ChainMap (TVar (Maybe ParentState)))
+    -> PayloadCaches
+    -> MiningState
     -> Cut
     -> IO ()
-updateForCut lf hdb ms c = do
-    forM_ (HM.keys (c ^. cutMap)) forChain
+updateForCut lf hdb caches ms c = do
+    forM_ (M.toList $ _miningState ms) $ \(cid, var) ->
+        forChain cid var (caches ^?! ix cid)
   where
-    forChain cid = do
-        let parentStateVar = ms ^?! atChain cid
-        maybeNewParents <- workParents hdb c cid
-        atomically $ do
-            maybeOldParentState <- readTVar parentStateVar
-            case (maybeOldParentState, maybeNewParents) of
-                (_, Nothing) ->
-                    writeTVar parentStateVar Nothing
-                (Just oldParentState, Just newParents)
-                    | parentStateParents oldParentState == newParents
-                        -> return ()
-                (_, Just newParents) ->
-                    writeTVar parentStateVar $ Just
-                        ParentState
-                            { parentStateParents = newParents
-                            , parentStateSolved = Nothing
-                            }
+    forChain cid var cache =  do
+        ps <- workParents hdb c cid
+        cur <- readTVarIO var
 
-updateForSolved
-    :: HasVersion
-    => LogFunction
-    -> CutDb
-    -> PayloadCache
-    -> TVar (Maybe ParentState)
-    -> SolvedWork
-    -> IO ()
-updateForSolved lf cdb payloadCache var sw = do
-    stateOrErr <- runExceptT $ do
-        solvedParentState <- mapExceptT atomically $ do
-            lift (readTVar var) >>= \case
-                Just parentState
-                    | solvedId sw /= parentsId (parentStateParents parentState) ->
-                        throwError (Just parentState, Info, "orphaned; this block is for an older parent set")
-                    | Just _ <- parentStateSolved parentState ->
-                        throwError (Just parentState, Debug, "this block has already been solved")
-                    | otherwise -> do
-                        let newState = parentState { parentStateSolved = Just sw }
-                        -- speculatively set the work state's solved work. if we have
-                        -- trouble integrating this block, we will revert this after.
-                        lift (writeTVar var (Just newState))
-                        return newState
-                -- orphaned by parent disappearance
-                Nothing ->
-                    throwError (Nothing, Info, "orphaned; this block is for a blocked chain")
+        -- logging
+        -- cs <- sizeIO cache
+        -- cl <- getLatestIO cache (_workRankedHash cur)
+        -- ch <- payloadHashesIO cache
+        -- lf @T.Text Debug $ "updateForCut for chain: " <> brief cid
+        --     <> "; cur: " <> brief cur
+        --     <> "; cut: " <> brief (c ^?! ixg cid)
+        --     <> "; parent: " <> brief (_workParent <$> ps)
+        --     <> "; cache size: " <> sshow cs
+        --     <> "; cache depth: " <> sshow (_payloadCacheDepth cache)
+        --     <> "; cache latest: " <> brief cl
+        --     <> "; cache hashes: " <> brief ch
 
-        c <- lift $ _cut cdb
-        lift (lookupIO payloadCache (fmap (view rankedBlockHash) $ _workParent $ parentStateParents solvedParentState) (_solvedPayloadHash sw)) >>= \case
-            Nothing -> throwError (Just solvedParentState, Warn, "updateForSolved: missing payload in cache: " <> brief solvedParentState)
-            Just payload -> do
-                let pld = _newPayloadEncodedPayloadData payload
-                let pwo = _newPayloadEncodedPayloadOutputs payload
+        case onParents ps cur of
+            Nothing -> return ()
+            Just !new
 
-                try (extend c pld pwo (parentStateParents solvedParentState) sw) >>= \case
+                -- Check whether the parent header is still the same
+                | _workRankedHash new == _workRankedHash cur ->
+                    updateStateVar lf cid var new
 
-                    -- Publish CutHashes to CutDb and log success
-                    Right (bh, Just ch) -> do
-                        lift $ publish cdb ch
-                        lift $ logMinedBlock lf bh payload
-                        return solvedParentState
+                -- if the parent header changed, check if a payload is available
+                | otherwise -> getLatestIO cache (_workRankedHash new) >>= \case
+                    Nothing -> updateStateVar lf cid var new
+                    Just pld -> case onPayload pld new of
+                        Nothing -> updateStateVar lf cid var new
+                        Just !newnew -> updateStateVar lf cid var newnew
 
-                    -- Log Orphaned Block
-                    Right (_, Nothing) -> do
-                        throwError (Just solvedParentState, Info, "orphaned; this block is for an older parent set")
+updateForPayload :: LogFunctionText -> MiningState -> NewPayload -> IO ()
+updateForPayload lf ms pld = do
+    cur <- readTVarIO var
+    -- lf @T.Text Debug $ "updateForPayload on chain: " <> toText cid
+    --     <> "; cur: " <> brief cur
+    --     <> "; new payload: " <> brief pld
+    case onPayload pld cur of
+        Nothing -> return ()
+        Just !new -> updateStateVar lf cid var new
+  where
+    cid = _chainId pld
+    var = ms ^?! ixg cid
 
-                    Left (InvalidSolvedHeader msg) -> do
-                        throwError (Just solvedParentState, Warn, "invalid solved header: " <> msg)
+updateForSolved :: LogFunctionText -> MiningState -> SolvedWork -> IO ()
+updateForSolved lf ms sw = do
+    cur <- readTVarIO var
+    -- lf @T.Text Debug $ "updateForSolved on chain: " <> toText cid
+    --     <> "; cur: " <> brief cur
+    --     <> "; sw: " <> brief sw
+    case onSolved sw cur of
+        Nothing -> return ()
+        Just !new -> do
+            updateStateVar lf cid var new
+  where
+    cid = _chainId sw
+    var = ms ^?! ixg cid
 
-    case stateOrErr of
-        Right s' -> lf Info $ "updateForSolved: new block solved: " <> brief s'
-        Left (staleMaybeParentState, level, err) -> do
-            lf level $ "updateForSolved: block not solved: " <> err
-            -- an error has occurred when trying to integrate this block;
-            -- reset the work state's solved work, if the parents have not
-            -- changed since the failure.
-            forM_ staleMaybeParentState $ \staleParentState -> atomically $ do
-                latestMaybeParentState <- readTVar var
-                case latestMaybeParentState of
-                    Just latestParentState
-                        | parentsId (parentStateParents staleParentState)
-                            == parentsId (parentStateParents latestParentState)
-                        -> writeTVar var $ Just latestParentState { parentStateSolved = Nothing }
-                    _ -> return ()
-            now <- getCurrentTimeIntegral
-            lf Info $ orphandMsg now err
-    where
-
-    orphandMsg now msg = JsonLog OrphanedBlock
-        { _orphanedParent = _solvedParentHash sw
-        , _orphanedPayloadHash = _solvedPayloadHash sw
-        , _orphanedDiscoveredAt = now
-        , _orphanedReason = msg
-        }
+awaitAnyReady :: MiningState -> STM (WorkParents, NewPayload)
+awaitAnyReady s = msum $ awaitWorkReady <$> _miningState s
+  where
+    awaitWorkReady :: TVar WorkState -> STM (WorkParents, NewPayload)
+    awaitWorkReady var = readTVar var >>= \case
+        WorkReady _ pld ps -> return (ps, pld)
+        _ -> retry
 
 -- -------------------------------------------------------------------------- --
 -- MiningCoordination
@@ -377,7 +526,7 @@ updateForSolved lf cdb payloadCache var sw = do
 data MiningCoordination logger = MiningCoordination
     { _coordLogger :: !logger
     , _coordCutDb :: !CutDb
-    , _coordParentState :: !(ChainMap (TVar (Maybe ParentState)))
+    , _coordState :: !MiningState
     , _coordConf :: !CoordinationConfig
     , _coordPayloadCache :: !PayloadCaches
     }
@@ -396,7 +545,7 @@ newMiningCoordination logger conf cdb = do
     return $ MiningCoordination
         { _coordLogger = logger
         , _coordCutDb = cdb
-        , _coordParentState = state
+        , _coordState = state
         , _coordConf = conf
         , _coordPayloadCache = caches
         }
@@ -425,13 +574,15 @@ runCoordination mr = do
     -- fail to start mining.
     initializeState
 
-    updateWork
+    concurrentlies_
+        $ updateWork
+        : toList (imap updateCache caches)
   where
     lf :: LogFunctionText
     lf = logFunction $ _coordLogger mr
 
     caches = _coordPayloadCache mr
-    state = _coordParentState mr
+    state = _coordState mr
 
     hdb :: WebBlockHeaderDb
     hdb = view cutDbWebBlockHeaderDb (_coordCutDb mr)
@@ -448,6 +599,17 @@ runCoordination mr = do
         DisabledPayloadProvider ->
             error $ "payload provider disabled on chain " <> sshow cid <> ", which is illegal for miners"
 
+    -- Update the payload cache with the latest payloads from the the provider
+    --
+    updateCache cid cache =
+        withProvider cid $ \provider ->
+        runForever lf label $ do
+        payloadStream provider
+            & S.chain (\_ -> lf Info $ "update cache on chain " <> toText cid)
+            & S.mapM_ (insertIO cache)
+        where
+        label =  "miningCoordination.updateCache." <> toText cid
+
     -- Update the work state
     --
     updateWork = runForever lf "miningCoordination" $ do
@@ -455,18 +617,23 @@ runCoordination mr = do
         eventStream cdb caches
             & S.chain (\e -> lf Debug $ "coordination event: " <> brief e)
             & S.mapM_ \case
-                CutEvent c -> updateForCut lf f state c
-                NewPayloadEvent _ -> return ()
+                CutEvent c -> updateForCut lf f caches state c
+                NewPayloadEvent c -> updateForPayload lf state c
                 -- There is a race with solved events. Does it matter?
                 -- We could synchronize those by delivering those via an
                 -- STM variable, too.
-                -- TODO: is there still?
 
     initializeState = do
-        lf Debug "initialize mining state"
+        lf Info $ "initialize mining state"
+        -- FIXME: this is probably more aggressive than needed
+        -- forConcurrently_ (itoList caches) $ \(cid, cache) -> do
+        --     lf Info $ "initialize mining state for chain " <> brief cid
+        --     pld <- withProvider cid latestPayloadIO
+        --     lf Info $ "got latest payload for chain " <> brief cid
+        --     insertIO cache pld
         curCut <- _cut $ cdb
-        updateForCut lf f state curCut
-        lf Debug "done initializing mining state for all chains"
+        updateForCut lf f caches state curCut
+        lf Info "done initializing mining state for all chains"
 
 -- | Note that this stream is lossy. It always delivers the latest available
 -- item and skips over any previous items that have not been consumed.
@@ -549,11 +716,9 @@ awaitEvent cdb caches c p =
 randomWork
     :: HasVersion
     => LogFunction
-    -> CutDb
-    -> PayloadCaches
-    -> ChainMap (TVar (Maybe ParentState))
+    -> MiningState
     -> IO MiningWork
-randomWork logFun cdb caches parentStateVars = do
+randomWork logFun state = do
 
     -- Pick a random chain.
     --
@@ -567,7 +732,7 @@ randomWork logFun cdb caches parentStateVars = do
     -- that has work ready. We could prune the random range and search space,
     -- but at this, point the slight, temporary overhead seems acceptable.
     --
-    n <- randomRIO (0, length parentStateVars)
+    n <- randomRIO (0, M.size m)
 
     -- NOTE: it is tempting to search for a matching chain within a single STM
     -- transaction. However, that is problematic: the search restarts when the
@@ -580,31 +745,23 @@ randomWork logFun cdb caches parentStateVars = do
     -- towards chains for which block are produced more quickly, but we think,
     -- that it is negligible.
     --
-    let (s0, s1) = splitAt n (itoList parentStateVars)
-    go (s1 <> s0)
+    let (s0, s1) = M.splitAt n m
+    go (M.toList s1 <> M.toList s0)
   where
-    awaitWorkReady
-        :: ChainId
-        -> TVar (Maybe ParentState)
-        -> STM (WorkParents, NewPayload)
-    awaitWorkReady cid var = do
-        parentState <- maybe retry return =<< readTVar var
-        guard (isNothing $ parentStateSolved parentState)
-        case cdb ^?! cutDbPayloadProviders . atChain cid of
-            ConfiguredPayloadProvider pp ->
-                latestPayloadSTM pp >>= insertSTM (caches ^?! atChain cid)
-            DisabledPayloadProvider ->
-                error $ "payload provider disabled on chain " <> sshow cid <> ", which is illegal for miners"
-        payload <- awaitLatestPayloadForParentStateSTM (caches ^?! atChain cid) parentState
-        return (parentStateParents parentState, payload)
+    m = _miningState state
 
     go [] = do
 
         logFun @T.Text Info $ "randomWork: no work is ready. Awaiting work"
-        cacheSizes <- forM (itoList caches) $ \(cid, cache) -> do
-            size <- sizeIO cache
-            return (cid, size)
-        logFun @T.Text Info $ sshow cacheSizes
+        -- cacheSizes <- forM (itoList caches) $ \(cid, cache) -> do
+        --     size <- sizeIO cache
+        --     parentState <- readTVarIO (parentStateVars ^?! atChain cid)
+        --     return $ object
+        --         [ "chain" .= toText cid
+        --         , "cacheSize" .= size
+        --         , "parentState" .= maybe "Nothing" brief parentState
+        --         ]
+        -- logFun @T.Text Info $ sshow cacheSizes
 
 
         -- We shall check for the following conditions:
@@ -635,8 +792,7 @@ randomWork logFun cdb caches parentStateVars = do
         --
         timeoutVar <- registerDelay (int staleMiningStateDelay)
         w <- atomically $
-            Right <$> msum (imap awaitWorkReady parentStateVars)
-            <|> awaitTimeout timeoutVar
+            Right <$> awaitAnyReady state <|> awaitTimeout timeoutVar
         case w of
             Right (ps, npld) -> do
                 ct <- BlockCreationTime <$> getCurrentTimeIntegral
@@ -645,17 +801,15 @@ randomWork logFun cdb caches parentStateVars = do
                 "Chainweb.Miner.Coordinator.randomWork: " <> T.unpack e
                 -- FIXME: throw a proper exception and log what is going on
 
-    go ((cid, var):t) = do
-        readyCheck <- atomically $
-            Just <$> awaitWorkReady cid var <|> pure Nothing
-        case readyCheck of
-            Just (parents, payload) -> do
-                ct <- BlockCreationTime <$> getCurrentTimeIntegral
-                logFun @T.Text Debug $ "randomWork: picked chain " <> brief cid
-                return $ newWork ct parents (_newPayloadBlockPayloadHash payload)
-            Nothing -> do
-                logFun @T.Text Debug $ "randomWork: not ready for " <> brief cid
-                go t
+    go ((cid, var):t) = readTVarIO var >>= \case
+        WorkReady _ npld ps -> do
+            logFun @T.Text Debug $ "randomWork: picked chain " <> brief cid
+            ct <- BlockCreationTime <$> getCurrentTimeIntegral
+            return $ newWork ct ps (_newPayloadBlockPayloadHash npld)
+        e -> do
+            logFun @T.Text Info $ "randomWork: not ready for " <> brief cid
+                <> "; state: " <> brief e
+            go t
 
     awaitTimeout var = do
 
@@ -672,26 +826,28 @@ randomWork logFun cdb caches parentStateVars = do
         -- This is clearly an error, probably even a bug.
         -- We should try to find out what happend.
         --
-        workStatusSummary <- summarizeWorkStatus
-        return $ Left $ "Chainweb.Miner.Coordinator.randomWork: timeout while waiting for work to become ready. " <> workStatusSummary
 
-    summarizeWorkStatus = do
-        parentStates <- forM parentStateVars readTVar
-        let chainsWithMissingParents =
-                [ cid | (cid, Nothing) <- itoList parentStates ]
-        let chainsWithParents = onChains
-                [ (cid, p) | (cid, Just p) <- itoList parentStates ]
-        payloads <- forM
-            (chainIntersect (,) chainsWithParents caches)
-            (\(parent, cache) -> Just <$> awaitLatestPayloadForParentStateSTM cache parent <|> return Nothing)
-        let chainsWithMissingPayloads =
-                [ cid | (cid, Nothing) <- itoList payloads ]
-        c <- _cutStm cdb
-        return $ J.encodeText $ J.object
-            [ "blocked" J..= J.array (List.sort (toText <$> chainsWithMissingParents))
-            , "stale" J..= J.array (List.sort (toText <$> chainsWithMissingPayloads))
-            , "cut" J..= brief c
-            ]
+        -- workStatusSummary <- summarizeWorkStatus
+
+        return $ Left $ "Chainweb.Miner.Coordinator.randomWork: timeout while waiting for work to become ready." -- <> workStatusSummary
+
+    -- summarizeWorkStatus = do
+    --     parentStates <- forM parentStateVars readTVar
+    --     let chainsWithMissingParents =
+    --             [ cid | (cid, Nothing) <- itoList parentStates ]
+    --     let chainsWithParents = onChains
+    --             [ (cid, p) | (cid, Just p) <- itoList parentStates ]
+    --     payloads <- forM
+    --         (chainIntersect (,) chainsWithParents caches)
+    --         (\(parent, cache) -> Just <$> awaitLatestPayloadForParentStateSTM cache parent <|> return Nothing)
+    --     let chainsWithMissingPayloads =
+    --             [ cid | (cid, Nothing) <- itoList payloads ]
+    --     c <- _cutStm cdb
+    --     return $ J.encodeText $ J.object
+    --         [ "blocked" J..= J.array (List.sort (toText <$> chainsWithMissingParents))
+    --         , "stale" J..= J.array (List.sort (toText <$> chainsWithMissingPayloads))
+    --         , "cut" J..= brief c
+    --         ]
 
 staleMiningStateDelay :: Micros
 staleMiningStateDelay = 2_000_000
@@ -704,7 +860,7 @@ work
     => HasVersion
     => MiningCoordination l
     -> IO MiningWork
-work mr = randomWork lf (_coordCutDb mr) (_coordPayloadCache mr) (_coordParentState mr)
+work mr = randomWork lf (_coordState mr)
   where
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
@@ -754,18 +910,87 @@ solve
     => MiningCoordination l
     -> SolvedWork
     -> IO ()
-solve mr solved =
-    updateForSolved
-        lf
-        (_coordCutDb mr)
-        (_coordPayloadCache mr ^?! atChain cid)
-        (_coordParentState mr ^?! atChain cid)
-        solved
+solve mr solved = (readTVarIO $ _coordState mr ^?! ixg cid) >>= \case
+
+    WorkSolved{} ->
+        -- The solved work is already in the mining state
+        lf Info $ "solve: ignoring solution for mining state that was already solved before"
+            <> ". solved " <> brief solved
+        -- TODO check and log whether the solved state matches the solution
+
+    WorkReady rh npld ps -> do
+        -- The solved work is still valid and the payload is available
+
+        let pldh = _newPayloadBlockPayloadHash npld
+
+        -- Check that the solved parents match the current mining state parents.
+        -- We can be lenient on the payloads, but the parents must match the
+        -- current cut.
+        if solvedId solved /= parentsId ps
+          then do
+            -- ignore solved work
+            lf Info $ "solve: solved work does not match the current mining state"
+                <> "; solved: " <> brief solved
+                <> "; current work parents: " <> brief ps
+
+          -- check that we have the payload for the solution in the cache.
+          else lookupIO cache rh pldh >>= \case
+
+            Nothing -> do
+                ch <- payloadHashesIO cache
+                lf Error $ "solve: no payload for " <> brief solved
+                    <> "; cache key: " <> brief rh
+                    <> "; cache content: " <> brief ch
+                throwM NoAsscociatedPayload
+                -- FIXME Do we really need to restart the coordinator?
+
+            Just np -> do
+                c <- _cut cdb
+                now <- getCurrentTimeIntegral
+                let pld = _newPayloadEncodedPayloadData np
+                let pwo = _newPayloadEncodedPayloadOutputs np
+
+                try (extend c pld pwo ps solved) >>= \case
+
+                    -- Publish CutHashes to CutDb and log success
+                    Right (bh, Just ch) -> do
+                        updateForSolved lf (_coordState mr) solved
+                        publish cdb ch
+                        logMinedBlock lf bh np
+
+                    -- Log Orphaned Block
+                    Right (_, Nothing) -> do
+                        let !p = lookupInCut c cid
+                        lf Info $ orphandMsg now p solved "orphaned solution"
+
+                    -- Log failure and rethrow
+                    Left e@(InvalidSolvedHeader msg) -> do
+                        let !p = lookupInCut c cid
+                        lf Info $ orphandMsg now p solved msg
+                        throwM e
+    _ -> do
+        -- The solved work is orphaned.
+        lf Info $ "solve: ignoring outdated solution for. Mining state is not ready or solved"
+            <> ". solved: " <> brief solved
+        c <- _cut cdb
+        now <- getCurrentTimeIntegral
+        let !p = lookupInCut c cid
+        lf Info $ orphandMsg now p solved "orphaned solution"
   where
     cid = _chainId solved
+    cdb = _coordCutDb mr
+    caches = _coordPayloadCache mr
+    cache = caches ^?! ix cid
 
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
+
+    orphandMsg now p s msg = JsonLog OrphanedBlock
+        { _orphanedParent = _solvedParentHash s
+        , _orphanedPayloadHash = _solvedPayloadHash s
+        , _orphanedDiscoveredAt = now
+        , _orphanedReason = msg
+        }
 
 logMinedBlock
     :: HasVersion

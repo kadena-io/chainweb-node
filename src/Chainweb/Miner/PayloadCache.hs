@@ -13,7 +13,7 @@
 -- cached by the miner.
 --
 -- NOTE that consensus (and not the mining coordinator or payload provider)
--- decides when it makes sense to produce payloads ontop of a block. It does so
+-- decides when it makes sense to produce payloads on top of a block. It does so
 -- by notifying the payload provider in a syncToBlock call. This way block
 -- production and mining can be supressed, for instance, during catchup or deep
 -- catch merges.

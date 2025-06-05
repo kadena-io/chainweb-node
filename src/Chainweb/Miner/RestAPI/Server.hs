@@ -30,9 +30,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.PayloadCache
 import Chainweb.Miner.RestAPI (MiningApi)
-import Chainweb.PayloadProvider
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -156,49 +154,39 @@ data WorkChange
 -- | This event triggers when the previous work got outdated
 --
 awaitWorkChange
-    :: TVar (Maybe ParentState)
-    -> PayloadCache
+    :: MiningState
+    -> ChainId
     -> TVar Bool
         -- ^ Timer
-    -> TVar (Maybe ParentState, Maybe NewPayload)
+    -> TVar WorkState
+        -- ^ Previous Work State
     -> IO (Maybe WorkChange)
-awaitWorkChange var payloadCache timer prevVar = go
+awaitWorkChange ms cid timer prevVar = go
   where
     go = do
         -- await a change in the work state of the chain
-        atomically $ readTVar timer >>= \case
+        r <- atomically $ readTVar timer >>= \case
             True -> return Nothing
             False -> do
                 prev <- readTVar prevVar
-                cur <- readTVar var
-                (workChange, curPayload) <- case (prev, cur) of
-                    ((Just _, _), Nothing) ->
-                        -- the parent state has been vacated;
-                        -- there are no longer parents to mine on,
-                        -- so stop mining
-                        return (WorkOutdated, Nothing)
-                    ((Nothing, _), Just _) ->
-                        -- the parent state has been populated;
-                        -- there are now parents to mine on,
-                        -- so start mining
-                        return (WorkOutdated, Nothing)
-                    ((Nothing, _), Nothing) ->
-                        -- the parent state is still empty
-                        retry
-                    ((oldMaybeParentState, oldMaybePayload), Just newParentState) -> do
-                        case (oldMaybeParentState, oldMaybePayload) of
-                            (Just oldParentState, oldPayload)
-                                | oldParentState == newParentState -> do
-                                    -- the parent state remains the same,
-                                    -- so we await a refreshed payload
-                                    newPayload <- awaitLatestPayloadForParentStateSTM payloadCache newParentState
-                                    guard (Just newPayload /= oldPayload)
-                                    return (WorkRefreshed, Just newPayload)
-                                | otherwise ->
-                                    return (WorkOutdated, Nothing)
-                writeTVar prevVar (cur, curPayload)
+                cur <- readTVar (ms ^?! ixg cid)
+                -- TODO: this guard is potentially somewhat expense. However,
+                -- ideally in most cases it should be possible to establish
+                -- equality by pointer equality.
+                guard (prev /= cur)
+                writeTVar prevVar cur
+                return $ Just (prev, cur)
 
-                return $ Just workChange
+        -- check result
+        case r of
+            Nothing -> return Nothing
+            Just (WorkReady prh ppld pps, WorkReady crh cpld cps)
+                | prh /= crh -> return $ Just WorkOutdated
+                | pps /= cps -> return $ Just WorkOutdated
+                | ppld /= cpld -> return $ Just WorkRefreshed
+                | otherwise -> go
+            Just (WorkReady{}, _) -> return $ Just WorkOutdated
+            _ -> go
 
 -- |
 --
@@ -236,21 +224,16 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
     jitter <- randomRIO @Double (0.9, 1.1)
     timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
 
-    curWork <- atomically $ readTVar (_coordParentState mr ^?! ixg cid) >>= \case
-        Nothing -> return (Nothing, Nothing)
-        Just parentState -> do
-            pload <- awaitLatestPayloadForParentStateSTM (_coordPayloadCache mr ^?! ixg cid) parentState
-            return (Just parentState, Just pload)
-
+    curWork <- readTVarIO (_coordState mr ^?! ixg cid)
     prevVar <- newTVarIO curWork
 
     eventSourceAppIO (go timer cid prevVar) req resp
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
-    go :: TVar Bool -> ChainId -> TVar (Maybe ParentState, Maybe NewPayload) -> IO ServerEvent
+    go :: TVar Bool -> ChainId -> TVar WorkState -> IO ServerEvent
     go timer cid prevVar = do
-        awaitWorkChange (_coordParentState mr ^?! ixg cid) (_coordPayloadCache mr ^?! ixg cid) timer prevVar >>= \case
+        awaitWorkChange (_coordState mr) cid timer prevVar >>= \case
             Nothing -> do
                 logFunctionText logger Debug $
                     "sent close event to miner on chain " <> toText cid
