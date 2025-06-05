@@ -952,7 +952,7 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
                 Just x -> writeTMVar (_evmPayloadId p) x
   where
     lf = loggS p "updateEvm"
-    attr pt = mkPayloadAttributes (_latestBlockHash state) pt
+    attr pt = mkPayloadAttributes (_latestHeight state) (_latestBlockHash state) pt
         <$> _evmMinerAddress p
         <*> nctx
 
@@ -969,16 +969,19 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
         return $ EVM._hdrTimestamp $ _payloadHeader pld
 
 mkPayloadAttributes
-    :: Chainweb.BlockHash
-        -- ^ ParentBeaconBlockRoo, i.e. the Chainweb block hash of the parent of
+    :: BlockHeight
+        -- ^ ParentBlockHeight, i.e. the Chainweb block height of the parent of
+        -- the new block.
+    -> Chainweb.BlockHash
+        -- ^ ParentBeaconBlockRoot, i.e. the Chainweb block hash of the parent of
         -- the new block.
     -> Timestamp
         -- ^ The timestamp of the /parent/ EVM header.
     -> EVM.Address
     -> NewBlockCtx
     -> PayloadAttributesV3
-mkPayloadAttributes ph parentTimestamp addr nctx = PayloadAttributesV3
-    { _payloadAttributesV3parentBeaconBlockRoot = EVM.chainwebBlockHashToBeaconBlockRoot ph
+mkPayloadAttributes pheight phash parentTimestamp addr nctx = PayloadAttributesV3
+    { _payloadAttributesV3parentBeaconBlockRoot = EVM.chainwebBlockHashToBeaconBlockRoot phash
     , _payloadAttributesV2 = PayloadAttributesV2
         { _payloadAttributesV2Withdrawals = [withdrawal]
         , _payloadAttributesV1 = PayloadAttributesV1
@@ -992,7 +995,7 @@ mkPayloadAttributes ph parentTimestamp addr nctx = PayloadAttributesV3
     MinerReward reward = _newBlockCtxMinerReward nctx
     withdrawal = WithdrawalV1
         { _withdrawalValidatorIndex = 0
-        , _withdrawalIndex = 0
+        , _withdrawalIndex = int pheight + 1
         , _withdrawalAmount = int $ reward
         , _withdrawalAddress = addr
         }
