@@ -743,7 +743,7 @@ genesisBlockHeadersAtHeight h =
 --   It is enforced via the 'mkChainId' smart constructor for ChainId.)
 --
 genesisHeight :: (HasVersion, HasCallStack) => ChainId -> BlockHeight
-genesisHeight c = _blockHeight (genesisBlockHeader c)
+genesisHeight c = genesisBlockHeight c
 
 instance HasVersion => HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader where
 
