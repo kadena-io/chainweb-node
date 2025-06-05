@@ -659,6 +659,7 @@ eventStream cdb caches = do
         go c (V.replicate (length caches) 0)
   where
     go cur prevs = do
+        liftIO $ threadDelay 10_000
         timeout <- liftIO $ registerDelay 1_000_000
         new <- liftIO $ atomically $ do
             CutEvent cur <$ (readTVar timeout >>= guard)
@@ -694,9 +695,9 @@ awaitEvent
     -> V.Vector Int
     -> STM MiningStateEvent
 awaitEvent cdb caches c p =
-    CutEvent <$> awaitNewCutStm cdb c
-    <|>
     NewPayloadEvent <$> awaitPayloadsNext caches c p
+    <|>
+    CutEvent <$> awaitNewCutStm cdb c
 
 -- -------------------------------------------------------------------------- --
 -- Work Delivery Strategy
