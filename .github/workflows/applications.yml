@@ -327,6 +327,17 @@ jobs:
           ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-
           ${{ matrix.os }}-${{ matrix.ghc }}-
 
+
+    # Build and Install SP1 Verifier Plugin
+    - name: Build SP1 Verifier Plugin
+      run: |
+        cd lib/sp1-verifier-hs
+        cargo build --lib --release
+    - name: Install SP1 Verifier Plugin
+      run: |
+        cp lib/sp1-verifier-hs/target/release/libsp1_verifier_hs.* /usr/local/lib/
+        echo "/usr/local/lib" >> /etc/ld.so.conf.d/local.conf && ldconfig
+
     # Build
     - name: Delete Freeze file if it exists
       if: matrix.use-freeze-file != 'true'
@@ -425,6 +436,7 @@ jobs:
         cp cabal.project artifacts/chainweb
         cp cabal.project.local artifacts/chainweb
         cp cabal.project.freeze artifacts/chainweb
+        cp /usr/local/lib/libsp1_verifier_hs.* artifacts/chainweb
     - name: Create artifacts archive
       run: |
         echo "tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb"
@@ -816,18 +828,13 @@ jobs:
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         EOF
 
-        RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-        ENV PATH=/root/.cargo/bin:$PATH
-
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/* .
 
-        RUN <<EOF
-        cd /chainweb/libs/sp1-verifier-hs
-        cargo build --lib --release
-        cp target/release/libsp1_verifier_hs.* /usr/lib/
-        EOF
+        COPY chainweb/libsp1_verifier_hs.* /usr/local/lib/
+        RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/local.conf && ldconfig
+
 
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
