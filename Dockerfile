@@ -54,7 +54,7 @@ ARG PROJECT_NAME=chainweb
 # Chainweb Application Runtime Image
 # ############################################################################ #
 
-FROM ubuntu:${UBUNTU_VERSION} AS chainweb-runtime
+FROM ubuntu:${UBUNTU_VERSION} AS chainweb-runtime-pre
 ARG GHC_VERSION
 ARG UBUNTU_VERSION
 ARG TARGETPLATFORM
@@ -95,7 +95,7 @@ LABEL com.chainweb.docker.image.os="ubuntu-${UBUNTU_VERSION}"
 # Chainweb Build Image
 # ############################################################################ #
 
-FROM chainweb-runtime AS chainweb-build
+FROM chainweb-runtime-pre AS chainweb-build
 RUN <<EOF
   echo "BUILDPLATFORM: $BUILDPLATFORM"
   echo "TARGETPLATFORM: $TARGETPLATFORM"
@@ -134,16 +134,9 @@ RUN <<EOF
     fi
 EOF
 
+# Install Rust toolchain
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH=/root/.cargo/bin:$PATH
-RUN <<EOF
-    git clone https://github.com/kadena-io/sp1-verifier-hs.git
-    cd sp1-verifier-hs
-    cargo build --lib --release
-    cp target/release/libsp1_verifier_hs.* /usr/lib/
-EOF
-
-
 
 # Install Haskell toolchain
 ENV CABAL_DIR=/root/.cabal
@@ -151,7 +144,7 @@ ENV PATH=/root/.local/bin:/root/.ghcup/bin:$PATH
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=1
 ENV BOOTSTRAP_HASKELL_MINIMAL=1
 ENV BOOTSTRAP_HASKELL_NO_UPGRADE=1
-ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
+# ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
 RUN --mount=type=cache,target=/root/.ghcup/cache,id=${TARGETPLATFORM} <<EOF
     curl -sSf https://get-ghcup.haskell.org | sh
     ghcup --cache install cabal latest
@@ -172,11 +165,22 @@ EOF
 # ############################################################################ #
 # Setup Context
 
-FROM chainweb-build as chainweb-build-ctx
+FROM chainweb-build AS chainweb-build-ctx
 ARG TARGETPLATFORM
 # RUN git clone --filter=tree:0 https://github.com/kadena-io/chainweb-node
 # WORKDIR /chainweb/chainweb-node
 COPY . .
+
+# build SP1 verifier plugin
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=libs/sp1-verifier-hs/target \
+    <<EOF
+    cd libs/sp1-verifier-hs
+    cargo build --lib --release
+    cp target/release/libsp1_verifier_hs.* /usr/local/lib/
+EOF
+
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 RUN mkdir -p /tools
 COPY --chmod=0755 <<EOF /tools/check-git-clean.sh
@@ -191,7 +195,7 @@ RUN sh /tools/check-git-clean.sh || touch /tools/wip
 # ############################################################################ #
 # Build Dependencies
 
-FROM chainweb-build-ctx as chainweb-build-dependencies
+FROM chainweb-build-ctx AS chainweb-build-dependencies
 ARG TARGETPLATFORM
 ARG PROJECT_NAME
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
@@ -295,10 +299,16 @@ EOF
 # ############################################################################ #
 # Run Chainweb Tests
 
+FROM chainweb-runtime-pre AS chainweb-runtime
+COPY --from=chainweb-build-ctx /usr/local/lib/libsp1_verifier_hs.* /usr/local/lib/
+RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/local.conf && ldconfig
+
+
 FROM chainweb-runtime AS chainweb-run-tests
 COPY --from=chainweb-build-tests /chainweb/artifacts/chainweb-tests .
 COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
+
 RUN <<EOF
     ulimit -n 10000
     ./chainweb-tests --hide-successes --results-json test-results.json -p '!/chainweb216Test/'
