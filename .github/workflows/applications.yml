@@ -331,12 +331,11 @@ jobs:
     # Build and Install SP1 Verifier Plugin
     - name: Build SP1 Verifier Plugin
       run: |
-        cd lib/sp1-verifier-hs
+        cd libs/sp1-verifier-hs
         cargo build --lib --release
     - name: Install SP1 Verifier Plugin
       run: |
-        cp lib/sp1-verifier-hs/target/release/libsp1_verifier_hs.* /usr/local/lib/
-        echo "/usr/local/lib" >> /etc/ld.so.conf.d/local.conf && ldconfig
+        sudo cp libs/sp1-verifier-hs/target/release/libsp1_verifier_hs.* /usr/local/lib/
 
     # Build
     - name: Delete Freeze file if it exists
