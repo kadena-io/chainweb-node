@@ -1073,7 +1073,7 @@ awaitNewPayload p = do
         atomically $
             Nothing <$ (readTVar timeout >>= guard)
             <|>
-            Just <$> takeTMVar (_evmPayloadId p)
+            Just <$> readTMVar (_evmPayloadId p)
 
     -- process the new payload
     go pid = do
