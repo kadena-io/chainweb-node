@@ -925,6 +925,7 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
         lf Info $ "Calling forkChoiceUpdate on state "
             <> briefJson state <> " with " <> briefJson fcs
         pt <- parentTimestamp
+        _ <- atomically $ tryTakeTMVar (_evmPayloadId p)
         pid <- forkchoiceUpdate p forkchoiceUpdatedTimeout fcs (attr pt)
 
         -- forkchoiceUpdate throws if it does not succeed.
@@ -948,7 +949,7 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
             writeTVar (_evmState p) (T2 state nctx)
             -- update payloadId
             case pid of
-                Nothing -> void $ tryTakeTMVar (_evmPayloadId p)
+                Nothing -> return ()
                 Just x -> writeTMVar (_evmPayloadId p) x
   where
     lf = loggS p "updateEvm"
