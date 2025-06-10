@@ -41,6 +41,7 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import Control.Exception.Safe (mask)
 import Control.Lens hiding ((:>))
 import Control.Monad
 import Control.Monad.Cont (evalContT)
@@ -230,16 +231,14 @@ runGenesisIfNeeded logger serviceEnv = do
                     (genesisHeight cid)
                     genesisPayload
                 Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
-                -- we have to kick off payload refreshing here
                 emptyBlock <- (throwIfNoHistory =<<) $
                     Checkpointer.readFrom logger cid
                         (_psReadWriteSql serviceEnv)
                         (Parent gTime)
                         (Parent genesisRankedBlockHash) $
                             \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
-                refresherThread <- liftIO $ async (refreshPayloads logger serviceEnv)
-                liftIO $
-                    atomically $ writeTMVar (_psMiningPayloadVar serviceEnv) (refresherThread, emptyBlock)
+                -- we have to kick off payload refreshing here first
+                startPayloadRefresher logger serviceEnv emptyBlock
 
     where
     cid = _chainId serviceEnv
@@ -580,10 +579,7 @@ syncToFork logger serviceEnv hints forkInfo = do
                         atomically (fmap (view _1) <$> tryTakeTMVar payloadVar)
                             >>= traverse_ cancel
 
-                    refresherThread <- liftIO $ async (refreshPayloads logger serviceEnv)
-
-                    liftIO $
-                        atomically $ writeTMVar payloadVar (refresherThread, emptyBlock)
+                    startPayloadRefresher logger serviceEnv emptyBlock
 
         _ -> return ()
     return newConsensusState
@@ -641,6 +637,15 @@ syncToFork logger serviceEnv hints forkInfo = do
         V.concat <$> traverse
             (fmap (fromRight (error "invalid payload in database")) . runExceptT . pact5TransactionsFromPayload)
             rewoundPayloads
+
+-- | Start a thread that makes fresh payloads periodically
+startPayloadRefresher :: Logger logger => HasVersion => logger -> ServiceEnv tbl -> BlockInProgress -> IO ()
+startPayloadRefresher logger serviceEnv startBlock =
+    mask $ \restore -> do
+        refresherThread <- async (restore $ refreshPayloads logger serviceEnv)
+        atomically $ writeTMVar payloadVar (refresherThread, startBlock)
+    where
+    payloadVar = _psMiningPayloadVar serviceEnv
 
 refreshPayloads
     :: Logger logger
