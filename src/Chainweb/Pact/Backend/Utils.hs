@@ -204,6 +204,7 @@ data SavepointName
     | InitSchemaSavePoint
     | ValidateBlockSavePoint
     | SetConsensusSavePoint
+    | RunGenesisSavePoint
     deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
@@ -217,6 +218,7 @@ instance HasTextRepresentation SavepointName where
     toText InitSchemaSavePoint = "init-schema"
     toText ValidateBlockSavePoint = "validate-block"
     toText SetConsensusSavePoint = "set-consensus"
+    toText RunGenesisSavePoint = "run-genesis"
     {-# INLINE toText #-}
 
     fromText "read-from" = pure ReadFromSavepoint
@@ -226,6 +228,7 @@ instance HasTextRepresentation SavepointName where
     fromText "init-schema" = pure InitSchemaSavePoint
     fromText "validate-block" = pure ValidateBlockSavePoint
     fromText "set-consensus" = pure SetConsensusSavePoint
+    fromText "run-genesis" = pure RunGenesisSavePoint
     fromText t = throwM $ TextFormatException
         $ "failed to decode SavepointName " <> t
         <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
