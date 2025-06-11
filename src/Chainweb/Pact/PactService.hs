@@ -202,44 +202,45 @@ runGenesisIfNeeded
     -> ServiceEnv tbl
     -> IO ()
 runGenesisIfNeeded logger serviceEnv = do
-    latestBlock <- fmap _consensusStateLatest <$> Checkpointer.getConsensusState (_psReadWriteSql serviceEnv)
-    when (maybe True (isGenesisBlockHeader' cid . Parent . _syncStateBlockHash) latestBlock) $ do
-        logFunctionText logger Debug "running genesis"
-        let genesisBlockHash = genesisBlockHeader cid ^. blockHash
-        let genesisPayloadHash = genesisBlockPayloadHash cid
-        let gTime = implicitVersion ^?! versionGenesis . genesisTime . atChain cid
-        let targetSyncState = genesisConsensusState cid
-        let genesisRankedBlockHash = RankedBlockHash (genesisHeight cid) genesisBlockHash
-        let evalCtx = genesisEvaluationCtx serviceEnv
-        let blockCtx = blockCtxOfEvaluationCtx cid evalCtx
-        let !genesisPayload = case _psGenesisPayload serviceEnv of
-                Nothing -> error "genesis needs to be run, but the genesis payload is missing!"
-                Just p -> p
+    withSavepoint (_psReadWriteSql serviceEnv) RunGenesisSavePoint $ do
+        latestBlock <- fmap _consensusStateLatest <$> Checkpointer.getConsensusState (_psReadWriteSql serviceEnv)
+        when (maybe True (isGenesisBlockHeader' cid . Parent . _syncStateBlockHash) latestBlock) $ do
+            logFunctionText logger Debug "running genesis"
+            let genesisBlockHash = genesisBlockHeader cid ^. blockHash
+            let genesisPayloadHash = genesisBlockPayloadHash cid
+            let gTime = implicitVersion ^?! versionGenesis . genesisTime . atChain cid
+            let targetSyncState = genesisConsensusState cid
+            let genesisRankedBlockHash = RankedBlockHash (genesisHeight cid) genesisBlockHash
+            let evalCtx = genesisEvaluationCtx serviceEnv
+            let blockCtx = blockCtxOfEvaluationCtx cid evalCtx
+            let !genesisPayload = case _psGenesisPayload serviceEnv of
+                    Nothing -> error "genesis needs to be run, but the genesis payload is missing!"
+                    Just p -> p
 
-        maybeErr <- runExceptT $ Checkpointer.restoreAndSave logger cid (_psReadWriteSql serviceEnv)
-            $ NEL.singleton
-            $ (blockCtx, \blockEnv -> do
-                _ <- Pact.execExistingBlock logger serviceEnv blockEnv
-                    (CheckablePayloadWithOutputs genesisPayload)
-                return ((), (genesisBlockHash, genesisPayloadHash))
-            )
-        case maybeErr of
-            Left err -> error $ "genesis block invalid: " <> sshow err
-            Right () -> do
-                addNewPayload
-                    (_payloadStoreTable $ _psPdb serviceEnv)
-                    (genesisHeight cid)
-                    genesisPayload
-                Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
-                forM_ (_psMiner serviceEnv) $ \_ -> do
-                    emptyBlock <- (throwIfNoHistory =<<) $
-                        Checkpointer.readFrom logger cid
-                            (_psReadWriteSql serviceEnv)
-                            (Parent gTime)
-                            (Parent genesisRankedBlockHash) $
-                                \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
-                    -- we have to kick off payload refreshing here first
-                    startPayloadRefresher logger serviceEnv emptyBlock
+            maybeErr <- runExceptT $ Checkpointer.restoreAndSave logger cid (_psReadWriteSql serviceEnv)
+                $ NEL.singleton
+                $ (blockCtx, \blockEnv -> do
+                    _ <- Pact.execExistingBlock logger serviceEnv blockEnv
+                        (CheckablePayloadWithOutputs genesisPayload)
+                    return ((), (genesisBlockHash, genesisPayloadHash))
+                )
+            case maybeErr of
+                Left err -> error $ "genesis block invalid: " <> sshow err
+                Right () -> do
+                    addNewPayload
+                        (_payloadStoreTable $ _psPdb serviceEnv)
+                        (genesisHeight cid)
+                        genesisPayload
+                    Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
+                    forM_ (_psMiner serviceEnv) $ \_ -> do
+                        emptyBlock <- (throwIfNoHistory =<<) $
+                            Checkpointer.readFrom logger cid
+                                (_psReadWriteSql serviceEnv)
+                                (Parent gTime)
+                                (Parent genesisRankedBlockHash) $
+                                    \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
+                        -- we have to kick off payload refreshing here first
+                        startPayloadRefresher logger serviceEnv emptyBlock
 
     where
     cid = _chainId serviceEnv
