@@ -53,23 +53,23 @@ main = do
     (n, cids, spec) <- getArgs >>= \case
         [] -> error "No argument for the chainweb version provided. The version must be one of: 'mainnet', 'testnet', 'evm-testnet', or 'evm-development'."
         ["mainnet"] -> do
-            let cids = [20..25]
+            let cids = [20..24]
             return ("mainnet", cids, mainnetSpecFile)
         ["testnet"] -> do
-            let cids = [20..25]
+            let cids = [20..24]
             return ("testnet", cids, testnetSpecFile)
         ["evm-testnet"] -> do
-            let cids = [20..25]
+            let cids = [20..24]
             return ("evm-testnet", cids, evmTestnetSpecFile)
         ["evm-development"] -> do
-            let cids = [20..25]
-            return ("evm-development", cids, evmDevnetSpecFile)
+            let cids = [20..24]
+            return ("evm-development", cids, evmDevnetSpecFile 20)
         ["evm-development-singleton"] -> do
             let cids = [0]
-            return ("evm-development-singleton", cids, evmDevnetSpecFile)
+            return ("evm-development-singleton", cids, evmDevnetSpecFile 0)
         ["evm-development-pair"] -> do
             let cids = [1]
-            return ("evm-development-pair", cids, evmDevnetSpecFile)
+            return ("evm-development-pair", cids, evmDevnetSpecFile 1)
         _ -> error "Invalid argument for the chainweb version provided. The version must be one of: 'mainnet', 'testnet', 'evm-testnet', or 'evm-development'."
 
     hdrs <- forM cids $ \cid -> do
@@ -173,11 +173,13 @@ mkRpcCtx u = do
 --
 evmDevnetSpecFile
     :: Natural
+        -- ^ offset for the chain id
+    -> Natural
         -- numeric chainweb chain id
     -> Value
-evmDevnetSpecFile cid = object [
+evmDevnetSpecFile offset cid = object [
     "config" .= object [
-      "chainId" .= (1789 + cid - 20),
+      "chainId" .= (1789 + cid - offset),
       "daoForkSupport" .= True,
       "terminalTotalDifficultyPassed" .= True,
       "terminalTotalDifficulty" .= i 0,
