@@ -41,6 +41,7 @@ module Chainweb.CutDB
 , cutDbParamsAvgBlockHeightPruningDepth
 , cutDbParamsPruningFrequency
 , cutDbParamsReadOnly
+, cutDbParamsProducePayloads
 , defaultCutDbParams
 , farAheadThreshold
 
@@ -97,7 +98,6 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad
-import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
@@ -181,6 +181,8 @@ data CutDbParams = CutDbParams
     -- ^ Should the cut store be read-only?
     -- Enabled during replay-only mode.
     --
+    , _cutDbParamsProducePayloads :: !PleaseProducePayloads
+    -- ^ should we ask payload providers to produce new payloads?
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -198,6 +200,7 @@ defaultCutDbParams ft = CutDbParams
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
     , _cutDbParamsReadOnly = False
+    , _cutDbParamsProducePayloads = DoNotProducePayloads
     }
   where
     g = chainGraphAt (maxBound @BlockHeight)
@@ -580,6 +583,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
                     case providers ^?! atChain cid of
                         ConfiguredPayloadProvider provider -> do
                             finfo <- forkInfoForHeader hdrStore bh Nothing Nothing
+                                (_cutDbParamsProducePayloads conf)
                             r <- syncToBlock provider Nothing finfo
                             unless (r == _forkInfoTargetState finfo) $ do
                                 error $ "unexpected result state"
