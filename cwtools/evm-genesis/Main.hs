@@ -203,76 +203,76 @@ evmDevnetSpecFile offset cid = object [
       "cancunTime" .= i 0,
       "pragueTime" .= i 0
     ],
-    "timestamp".= t "0x6490fdd2",
-    "extraData".= t "0x",
-    "gasLimit".= t "0x1c9c380",
-    "alloc".= object [
-      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
-        "balance".= t "0x0",
+    "timestamp" .= t "0x6490fdd2",
+    "extraData" .= t "0x",
+    "gasLimit" .= t "0x1c9c380",
+    "alloc" .= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc" .= object [
+        "balance" .= t "0x0",
         "code" .= t "0x5f545f526004601cf3",
-        "storage".= object [
+        "storage" .= object [
           "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
         ]
       ],
       -- TODO: add native-x-chain system contract
-      "0x8849BAbdDcfC1327Ad199877861B577cEBd8A7b6".= object [
+      "0x8849BAbdDcfC1327Ad199877861B577cEBd8A7b6" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xFB8Fb7f9bdc8951040a6D195764905138F7462Ed".= object [
+      "0xFB8Fb7f9bdc8951040a6D195764905138F7462Ed" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x28f2d8ef4e0fe6B2E945cF5C33a0118a30a62354".= object [
+      "0x28f2d8ef4e0fe6B2E945cF5C33a0118a30a62354" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xa24a79678c9fffEF3E9A1f3cb7e51f88F173B3D5".= object [
+      "0xa24a79678c9fffEF3E9A1f3cb7e51f88F173B3D5" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x47fAE86F6416e6115a80635238AFd2F18D69926B".= object [
+      "0x47fAE86F6416e6115a80635238AFd2F18D69926B" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x87466A8266b9DFB3Dc9180a9c43946c4AB2c2cb2".= object [
+      "0x87466A8266b9DFB3Dc9180a9c43946c4AB2c2cb2" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xA310Df9740eb6CC2F5E41C59C87e339142834eA4".= object [
+      "0xA310Df9740eb6CC2F5E41C59C87e339142834eA4" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xD4EECE51cf451b60F59b271c5a748A8a9F16bC01".= object [
+      "0xD4EECE51cf451b60F59b271c5a748A8a9F16bC01" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xE08643a1C4786b573d739625FD268732dBB3d033".= object [
+      "0xE08643a1C4786b573d739625FD268732dBB3d033" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x33018A42499f10B54d9dBCeBB71831C805D64cE3".= object [
+      "0x33018A42499f10B54d9dBCeBB71831C805D64cE3" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xa3659D39C901d5985450eE18a63B5b0811fDa521".= object [
+      "0xa3659D39C901d5985450eE18a63B5b0811fDa521" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x7e99c2f1731D3750b74A2a0623C1F1DcB8cCa45e".= object [
+      "0x7e99c2f1731D3750b74A2a0623C1F1DcB8cCa45e" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xFd70Bef78778Ce8554e79D97521b69183960C574".= object [
+      "0xFd70Bef78778Ce8554e79D97521b69183960C574" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xEE2722c39db6014Eacc5FBe43601136825b00977".= object [
+      "0xEE2722c39db6014Eacc5FBe43601136825b00977" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xeDD5a9185F9F1C04a011117ad61564415057bf8F".= object [
+      "0xeDD5a9185F9F1C04a011117ad61564415057bf8F" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x99b832eb3F76ac3277b00beADC1e487C594ffb4c".= object [
+      "0x99b832eb3F76ac3277b00beADC1e487C594ffb4c" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xda1380825f827C6Ea92DFB547EF0a341Cbe21d77".= object [
+      "0xda1380825f827C6Ea92DFB547EF0a341Cbe21d77" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0xc201d4A5E6De676938533A0997802634E859e78b".= object [
+      "0xc201d4A5E6De676938533A0997802634E859e78b" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x03e95Af0fC4971EdCa12E6d2d1540c28314d15d5".= object [
+      "0x03e95Af0fC4971EdCa12E6d2d1540c28314d15d5" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ],
-      "0x3492DA004098d728201fD82657f1207a6E5426bd".= object [
+      "0x3492DA004098d728201fD82657f1207a6E5426bd" .= object [
         "balance" .= t "0xd3c21bcecceda1000000"
       ]
     ],
@@ -335,14 +335,14 @@ evmTestnetSpecFile cid = object [
       "cancunTime" .= i 0,
       "pragueTime" .= i 0
     ],
-    "timestamp".= t "0x6490fdd2",
-    "extraData".= t "0x",
-    "gasLimit".= t "0x1c9c380",
-    "alloc".= object [
-      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
-        "balance".= t "0x0",
-        "code".= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
-        "storage".= object [
+    "timestamp" .= t "0x6490fdd2",
+    "extraData" .= t "0x",
+    "gasLimit" .= t "0x1c9c380",
+    "alloc" .= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc" .= object [
+        "balance" .= t "0x0",
+        "code" .= t "0x5f545f526004601cf3",
+        "storage" .= object [
           "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
         ]
       ]
@@ -406,14 +406,14 @@ mainnetSpecFile cid = object [
       "cancunTime" .= i 0,
       "pragueTime" .= i 0
     ],
-    "timestamp".= t "0x6490fdd2",
-    "extraData".= t "0x",
-    "gasLimit".= t "0x1c9c380",
-    "alloc".= object [
-      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
-        "balance".= t "0x0",
-        "code".= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
-        "storage".= object [
+    "timestamp" .= t "0x6490fdd2",
+    "extraData" .= t "0x",
+    "gasLimit" .= t "0x1c9c380",
+    "alloc" .= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc" .= object [
+        "balance" .= t "0x0",
+        "code" .= t "0x5f545f526004601cf3",
+        "storage" .= object [
           "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
         ]
       ],
@@ -482,14 +482,14 @@ testnetSpecFile cid = object [
       "cancunTime" .= i 0,
       "pragueTime" .= i 0
     ],
-    "timestamp".= t "0x6490fdd2",
-    "extraData".= t "0x",
-    "gasLimit".= t "0x1c9c380",
-    "alloc".= object [
-      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc".= object [
-        "balance".= t "0x0",
-        "code".= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
-        "storage".= object [
+    "timestamp" .= t "0x6490fdd2",
+    "extraData" .= t "0x",
+    "gasLimit" .= t "0x1c9c380",
+    "alloc" .= object [
+      "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc" .= object [
+        "balance" .= t "0x0",
+        "code" .= t "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063973e55d414602d575b600080fd5b600054603c9063ffffffff1681565b60405163ffffffff909116815260200160405180910390f3fea2646970667358221220b716cf70992d0b5a77124b3da9b37629f5625bf265c121cfb76f9714f249119b64736f6c634300081c0033",
+        "storage" .= object [
           "0x0000000000000000000000000000000000000000000000000000000000000000" .= (printf "0x%064x" cid :: String)
         ]
       ],
