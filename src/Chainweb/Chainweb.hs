@@ -574,9 +574,12 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                                 (forkPoint : forkBlocksAscending)
                                 forkBlocksAscending
                     let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                    -- if this fails, there is no way for the payload provider
+                    -- to sync to the block without using the ordinary cut pipeline.
+                    -- so, we don't care.
                     r' <- syncToBlock provider Nothing newForkInfo
                     unless (r' == _forkInfoTargetState finfo) $ do
-                        error $ T.unpack
+                        logFunctionText logger Warn
                             $ "unexpected result state"
                             <> "; expected: " <> brief (_forkInfoTargetState finfo)
                             <> "; actual: " <> brief r
