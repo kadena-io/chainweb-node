@@ -109,7 +109,7 @@ mkFixture genesisPayloadFor pactServiceConfig baseRdb = do
     let pacts = snd <$> perChain
     let mempools = fst <$> perChain
     let providers = ConfiguredPayloadProvider . PactPayloadProvider logger <$> pacts
-    (_, cutDb) <- withTestCutDb testRdb id 0 providers (logFunction logger)
+    (_, cutDb) <- withTestCutDb testRdb id 0 providers logger
     let fixture = Fixture
             { _fixtureCutDb = cutDb
             , _fixtureLogger = logger
