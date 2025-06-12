@@ -244,8 +244,9 @@ forkInfoForHeader
     -> BlockHeader
     -> Maybe EncodedPayloadData
     -> Maybe (Parent BlockHeader)
+    -> PleaseProducePayloads
     -> IO ForkInfo
-forkInfoForHeader wdb hdr pldData parentHdr
+forkInfoForHeader wdb hdr pldData parentHdr producePayloads
 
     -- FIXME do we need this case??? We never add genesis headers...
     | isGenesisBlockHeader hdr = do
@@ -254,7 +255,7 @@ forkInfoForHeader wdb hdr pldData parentHdr
             { _forkInfoTrace = []
             , _forkInfoBasePayloadHash = Parent $ _latestPayloadHash state
             , _forkInfoTargetState = state
-            , _forkInfoNewBlockCtx = Just nbctx
+            , _forkInfoNewBlockCtx = nbctx
             }
 
     | otherwise = do
@@ -270,16 +271,14 @@ forkInfoForHeader wdb hdr pldData parentHdr
             { _forkInfoTrace = [consensusPayload <$ blockHeaderToEvaluationCtx phdr]
             , _forkInfoBasePayloadHash = view blockPayloadHash <$> phdr
             , _forkInfoTargetState = state
-            , _forkInfoNewBlockCtx = Just nbctx
+            , _forkInfoNewBlockCtx = nbctx
             }
   where
     pld = view blockPayloadHash hdr
 
-    nbctx = NewBlockCtx
-        { _newBlockCtxMinerReward = blockMinerReward (height + 1)
-        , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
-        }
-    height = view blockHeight hdr
+    nbctx = case producePayloads of
+        PleaseProducePayloads -> Just $ parentHeaderToNewBlockCtx (Parent hdr)
+        DoNotProducePayloads -> Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Obtain, Validate, and Store BlockHeaders
@@ -474,7 +473,7 @@ getBlockHeaderInternal
 
         -- Do not produce payloads at this point; we may not stick around at
         -- this block.
-        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) <&> forkInfoNewBlockCtx .~ Nothing
+        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) DoNotProducePayloads
 
         logg Debug $ taskMsg k $
             "getBlockHeaderInternal validate payload for " <> sshow h

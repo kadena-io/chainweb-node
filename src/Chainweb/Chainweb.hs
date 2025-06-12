@@ -339,6 +339,13 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
     p2pConfig :: P2pConfiguration
     p2pConfig = _peerResConfig peerRes
 
+    producingPayloads :: PleaseProducePayloads
+    producingPayloads
+        | _coordinationEnabled (_miningCoordination (_configMining conf))
+            = PleaseProducePayloads
+        | otherwise
+            = DoNotProducePayloads
+
     -- FIXME: make this configurable
     cutDbParams :: CutDbParams
     cutDbParams = (defaultCutDbParams $ _cutFetchTimeout cutConf)
@@ -347,6 +354,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         , _cutDbParamsFastForwardHeightLimit = _cutFastForwardBlockHeightLimit cutConf
         , _cutDbParamsReadOnly = _configOnlySync conf || _configReadOnlyReplay conf
+        , _cutDbParamsProducePayloads = producingPayloads
         }
       where
         cutConf = _configCuts conf
@@ -538,7 +546,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                     "sync payload provider to "
                         <> sshow (view blockHeight hdr)
                         <> ":" <> sshow (view blockHash hdr)
-                finfo <- forkInfoForHeader wbh hdr Nothing Nothing
+                finfo <- forkInfoForHeader wbh hdr Nothing Nothing producingPayloads
                 logFunctionText loggr Debug $ "syncToBlock with fork info " <> sshow finfo
                 r <- syncToBlock provider Nothing finfo `catch` \(e :: SomeException) -> do
                     logFunctionText loggr Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e

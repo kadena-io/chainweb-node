@@ -142,7 +142,9 @@ withTestCutDb rdb conf n providers logfun = do
     webDb <- liftIO $ initWebBlockHeaderDb rocksDb
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
     headerStore <- withLocalWebBlockHeaderStore mgr webDb
-    cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logfun headerStore providers cutHashesDb
+    let conf' = conf $ defaultCutDbParams cutFetchTimeout
+            & cutDbParamsProducePayloads .~ PleaseProducePayloads
+    cutDb <- withCutDb conf' logfun headerStore providers cutHashesDb
     liftIO $ synchronizeProviders webDb genesisCut
 
     liftIO $ logfun @Text Debug "GOING TO MINE AT THE START"
@@ -158,7 +160,7 @@ withTestCutDb rdb conf n providers logfun = do
         where
         syncOne hdr = forM_ (providers ^? atChain (_chainId hdr)) $ \case
             ConfiguredPayloadProvider provider -> do
-                finfo <- forkInfoForHeader wbh hdr Nothing Nothing
+                finfo <- forkInfoForHeader wbh hdr Nothing Nothing PleaseProducePayloads
                 r <- syncToBlock provider Nothing finfo `catch` \(e :: SomeException) -> do
                     throwM e
                 unless (r == _forkInfoTargetState finfo) $ do

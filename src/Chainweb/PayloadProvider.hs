@@ -40,6 +40,8 @@ module Chainweb.PayloadProvider
 
 -- * NewBlock Context
 , NewBlockCtx(..)
+, PleaseProducePayloads(..)
+, parentHeaderToNewBlockCtx
 
 -- * Evaluation Context
 , EvaluationCtx(..)
@@ -380,6 +382,16 @@ data NewBlockCtx = NewBlockCtx
         -- ^ the creation time of the block on which the new is created.
     }
     deriving (Show, Eq, Ord)
+
+data PleaseProducePayloads = PleaseProducePayloads | DoNotProducePayloads
+    deriving (Show, Eq, Ord)
+
+parentHeaderToNewBlockCtx :: HasVersion => Parent BlockHeader -> NewBlockCtx
+parentHeaderToNewBlockCtx (Parent hdr)
+    = NewBlockCtx
+        { _newBlockCtxMinerReward = blockMinerReward (view blockHeight hdr + 1)
+        , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
+        }
 
 -- | Get the evaluation context for given parent header and block payload hash
 --
