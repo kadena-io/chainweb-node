@@ -231,14 +231,15 @@ runGenesisIfNeeded logger serviceEnv = do
                     (genesisHeight cid)
                     genesisPayload
                 Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
-                emptyBlock <- (throwIfNoHistory =<<) $
-                    Checkpointer.readFrom logger cid
-                        (_psReadWriteSql serviceEnv)
-                        (Parent gTime)
-                        (Parent genesisRankedBlockHash) $
-                            \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
-                -- we have to kick off payload refreshing here first
-                startPayloadRefresher logger serviceEnv emptyBlock
+                forM_ (_psMiner serviceEnv) $ \_ -> do
+                    emptyBlock <- (throwIfNoHistory =<<) $
+                        Checkpointer.readFrom logger cid
+                            (_psReadWriteSql serviceEnv)
+                            (Parent gTime)
+                            (Parent genesisRankedBlockHash) $
+                                \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
+                    -- we have to kick off payload refreshing here first
+                    startPayloadRefresher logger serviceEnv emptyBlock
 
     where
     cid = _chainId serviceEnv
@@ -563,7 +564,8 @@ syncToFork logger serviceEnv hints forkInfo = do
     liftIO $ mpaProcessFork memPoolAccess (rewoundTxs, validatedTxs)
     case forkInfo._forkInfoNewBlockCtx of
         Just newBlockCtx
-            | _syncStateBlockHash (_consensusStateLatest newConsensusState) ==
+            | Just _ <- _psMiner serviceEnv
+            , _syncStateBlockHash (_consensusStateLatest newConsensusState) ==
                 _latestBlockHash (forkInfo._forkInfoTargetState) -> do
                     -- if we're at the target block we were sent, and we were
                     -- told to start mining, we produce an empty block
