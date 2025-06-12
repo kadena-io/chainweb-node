@@ -98,12 +98,12 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.DeepSeq
-import Control.Exception
+import Control.Exception.Safe
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (MonadThrow (throwM))
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Foldable
 import Data.HashMap.Strict qualified as HM
@@ -179,6 +179,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.TreeDB
 import Data.These
 import Chainweb.Core.Brief
+import Chainweb.Cut.Create (limitCut)
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -366,10 +367,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
     initLogger :: logger
     initLogger = setComponent "init" logger
 
-    providerLogger :: HasPayloadProviderType p => p -> logger -> logger
-    providerLogger p =
-        addLabel ("provider", toText (_payloadProviderType p))
-
     logg :: LogFunctionText
     logg = logFunctionText initLogger
 
@@ -472,21 +469,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                     -- logFunctionJson logger Info PactReplaySuccessful
                     -- inner $ Replayed initialCut (Just newCut)
                   else do
-                    initialCut <- _cut mCutDb
-
-                    -- synchronize payload providers. this also initializes
-                    -- mining.
-                    synchronizeProviders webchain providers initialCut
-
-                    -- FIXME: synchronize all payload providers
-                    -- logg Info "start synchronizing Pact DBs to initial cut"
-                    -- logFunctionJson logger Info InitialSyncInProgress
-                    -- synchronizePactDb pactSyncChains initialCut
-                    -- logg Info "finished synchronizing Pact DBs to initial cut"
-
-
-                    -- withPactData cs cuts $ \pactData -> do
-                    do
                         logg Debug "start initializing miner resources"
                         logFunctionJson logger Info InitializingMinerResources
 
@@ -523,63 +505,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                                         , _backupLogger = backupLogger
                                         }
                                     }
-
-    synchronizeProviders :: WebBlockHeaderDb -> ChainMap ConfiguredPayloadProvider -> Cut -> IO ()
-    synchronizeProviders wbh providers c = do
-        let startHeaders = HM.unionWith (\startHeader _genesisHeader -> startHeader)
-                (_cutHeaders c)
-                (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
-        mapConcurrently_ syncOne startHeaders
-        where
-        syncOne hdr = forM_ (providers ^? atChain (_chainId hdr)) $ \case
-            ConfiguredPayloadProvider provider -> do
-                let loggr = (providerLogger provider (chainLogger hdr))
-                logFunctionText loggr Info $
-                    "sync payload provider to "
-                        <> sshow (view blockHeight hdr)
-                        <> ":" <> sshow (view blockHash hdr)
-                finfo <- forkInfoForHeader wbh hdr Nothing Nothing
-                logFunctionText loggr Debug $ "syncToBlock with fork info " <> sshow finfo
-                r <- syncToBlock provider Nothing finfo `catch` \(e :: SomeException) -> do
-                    logFunctionText loggr Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e
-                    throwM e
-                when (r /= _forkInfoTargetState finfo) $ do
-                    logFunctionText loggr Info
-                        $ "resolving fork on startup, from " <> brief r
-                        <> " to " <> brief (_forkInfoTargetState finfo)
-                    bhdb <- getWebBlockHeaderDb wbh cid
-                    let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
-                    ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) `catch` \case
-                        e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
-                            logFunctionText loggr Warn $ "PP block is missing: " <> brief ppRBH
-                            throwM e
-                        e -> throwM e
-
-                    (forkBlocksDescendingStream S.:> forkPoint) <-
-                            S.toList $ branchDiff_ bhdb ppBlock hdr
-                    let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
-                    let newTrace =
-                            zipWith
-                                (\prent child ->
-                                    ConsensusPayload (view blockPayloadHash child) Nothing <$
-                                        blockHeaderToEvaluationCtx (Parent prent))
-                                (forkPoint : forkBlocksAscending)
-                                forkBlocksAscending
-                    let newForkInfo = finfo { _forkInfoTrace = newTrace }
-                    r' <- syncToBlock provider Nothing newForkInfo
-                    unless (r' == _forkInfoTargetState finfo) $ do
-                        error $ T.unpack
-                            $ "unexpected result state"
-                            <> "; expected: " <> brief (_forkInfoTargetState finfo)
-                            <> "; actual: " <> brief r
-                            <> "; PP latest block: " <> brief ppBlock
-                            <> "; target block: " <> brief hdr
-                            <> "; fork blocks: " <> brief forkBlocksAscending
-            DisabledPayloadProvider -> do
-                logFunctionText logger Info $
-                    "payload provider disabled, not synced, on chain: " <> toText (_chainId hdr)
-            where
-            cid = _chainId hdr
 
     -- synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> Cut -> IO ()
     -- synchronizePactDb cs targetCut = do
