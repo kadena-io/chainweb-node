@@ -475,7 +475,7 @@ applyCoinbase logger db reward txCtx = do
     (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   eCoinbaseTxResult <-
     evalExecTerm Transactional
-      db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+      db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52]) SimpleNamespacePolicy
       (ctxToPublicData noPublicMeta txCtx)
       MsgData
         { mdHash = coinbaseHash
@@ -566,7 +566,7 @@ runGenesisPayload logger db spv ctx cmd = do
       (runTransactionM
         (runPayload
           Transactional
-          (Set.singleton FlagDisableRuntimeRTC)
+          (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52])
           db
           spv
           [ CapToken (QualifiedName "GENESIS" (ModuleName "coin" Nothing)) []
@@ -674,7 +674,7 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
     Exec pm -> do
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
-        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC])
+        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52])
         -- allow installing to root namespace
         SimpleNamespacePolicy
         (ctxToPublicData publicMeta txContext)
@@ -764,7 +764,7 @@ buyGas logger origGasEnv db txCtx cmd = do
     -- It's taking an `Expr Info` instead of `Expr SpanInfo` which is making this code not compile
     e <- liftIO $ case gasPayerCap of
       Just cap ->
-        evalGasPayerCap cap db noSPVSupport gasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        evalGasPayerCap cap db noSPVSupport gasEnv (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52]) SimpleNamespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
           -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
@@ -782,7 +782,7 @@ buyGas logger origGasEnv db txCtx cmd = do
         db
         noSPVSupport
         gasEnv
-        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
@@ -855,7 +855,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
       evalExecTerm
         Transactional
         -- TODO: more execution flags?
-        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
@@ -878,7 +878,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
 
       evalContinuation Transactional
-        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC, FlagDisablePact52]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
