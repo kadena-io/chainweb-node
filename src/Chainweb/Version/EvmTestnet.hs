@@ -5,9 +5,9 @@
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
 
-module Chainweb.Version.EvmDevelopment
-( evmDevnet
-, pattern EvmDevelopment
+module Chainweb.Version.EvmTestnet
+( evmTestnet
+, pattern EvmTestnet
 ) where
 
 import qualified Data.Set as Set
@@ -23,9 +23,9 @@ import Chainweb.Version
 
 import Pact.Core.Names
 
-pattern EvmDevelopment :: ChainwebVersion
-pattern EvmDevelopment <- ((== evmDevnet) -> True) where
-    EvmDevelopment = evmDevnet
+pattern EvmTestnet :: ChainwebVersion
+pattern EvmTestnet <- ((== evmTestnet) -> True) where
+    EvmTestnet = evmTestnet
 
 -- How to compute the hashes:
 --
@@ -34,25 +34,25 @@ pattern EvmDevelopment <- ((== evmDevnet) -> True) where
 -- @
 -- -- create dummy payload hashes
 -- import Chainweb.PayloadProvider.Minimal.Payload
--- import Chainweb.Version.EvmDevelopment
+-- import Chainweb.Version.EvmTestnet
 --
--- mapM_ (\i -> T.putStrLn (sshow i <> " " <> encodeToText (view payloadHash $ genesisPayload EvmDevelopment $ unsafeChainId i))) [25..97]
+-- mapM_ (\i -> T.putStrLn (sshow i <> " " <> encodeToText (view payloadHash $ genesisPayload EvmTestnet $ unsafeChainId i))) [25..97]
 -- @
 --
 -- EVM Payload Provider:
 --
 -- @
--- $(cabal list-bin evm-genesis) evm-development
+-- $(cabal list-bin evm-genesis) evm-testnet
 -- @
 --
 -- Pact Provider:
 --
 -- TODO (use ea?)
 
-evmDevnet :: ChainwebVersion
-evmDevnet = withVersion evmDevnet $ ChainwebVersion
+evmTestnet :: ChainwebVersion
+evmTestnet = withVersion evmTestnet $ ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x0000_000a
-    , _versionName = ChainwebVersionName "evm-development"
+    , _versionName = ChainwebVersionName "evm-testnet"
     , _versionForks = tabulateHashMap $ const $ onAllChains ForkAtGenesis
     , _versionUpgrades = onAllChains mempty
     , _versionGraphs = Bottom (minBound, d4k4ChainGraph)
@@ -90,11 +90,11 @@ evmDevnet = withVersion evmDevnet $ ChainwebVersion
             , (unsafeChainId 18, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
             , (unsafeChainId 19, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
             -- EVM Payload Provider
-            , (unsafeChainId 20, unsafeFromText "XEv4ey1P7XOu63vMZgH01ANKKUoEWuo3-PWOaHfOJfA")
-            , (unsafeChainId 21, unsafeFromText "FRCRkgrvBv7BgzahtJynhYLAh-ZSMTgNvpyHJIyAr-c")
-            , (unsafeChainId 22, unsafeFromText "c5Dg1YhC3Yafl_uMrlift9_f_UU0pHT2VEv70RAJQ4A")
-            , (unsafeChainId 23, unsafeFromText "pCCVAAxn7zBggAxaXqp5cqStrs62FKfE0--VsK3OWIk")
-            , (unsafeChainId 24, unsafeFromText "h93bpavjG94oytkKCe1yJUn4AU-PwW7dLsLeu-6LDwo")
+            , (unsafeChainId 20, unsafeFromText "zjxImGB3TlrwP23JPAhA8naoW2BcBcCz5-x8ZkxPMgI")
+            , (unsafeChainId 21, unsafeFromText "LHOE9UrFkPs_9YIrI5yv-2wNX-XOYu9ypYZqP_wJdGY")
+            , (unsafeChainId 22, unsafeFromText "mmEOxyCfuHs_Z7ews_AP5iCpEi_P_CwhUPc_MIhMvGw")
+            , (unsafeChainId 23, unsafeFromText "pTMEi19DTelaeeJtMyn9TCee02GnilIGNoTCTmD6HyA")
+            , (unsafeChainId 24, unsafeFromText "PstzPAbKeFLk4QuncYB_UfC4Qa4Tonui7AY1S2YZbUY")
             -- Minimal Payload Provider
             , (unsafeChainId 25, unsafeFromText "Gt116uJVwjUEM0f07u_x8-SUFHgGpoH1xf3sfPoe0ZY")
             , (unsafeChainId 26, unsafeFromText "NLRP0OiqRldiZclvoKBGhv9m5wO0TrhNKaZZslZuZvw")

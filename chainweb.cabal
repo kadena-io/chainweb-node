@@ -289,6 +289,7 @@ library
         , Chainweb.Version.Development
         , Chainweb.Version.EvmDevelopment
         , Chainweb.Version.EvmDevelopmentSingleton
+        , Chainweb.Version.EvmTestnet
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
         , Chainweb.Version.RecapDevelopment

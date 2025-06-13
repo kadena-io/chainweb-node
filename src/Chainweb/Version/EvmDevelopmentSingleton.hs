@@ -71,13 +71,13 @@ evmDevnetPair = withVersion evmDevnetPair $ ChainwebVersion
         , _genesisTime = onChains
             -- FIXME: is the creation time for the pact headers correct?
             [ (unsafeChainId 0, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |])
-            , (unsafeChainId 1, BlockCreationTime (Time (secondsToTimeSpan 1687223762)))
+            , (unsafeChainId 1, BlockCreationTime (Time (secondsToTimeSpan 0x684c5d2a)))
             ]
         , _genesisBlockPayload = onChains $
             -- Pact Payload Provider
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
             -- EVM Payload Provider
-            , (unsafeChainId 1, unsafeFromText "lEbS887A2BuK_Mdq6LwVmtRJAjbnq-MS6JQdUHcnOHU")
+            , (unsafeChainId 1, unsafeFromText "Uww99ycc-FPrNroeVFkf3azD3nG2gNDO2_HnxcNjHb8")
             ]
         }
 
@@ -119,10 +119,10 @@ evmDevnetSingleton = withVersion evmDevnetSingleton $ ChainwebVersion
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 10_000)
         , _genesisTime = onChains
-            [ (unsafeChainId 0, BlockCreationTime (Time (secondsToTimeSpan 1687223762))) ]
+            [ (unsafeChainId 0, BlockCreationTime (Time (secondsToTimeSpan 0x684c5d2a))) ]
         , _genesisBlockPayload = onChains $
             -- EVM Payload Provider
-            [ (unsafeChainId 0, unsafeFromText "odWrFJQGgWcWwHFpr7R5eTulJFyF8G-6eoUE6dFk4gM") ]
+            [ (unsafeChainId 0, unsafeFromText "gY8WCR0oQbwRgQK2QAvD-0aB0Xp27SahdlldrMVwnb4") ]
         }
 
     -- still the *default* block gas limit is set, see

@@ -5,7 +5,10 @@
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
 
-module Chainweb.Version.Development(devnet, pattern Development) where
+module Chainweb.Version.Development
+( devnet
+, pattern Development
+) where
 
 import qualified Data.Set as Set
 

@@ -26,16 +26,10 @@ module Chainweb.Version.Registry
 
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens
 import Control.Monad
 import Data.Foldable
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.IORef
-import Data.Maybe
 import qualified Data.Text as T
-import System.IO.Unsafe
 
 import GHC.Stack
 
@@ -43,6 +37,7 @@ import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.EvmDevelopment
 import Chainweb.Version.EvmDevelopmentSingleton
+import Chainweb.Version.EvmTestnet
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
@@ -81,7 +76,16 @@ validateVersion v = do
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet04, recapDevnet, devnet, evmDevnet, evmDevnetSingleton, evmDevnetPair]
+knownVersions =
+    [ mainnet
+    , testnet04
+    , evmTestnet
+    , recapDevnet
+    , devnet
+    , evmDevnet
+    , evmDevnetSingleton
+    , evmDevnetPair
+    ]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.
