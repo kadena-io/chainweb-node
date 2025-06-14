@@ -192,6 +192,6 @@ evmTestnet = withVersion evmTestnet $ ChainwebVersion
     -- FIXME make this safe for graph changes
     , _versionPayloadProviderTypes = onChains
         $ [ (unsafeChainId i, PactProvider) | i <- [0..19] ]
-        <> [ (unsafeChainId i, EvmProvider (1789 - 20 + int i)) | i <- [20..24] ]
+        <> [ (unsafeChainId i, EvmProvider (5920 - 20 + int i)) | i <- [20..24] ]
         <> [ (unsafeChainId i, MinimalProvider) | i <- [25..97] ]
     }
