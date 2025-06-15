@@ -77,6 +77,7 @@ import qualified P2P.Test.Node (properties)
 import qualified P2P.Test.TaskQueue (properties)
 import Chainweb.Version (withVersion)
 import qualified Test.Chainweb.SPV.Argument
+import qualified Test.Chainweb.SPV.XChan
 
 setTestLogLevel :: LogLevel -> IO ()
 setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
@@ -148,5 +149,6 @@ suite rdb =
         ]
     , testGroup "Chainweb Payload Provider Unit Tests"
         [ Test.Chainweb.SPV.Argument.tests
+        , Test.Chainweb.SPV.XChan.tests
         ]
     ]

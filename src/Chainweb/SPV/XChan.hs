@@ -17,11 +17,14 @@
 -- blockchains.
 --
 module Chainweb.SPV.XChan
-( XChan(..)
+( XChanVersion(..)
 , XChanPolicy(..)
+
+, XChan(..)
 , xChanRoot
 , XChanProof(..)
 , xChanProof
+, xChanProof'
 , runXChanProof
 , verifyXChan
 
@@ -35,9 +38,6 @@ module Chainweb.SPV.XChan
 , Tree(..)
 , merkleTree
 , root
-
--- * Test Data
-, testXChan
 ) where
 
 import Control.Monad.Catch
@@ -373,9 +373,6 @@ runXChanProof p = runProof MerkleProof
         ]
     }
 
-verifyXChan :: XChanProof -> MerkleRoot
-verifyXChan = error "TODO"
-
 -- -------------------------------------------------------------------------- --
 -- Proof Creation
 
@@ -519,7 +516,7 @@ instance Brief XChanProof where
         <> "}"
 
 -- -------------------------------------------------------------------------- --
--- Preliminary Tests
+-- Debugging Code
 
 test :: IO ()
 test = forM_ [1..10] $ \i -> do
@@ -538,16 +535,6 @@ test = forM_ [1..10] $ \i -> do
                 <> ";\n channel: " <> brief c
                 <> ";\n proof: " <> brief proof
                 <> ";\n tree: " <> brief (xChanMerkleTree c)
-
-testXChan1 :: XChan
-testXChan1 = XChan
-    { _xVersion = XChainVersion1
-    , _xTrgChain = unsafeChainId 0
-    , _xPolicy =
-        [ TrgAccount "0x1234567890abcdef"
-        ]
-    , _xData = BS.toShort "test channel data"
-    }
 
 testXChan :: Natural -> XChan
 testXChan n = XChan
