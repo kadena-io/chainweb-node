@@ -862,7 +862,21 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
             let pact5RequestKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
             evalContT $ withEarlyReturn $ \earlyReturn -> do
                 pact5Cmd <- case Pact5.parsePact4Command cwtx of
-                    Left (fmap Pact5.spanInfoToLineInfo -> parseError) ->
+                    Left (Left errText) -> do
+                        earlyReturn $ Pact5LocalResultLegacy Pact5.CommandResult
+                            { _crReqKey = pact5RequestKey
+                            , _crTxId = Nothing
+                            , _crResult = Pact5.PactResultErr $
+                                Pact5.pactErrorToOnChainError $ Pact5.PEParseError
+                                    (Pact5.ParsingError $ "pact 4/5 parsing compatibility mismatch: " <> errText)
+                                    (Pact5.LineInfo 0)
+                            , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
+                            , _crLogs = Nothing
+                            , _crContinuation = Nothing
+                            , _crMetaData = Nothing
+                            , _crEvents = []
+                            }
+                    Left (Right (fmap Pact5.spanInfoToLineInfo -> parseError)) ->
                         earlyReturn $ Pact5LocalResultLegacy Pact5.CommandResult
                             { _crReqKey = pact5RequestKey
                             , _crTxId = Nothing

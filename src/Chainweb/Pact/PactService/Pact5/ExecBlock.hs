@@ -563,7 +563,7 @@ validateRawChainwebTx
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact5.Transaction
 validateRawChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx = do
-  tx' <- either (throwError . InsertErrorPactParseError . Pact5.renderText) return $ Pact5.parsePact4Command tx
+  tx' <- either (throwError . InsertErrorPactParseError . either id Pact5.renderText) return $ Pact5.parsePact4Command tx
   liftIO $ do
     logDebug_ logger $ "validateRawChainwebTx: parse succeeded"
   validateParsedChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx'
