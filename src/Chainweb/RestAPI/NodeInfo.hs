@@ -6,14 +6,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | An endpoint for getting node information.
 
 module Chainweb.RestAPI.NodeInfo where
 
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad.Trans
 import Data.Aeson
 import Data.Bifunctor
@@ -75,6 +77,7 @@ data NodeInfo = NodeInfo
     -- ^ The upcoming service date for the node.
   , nodeBlockDelay :: BlockDelay
     -- ^ The PoW block delay of the node (microseconds)
+  , nodePayloadProviders :: ChainMap Value
   }
   deriving (Show, Eq, Generic)
   deriving anyclass (ToJSON, FromJSON)
@@ -100,6 +103,17 @@ nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT v)) = do
         ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs implicitVersion
       , nodeServiceDate = T.pack <$> _versionServiceDate implicitVersion
       , nodeBlockDelay = _versionBlockDelay implicitVersion
+      , nodePayloadProviders = _versionPayloadProviderTypes implicitVersion <&> \case
+          EvmProvider n -> object
+            [ "type" .= ("eth" :: Text)
+            , "ethChainId" .= n
+            ]
+          PactProvider -> object
+            [ "type" .= ("pact" :: Text)
+            ]
+          MinimalProvider -> object
+            [ "type" .= ("parked" :: Text)
+            ]
       }
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
