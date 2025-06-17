@@ -6,14 +6,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | An endpoint for getting node information.
 
 module Chainweb.RestAPI.NodeInfo where
 
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad.Trans
 import Data.Aeson
 import Data.Bifunctor
@@ -35,6 +37,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockDelay)
 import Chainweb.Graph
+import Chainweb.Ranked
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Rule
@@ -45,9 +48,9 @@ type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
 someNodeInfoApi :: SomeApi
 someNodeInfoApi = SomeApi (Proxy @NodeInfoApi)
 
-someNodeInfoServer :: ChainwebVersion -> CutDb tbl -> SomeServer
-someNodeInfoServer v c =
-  SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler v $ someCutDbVal v c)
+someNodeInfoServer :: HasVersion => CutDb -> SomeServer
+someNodeInfoServer c =
+  SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler $ someCutDbVal c)
 
 data NodeInfo = NodeInfo
   { nodeVersion :: ChainwebVersionName
@@ -74,37 +77,50 @@ data NodeInfo = NodeInfo
     -- ^ The upcoming service date for the node.
   , nodeBlockDelay :: BlockDelay
     -- ^ The PoW block delay of the node (microseconds)
+  , nodePayloadProviders :: ChainMap Value
   }
   deriving (Show, Eq, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
-nodeInfoHandler :: ChainwebVersion -> SomeCutDb tbl -> Server NodeInfoApi
-nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
+nodeInfoHandler :: HasVersion => SomeCutDb -> Server NodeInfoApi
+nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
-    let curHeight = maximum $ map _bhwhHeight $ HM.elems $ _cutHashes ch
-    let graphs = unpackGraphs v
+    let curHeight = maximum $ map _rankedHeight $ HM.elems $ _cutHashes ch
+    let graphs = unpackGraphs
     let curGraph = unsafeHead "Chainweb.RestAPI.NodeInfo.nodeInfoHandler.curGraph" $ dropWhile (\(h,_) -> h > curHeight) graphs
     let curChains = map fst $ snd curGraph
     return $ NodeInfo
-      { nodeVersion = _versionName v
+      { nodeVersion = _versionName implicitVersion
       , nodePackageVersion = chainwebNodeVersionHeaderValue
       , nodeApiVersion = prettyApiVersion
       , nodeChains = T.pack . show <$> curChains
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
-      , nodeLatestBehaviorHeight = latestBehaviorAt v
-      , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList (chainIds v)
-      , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
-      , nodeServiceDate = T.pack <$> _versionServiceDate v
-      , nodeBlockDelay = _versionBlockDelay v
+      , nodeLatestBehaviorHeight = latestBehaviorAt
+      , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
+      , nodeHistoricalChains =
+        ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs implicitVersion
+      , nodeServiceDate = T.pack <$> _versionServiceDate implicitVersion
+      , nodeBlockDelay = _versionBlockDelay implicitVersion
+      , nodePayloadProviders = _versionPayloadProviderTypes implicitVersion <&> \case
+          EvmProvider n -> object
+            [ "type" .= ("eth" :: Text)
+            , "ethChainId" .= n
+            ]
+          PactProvider -> object
+            [ "type" .= ("pact" :: Text)
+            ]
+          MinimalProvider -> object
+            [ "type" .= ("parked" :: Text)
+            ]
       }
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
 -- instances.
-unpackGraphs :: ChainwebVersion -> [(BlockHeight, [(Int, [Int])])]
-unpackGraphs v = gs
+unpackGraphs :: HasVersion => [(BlockHeight, [(Int, [Int])])]
+unpackGraphs = gs
   where
-    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems $ _versionGraphs v
+    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems $ _versionGraphs implicitVersion
     graphAdjacencies = map unChain . HM.toList . fmap HS.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)

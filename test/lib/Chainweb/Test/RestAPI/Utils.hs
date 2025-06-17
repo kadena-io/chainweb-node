@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 module Chainweb.Test.RestAPI.Utils
   -- * Debugging
 ( debug
@@ -17,7 +18,6 @@ module Chainweb.Test.RestAPI.Utils
 , PactTestFailure(..)
 , PollingExpectation(..)
 , local
-, localTestToRetry
 , spv
 , ethSpv
 , sending
@@ -45,26 +45,23 @@ import Servant.Client
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
+import Chainweb.Cut.CutHashes (_cutHashes)
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Types
+import Chainweb.Ranked
 import Chainweb.Version
 import Chainweb.Test.Utils
 
 -- internal pact modules
 
 import qualified Pact.JSON.Encode as J
-import Pact.Types.API
-import Pact.Types.Command
-import Pact.Types.Hash
-import qualified Pact.Core.Command.Server as Pact5
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Types.API as Pact4
-import qualified Data.Aeson as Aeson
-import qualified Data.Text.Lazy.Encoding as TL
-import qualified Data.Text.Lazy as TL
+import qualified Pact.Core.Command.Server as Pact
+import qualified Pact.Core.Command.Types as Pact
+import qualified Pact.Core.Hash as Pact
+import qualified Pact.Core.Command.Client as Pact
+import qualified Pact.Core.Errors as Pact
 
 -- ------------------------------------------------------------------ --
 -- Defaults
@@ -101,65 +98,43 @@ repeatUntil test action = retrying testRetryPolicy
 -- | Calls to /local via the pact local api client with retry
 --
 localWithQueryParams
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
-    -> Command Text
+    -> Pact.Command Text
     -> IO LocalResult
-localWithQueryParams v sid cenv pf sv rd cmd =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting local cmd for " <> take 19 (show cmd)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single local request and return the result
-      --
-      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
-        Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      LocalFailure _ -> pure True
-      _ -> pure False
+localWithQueryParams sid cenv pf sv rd cmd =
+    runClientM (pactLocalApiClient sid pf sv rd cmd) cenv >>= \case
+      Left e -> throwM $ LocalFailure (show e)
+      Right t -> return t
 
 -- | Calls /local via the pact local api client with preflight
 -- turned off. Retries.
 --
 local
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
-    -> Command Text
-    -> IO (CommandResult Hash)
-local v sid cenv cmd = do
+    -> Pact.Command Text
+    -- TODO: PP. This needs to become a full PactError eventually
+    -> IO (Pact.CommandResult Pact.Hash Pact.PactOnChainError)
+local sid cenv cmd = do
     Just cr <- preview _LocalResultLegacy <$>
-      localWithQueryParams v sid cenv Nothing Nothing Nothing cmd
-    Just pact4Cr <- return $
-      Aeson.decode (TL.encodeUtf8 $ TL.fromStrict $ J.getJsonText cr)
-    pure pact4Cr
-
-localTestToRetry
-    :: ChainwebVersion
-    -> ChainId
-    -> ClientEnv
-    -> Command Text
-    -> (CommandResult Hash -> Bool)
-    -> IO (CommandResult Hash)
-localTestToRetry v sid cenv cmd test =
-    repeatUntil (return . test) (local v sid cenv cmd)
+      localWithQueryParams sid cenv Nothing Nothing Nothing cmd
+    return cr
 
 -- | Request an SPV proof using exponential retry logic
 --
 spv
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> SpvRequest
     -> IO TransactionOutputProofB64
-spv v sid cenv r =
+spv sid cenv r =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
@@ -167,7 +142,7 @@ spv v sid cenv r =
 
       -- send a single spv request and return the result
       --
-      runClientM (pactSpvApiClient v sid r) cenv >>= \case
+      runClientM (pactSpvApiClient sid r) cenv >>= \case
         Left e -> throwM $ SpvFailure (show e)
         Right t -> return t
   where
@@ -178,12 +153,12 @@ spv v sid cenv r =
 -- | Request an Eth SPV proof using exponential retry logic
 --
 ethSpv
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
     -> EthSpvRequest
     -> IO EthSpvResponse
-ethSpv v sid cenv r =
+ethSpv sid cenv r =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting eth-spv proof for " <> show (_ethSpvReqTransactionHash r)
@@ -191,7 +166,7 @@ ethSpv v sid cenv r =
 
       -- send a single spv request and return the result
       --
-      runClientM (ethSpvApiClient v sid r) cenv >>= \case
+      runClientM (ethSpvApiClient sid r) cenv >>= \case
         Left e -> throwM $ SpvFailure (show e)
         Right t -> return t
   where
@@ -199,27 +174,27 @@ ethSpv v sid cenv r =
       SpvFailure _ -> return True
       _ -> return False
 
--- | Send a batch with retry logic waiting for success.
+-- | Send a batch.
 sending
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
-    -> SubmitBatch
-    -> IO RequestKeys
-sending v sid cenv batch =
+    -> Pact.SubmitBatch
+    -> IO Pact.RequestKeys
+sending sid cenv batch =
     recovering testRetryPolicy [h] $ \s -> do
       debug
-        $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
+        $ "sending requestkeys " <> show (Pact._cmdHash <$> toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- Send and return naively
       --
-      runClientM (pactSendApiClient v sid batch) cenv >>= \case
+      runClientM (pactSendApiClient sid (Pact.SendRequest batch)) cenv >>= \case
         Left e -> throwM $ SendFailure (show e)
-        Right rs -> return rs
+        Right (Pact.SendResponse rs) -> return rs
 
   where
-    ss = _sbCmds batch
+    ss = Pact._sbCmds batch
 
     h _ = Handler $ \case
       SendFailure _ -> return True
@@ -231,24 +206,24 @@ data PollingExpectation = ExpectPactError | ExpectPactResult
   deriving Eq
 
 polling
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
-    -> RequestKeys
+    -> Pact.RequestKeys
     -> PollingExpectation
-    -> IO Pact4.PollResponses
-polling v sid cenv rks pollingExpectation =
-  pollingWithDepth v sid cenv rks Nothing pollingExpectation
+    -> IO Pact.PollResponse
+polling sid cenv rks pollingExpectation =
+  pollingWithDepth sid cenv rks Nothing pollingExpectation
 
 pollingWithDepth
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> ClientEnv
-    -> RequestKeys
+    -> Pact.RequestKeys
     -> Maybe ConfirmationDepth
     -> PollingExpectation
-    -> IO Pact4.PollResponses
-pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
+    -> IO Pact.PollResponse
+pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -258,34 +233,32 @@ pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Pact5.PollRequest rs) cenv >>= \case
+      runClientM (pactPollApiClient sid confirmationDepth $ Pact.PollRequest rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
-        Right r@(Pact5.PollResponse mp) ->
+        Right r@(Pact.PollResponse mp) ->
           if all (go mp) (toList rs)
           then do
-            let pact4Resps = HM.fromList $
-                  [ (toPact4RequestKey rk, toPact4CommandResult cr) | (rk, cr) <- HM.toList mp ]
-            return $ Pact4.PollResponses pact4Resps
+            return $ Pact.PollResponse mp
           else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> J.encodeText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True
       _ -> return False
 
-    rs = toPact5RequestKey <$> _rkRequestKeys rks
+    rs = Pact._rkRequestKeys rks
 
-    validate Pact5.PactResultOk{} = pollingExpectation == ExpectPactResult
-    validate Pact5.PactResultErr{} = pollingExpectation == ExpectPactError
+    validate Pact.PactResultOk{} = pollingExpectation == ExpectPactResult
+    validate Pact.PactResultErr{} = pollingExpectation == ExpectPactError
 
     go m rk = case m ^. at rk of
-      Just cr -> Pact5._crReqKey cr == rk && validate (Pact5._crResult cr)
+      Just cr -> Pact._crReqKey cr == rk && validate (Pact._crResult cr)
       Nothing -> False
 
-getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
-getCurrentBlockHeight сv cenv cid =
-  runClientM (cutGetClient сv) cenv >>= \case
+getCurrentBlockHeight :: HasVersion => ClientEnv -> ChainId -> IO BlockHeight
+getCurrentBlockHeight cenv cid =
+  runClientM cutGetClient cenv >>= \case
     Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
-    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
+    Right cuts -> return $ fromJust $ _rankedHeight <$> HM.lookup cid (_cutHashes cuts)
 
 clientErrorStatusCode :: ClientError -> Maybe Int
 clientErrorStatusCode = \case

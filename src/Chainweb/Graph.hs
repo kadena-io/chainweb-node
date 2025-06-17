@@ -80,7 +80,11 @@ module Chainweb.Graph
 , petersenChainGraph
 , twentyChainGraph
 , hoffmanSingletonChainGraph
-
+, d3k4ChainGraph
+, d4k3ChainGraph
+, d4k4ChainGraph
+, d5k3ChainGraph
+, d5k4ChainGraph
 ) where
 
 import Control.Arrow ((&&&))

@@ -17,10 +17,7 @@ module Chainweb.VerifierPlugin.Hyperlane.Message (plugin) where
 import Chainweb.Version.Guards
 import Chainweb.VerifierPlugin
 import qualified Chainweb.VerifierPlugin.Hyperlane.Message.After225 as After225
-import qualified Chainweb.VerifierPlugin.Hyperlane.Message.Before225 as Before225
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \(v, cid, bh) proof caps gasRef ->
-  if chainweb225Pact v cid bh
-  then After225.runPlugin proof caps gasRef
-  else Before225.runPlugin proof caps gasRef
+plugin = VerifierPlugin $ \(cid, bh) proof caps gasRef ->
+  After225.runPlugin proof caps gasRef

@@ -84,5 +84,6 @@ cutApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Some Cut Api
 
-someCutApi :: ChainwebVersion -> SomeApi
-someCutApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v
+someCutApi :: HasVersion => SomeApi
+someCutApi = case implicitVersion of
+    FromSingChainwebVersion (SChainwebVersion :: Sing v) -> SomeApi $ cutApi @v

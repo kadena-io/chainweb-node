@@ -23,14 +23,11 @@ module Chainweb.Miner.RestAPI
 
 import Data.Proxy (Proxy(..))
 
-import Pact.Utils.Servant
-
 import Servant.API
 
 -- internal modules
 
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
-import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc, SomeApi(..))
 import Chainweb.Version
 
@@ -44,17 +41,15 @@ import Chainweb.Version
 -- Chainweb Node for it to be reassociated with its `Chainweb.Cut.Cut` and
 -- Payload, then published to the rest of the network.
 --
-type MiningApi_ =
-    "mining" :> "work"
-             :> QueryParam "chain" ChainId
-             :> ReqBody '[PactJson] Miner
-             :> Get '[OctetStream] WorkBytes
+type MiningApi_
+    = "mining" :> "work"
+        :> Get '[OctetStream] WorkBytes
     :<|> "mining" :> "solved"
-                  :> ReqBody '[OctetStream] HeaderBytes
-                  :> Post '[JSON] NoContent
+        :> ReqBody '[OctetStream] HeaderBytes
+        :> Post '[JSON] NoContent
     :<|> "mining" :> "updates"
-                  :> ReqBody '[OctetStream] ChainBytes
-                  :> Raw
+        :> ReqBody '[OctetStream] ChainBytes
+        :> Raw
 
 type MiningApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc MiningApi_
 

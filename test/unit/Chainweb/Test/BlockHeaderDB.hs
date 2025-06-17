@@ -32,9 +32,11 @@ import Chainweb.Test.Utils
 import Chainweb.TreeDB
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version (withVersion, HasVersion)
 
 tests :: RocksDb -> TestTree
-tests rdb = testGroup "Unit Tests"
+tests rdb = withVersion toyVersion $
+  testGroup "Unit Tests"
     [ testGroup "Basic Interaction"
       [ testCase "Initialization + Shutdown" $ toyBlockHeaderDb rdb toyChainId >>= closeBlockHeaderDb . snd
       ]
@@ -54,22 +56,21 @@ tests rdb = testGroup "Unit Tests"
         testGroup
     ]
 
-insertItems :: RocksDb -> Assertion
+insertItems :: HasVersion => RocksDb -> Assertion
 insertItems rdb = runResourceT $ do
   (g, db) <- withToyDB rdb toyChainId
   liftIO $ insertN 10 g db
 
-correctHeight :: RocksDb -> Assertion
+correctHeight :: HasVersion => RocksDb -> Assertion
 correctHeight rdb = runResourceT $ do
     (g, db) <- withToyDB rdb toyChainId
     liftIO $ maxRank db >>= \r -> r @?= 0
     liftIO $ insertN 10 g db
     liftIO $ maxRank db >>= \r -> r @?= 10
 
-rankFiltering :: RocksDb -> Assertion
+rankFiltering :: HasVersion => RocksDb -> Assertion
 rankFiltering rdb = runResourceT $ do
     (g, db) <- withToyDB rdb toyChainId
     liftIO $ insertN 100 g db
     l <- liftIO $ entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing $ S.length_
     liftIO $ l @?= 11
-

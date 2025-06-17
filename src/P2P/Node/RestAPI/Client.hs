@@ -35,28 +35,28 @@ import P2P.Peer
 -- GET Peer Client
 
 peerGetClient
-    :: ChainwebVersion
-    -> NetworkId
+    :: HasVersion
+    => NetworkId
     -> Maybe Limit
     -> Maybe (NextItem Int)
     -> ClientM (Page (NextItem Int) PeerInfo)
-peerGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
-  where
-    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
-    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
-    f (FromSingNetworkId (SCutNetwork :: Sing n)) = client $ peerGetApi @v @n
+peerGetClient nid =
+  case implicitVersion of
+    FromSingChainwebVersion (SChainwebVersion :: Sing v) -> case nid of
+      FromSingNetworkId (SChainNetwork SChainId :: Sing n) -> client $ peerGetApi @v @n
+      FromSingNetworkId (SMempoolNetwork SChainId :: Sing n) -> client $ peerGetApi @v @n
+      FromSingNetworkId (SCutNetwork :: Sing n) -> client $ peerGetApi @v @n
 
 -- -------------------------------------------------------------------------- --
 -- PUT Peer Client
 
 peerPutClient
-    :: ChainwebVersion
-    -> NetworkId
+    :: HasVersion
+    => NetworkId
     -> PeerInfo
     -> ClientM NoContent
-peerPutClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
-  where
-    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
-    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
-    f (FromSingNetworkId (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
-
+peerPutClient n = case implicitVersion of
+  FromSingChainwebVersion (SChainwebVersion :: Sing v) -> case n of
+    FromSingNetworkId (SChainNetwork SChainId :: Sing n) -> client $ peerPutApi @v @n
+    FromSingNetworkId (SMempoolNetwork SChainId :: Sing n) -> client $ peerPutApi @v @n
+    FromSingNetworkId (SCutNetwork :: Sing n) -> client $ peerPutApi @v @n

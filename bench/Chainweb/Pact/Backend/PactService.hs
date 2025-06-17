@@ -39,12 +39,12 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
-import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb(..), addTestBlockDb, getCutTestBlockDb, setCutTestBlockDb, getParentTestBlockDb, mkTestBlockDbIO)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource)
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.Utils hiding (withTempSQLiteResource)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -73,7 +73,7 @@ import Pact.Core.Capabilities
 import Pact.Core.Gas.Types
 import Pact.Core.Names
 import Pact.Core.PactValue
-import Pact.Types.Gas qualified as Pact4
+import Pact.Types.Gas qualified as Pact
 import PropertyMatchers qualified as P
 import Test.Tasty.HUnit (assertEqual)
 import Text.Printf (printf)
@@ -82,36 +82,35 @@ bench :: RocksDb -> C.Benchmark
 bench rdb = do
     C.bgroup "PactService"
         [ C.bgroup "Pact4"
-            [ C.bench "1 tx" $ oneBlock pact4Version rdb 1
-            , C.bench "10 txs" $ oneBlock pact4Version rdb 10
-            , C.bench "20 txs" $ oneBlock pact4Version rdb 20
-            , C.bench "30 txs" $ oneBlock pact4Version rdb 30
-            , C.bench "40 txs" $ oneBlock pact4Version rdb 40
-            , C.bench "50 txs" $ oneBlock pact4Version rdb 50
-            , C.bench "60 txs" $ oneBlock pact4Version rdb 60
-            , C.bench "70 txs" $ oneBlock pact4Version rdb 70
-            , C.bench "80 txs" $ oneBlock pact4Version rdb 80
-            , C.bench "90 txs" $ oneBlock pact4Version rdb 90
-            , C.bench "100 txs" $ oneBlock pact4Version rdb 100
+            [ C.bench "1 tx" $ withVersion pact4Version oneBlock rdb 1
+            , C.bench "10 txs" $ withVersion pact4Version oneBlock rdb 10
+            , C.bench "20 txs" $ withVersion pact4Version oneBlock rdb 20
+            , C.bench "30 txs" $ withVersion pact4Version oneBlock rdb 30
+            , C.bench "40 txs" $ withVersion pact4Version oneBlock rdb 40
+            , C.bench "50 txs" $ withVersion pact4Version oneBlock rdb 50
+            , C.bench "60 txs" $ withVersion pact4Version oneBlock rdb 60
+            , C.bench "70 txs" $ withVersion pact4Version oneBlock rdb 70
+            , C.bench "80 txs" $ withVersion pact4Version oneBlock rdb 80
+            , C.bench "90 txs" $ withVersion pact4Version oneBlock rdb 90
+            , C.bench "100 txs" $ withVersion pact4Version oneBlock rdb 100
             ]
         , C.bgroup "Pact5"
-            [ C.bench "1 tx" $ oneBlock pact5Version rdb 1
-            , C.bench "10 txs" $ oneBlock pact5Version rdb 10
-            , C.bench "20 txs" $ oneBlock pact5Version rdb 20
-            , C.bench "30 txs" $ oneBlock pact5Version rdb 30
-            , C.bench "40 txs" $ oneBlock pact5Version rdb 40
-            , C.bench "50 txs" $ oneBlock pact5Version rdb 50
-            , C.bench "60 txs" $ oneBlock pact5Version rdb 60
-            , C.bench "70 txs" $ oneBlock pact5Version rdb 70
-            , C.bench "80 txs" $ oneBlock pact5Version rdb 80
-            , C.bench "90 txs" $ oneBlock pact5Version rdb 90
-            , C.bench "100 txs" $ oneBlock pact5Version rdb 100
+            [ C.bench "1 tx" $ withVersion pact5Version oneBlock rdb 1
+            , C.bench "10 txs" $ withVersion pact5Version oneBlock rdb 10
+            , C.bench "20 txs" $ withVersion pact5Version oneBlock rdb 20
+            , C.bench "30 txs" $ withVersion pact5Version oneBlock rdb 30
+            , C.bench "40 txs" $ withVersion pact5Version oneBlock rdb 40
+            , C.bench "50 txs" $ withVersion pact5Version oneBlock rdb 50
+            , C.bench "60 txs" $ withVersion pact5Version oneBlock rdb 60
+            , C.bench "70 txs" $ withVersion pact5Version oneBlock rdb 70
+            , C.bench "80 txs" $ withVersion pact5Version oneBlock rdb 80
+            , C.bench "90 txs" $ withVersion pact5Version oneBlock rdb 90
+            , C.bench "100 txs" $ withVersion pact5Version oneBlock rdb 100
             ]
         ]
 
 data Fixture = Fixture
-    { _chainwebVersion :: !ChainwebVersion
-    , _fixtureBlockDb :: !TestBlockDb
+    { _fixtureBlockDb :: !TestBlockDb
     , _fixtureBlockDbRocksDb :: !RocksDb
     , _fixtureMempools :: !(ChainMap (MempoolBackend Pact4.UnparsedTransaction))
     , _fixturePactQueues :: !(ChainMap PactQueue)
@@ -122,26 +121,25 @@ data Fixture = Fixture
 instance NFData Fixture where
     rnf !_ = ()
 
-createFixture :: ChainwebVersion -> RocksDb -> PactServiceConfig -> IO Fixture
-createFixture v rdb pactServiceConfig = do
-    T2 tdb tdbRdb <- mkTestBlockDbIO v rdb
+createFixture :: HasVersion => RocksDb -> PactServiceConfig -> IO Fixture
+createFixture rdb pactServiceConfig = do
+    T2 tdb tdbRdb <- mkTestBlockDbIO rdb
     logger <- testLogger
 
-    perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+    perChain <- iforM (HashSet.toMap chainIds) $ \chain () -> do
         sql <- openSQLiteConnection "" chainwebPragmas
         bhdb <- liftIO $ getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) chain
         pactQueue <- liftIO $ newPactQueue 2_000
         pactExecutionServiceVar <- liftIO $ newMVar (mkPactExecutionService pactQueue)
-        let mempoolCfg = validatingMempoolConfig chain v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
+        let mempoolCfg = validatingMempoolConfig chain (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
         mempool <- liftIO $ startInMemoryMempoolTest mempoolCfg
         mempoolConsensus <- liftIO $ mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
         let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
-        tid <- forkIO $ runPactService v chain logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sql pactServiceConfig
+        tid <- forkIO $ runPactService chain logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sql pactServiceConfig
         return (mempool, pactQueue, tid, sql)
 
     let fixture = Fixture
-            { _chainwebVersion = v
-            , _fixtureBlockDb = tdb
+            { _fixtureBlockDb = tdb
             , _fixtureBlockDbRocksDb = tdbRdb
             , _fixtureMempools = OnChains $ view _1 <$> perChain
             , _fixturePactQueues = OnChains $ view _2 <$> perChain
@@ -163,15 +161,15 @@ destroyFixture fx = do
         closeSQLiteConnection sql
     deleteNamespaceRocksDb fx._fixtureBlockDbRocksDb
 
-oneBlock :: ChainwebVersion -> RocksDb -> Word -> C.Benchmarkable
-oneBlock v rdb numTxs =
+oneBlock :: HasVersion => RocksDb -> Word -> C.Benchmarkable
+oneBlock rdb numTxs =
     let cid = unsafeChainId 0
-        cfg = testPactServiceConfig
+        cfg = defaultPactServiceConfig
 
         setupEnv _ = do
-            fx <- createFixture v rdb cfg
+            fx <- createFixture rdb cfg
             txs <- forM [1..numTxs] $ \_ -> do
-                buildCwCmd v (transferCmd cid 1.0)
+                buildCwCmd (transferCmd cid 1.0)
             return (fx, txs)
 
         cleanupEnv _ (fx, _) = do
@@ -195,22 +193,23 @@ oneBlock v rdb numTxs =
 getCut :: Fixture -> IO Cut
 getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
 
-revert :: Fixture -> Cut -> IO ()
+revert :: HasVersion => Fixture -> Cut -> IO ()
 revert Fixture{..} c = do
     setCutTestBlockDb _fixtureBlockDb c
-    forM_ (HashSet.toList (chainIds _chainwebVersion)) $ \chain -> do
+    forM_ (HashSet.toList chainIds) $ \chain -> do
         ph <- getParentTestBlockDb _fixtureBlockDb chain
         pactSyncToBlock ph (_fixturePactQueues ^?! atChain chain)
 
 -- this mines a block on *all chains*. if you don't specify a payload on a chain,
 -- it adds empty blocks!
-advanceAllChains :: ()
+advanceAllChains
+    :: HasVersion
     => Fixture
     -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
     -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChains Fixture{..} blocks = do
     commandResults <-
-        forConcurrently (HashSet.toList (chainIds _chainwebVersion)) $ \c -> do
+        forConcurrently (HashSet.toList chainIds) $ \c -> do
             ph <- getParentTestBlockDb _fixtureBlockDb c
             creationTime <- getCurrentTimeIntegral
             let pactQueue = _fixturePactQueues ^?! atChain c

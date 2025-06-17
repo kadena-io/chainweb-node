@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -13,7 +14,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Sync.WebBlockHeaderStore
@@ -29,65 +32,61 @@ module Chainweb.Sync.WebBlockHeaderStore
 ( WebBlockHeaderStore(..)
 , newWebBlockHeaderStore
 , getBlockHeader
+, forkInfoForHeader
 
 -- *
 , WebBlockPayloadStore(..)
-, newEmptyWebPayloadStore
+-- , newEmptyWebPayloadStore
 , newWebPayloadStore
 
 -- * Utils
 , memoInsert
-, PactExecutionService(..)
 ) where
-
-import Control.Concurrent.Async
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
-
-import Data.Foldable
-import Data.Hashable
-import qualified Data.Text as T
-
-import GHC.Generics
-
-import qualified Network.HTTP.Client as HTTP
-
-import Servant.Client
-
-import System.LogLevel
-
--- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RemoteDB
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
+import Chainweb.Difficulty (WindowWidth(..))
+import Chainweb.MinerReward (blockMinerReward)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.RestAPI.Client
+import Chainweb.PayloadProvider
+import Chainweb.Ranked
+import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.TreeDB
-import qualified Chainweb.TreeDB as TDB
+import Chainweb.TreeDB qualified as TDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils (diameterAt)
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
-
+import Control.Concurrent.Async
+import Control.Lens
+import Control.Monad
+import Control.Monad.Catch
+import Data.Foldable
+import Data.Hashable
+import Data.HashSet qualified as HS
 import Data.LogMessage
 import Data.PQueue
 import Data.TaskMap
-
+import Data.Text qualified as T
+import GHC.Generics (Generic)
+import GHC.Stack
+import Network.HTTP.Client qualified as HTTP
 import P2P.Peer
 import P2P.TaskQueue
-
+import Servant.Client
+import System.LogLevel
 import Utils.Logging.Trace
-
-import Chainweb.Storage.Table
+import Chainweb.Parent
+import Streaming.Prelude qualified as S
+import Data.These (partitionHereThere, These (..))
+import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -120,10 +119,6 @@ setResponseTimeout t env =  env
 
 newtype WebBlockHeaderCas = WebBlockHeaderCas WebBlockHeaderDb
 
-instance HasChainwebVersion WebBlockHeaderCas where
-    _chainwebVersion (WebBlockHeaderCas db) = _chainwebVersion db
-    {-# INLINE _chainwebVersion #-}
-
 -- -------------------------------------------------------------------------- --
 -- Obtain and Validate Block Payloads
 
@@ -138,9 +133,6 @@ data WebBlockPayloadStore tbl = WebBlockPayloadStore
         -- ^ LogFunction
     , _webBlockPayloadStoreMgr :: !HTTP.Manager
         -- ^ Manager object for making HTTP requests
-    , _webBlockPayloadStorePact :: !WebPactExecutionService
-        -- ^ handle to the pact execution service for validating transactions
-        -- and computing outputs.
     }
 
 -- -------------------------------------------------------------------------- --
@@ -166,10 +158,6 @@ data WebBlockHeaderStore = WebBlockHeaderStore
     , _webBlockHeaderStoreMgr :: !HTTP.Manager
     }
 
-instance HasChainwebVersion WebBlockHeaderStore where
-    _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
-    {-# INLINE _chainwebVersion #-}
-
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap
 
@@ -194,92 +182,104 @@ memoInsert cas m k a = tableLookup cas k >>= \case
         return v
     (Just !x) -> return x
 
--- | Query a payload either from the local store, or the origin, or P2P network.
+-- | For a given latest BlockHeader return the state of consensus
 --
--- The payload is only queried and not inserted into the local store. We want to
--- insert it only after it got validate by pact in order to avoid accumlation of
--- garbage.
+-- THIS IS NOT FINAL!
 --
-getBlockPayload
-    :: CanReadablePayloadCas tbl
-    => Cas candidateCas PayloadData
-    => WebBlockPayloadStore tbl
-    -> candidateCas
-    -> Priority
-    -> Maybe PeerInfo
-        -- ^ Peer from with the BlockPayloadHash originated, if available.
+-- TODO:
+-- This should eventually become a consensus component on its own. It probably
+-- needs to depend on the cut db (and it is not clear how that would fit in this
+-- module).
+--
+-- It should take into consideration the current hash power, weight, and
+-- difficulty. It should probably also take into consideration historical hash
+-- power, like the all time max.
+--
+-- For instance, the confirmation depth should approach infinite as the honest
+-- hash power degrades towards 50% (of the all time max).
+--
+-- For now we use
+--
+-- - safe: 6 times of the graph diameter block heights, ~ 9 min
+-- - final: 4 epochs, 120 * 4 block heights, ~ 4 hours
+--
+consensusState
+    :: HasCallStack
+    => HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
-        -- ^ The BlockHeader for which the payload is requested
-    -> IO PayloadData
-getBlockPayload s candidateStore priority maybeOrigin h = do
-    logfun Debug $ "getBlockPayload: " <> sshow h
-    tableLookup candidateStore payloadHash >>= \case
-        Just !x -> return x
-        Nothing -> lookupPayloadWithHeight cas (Just $ view blockHeight h) payloadHash >>= \case
-            Just !x -> return $! payloadWithOutputsToPayloadData x
-            Nothing -> memo memoMap payloadHash $ \k ->
-                pullOrigin (view blockHeight h) k maybeOrigin >>= \case
-                    Nothing -> do
-                        t <- queryPayloadTask (view blockHeight h) k
-                        pQueueInsert queue t
-                        awaitTask t
-                    (Just !x) -> return x
-
+    -> IO ConsensusState
+consensusState wdb hdr
+    | isGenesisBlockHeader hdr = return ConsensusState
+        { _consensusStateLatest = syncStateOfBlockHeader hdr
+        , _consensusStateSafe = syncStateOfBlockHeader hdr
+        , _consensusStateFinal = syncStateOfBlockHeader hdr
+        }
+    | otherwise = do
+        db <- getWebBlockHeaderDb wdb hdr
+        Parent phdr <- lookupParentHeader wdb hdr
+        safeHdr <- fromJuste <$> seekAncestor db phdr safeHeight
+        finalHdr <- fromJuste <$> seekAncestor db phdr finalHeight
+        return ConsensusState
+            { _consensusStateLatest = syncStateOfBlockHeader hdr
+            , _consensusStateSafe = syncStateOfBlockHeader safeHdr
+            , _consensusStateFinal = syncStateOfBlockHeader finalHdr
+            }
   where
-    v = _chainwebVersion h
-    payloadHash = view blockPayloadHash h
-    cid = _chainId h
+    WindowWidth w = _versionWindow implicitVersion
+    cid = _chainId hdr
+    finalHeight = int @Int @_ $ max (int $ genesisHeight cid) (int height - int w * 4)
+    safeHeight = int @Int @_ $ max (int $ genesisHeight cid) (int height - 6 * (int diam + 1))
+    height = view blockHeight hdr
+    diam = diameterAt height
 
-    mgr = _webBlockPayloadStoreMgr s
-    cas = _webBlockPayloadStoreCas s
-    memoMap = _webBlockPayloadStoreMemo s
-    queue = _webBlockPayloadStoreQueue s
+-- -------------------------------------------------------------------------- --
+-- ForkInfo For Header
 
-    logfun :: LogLevel -> T.Text -> IO ()
-    logfun = _webBlockPayloadStoreLogFunction s
+-- | Compute ForkInfo Object for a single newly added BlockHeader
+--
+forkInfoForHeader
+    :: HasVersion
+    => WebBlockHeaderDb
+    -> BlockHeader
+    -> Maybe EncodedPayloadData
+    -> Maybe (Parent BlockHeader)
+    -> IO ForkInfo
+forkInfoForHeader wdb hdr pldData parentHdr
 
-    traceLogfun :: LogMessage a => LogLevel -> a -> IO ()
-    traceLogfun = _webBlockPayloadStoreLogFunction s
+    -- FIXME do we need this case??? We never add genesis headers...
+    | isGenesisBlockHeader hdr = do
+        state <- consensusState wdb hdr
+        return $ ForkInfo
+            { _forkInfoTrace = []
+            , _forkInfoBasePayloadHash = Parent $ _latestPayloadHash state
+            , _forkInfoTargetState = state
+            , _forkInfoNewBlockCtx = Just nbctx
+            }
 
-    taskMsg k msg = "payload task " <> sshow k <> " @ " <> sshow (view blockHash h) <> ": " <> msg
+    | otherwise = do
+        phdr <- maybe (lookupParentHeader wdb hdr) return parentHdr
+        let consensusPayload = ConsensusPayload
+                { _consensusPayloadHash = pld
+                , _consensusPayloadData = pldData
+                }
 
-    traceLabel subfun =
-        "Chainweb.Sync.WebBlockHeaderStore.getBlockPayload." <> subfun
+        -- TargetState
+        state <- consensusState wdb hdr
+        return $ ForkInfo
+            { _forkInfoTrace = [consensusPayload <$ blockHeaderToEvaluationCtx phdr]
+            , _forkInfoBasePayloadHash = view blockPayloadHash <$> phdr
+            , _forkInfoTargetState = state
+            , _forkInfoNewBlockCtx = Just nbctx
+            }
+  where
+    pld = view blockPayloadHash hdr
 
-    -- | Try to pull a block payload from the given origin peer
-    --
-    pullOrigin :: BlockHeight -> BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadData)
-    pullOrigin _ k Nothing = do
-        logfun Debug $ taskMsg k "no origin"
-        return Nothing
-    pullOrigin bh k (Just origin) = do
-        let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
-        logfun Debug $ taskMsg k "lookup origin"
-        !r <- trace traceLogfun (traceLabel "pullOrigin") k 0
-            $ runClientM (payloadClient v cid k (Just bh)) originEnv
-        case r of
-            (Right !x) -> do
-                logfun Debug $ taskMsg k "received from origin"
-                return $ Just x
-            Left (e :: ClientError) -> do
-                logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
-                return Nothing
-
-    -- | Query a block payload via the task queue
-    --
-    queryPayloadTask :: BlockHeight -> BlockPayloadHash -> IO (Task ClientEnv PayloadData)
-    queryPayloadTask bh k = newTask (sshow k) priority $ \logg env -> do
-        logg @T.Text Debug $ taskMsg k "query remote block payload"
-        let taskEnv = setResponseTimeout taskResponseTimeout env
-        !r <- trace traceLogfun (traceLabel "queryPayloadTask") k (let Priority i = priority in i)
-            $ runClientM (payloadClient v cid k (Just bh)) taskEnv
-        case r of
-            (Right !x) -> do
-                logg @T.Text Debug $ taskMsg k "received remote block payload"
-                return x
-            Left (e :: ClientError) -> do
-                logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
-                throwM e
+    nbctx = NewBlockCtx
+        { _newBlockCtxMinerReward = blockMinerReward (height + 1)
+        , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
+        }
+    height = view blockHeight hdr
 
 -- -------------------------------------------------------------------------- --
 -- Obtain, Validate, and Store BlockHeaders
@@ -299,19 +299,37 @@ instance Exception GetBlockHeaderFailure
 -- iterative algorithm is preferable.
 --
 getBlockHeaderInternal
-    :: CanPayloadCas tbl
+    :: HasVersion
     => BlockHeaderCas candidateHeaderCas
-    => PayloadDataCas candidatePayloadCas
+        -- ^ CandidateHeaderCas is a content addressed store for BlockHeaders
+    => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
     => WebBlockHeaderStore
-    -> WebBlockPayloadStore tbl
+        -- ^ Block Header Store for all Chains
     -> candidateHeaderCas
-    -> candidatePayloadCas
-    -> Maybe (BlockPayloadHash, PayloadWithOutputs)
+        -- ^ Ephemeral store for block headers under consideration
+    -> candidatePldTbl
+    -> ChainMap ConfiguredPayloadProvider
+    -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
+        -- ^ Payload and Header data for the block, in case that it is
+        -- available.
     -> Priority
+        -- ^ Priority of P2P tasks for querying headers and payloads
     -> Maybe PeerInfo
+        -- ^ Origin hint for the block header and related data.
     -> ChainValue BlockHash
+        -- ^ The hash of the block that is processed, tagged by the chain
     -> IO (ChainValue BlockHeader)
-getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas localPayload priority maybeOrigin h = do
+        -- ^ If validation is successful the added block header is returned
+getBlockHeaderInternal
+    headerStore
+    candidateHeaderCas
+    candidatePldTbl
+    providers
+    localPayload
+    priority
+    maybeOrigin
+    h
+  = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
     !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
@@ -352,49 +370,60 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- prerequesite in the memo-table it is awaited, otherwise a new job is
         -- created.
         --
-        let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash v p
+        let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash p
             queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
                 logg Debug $ taskMsg k
-                    $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
+                    $ "getBlockHeaderInternal.getPrerequisiteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
                 getBlockHeaderInternal
                     headerStore
-                    payloadStore
                     candidateHeaderCas
-                    candidatePayloadCas
+                    candidatePldTbl
+                    providers
                     localPayload
                     priority
                     maybeOrigin'
-                    p
+                    (unwrapParent <$> p)
 
             -- Perform inductive (involving the parent) validations on the block
             -- header. There's another complete pass of block header validations
             -- after payload validation when the header is finally added to the db.
             --
-            queryParent p = Concurrently $ void $ do
+            queryParent p = Concurrently $ do
                 logg Debug $ taskMsg k
-                    $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
+                    $ "getBlockHeaderInternal.getPrerequisiteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
-                void $ getBlockHeaderInternal
+                parentHdr <- Parent <$> getBlockHeaderInternal
                     headerStore
-                    payloadStore
                     candidateHeaderCas
-                    candidatePayloadCas
+                    candidatePldTbl
+                    providers
                     localPayload
                     priority
                     maybeOrigin'
-                    p
-                chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
+                    (unwrapParent <$> p)
+                chainDb <- getWebBlockHeaderDb wdb header
                 validateInductiveChainM (tableLookup chainDb) header
+                return $ fmap _chainValueValue parentHdr
 
-        !p <- runConcurrently
-            -- query payload
-            $ Concurrently
-                (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
+        -- Get the Payload Provider and
+        let hints = Hints <$> maybeOrigin'
+        pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
+        let prefetchProviderPayloads = case providers ^?! atChain cid of
+                ConfiguredPayloadProvider _provider -> return ()
+                    -- TODO PP
+                    -- prefetchPayloads provider hints
+                    --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
+                DisabledPayloadProvider -> return ()
+
+        parentHdr <- runConcurrently
+            -- instruct the payload provider to fetch payload data and prepare
+            -- validation.
+            $ Concurrently prefetchProviderPayloads
 
             -- query parent (recursively)
             --
-            <* queryParent (view blockParent <$> chainValue header)
+            *> queryParent (view blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
             <* mconcat (queryAdjacentParent <$> adjParents header)
@@ -443,10 +472,54 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- validate the payload for this block header.
         --
 
-        logg Debug $ taskMsg k $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
-        validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
-            logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
-            throwM e
+        -- Do not produce payloads at this point; we may not stick around at
+        -- this block.
+        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) <&> forkInfoNewBlockCtx .~ Nothing
+
+        logg Debug $ taskMsg k $
+            "getBlockHeaderInternal validate payload for " <> sshow h
+        case providers ^?! atChain cid of
+            ConfiguredPayloadProvider provider -> do
+                r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
+                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with : " <> sshow e
+                    throwM e
+                if r /= _forkInfoTargetState finfo
+                then do
+                    bhdb <- getWebBlockHeaderDb wdb cid
+                    let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
+                    ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) `catch` \case
+                        e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
+                            logfun Warn $ "PP block is missing: " <> brief ppRBH
+                            throwM e
+                        e -> throwM e
+
+                    (forkBlocksDescendingStream S.:> forkPoint) <-
+                            S.toList $ branchDiff_ bhdb ppBlock (unwrapParent parentHdr)
+                    let forkBlocksAscending = reverse $ snd $ partitionHereThere (That header : forkBlocksDescendingStream)
+                    let newTrace =
+                            zipWith
+                                (\prent child ->
+                                    ConsensusPayload (view blockPayloadHash child) Nothing <$
+                                        blockHeaderToEvaluationCtx (Parent prent))
+                                (forkPoint : forkBlocksAscending)
+                                forkBlocksAscending
+                    let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                    r' <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
+                        logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation retry for " <> sshow h <> " failed with: " <> sshow e
+                        throwM e
+                    unless (r' == _forkInfoTargetState finfo) $ do
+                        throwM $ GetBlockHeaderFailure $ "unexpected result state"
+                            <> "; expected: " <> brief (_forkInfoTargetState finfo)
+                            <> "; actual: " <> brief r
+                            <> "; PP latest block: " <> brief ppBlock
+                            <> "; target block: " <> brief header
+                            <> "; target block parent: " <> brief (unwrapParent parentHdr)
+                            <> "; fork blocks: " <> brief forkBlocksAscending
+                else
+                    return ()
+            DisabledPayloadProvider -> do
+                logg Debug $ taskMsg k $ "getBlockHeaderInternal payload provider disabled"
+
         logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
@@ -454,13 +527,13 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
     return bh
 
-  where
+    where
 
     mgr = _webBlockHeaderStoreMgr headerStore
     cas = WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore
     memoMap = _webBlockHeaderStoreMemo headerStore
     queue = _webBlockHeaderStoreQueue headerStore
-    v = _chainwebVersion cas
+    wdb = _webBlockHeaderStoreCas headerStore
 
     logfun :: LogFunction
     logfun = _webBlockHeaderStoreLogFunction headerStore
@@ -473,23 +546,23 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     traceLabel subfun =
         "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal." <> subfun
 
-    pact = _pactValidateBlock
-        $ _webPactExecutionService
-        $ _webBlockPayloadStorePact payloadStore
+    -- pact = _pactValidateBlock
+    --     $ _webPactExecutionService
+    --     $ _webBlockPayloadStorePact payloadStore
 
-    validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
-    validateAndInsertPayload hdr p = do
-        let payload = case localPayload of
-                Just (hsh, pwo)
-                    | hsh == view blockPayloadHash hdr
-                        -> CheckablePayloadWithOutputs pwo
-                _ -> CheckablePayload p
-        outs <- trace logfun
-            (traceLabel "pact")
-            (view blockHash hdr)
-            (length (view payloadDataTransactions p))
-            $ pact hdr payload
-        addNewPayload (_webBlockPayloadStoreCas payloadStore) (view blockHeight hdr) outs
+    -- validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
+    -- validateAndInsertPayload hdr p = do
+    --     let payload = case localPayload of
+    --             Just (hsh, pwo)
+    --                 | hsh == view blockPayloadHash hdr
+    --                     -> CheckablePayloadWithOutputs pwo
+    --             _ -> CheckablePayload p
+    --     outs <- trace logfun
+    --         (traceLabel "pact")
+    --         (view blockHash hdr)
+    --         (length (view payloadDataTransactions p))
+    --         $ pact hdr payload
+    --     addNewPayload (_webBlockPayloadStoreCas payloadStore) (view blockHeight hdr) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
@@ -506,7 +579,6 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     rDb cid env = RemoteDb
         { _remoteEnv = env
         , _remoteLogFunction = ALogFunction logfun
-        , _remoteVersion = v
         , _remoteChainId = cid
         }
 
@@ -524,8 +596,14 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         logg Debug $ taskMsg ck "lookup origin"
         !r <- trace logfun (traceLabel "pullOrigin") k 0
             $ TDB.lookup (rDb cid originEnv) k
-        logg Debug $ taskMsg ck "received from origin"
-        return r
+        case r of
+            Left err -> do
+                logg Warn $ taskMsg k
+                    $ "failed to pull from origin " <> sshow origin <> " with " <> err
+                return Nothing
+            Right v -> do
+                logg Debug $ taskMsg ck "received from origin"
+                return $ Just v
 
     -- pullOriginDeps _ Nothing = return ()
     -- pullOriginDeps ck@(ChainValue cid k) (Just origin) = do
@@ -550,68 +628,55 @@ newWebBlockHeaderStore mgr wdb logfun = do
     queue <- newEmptyPQueue
     return $! WebBlockHeaderStore wdb m queue logfun mgr
 
-newEmptyWebPayloadStore
-    :: CanPayloadCas tbl
-    => ChainwebVersion
-    -> HTTP.Manager
-    -> WebPactExecutionService
-    -> LogFunction
-    -> PayloadDb tbl
-    -> IO (WebBlockPayloadStore tbl)
-newEmptyWebPayloadStore v mgr pact logfun payloadDb = do
-    initializePayloadDb v payloadDb
-    newWebPayloadStore mgr pact payloadDb logfun
-
 newWebPayloadStore
     :: HTTP.Manager
-    -> WebPactExecutionService
     -> PayloadDb tbl
     -> LogFunction
     -> IO (WebBlockPayloadStore tbl)
-newWebPayloadStore mgr pact payloadDb logfun = do
+newWebPayloadStore mgr payloadDb logfun = do
     payloadTaskQueue <- newEmptyPQueue
     payloadMemo <- new
     return $! WebBlockPayloadStore
-        payloadDb payloadMemo payloadTaskQueue logfun mgr pact
+        payloadDb payloadMemo payloadTaskQueue logfun mgr
 
 getBlockHeader
-    :: CanPayloadCas tbl
+    :: HasVersion
     => BlockHeaderCas candidateHeaderCas
-    => PayloadDataCas candidatePayloadCas
+    => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
     => WebBlockHeaderStore
-    -> WebBlockPayloadStore tbl
     -> candidateHeaderCas
-    -> candidatePayloadCas
-    -> Maybe (BlockPayloadHash, PayloadWithOutputs)
+    -> candidatePldTbl
+    -> ChainMap ConfiguredPayloadProvider
+    -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas localPayload cid priority maybeOrigin h
+getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
-        `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
+        `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h (sshow es)
   where
     go = getBlockHeaderInternal
         headerStore
-        payloadStore
         candidateHeaderCas
-        candidatePayloadCas
+        candidatePldTbl
+        providers
         localPayload
         priority
         maybeOrigin
         (ChainValue cid h)
 {-# INLINE getBlockHeader #-}
 
-instance (CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHeaderCas k (ChainValue BlockHeader) where
+instance (HasVersion, CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHeaderCas k (ChainValue BlockHeader) where
     tableLookup (WebBlockHeaderCas db) (ChainValue cid h) =
         (Just . ChainValue cid <$> lookupWebBlockHeaderDb db cid h)
             `catch` \e -> case e of
-                TDB.TreeDbKeyNotFound _ -> return Nothing
+                TDB.TreeDbKeyNotFound _ _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
     {-# INLINE tableLookup #-}
 
-instance (CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k (ChainValue BlockHeader) where
+instance (HasVersion, CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k (ChainValue BlockHeader) where
     tableInsert (WebBlockHeaderCas db) _ (ChainValue _ h)
         = insertWebBlockHeaderDb db h
     {-# INLINE tableInsert #-}

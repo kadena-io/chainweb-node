@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: Chainweb.Test.Version
@@ -48,12 +49,12 @@ tests = testGroup "ChainwebVersion properties"
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-propForVersions :: String -> (ChainwebVersion -> Property) -> TestTree
+propForVersions :: String -> (HasVersion => Property) -> TestTree
 propForVersions desc prop = testGroup desc
-    [ testProperty "arbitrary versions" $ prop
-    , testProperty "mainnet" $ prop Mainnet01
-    , testProperty "testnet04" $ prop Testnet04
-    , testProperty "recapDevnet" $ prop RecapDevelopment
+    [ testProperty "arbitrary versions" $ \v -> withVersion v prop
+    , testProperty "mainnet" $ withVersion Mainnet01 prop
+    , testProperty "testnet04" $ withVersion Testnet04 prop
+    , testProperty "recapDevnet" $ withVersion RecapDevelopment prop
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -67,20 +68,20 @@ graphTests = testGroup "Graphs"
     , propForVersions "chainIds are chains of latest graph" prop_chainIds
     ]
 
-prop_chainGraphs_sorted :: ChainwebVersion -> Property
-prop_chainGraphs_sorted v
-    = property (ruleValid (_versionGraphs v))
+prop_chainGraphs_sorted :: HasVersion => Property
+prop_chainGraphs_sorted
+    = property (ruleValid (_versionGraphs implicitVersion))
 
-prop_chainGraphs_order :: ChainwebVersion -> Property
-prop_chainGraphs_order v = orders === NE.reverse (NE.sort orders)
+prop_chainGraphs_order :: HasVersion => Property
+prop_chainGraphs_order = orders === NE.reverse (NE.sort orders)
   where
-    orders = ruleElems $ fmap order $ _versionGraphs v
+    orders = ruleElems $ fmap order $ _versionGraphs implicitVersion
 
-prop_genesisHeight :: ChainwebVersion -> Property
-prop_genesisHeight v = property $ all ((>= 0) . genesisHeight v) $ chainIds v
+prop_genesisHeight :: HasVersion => Property
+prop_genesisHeight = property $ all ((>= 0) . genesisHeight) chainIds
 
-prop_chainIds :: ChainwebVersion -> Property
-prop_chainIds v = chainIds v === graphChainIds (snd $ ruleHead $ _versionGraphs v)
+prop_chainIds :: HasVersion => Property
+prop_chainIds = chainIds === graphChainIds (snd $ ruleHead $ _versionGraphs implicitVersion)
 
 -- -------------------------------------------------------------------------- --
 --  Header Sizes
@@ -99,50 +100,50 @@ headerSizeTests = testGroup "HeaderSize"
 -- | A "golden" test property. If the value changes the test will fails and must
 -- be manually updated. This protectes against accidentally changing this value.
 --
-prop_headerBaseSizeBytes_golden :: ChainwebVersion -> Property
-prop_headerBaseSizeBytes_golden v = _versionHeaderBaseSizeBytes v === 208
+prop_headerBaseSizeBytes_golden :: HasVersion => Property
+prop_headerBaseSizeBytes_golden = _versionHeaderBaseSizeBytes implicitVersion === 208
 
-prop_headerBaseSizeBytes :: ChainwebVersion -> Property
-prop_headerBaseSizeBytes v = property $ do
-    cid <- elements $ toList $ chainIds v
-    let genHdr = genesisBlockHeader v cid
+prop_headerBaseSizeBytes :: HasVersion => Property
+prop_headerBaseSizeBytes = property $ do
+    cid <- elements $ toList $ chainIds
+    let genHdr = genesisBlockHeader cid
         gen = runPutS $ encodeBlockHeader genHdr
         as = runPutS $ encodeBlockHashRecord (view blockAdjacentHashes genHdr)
-    return $ _versionHeaderBaseSizeBytes v === int (B.length gen - B.length as)
+    return $ _versionHeaderBaseSizeBytes implicitVersion === int (B.length gen - B.length as)
 
-prop_headerSizes_sorted :: ChainwebVersion -> Property
-prop_headerSizes_sorted v
-    = NE.reverse (NE.sort (ruleElems (headerSizes v))) === ruleElems (headerSizes v)
+prop_headerSizes_sorted :: HasVersion => Property
+prop_headerSizes_sorted
+    = NE.reverse (NE.sort (ruleElems headerSizes)) === ruleElems headerSizes
 
-prop_headerSizes_order :: ChainwebVersion -> Property
-prop_headerSizes_order v = orders === NE.reverse (NE.sort orders)
+prop_headerSizes_order :: HasVersion => Property
+prop_headerSizes_order = orders === NE.reverse (NE.sort orders)
   where
-    orders = ruleElems $ fmap order $ _versionGraphs v
+    orders = ruleElems $ fmap order $ _versionGraphs implicitVersion
 
-prop_headerSizeBytes_gen :: ChainwebVersion -> Property
-prop_headerSizeBytes_gen v = property $ do
-    cid <- elements $ toList $ chainIds v
-    let hdr = genesisBlockHeader v cid
+prop_headerSizeBytes_gen :: HasVersion => Property
+prop_headerSizeBytes_gen = property $ do
+    cid <- elements $ toList chainIds
+    let hdr = genesisBlockHeader cid
         l = int $ B.length $ runPutS $ encodeBlockHeader $ hdr
     return
         $ counterexample ("chain: " <> sshow cid)
-        $ headerSizeBytes v cid (view blockHeight hdr) === l
+        $ headerSizeBytes cid (view blockHeight hdr) === l
 
-prop_headerSizeBytes :: ChainwebVersion -> Property
-prop_headerSizeBytes v = property $ do
-    h <- arbitraryBlockHeaderVersion v
+prop_headerSizeBytes :: HasVersion => Property
+prop_headerSizeBytes = property $ do
+    h <- arbitraryBlockHeaderVersion
     let l = int $ B.length $ runPutS $ encodeBlockHeader h
     return
         $ counterexample ("header: " <> sshow h)
-        $ headerSizeBytes (_chainwebVersion h) (view blockChainId h) (view blockHeight h) === l
+        $ headerSizeBytes (view blockChainId h) (view blockHeight h) === l
 
-prop_workSizeBytes :: ChainwebVersion -> Property
-prop_workSizeBytes v = property $ do
-    h <- arbitraryBlockHeaderVersion v
-    if (view blockHeight h == genesisHeight v (_chainId h))
+prop_workSizeBytes :: HasVersion => Property
+prop_workSizeBytes = property $ do
+    h <- arbitraryBlockHeaderVersion
+    if (view blockHeight h == genesisHeight (_chainId h))
       then discard
       else do
-        let l = int $ B.length $ runPutS $ encodeBlockHeaderWithoutHash h
+        let expectedSize = int $ B.length $ runPutS (encodeAsMiningWork h)
         return
             $ counterexample ("header: " <> sshow h)
-            $ workSizeBytes (_chainwebVersion h) (view blockHeight h) === l
+            $ workSizeBytes (view blockHeight h) === expectedSize

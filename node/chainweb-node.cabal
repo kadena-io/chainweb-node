@@ -56,7 +56,6 @@ common debugging-flags
 common warning-flags
     ghc-options:
         -Wall
-        -Werror
         -Wcompat
         -Wpartial-fields
         -Wincomplete-record-updates
@@ -65,13 +64,9 @@ common warning-flags
         -funclutter-valid-hole-fits
         -fmax-relevant-binds=0
 
-        -- This needed because -Werror and missing-home-modules causes
-        -- problems with ghci.
-        -Wno-missing-home-modules
-
 custom-setup
     setup-depends:
-        , Cabal >= 3.8
+        , Cabal >= 3.14
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
         , directory >= 1.3

@@ -27,6 +27,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 
 import Data.Hashable
 import Data.IORef
@@ -50,6 +51,7 @@ import Data.TaskMap
 
 import Chainweb.Storage.Table
 import qualified Chainweb.Storage.Table.HashMap as HashMapTable
+import Chainweb.Utils
 
 import P2P.TaskQueue
 
@@ -128,13 +130,14 @@ testQueueServer limit q = forM_ [0..] $ session_ limit q (\_ _ -> return ())
 
 -- TODO provide test with actual block header db
 
-withNoopQueueServer :: (PQueue (Task env a) -> IO b) -> IO b
-withNoopQueueServer a = do
-    q <- newEmptyPQueue
+withNoopQueueServer :: ResourceT IO (PQueue (Task env a))
+withNoopQueueServer = do
+    q <- liftIO newEmptyPQueue
     let failTask = do
             task <- pQueueRemove q
             putIVar (_taskResult task) $ Left $ []
-    withAsync (forever failTask) $ const $ a q
+    _ <- withAsyncR (forever failTask)
+    return q
 
 startNoopQueueServer :: IO (Async (), PQueue (Task env a))
 startNoopQueueServer = do

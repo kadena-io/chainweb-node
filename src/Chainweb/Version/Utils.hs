@@ -89,7 +89,7 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 
-import Pact.Types.Verifier
+import Pact.Core.Names (VerifierName(..))
 
 -- -------------------------------------------------------------------------- --
 --  Utils
@@ -124,14 +124,13 @@ atCutHeight h = snd . fromJuste . M.lookupLE h
 -- Post-condition:
 --
 -- @
--- 0 == minimum $ M.keys $ chainGraphs v
+-- 0 == minimum $ M.keys chainGraphs
 -- @
 --
-chainGraphs :: HasChainwebVersion v => v -> M.Map BlockHeight ChainGraph
-chainGraphs = \case
-    (_chainwebVersion -> v)
-        | _versionCode v == _versionCode mainnet -> mainnetGraphs
-        | otherwise -> M.fromDistinctDescList . toList . ruleElems $ _versionGraphs v
+chainGraphs :: HasVersion => M.Map BlockHeight ChainGraph
+chainGraphs
+    | _versionCode implicitVersion == _versionCode mainnet = mainnetGraphs
+    | otherwise = M.fromDistinctDescList . toList . ruleElems $ _versionGraphs implicitVersion
     where
     mainnetGraphs = M.fromDistinctDescList . toList . ruleElems $ _versionGraphs mainnet
 
@@ -141,104 +140,91 @@ chainGraphs = \case
 -- Post-condition:
 --
 -- @
--- 0 == minimum $ M.keys $ chainGraphs v
+-- 0 == minimum $ M.keys chainGraphs
 -- @
 --
 chainGraphsAt
-    :: HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> M.Map BlockHeight ChainGraph
-chainGraphsAt v h = limitHeight h (chainGraphs v)
+chainGraphsAt h = limitHeight h chainGraphs
 {-# INLINE chainGraphsAt #-}
 
 lastGraphChange
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> BlockHeight
-    -> BlockHeight
-lastGraphChange v h = fst . fromJuste . M.lookupLE h $ chainGraphs v
+lastGraphChange h = fst . fromJuste . M.lookupLE h $ chainGraphs
 {-# INLINE lastGraphChange #-}
 
 nextGraphChange
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> BlockHeight
-    -> BlockHeight
-nextGraphChange v h = fst . fromJuste . M.lookupGT h $ chainGraphs v
+nextGraphChange h = fst . fromJuste . M.lookupGT h $ chainGraphs
 {-# INLINE nextGraphChange #-}
 
 chainCountAt
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> Natural
-chainCountAt v h = order $ atHeight h $ chainGraphs v
+chainCountAt h = order $ atHeight h $ chainGraphs
 {-# INLINE chainCountAt #-}
 
 degreeAt
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> Natural
-degreeAt v h = degree $ atHeight h $ chainGraphs v
+degreeAt h = degree $ atHeight h $ chainGraphs
 {-# INLINE degreeAt #-}
 
 diameterAt
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> Natural
-diameterAt v h = diameter $ atHeight h $ chainGraphs v
+diameterAt h = diameter $ atHeight h $ chainGraphs
 {-# INLINE diameterAt #-}
 
 chainIdsAt
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> HS.HashSet ChainId
-chainIdsAt v h = graphChainIds $ atHeight h $ chainGraphs v
+chainIdsAt h = graphChainIds $ atHeight h $ chainGraphs
 {-# INLINE chainIdsAt #-}
 
 -- | Uniformily get a random ChainId at the top of the current chainweb
 --
-randomChainId :: HasChainwebVersion v => v -> IO ChainId
-randomChainId v = randomChainIdAt v maxBound
+randomChainId :: HasVersion => IO ChainId
+randomChainId = randomChainIdAt maxBound
 {-# INLINE randomChainId #-}
 
 -- | Uniformily get a random ChainId at the given height of the chainweb
 --
-randomChainIdAt :: HasChainwebVersion v => v -> BlockHeight -> IO ChainId
-randomChainIdAt v h = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
+randomChainIdAt :: HasVersion => BlockHeight -> IO ChainId
+randomChainIdAt h = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
   where
-    cs = chainIdsAt v h
+    cs = chainIdsAt h
 {-# INLINE randomChainIdAt #-}
 
 -- | Sometimes, in particular for testing and examples, some fixed chain id is
 -- needed, but it doesn't matter which one. This function provides some valid
 -- chain ids for the top of the current chainweb.
 --
-someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
-someChainId v = someChainIdAt v maxBound
+someChainId :: HasVersion => ChainId
+someChainId = someChainIdAt maxBound
 {-# INLINE someChainId #-}
 
 -- | Sometimes, in particular for testing and examples, some fixed chain id is
 -- needed, but it doesn't matter which one. This function provides some valid
 -- chain ids for the chainweb at the given height.
 --
-someChainIdAt :: HasCallStack => HasChainwebVersion v => v -> BlockHeight -> ChainId
-someChainIdAt v h = minimum $ chainIdsAt v h
+someChainIdAt :: HasVersion => BlockHeight -> ChainId
+someChainIdAt h = minimum $ chainIdsAt h
     -- guaranteed to succeed because the empty graph isn't a valid chain graph.
 {-# INLINE someChainIdAt #-}
 
-isGraphChange :: HasChainwebVersion v => v -> BlockHeight -> Bool
-isGraphChange v h = M.member h (chainGraphs v)
+isGraphChange :: HasVersion => BlockHeight -> Bool
+isGraphChange h = M.member h chainGraphs
 {-# INLINE isGraphChange #-}
 
 -- -------------------------------------------------------------------------- --
@@ -249,41 +235,35 @@ isGraphChange v h = M.member h (chainGraphs v)
 -- Precondition: h > genesisHeight
 --
 blockCountAt
-    :: HasCallStack
-    => HasChainwebVersion v
+    :: (HasCallStack, HasVersion)
     => HasChainId cid
-    => v
-    -> cid
+    => cid
     -> BlockHeight
     -> Natural
-blockCountAt v cid h
+blockCountAt cid h
     | h < gh = 0
     | otherwise = 1 + int h - int gh
   where
-    gh = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
+    gh = genesisBlockHeight (_chainId cid)
 
 -- | The block count accross all chains at a given block height
 --
 globalBlockCountAt
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> Natural
-globalBlockCountAt v h = sum
-    $ fmap (\c -> blockCountAt v c h)
+globalBlockCountAt h = sum
+    $ fmap (\c -> blockCountAt c h)
     $ toList
-    $ chainIdsAt v h
+    $ chainIdsAt h
 
 globalBlockDelayAt
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
+    :: (HasCallStack, HasVersion)
+    => BlockHeight
     -> Double
-globalBlockDelayAt v h = (int r / 1_000_000) / int (chainCountAt v h)
+globalBlockDelayAt h = (int r / 1_000_000) / int (chainCountAt h)
   where
-    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay implicitVersion
 
 -- -------------------------------------------------------------------------- --
 -- Cut Heights
@@ -294,8 +274,8 @@ globalBlockDelayAt v h = (int r / 1_000_000) / int (chainCountAt v h)
 -- Note, that the result isn't accurate for block heights around a chain graph
 -- change.
 --
-avgCutHeightAt :: HasChainwebVersion v => v -> BlockHeight -> CutHeight
-avgCutHeightAt v h = int $ int h * chainCountAt v h
+avgCutHeightAt :: HasVersion => BlockHeight -> CutHeight
+avgCutHeightAt h = int $ int h * chainCountAt h
 {-# INLINE avgCutHeightAt #-}
 
 -- | Cut height intervals for the chain graphs of a chainweb version
@@ -303,54 +283,53 @@ avgCutHeightAt v h = int $ int h * chainCountAt v h
 -- Post-condition:
 --
 -- @
--- 0 == minimum $ M.keys $ cutHeights v
+-- 0 == minimum $ M.keys cutHeights
 -- @
 --
 chainGraphsByCutHeight
-    :: HasChainwebVersion v
-    => v
-    -> M.Map CutHeight ChainGraph
+    :: HasVersion
+    => M.Map CutHeight ChainGraph
 chainGraphsByCutHeight = M.fromList
     . fmap (\(h,g) -> (int h * int (order g), g))
     . M.toAscList
-    . chainGraphs
+    $ chainGraphs
 {-# INLINE chainGraphsByCutHeight #-}
 
 -- | The chain graph at the given cut height
 --
 -- Note, that the result isn't accurate during a chain graph change
 --
-chainGraphAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> ChainGraph
-chainGraphAtCutHeight v h = atCutHeight h $ chainGraphsByCutHeight v
+chainGraphAtCutHeight :: HasVersion => CutHeight -> ChainGraph
+chainGraphAtCutHeight h = atCutHeight h $ chainGraphsByCutHeight
 
 -- | The number of chains that exist at the given cut height
 --
 -- Note, that the result isn't accurate during a chain graph change
 --
-chainCountAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
-chainCountAtCutHeight v = order . chainGraphAtCutHeight v
+chainCountAtCutHeight :: HasVersion => CutHeight -> Natural
+chainCountAtCutHeight = order . chainGraphAtCutHeight
 
 -- | The diameter of the chain graph at the given cut height
 --
 -- Note, that the result isn't accurate during a chain graph change
 --
-diameterAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
-diameterAtCutHeight v = diameter . chainGraphAtCutHeight v
+diameterAtCutHeight :: HasVersion => CutHeight -> Natural
+diameterAtCutHeight = diameter . chainGraphAtCutHeight
 
 -- | The degree of the chain graph at the given cut height
 --
 -- Note, that the result isn't accurate during a chain graph change
 --
-degreeAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
-degreeAtCutHeight v = degree . chainGraphAtCutHeight v
+degreeAtCutHeight :: HasVersion => CutHeight -> Natural
+degreeAtCutHeight = degree . chainGraphAtCutHeight
 
 -- | The average chain height at a given cut height.
 --
 -- Note, that the result isn't accurate for block heights around a chain graph
 -- change.
 --
-avgBlockHeightAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Double
-avgBlockHeightAtCutHeight v h = int h / int (chainCountAtCutHeight v h)
+avgBlockHeightAtCutHeight :: HasVersion => CutHeight -> Double
+avgBlockHeightAtCutHeight h = int h / int (chainCountAtCutHeight h)
 
 -- | The global number of blocks that exist at the given cut height.
 --
@@ -358,33 +337,27 @@ avgBlockHeightAtCutHeight v h = int h / int (chainCountAtCutHeight v h)
 -- change.
 --
 blockCountAtCutHeight
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> CutHeight
+    :: (HasCallStack, HasVersion)
+    => CutHeight
     -> Natural
-blockCountAtCutHeight v h
-    = globalBlockCountAt v (int k `div` int (order g)) + int (h - k)
+blockCountAtCutHeight h
+    = globalBlockCountAt (int k `div` int (order g)) + int (h - k)
   where
-   (k, g) = fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
+   (k, g) = fromJuste $ M.lookupLE h $ chainGraphsByCutHeight
 
 lastGraphChangeByCutHeight
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
+    :: (HasCallStack, HasVersion)
+    => CutHeight
     -> CutHeight
-    -> CutHeight
-lastGraphChangeByCutHeight v h
-    = fst $ fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
+lastGraphChangeByCutHeight h
+    = fst $ fromJuste $ M.lookupLE h $ chainGraphsByCutHeight
 
 nextGraphChangeByCutHeight
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
+    :: (HasCallStack, HasVersion)
+    => CutHeight
     -> CutHeight
-    -> CutHeight
-nextGraphChangeByCutHeight v h
-    = fst $ fromJuste $ M.lookupGT h $ chainGraphsByCutHeight v
+nextGraphChangeByCutHeight h
+    = fst $ fromJuste $ M.lookupGT h $ chainGraphsByCutHeight
 
 -- -------------------------------------------------------------------------- --
 -- Expected Block Count, Block Heights, and Cut Heights
@@ -393,19 +366,17 @@ nextGraphChangeByCutHeight v h
 -- expected number of mined blocks during a test on a given chain.
 --
 expectedBlockCountAfterSeconds
-    :: HasCallStack
-    => HasChainwebVersion v
+    :: (HasCallStack, HasVersion)
     => HasChainId cid
-    => v
-    -> cid
+    => cid
     -> Seconds
     -> Double
-expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)) - int gh)
+expectedBlockCountAfterSeconds cid s = max 0 (1 + (int s / (int r / 1_000_000)) - int gh)
     -- The `max 0` term is required for chains that were added during graph transitions
     -- and thus have `genesisHeight > 0`
   where
-    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
-    gh = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
+    BlockDelay r = _versionBlockDelay implicitVersion
+    gh = genesisBlockHeight (_chainId cid)
 
 -- | This function is useful for performance testing when calculating the
 -- expected number of mined blocks during a test accross all chains.
@@ -415,50 +386,44 @@ expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)
 -- chainweb versions with fixed expected solve times and no difficulty adjustment.
 --
 expectedGlobalBlockCountAfterSeconds
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> Seconds
+    :: (HasCallStack, HasVersion)
+    => Seconds
     -> Double
-expectedGlobalBlockCountAfterSeconds v s = (* 0.4)
+expectedGlobalBlockCountAfterSeconds s = (* 0.4)
     $ sum
-    $ fmap (\c -> expectedBlockCountAfterSeconds v c s)
+    $ fmap (\c -> expectedBlockCountAfterSeconds c s)
     $ toList
-    $ chainIdsAt v (round eh)
+    $ chainIdsAt (round eh)
   where
-    eh = expectedBlockHeightAfterSeconds v s
+    eh = expectedBlockHeightAfterSeconds s
 
 -- | The expected BlockHeight after the given number of seconds has passed.
 --
 -- This function is useful for performance testing.
 --
 expectedBlockHeightAfterSeconds
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> Seconds
+    :: (HasCallStack, HasVersion)
+    => Seconds
     -> Double
-expectedBlockHeightAfterSeconds v s = int s / (int r / 1_000_000)
+expectedBlockHeightAfterSeconds s = int s / (int r / 1_000_000)
   where
-    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay implicitVersion
 
 -- | The expected CutHeight after the given number of seconds has passed.
 --
 -- This function is useful for performance testing.
 --
 expectedCutHeightAfterSeconds
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> Seconds
+    :: (HasCallStack, HasVersion)
+    => Seconds
     -> Double
-expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
+expectedCutHeightAfterSeconds s = eh * int (chainCountAt (round eh))
   where
-    eh = expectedBlockHeightAfterSeconds v s
+    eh = expectedBlockHeightAfterSeconds s
 
 -- | The verifier plugins enabled for a particular block.
-verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map VerifierName VerifierPlugin
-verifiersAt v cid bh =
+verifiersAt :: HasVersion => ChainId -> BlockHeight -> Map VerifierName VerifierPlugin
+verifiersAt cid bh =
     M.restrictKeys allVerifierPlugins activeVerifierNames
     where
     activeVerifierNames
@@ -466,7 +431,7 @@ verifiersAt v cid bh =
         $ ruleZipperHere
         $ snd
         $ ruleSeek (\h _ -> bh >= h)
-        $ _versionVerifierPluginNames v ^?! atChain cid
+        $ _versionVerifierPluginNames implicitVersion ^?! atChain cid
 
 -- the mappings from names to verifier plugins is global. the list of verifier
 -- plugins active in any particular block validation context is the only thing

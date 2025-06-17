@@ -13,6 +13,7 @@ module Chainweb.Mempool.RestAPI.Server
 
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
+import Control.Lens
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.IO.Class
 import qualified Data.DList as D
@@ -110,22 +111,22 @@ handleErrs = flip catchAllSynchronous $ \e ->
 
 someMempoolServer
     :: (Show t)
-    => ChainwebVersion
-    -> SomeMempool t
+    => HasVersion
+    => SomeMempool t
     -> SomeServer
-someMempoolServer ver (SomeMempool (mempool :: Mempool_ v c t))
-  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer ver mempool)
-
+someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
+  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer mempool)
 
 someMempoolServers
     :: (Show t)
-    => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
-someMempoolServers v = mconcat
-    . fmap (someMempoolServer v . uncurry (someMempoolVal v))
+    => HasVersion
+    => ChainMap (MempoolBackend t) -> SomeServer
+someMempoolServers = mconcat
+    . fmap (someMempoolServer . uncurry someMempoolVal)
+    . itoList
 
-
-mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)
-mempoolServer _v (Mempool_ mempool) =
+mempoolServer :: HasVersion => Show t => Mempool_ v c t -> Server (MempoolApi v c)
+mempoolServer (Mempool_ mempool) =
     insertHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool

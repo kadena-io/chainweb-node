@@ -326,15 +326,11 @@ insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
 
 data PeerDb = PeerDb
     { _peerDbIsPrivate :: !Bool
-    , _peerDbChainwebVersion :: !ChainwebVersion
     , _peerDbLocalPeer :: !(Maybe PeerInfo)
     , _peerDbLock :: !(MVar ())
     , _peerDbPeerSet :: !(TVar PeerSet)
     }
     deriving (Eq, Generic)
-
-instance HasChainwebVersion PeerDb where
-    _chainwebVersion = _peerDbChainwebVersion
 
 peerDbSetLocalPeer :: PeerInfo -> PeerDb -> IO PeerDb
 peerDbSetLocalPeer pinfo db = do
@@ -342,19 +338,19 @@ peerDbSetLocalPeer pinfo db = do
     return db { _peerDbLocalPeer = Just pinfo }
 
 peerDbSnapshot :: PeerDb -> IO PeerSet
-peerDbSnapshot (PeerDb _ _ _ _ var) = readTVarIO var
+peerDbSnapshot (PeerDb _ _ _ var) = readTVarIO var
 {-# INLINE peerDbSnapshot #-}
 
 peerDbSnapshotSTM :: PeerDb -> STM PeerSet
-peerDbSnapshotSTM (PeerDb _ _ _ _ var) = readTVar var
+peerDbSnapshotSTM (PeerDb _ _ _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ _ _ _ var) = int . size <$!> readTVarIO var
+peerDbSize (PeerDb _ _ _ var) = int . size <$!> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ _ _ _ var) = int . size <$!> readTVar var
+peerDbSizeSTM (PeerDb _ _ _ var) = int . size <$!> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | Adds new 'PeerInfo' values for a given chain id.
@@ -364,8 +360,8 @@ peerDbSizeSTM (PeerDb _ _ _ _ var) = int . size <$!> readTVar var
 -- contention.
 --
 peerDbInsert :: PeerDb -> NetworkId -> PeerInfo -> IO ()
-peerDbInsert (PeerDb True _ _ _ _) _ _ = return ()
-peerDbInsert (PeerDb _ _ _ lock var) nid i = do
+peerDbInsert (PeerDb True _ _ _) _ _ = return ()
+peerDbInsert (PeerDb _ _ lock var) nid i = do
     now <- getCurrentTime
     mark <- randomPeerMark
     withMVar lock
@@ -378,7 +374,7 @@ peerDbInsert (PeerDb _ _ _ lock var) nid i = do
 -- | Delete a peer, identified by its host address, from the peer database.
 --
 peerDbDelete :: PeerDb -> PeerInfo -> IO ()
-peerDbDelete (PeerDb _ _ _ lock var) i = withMVar lock
+peerDbDelete (PeerDb _ _ lock var) i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
@@ -391,7 +387,7 @@ peerDbDelete_
         -- ^ whether to force deletion of sticky peers (e.g. bootstrap peers)
     -> PeerInfo
     -> IO ()
-peerDbDelete_ (PeerDb _ _ _ lock var) forceSticky i = withMVar lock
+peerDbDelete_ (PeerDb _ _ lock var) forceSticky i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
@@ -404,7 +400,7 @@ peerDbDelete_ (PeerDb _ _ _ lock var) forceSticky i = withMVar lock
 -- 3. have had more than 5 failed connection attempts.
 --
 prunePeerDb :: LogFunction -> PeerDb -> IO ()
-prunePeerDb lg (PeerDb _ _ _ lock var) = do
+prunePeerDb lg (PeerDb _ _ lock var) = do
     now <- getCurrentTime
     withMVar lock $ \_ -> do
         deletes <- atomically $ do
@@ -423,8 +419,8 @@ prunePeerDb lg (PeerDb _ _ _ lock var) = do
                 <> sshow (_peerAddr . _peerEntryInfo <$> IxSet.toList deletes)
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
-peerDbInsertList _ (PeerDb True _ _ _ _) = return ()
-peerDbInsertList peers (PeerDb _ _ _ lock var) = do
+peerDbInsertList _ (PeerDb True _ _ _) = return ()
+peerDbInsertList peers (PeerDb _ _ lock var) = do
     withMVar lock
         . const
         . atomically
@@ -432,7 +428,7 @@ peerDbInsertList peers (PeerDb _ _ _ lock var) = do
         $ insertPeerEntryList peers
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertPeerInfoList _ _ (PeerDb True _ _ _ _) = return ()
+peerDbInsertPeerInfoList _ _ (PeerDb True _ _ _) = return ()
 peerDbInsertPeerInfoList nid ps db = do
     now <- getCurrentTime
     entries <- traverse (mkEntry now) ps
@@ -444,7 +440,7 @@ peerDbInsertPeerInfoList nid ps db = do
             & set peerEntryLastSuccess (LastSuccess (Just now))
 
 peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _ _ _) = return ()
+peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _ _) = return ()
 peerDbInsertPeerInfoList_ sticky nid peerInfos db = do
     newEntries <- forM peerInfos $ \info -> do
         mark <- randomPeerMark
@@ -452,17 +448,17 @@ peerDbInsertPeerInfoList_ sticky nid peerInfos db = do
     peerDbInsertList newEntries db
 
 peerDbInsertSet :: S.Set PeerEntry -> PeerDb -> IO ()
-peerDbInsertSet _ (PeerDb True _ _ _ _) = return ()
+peerDbInsertSet _ (PeerDb True _ _ _) = return ()
 peerDbInsertSet s db = peerDbInsertList (F.toList s) db
 
-newEmptyPeerDb :: ChainwebVersion -> IO PeerDb
-newEmptyPeerDb v = PeerDb False v Nothing <$> newMVar () <*> newTVarIO mempty
+newEmptyPeerDb :: IO PeerDb
+newEmptyPeerDb = PeerDb False Nothing <$> newMVar () <*> newTVarIO mempty
 
 makePeerDbPrivate :: PeerDb -> PeerDb
-makePeerDbPrivate (PeerDb _ v localPeer lock var) = PeerDb True v localPeer lock var
+makePeerDbPrivate (PeerDb _ localPeer lock var) = PeerDb True localPeer lock var
 
 updatePeerDb :: PeerDb -> HostAddress -> (PeerEntry -> PeerEntry) -> IO ()
-updatePeerDb (PeerDb _ _ _ lock var) a f
+updatePeerDb (PeerDb _ _ lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s
@@ -503,9 +499,9 @@ data SomePeerDb = forall v n
     . (KnownChainwebVersionSymbol v, SingI n)
     => SomePeerDb (PeerDbT v n)
 
-somePeerDbVal :: ChainwebVersion -> NetworkId -> PeerDb -> SomePeerDb
-somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) n db = f n
-  where
-    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
-    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
-    f (FromSingNetworkId (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
+somePeerDbVal :: HasVersion => NetworkId -> PeerDb -> SomePeerDb
+somePeerDbVal n db = case implicitVersion of
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v)) -> case n of
+        (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) -> SomePeerDb $ PeerDbT @v @n db
+        (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) -> SomePeerDb $ PeerDbT @v @n db
+        (FromSingNetworkId (SCutNetwork :: Sing n)) -> SomePeerDb $ PeerDbT @v @n db

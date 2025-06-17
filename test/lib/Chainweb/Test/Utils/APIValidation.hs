@@ -77,13 +77,13 @@ pactOpenApiSpec = unsafePerformIO $ do
 -- -------------------------------------------------------------------------- --
 -- API Validation Middleware
 
-mkApiValidationMiddleware :: HasCallStack => ChainwebVersion -> IO W.Middleware
-mkApiValidationMiddleware v = do
+mkApiValidationMiddleware :: (HasCallStack, HasVersion) => IO W.Middleware
+mkApiValidationMiddleware = do
     coverageRef <- newIORef $ WV.CoverageMap Map.empty
     _ <- evaluate chainwebOpenApiSpec
     _ <- evaluate pactOpenApiSpec
     return $ WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
-  where
+    where
     lg (_, req) (respBody, resp) err = do
         let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
         error $ "Chainweb.Test.Utils.APIValidation.mkApValidationMiddleware: validation error. " <> ppShow ex
@@ -91,11 +91,14 @@ mkApiValidationMiddleware v = do
         [ case B8.split '/' path of
             ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
                 let reqVersion = T.decodeUtf8 rawVersion
-                guard (reqVersion == getChainwebVersionName (_versionName v))
+                guard (reqVersion == getChainwebVersionName (_versionName implicitVersion))
                 reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                guard (HashSet.member reqChainId (chainIds v))
+                guard (HashSet.member reqChainId chainIds)
                 return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
             _ -> Nothing
-        , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> getChainwebVersionName (_versionName v)) path
+        , (,chainwebOpenApiSpec) <$>
+            B8.stripPrefix
+                (T.encodeUtf8 $ "/chainweb/0.0/" <> getChainwebVersionName (_versionName implicitVersion))
+                path
         , Just (path,chainwebOpenApiSpec)
         ]

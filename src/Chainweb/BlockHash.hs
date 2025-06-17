@@ -1,16 +1,20 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -18,7 +22,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- |
 -- Module: Chainweb.BlockHash
@@ -61,24 +64,35 @@ module Chainweb.BlockHash
 , encodeRankedBlockHash
 , decodeRankedBlockHash
 
+-- * AdjacentsHash
+, AdjacentsHash(..)
+, adjacentsHash
+, adjacentsHashBytes
+, encodeAdjacentsHash
+, decodeAdjacentsHash
+, AdjacentsHashAlgorithm
+, AdjacentsHashSize
+
 -- * Exceptions
 ) where
 
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
 
 import Data.Aeson
-    (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
+    (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText, object, KeyValue, withObject, (.=), pairs, (.:))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bifoldable
+import Data.ByteString.Short qualified as SB
 import Data.Foldable
+import Data.Hash.SHA2
+import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable(..))
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as L
-import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.List qualified as L
+import Data.Text qualified as T
+import Data.Vector qualified as V
 
 import GHC.Generics hiding (to)
 
@@ -92,9 +106,11 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Parent
 import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Core.CryptoHash
 
 -- -------------------------------------------------------------------------- --
 -- BlockHash
@@ -114,22 +130,23 @@ type BlockHash = BlockHash_ ChainwebMerkleHashAlgorithm
 newtype BlockHash_ a = BlockHash (MerkleLogHash a)
     deriving stock (Eq, Ord, Generic)
     deriving anyclass (NFData)
+    deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockHashTag
 
-instance Show (BlockHash_ a) where
+instance MerkleHashAlgorithm a => Show (BlockHash_ a) where
     show = T.unpack . encodeToText
 
 instance Hashable (BlockHash_ a) where
     hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
 
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockHash_ a) where
-    type Tag (BlockHash_ a) = 'BlockHashTag
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (Parent (BlockHash_ a)) where
+    type Tag (Parent (BlockHash_ a)) = 'BlockHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeBlockHash :: BlockHash_ a -> Put
+encodeBlockHash :: MerkleHashAlgorithm a => BlockHash_ a -> Put
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
@@ -137,7 +154,7 @@ decodeBlockHash :: MerkleHashAlgorithm a => Get (BlockHash_ a)
 decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
-instance ToJSON (BlockHash_ a) where
+instance MerkleHashAlgorithm a => ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
@@ -148,7 +165,7 @@ instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
         . (runGetS decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
-instance ToJSONKey (BlockHash_ a) where
+instance MerkleHashAlgorithm a => ToJSONKey (BlockHash_ a) where
     toJSONKey = toJSONKeyText
         $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSONKey #-}
@@ -162,11 +179,11 @@ nullBlockHash :: MerkleHashAlgorithm a => BlockHash_ a
 nullBlockHash = BlockHash nullHashBytes
 {-# INLINE nullBlockHash #-}
 
-blockHashToText :: BlockHash_ a -> T.Text
+blockHashToText :: MerkleHashAlgorithm a => BlockHash_ a -> T.Text
 blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
 {-# INLINE blockHashToText #-}
 
-blockHashToTextShort :: BlockHash_ a -> T.Text
+blockHashToTextShort :: MerkleHashAlgorithm a => BlockHash_ a -> T.Text
 blockHashToTextShort = T.take 6 . blockHashToText
 
 blockHashFromText
@@ -189,7 +206,7 @@ instance MerkleHashAlgorithm a => HasTextRepresentation (BlockHash_ a) where
 
 -- TODO(greg): BlockHashRecord should be a sorted vector
 newtype BlockHashRecord = BlockHashRecord
-    { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
+    { _getBlockHashRecord :: HM.HashMap ChainId (Parent BlockHash) }
     deriving stock (Show, Eq, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (ToJSON, FromJSON)
@@ -197,24 +214,24 @@ newtype BlockHashRecord = BlockHashRecord
 makeLenses ''BlockHashRecord
 
 type instance Index BlockHashRecord = ChainId
-type instance IxValue BlockHashRecord = BlockHash
+type instance IxValue BlockHashRecord = Parent BlockHash
 
 instance Ixed BlockHashRecord where
     ix i = getBlockHashRecord . ix i
 
 instance IxedGet BlockHashRecord
 
-instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
+instance Each BlockHashRecord BlockHashRecord (Parent BlockHash) (Parent BlockHash) where
     each f = fmap BlockHashRecord . each f . _getBlockHashRecord
 
 encodeBlockHashRecord :: BlockHashRecord -> Put
 encodeBlockHashRecord (BlockHashRecord r) = do
     putWord16le (int $ length r)
-    traverse_ (bimapM_ encodeChainId encodeBlockHash) $ L.sort $ HM.toList r
+    traverse_ (bimapM_ encodeChainId (encodeBlockHash . unwrapParent)) $ L.sort $ HM.toList r
 
 decodeBlockHashWithChainId
-    :: Get (ChainId, BlockHash)
-decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
+    :: Get (ChainId, Parent BlockHash)
+decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> (Parent <$> decodeBlockHash)
 
 decodeBlockHashRecord :: Get BlockHashRecord
 decodeBlockHashRecord = do
@@ -225,10 +242,10 @@ decodeBlockHashRecord = do
 decodeBlockHashWithChainIdChecked
     :: HasChainId p
     => Expected p
-    -> Get (ChainId, BlockHash)
+    -> Get (ChainId, Parent BlockHash)
 decodeBlockHashWithChainIdChecked p = (,)
     <$!> decodeChainIdChecked p
-    <*> decodeBlockHash
+    <*> (Parent <$> decodeBlockHash)
 
 -- to use this wrap the runGet into some MonadThrow.
 --
@@ -242,7 +259,7 @@ decodeBlockHashRecordChecked ps = do
     hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
     return $! BlockHashRecord $! HM.fromList hashes
 
-blockHashRecordToVector :: BlockHashRecord -> V.Vector BlockHash
+blockHashRecordToVector :: BlockHashRecord -> V.Vector (Parent BlockHash)
 blockHashRecordToVector = V.fromList . fmap snd . L.sort . HM.toList . _getBlockHashRecord
 
 blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
@@ -257,12 +274,52 @@ blockHashRecordFromVector
     => HasChainId c
     => g
     -> c
-    -> V.Vector BlockHash
+    -> V.Vector (Parent BlockHash)
     -> BlockHashRecord
 blockHashRecordFromVector g cid = BlockHashRecord
     . HM.fromList
     . zip (L.sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
+
+-- ----------------------------------------------------------------------------
+-- | BlockHashRecord Hash for MiningWork
+
+type AdjacentsHashAlgorithm = Sha2_512_256
+type AdjacentsHashSize = DigestSize AdjacentsHashAlgorithm
+
+-- | The MiningWork includes an (aggregate) hash of the adjacent block hashes
+-- that is calculate from the BlockHashRecord.
+--
+newtype AdjacentsHash = AdjacentsHash (CryptoHash Sha2_512_256)
+    deriving stock (Show, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (Eq, Ord, Hashable, ToJSON, FromJSON)
+
+instance HasTextRepresentation AdjacentsHash where
+    toText (AdjacentsHash h) = toText h
+    fromText = fmap AdjacentsHash . fromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+encodeAdjacentsHash :: AdjacentsHash -> Put
+encodeAdjacentsHash (AdjacentsHash w) = encodeCryptoHash w
+{-# INLINE encodeAdjacentsHash #-}
+
+adjacentsHashBytes :: AdjacentsHash -> SB.ShortByteString
+adjacentsHashBytes (AdjacentsHash bytes) = cryptoHashBytes bytes
+{-# INLINE adjacentsHashBytes #-}
+
+decodeAdjacentsHash :: Get AdjacentsHash
+decodeAdjacentsHash = AdjacentsHash <$> decodeCryptoHash
+{-# INLINE decodeAdjacentsHash #-}
+
+-- | Compute the AdjacentsHash from a BlockHashRecord.
+--
+adjacentsHash :: BlockHashRecord -> AdjacentsHash
+adjacentsHash = AdjacentsHash
+    . hashByteString_ @(CryptoHash AdjacentsHashAlgorithm)
+    . foldMap (runPutS . encodeBlockHash . view _Parent)
+    . blockHashRecordToVector
 
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Hash
@@ -280,3 +337,21 @@ encodeRankedBlockHash = encodeRanked encodeBlockHash
 decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = decodeRanked decodeBlockHash
 
+blockHashWithHeightProperties :: KeyValue e kv => RankedBlockHash -> [kv]
+blockHashWithHeightProperties o =
+    [ "height" .= _rankedBlockHashHeight o
+    , "hash" .= _rankedBlockHashHash o
+    ]
+{-# INLINE blockHashWithHeightProperties #-}
+
+instance ToJSON RankedBlockHash where
+    toJSON = object . blockHashWithHeightProperties
+    toEncoding = pairs . mconcat . blockHashWithHeightProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON RankedBlockHash where
+    parseJSON = withObject "HashWithHeight" $ \o -> RankedBlockHash
+        <$> o .: "height"
+        <*> o .: "hash"
+    {-# INLINE parseJSON #-}

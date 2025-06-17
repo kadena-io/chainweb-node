@@ -101,9 +101,12 @@ data SomePayloadDb tbl = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => SomePayloadDb (PayloadDb' tbl v c)
 
-somePayloadDbVal :: forall tbl . ChainwebVersion -> ChainId -> PayloadDb tbl -> SomePayloadDb tbl
-somePayloadDbVal v cid db = runIdentity $ do
-    SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
+somePayloadDbVal
+    :: forall tbl
+    . HasVersion
+    => ChainId -> PayloadDb tbl -> SomePayloadDb tbl
+somePayloadDbVal cid db = runIdentity $ do
+    SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal
     SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
     return $! SomePayloadDb (PayloadDb' @tbl @vt @cidt db)
 
@@ -233,11 +236,11 @@ payloadApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Some Payload API
 
-somePayloadApi :: ChainwebVersion -> ChainId -> SomeApi
-somePayloadApi v c = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
+somePayloadApi :: HasVersion => ChainId -> SomeApi
+somePayloadApi c = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
     return $! SomeApi (payloadApi @v' @c')
 
-somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
-somePayloadApis v = mconcat . fmap (somePayloadApi v)
+somePayloadApis :: HasVersion => [ChainId] -> SomeApi
+somePayloadApis = mconcat . fmap somePayloadApi

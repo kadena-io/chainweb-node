@@ -52,9 +52,10 @@ globalCurrentBackup = unsafePerformIO $! newTVarIO Nothing
 someBackupApi :: ChainwebVersion -> SomeApi
 someBackupApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ backupApi @v
 
-someBackupServer :: Logger logger => ChainwebVersion -> Backup.BackupEnv logger -> SomeServer
-someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupEnv =
-    SomeServer (Proxy @(BackupApi vT)) $ makeBackup :<|> checkBackup
+someBackupServer :: (HasVersion, Logger logger) => Backup.BackupEnv logger -> SomeServer
+someBackupServer backupEnv = case implicitVersion of
+    (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ->
+        SomeServer (Proxy @(BackupApi vT)) $ makeBackup :<|> checkBackup
   where
     noSuchBackup = setErrText "no such backup" err404
     makeBackup backupPactFlag = liftIO $ do
@@ -87,4 +88,3 @@ getNextBackupIdentifier :: IO Text
 getNextBackupIdentifier = do
     Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
     return $ microsToText (timeSpanToMicros epochToNow)
-

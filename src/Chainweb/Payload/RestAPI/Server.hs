@@ -173,6 +173,7 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
 somePayloadServer
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => PayloadBatchLimit
     -> SomePayloadDb tbl
     -> SomeServer
@@ -181,9 +182,9 @@ somePayloadServer batchLimit (SomePayloadDb (db :: PayloadDb' tbl v c))
 
 somePayloadServers
     :: CanReadablePayloadCas tbl
-    => ChainwebVersion
-    -> PayloadBatchLimit
+    => HasVersion
+    => PayloadBatchLimit
     -> [(ChainId, PayloadDb tbl)]
     -> SomeServer
-somePayloadServers v batchLimit
-    = mconcat . fmap (somePayloadServer batchLimit . uncurry (somePayloadDbVal v))
+somePayloadServers batchLimit
+    = mconcat . fmap (somePayloadServer batchLimit . uncurry somePayloadDbVal)

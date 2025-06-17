@@ -60,7 +60,6 @@ common debugging-flags
 common warning-flags
     ghc-options:
         -Wall
-        -Werror
         -Wcompat
         -Wpartial-fields
         -Wincomplete-record-updates
@@ -68,10 +67,6 @@ common warning-flags
         -Widentities
         -funclutter-valid-hole-fits
         -fmax-relevant-binds=0
-
-        -- This needed because -Werror and missing-home-modules causes
-        -- problems with ghci.
-        -Wno-missing-home-modules
 
 executable b64
     import: warning-flags, debugging-flags
@@ -151,7 +146,7 @@ executable db-checksum
         , directory
         , memory
         , mtl
-        , pact
+        , pact-tng
         , safe-exceptions
         , text
         , unordered-containers
@@ -179,9 +174,14 @@ executable ea
         , async
         , base
         , chainweb-storage
+        , filepath
         , lens
         , loglevel
-        , pact
+        , pact-json
+        , pact-tng:pact-request-api
+        , pact-tng
+        , resource-pool
+        , resourcet
         , temporary
         , text
         , vector
@@ -337,3 +337,24 @@ executable tx-list
         , text
         , unordered-containers
         , yet-another-logger
+
+executable evm-genesis
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+    hs-source-dirs: evm-genesis
+    main-is: Main.hs
+    build-depends:
+        , chainweb
+        , ethereum
+        , bytestring
+        , aeson
+        , text
+        , base
+        , network-uri
+        , http-client
+        , process
+        , directory
+        , retry

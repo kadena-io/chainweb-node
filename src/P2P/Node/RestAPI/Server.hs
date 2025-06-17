@@ -106,12 +106,12 @@ peerGetHandler db nid limit next = do
         (limit <|> Just defaultPeerInfoLimit)
 
 peerPutHandler
-    :: PeerDb
-    -> ChainwebVersion
+    :: HasVersion
+    => PeerDb
     -> NetworkId
     -> PeerInfo
     -> Handler NoContent
-peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
+peerPutHandler db nid e = liftIO (guardPeerDb nid db e) >>= \case
     Left failure ->
         throwError $ setErrText ("Invalid hostaddress: " <> sshow failure) err400
     Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
@@ -121,29 +121,27 @@ peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
 
 p2pServer
     :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
-    . SingI n
+    . (SingI n, HasVersion)
     => KnownChainwebVersionSymbol v
     => PeerDbT v n
     -> Server (P2pApi v n)
 p2pServer (PeerDbT db) = case sing @_ @n of
     SCutNetwork
         -> peerGetHandler db CutNetwork
-        :<|> peerPutHandler db v CutNetwork
+        :<|> peerPutHandler db CutNetwork
     SChainNetwork cid
         -> peerGetHandler db (ChainNetwork $ FromSing cid)
-        :<|> peerPutHandler db v (ChainNetwork $ FromSing cid)
+        :<|> peerPutHandler db (ChainNetwork $ FromSing cid)
     SMempoolNetwork cid
         -> peerGetHandler db (MempoolNetwork $ FromSing cid)
-        :<|> peerPutHandler db v (MempoolNetwork $ FromSing cid)
-  where
-    v = _chainwebVersion db
+        :<|> peerPutHandler db (MempoolNetwork $ FromSing cid)
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network
 
 chainP2pApp
     :: forall v n
-    . KnownChainwebVersionSymbol v
+    . (KnownChainwebVersionSymbol v, HasVersion)
     => SingI n
     => PeerDbT v n
     -> Application
@@ -166,30 +164,30 @@ chainP2pApiLayout _ = case sing @_ @n of
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-someP2pServer :: SomePeerDb -> SomeServer
+someP2pServer :: HasVersion => SomePeerDb -> SomeServer
 someP2pServer (SomePeerDb (db :: PeerDbT v n)) = case sing @_ @n of
     SCutNetwork -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
     SChainNetwork SChainId -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
     SMempoolNetwork SChainId -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
 
-someP2pServers :: ChainwebVersion -> [(NetworkId, PeerDb)] -> SomeServer
-someP2pServers v = mconcat
-    . fmap (someP2pServer . uncurry (somePeerDbVal v))
+someP2pServers :: HasVersion => [(NetworkId, PeerDb)] -> SomeServer
+someP2pServers = mconcat
+    . fmap (someP2pServer . uncurry somePeerDbVal)
 
 -- -------------------------------------------------------------------------- --
 -- Run Server
 
 serveP2pOnPort
-    :: Port
-    -> ChainwebVersion
+    :: HasVersion
+    => Port
     -> [(NetworkId, PeerDb)]
     -> IO ()
-serveP2pOnPort p v = run (int p) . someServerApplication . someP2pServers v
+serveP2pOnPort p = run (int p) . someServerApplication . someP2pServers
 
 serveP2pSocket
-    :: Settings
+    :: HasVersion
+    => Settings
     -> Socket
-    -> ChainwebVersion
     -> [(NetworkId, PeerDb)]
     -> IO ()
-serveP2pSocket s sock v = runSettingsSocket s sock . someServerApplication . someP2pServers v
+serveP2pSocket s sock = runSettingsSocket s sock . someServerApplication . someP2pServers

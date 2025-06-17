@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Miner.Miners
@@ -38,16 +39,16 @@ import Control.Monad
 
 import Crypto.Hash.Algorithms (Blake2s_256)
 
-import qualified Data.ByteString.Short as BS
+import Data.ByteString.Short qualified as BS
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict qualified as HashMap
 
 import Numeric.Natural (Natural)
 
 import GHC.Stack
 
-import qualified System.Random.MWC as MWC
-import qualified System.Random.MWC.Distributions as MWC
+import System.Random.MWC qualified as MWC
+import System.Random.MWC.Distributions qualified as MWC
 
 -- internal modules
 
@@ -60,18 +61,20 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-import qualified Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
-import qualified Chainweb.Pact4.Transaction as Pact4
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 
-import Data.LogMessage (LogFunction)
+import Data.LogMessage (LogFunction, LogFunctionText)
+import System.LogLevel
+import Control.Concurrent.STM
+import Data.Maybe (fromMaybe)
 
 --------------------------------------------------------------------------------
 -- Local Mining
@@ -83,39 +86,40 @@ import Data.LogMessage (LogFunction)
 localTest
     :: HasCallStack
     => Logger logger
+    => HasVersion
     => LogFunction
-    -> ChainwebVersion
-    -> MiningCoordination logger tbl
-    -> Miner
-    -> CutDb tbl
+    -> MiningCoordination logger
+    -> CutDb
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v coord m cdb gen miners =
+localTest lf coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
-        wh <- work coord Nothing m
-        let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
+        wh <- work coord
+        let height = fromMaybe
+                (genesisHeight (_miningWorkChainId wh))
+                (c ^? ixg (_miningWorkChainId wh) . blockHeight)
 
-        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
+        race (awaitNewCutByChainId cdb (_miningWorkChainId wh) c) (go height wh) >>= \case
             Left _ -> return ()
             Right new -> do
                 solve coord new
                 void $ awaitNewCut cdb c
   where
     meanBlockTime :: Double
-    meanBlockTime = int (_getBlockDelay (_versionBlockDelay v)) / 1_000_000
+    meanBlockTime = int (_getBlockDelay (_versionBlockDelay implicitVersion)) / 1_000_000
 
-    go :: BlockHeight -> WorkHeader -> IO SolvedWork
+    go :: BlockHeight -> MiningWork -> IO SolvedWork
     go height w = do
         MWC.geometric1 t gen >>= threadDelay
-        runGetS decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
+        runGetS decodeSolvedWork $ BS.fromShort $ _miningWorkBytes w
       where
         t :: Double
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1_000_000)
 
         graphOrder :: Natural
-        graphOrder = order $ chainGraphAt v height
+        graphOrder = order $ chainGraphAt height
 
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
@@ -123,7 +127,7 @@ localTest lf v coord m cdb gen miners =
 --
 mempoolNoopMiner
     :: LogFunction
-    -> HashMap ChainId (MempoolBackend Pact4.UnparsedTransaction)
+    -> HashMap ChainId (MempoolBackend Pact.Transaction)
     -> IO ()
 mempoolNoopMiner lf chainRes =
     runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" $ do
@@ -136,19 +140,44 @@ mempoolNoopMiner lf chainRes =
 --
 localPOW
     :: Logger logger
-    => LogFunction
-    -> MiningCoordination logger tbl
-    -> Miner
-    -> CutDb tbl
+    => HasVersion
+    => LogFunctionText
+    -> MiningCoordination logger
+    -> CutDb
     -> IO ()
-localPOW lf coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
+localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb
-    wh <- work coord Nothing m
-    race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go wh) >>= \case
-        Left _ -> return ()
-        Right new -> do
+    lf Debug "request new work for localPOW miner"
+    wh <- work coord
+    let cid = _miningWorkChainId wh
+    lf Debug $ "run localPOW miner on chain " <> toText cid
+    race (awaitNewCutByChainId cdb cid c) (go wh) >>= \case
+        Left _ -> do
+            lf Debug "abondond work due to chain update"
+            return ()
+        Right (new, h) -> do
+            lf Debug $ "solved work on chain " <> toText cid
             solve coord new
-            void $ awaitNewCut cdb c
+
+            -- There is a potential race here, if the solved block got orphaned.
+            -- If work isn't updated quickly enough, it can happen that the
+            -- miner uses an old header. We resolve that by awaiting that the
+            -- chain is at least as high as the solved work.
+            -- This can still dead-lock if for some reason the solved work is
+            -- invalid.
+            awaitHeight (_chainId new) h
   where
-    go :: WorkHeader -> IO SolvedWork
-    go = mine @Blake2s_256 (Nonce 0)
+    go :: MiningWork -> IO (SolvedWork, BlockHeight)
+    go w = do
+        h <- workHeight w
+        s <- mine @Blake2s_256 (Nonce 0) w
+        return (s, h)
+
+    workHeight w = runGetS (skip 258 >> decodeBlockHeight)
+        $ BS.fromShort
+        $ _miningWorkBytes w
+
+    awaitHeight cid h = atomically $ do
+        c <- _cutStm cdb
+        let h' = view blockHeight $ c ^?! ixg cid
+        guard (h <= h')

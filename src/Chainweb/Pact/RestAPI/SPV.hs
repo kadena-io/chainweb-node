@@ -27,7 +27,7 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Pact.Types.Command
+import Pact.Core.Command.Types
 import Pact.JSON.Legacy.Value
 
 -- internal modules
@@ -139,4 +139,3 @@ instance FromJSON Spv2Request where
         <$> o .: "subjectIdentifier"
         <*> o .:? "minimalProofDepth" .!= Nothing
         <*> o .: "algorithm"
-

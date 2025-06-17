@@ -74,31 +74,33 @@ prop_stuToKdaToStu :: Stu -> Property
 prop_stuToKdaToStu stu = kdaToStu (stuToKda stu) === stu
 
 prop_blockMinerRewardLegacyCompat :: BlockHeight -> Property
-prop_blockMinerRewardLegacyCompat h
-    | h < maxRewardHeight - 2 =
-        legacyBlockMinerReward v h === minerRewardKda (blockMinerReward v h)
-    | h == maxRewardHeight - 1 =
-        legacyBlockMinerReward v h =/= minerRewardKda (blockMinerReward v h)
-    | h == maxRewardHeight =
-        legacyBlockMinerReward v h === minerRewardKda (blockMinerReward v h)
-    | otherwise = expectFailure
-        -- legacyMinerRewards is expected to throw an exception
-        $ legacyBlockMinerReward v h === minerRewardKda (blockMinerReward v h)
+prop_blockMinerRewardLegacyCompat h = withVersion mainnet go
+    where
+    go :: HasVersion => Property
+    go
+        | h < maxRewardHeight - 2 =
+            legacyBlockMinerReward h === minerRewardKda (blockMinerReward h)
+        | h == maxRewardHeight - 1 =
+            legacyBlockMinerReward h =/= minerRewardKda (blockMinerReward h)
+        | h == maxRewardHeight =
+            legacyBlockMinerReward h === minerRewardKda (blockMinerReward h)
+        | otherwise = expectFailure
+            -- legacyMinerRewards is expected to throw an exception
+            $ legacyBlockMinerReward h === minerRewardKda (blockMinerReward h)
 
-  where
-    v = Mainnet01
 
 -- 2.304523
 --
 test_finalMinerReward :: Assertion
-test_finalMinerReward = do
+test_finalMinerReward = withVersion mainnet $ do
     mapM_ rewardIsZero $ take 100 [maxRewardHeight..]
     mapM_ rewardIsZero $ take 10 [maxRewardHeight, (maxRewardHeight + 1000)..]
   where
+    rewardIsZero :: HasVersion => BlockHeight -> Assertion
     rewardIsZero h = assertEqual
         "The final miner reward is 0"
         (Kda 0)
-        (minerRewardKda (blockMinerReward Mainnet01 h))
+        (minerRewardKda (blockMinerReward h))
 
 test_minerRewardsMax :: Assertion
 test_minerRewardsMax = assertBool
@@ -131,7 +133,7 @@ test_expectedRawMinerRewardsHash = assertEqual
 -- - block heights strictly larger than 125538057
 --
 test_blockMinerRewardLegacyCompat :: Assertion
-test_blockMinerRewardLegacyCompat = do
+test_blockMinerRewardLegacyCompat = withVersion mainnet $ do
     mapM_ rewardsMatch [0..10000]
     mapM_ rewardsMatch [0,1000..maxRewardHeight - 2]
     mapM_ rewardsMatch [maxRewardHeight - 1000 .. maxRewardHeight - 2]
@@ -141,14 +143,15 @@ test_blockMinerRewardLegacyCompat = do
         [maxRewardHeight - 1]
         legacyCompatExceptions
   where
-    v = Mainnet01
+    rewardsMatch :: HasVersion => BlockHeight -> Assertion
     rewardsMatch h = assertEqual
         "miner reward value matches the legacy value"
-        (legacyBlockMinerReward v h)
-        (minerRewardKda (blockMinerReward v h))
+        (legacyBlockMinerReward h)
+        (minerRewardKda (blockMinerReward h))
 
+    legacyCompatExceptions :: HasVersion => [BlockHeight]
     legacyCompatExceptions = M.keys $ M.filterWithKey
-        (\k _ -> legacyBlockMinerReward v k /= minerRewardKda (blockMinerReward v k))
+        (\k _ -> legacyBlockMinerReward k /= minerRewardKda (blockMinerReward k))
         minerRewards
 
 -- This should be a CAF and can thus not include the computation in
@@ -171,13 +174,12 @@ mkLegacyMinerRewards =
     formatRow (!a,!b) = (BlockHeight $ int a, (_csvDecimal b))
 
 legacyBlockMinerReward
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> Kda
-legacyBlockMinerReward v h =
+legacyBlockMinerReward h =
     case M.lookupGE h legacyMinerRewards of
         Nothing -> error "The end of the chain has been reached"
         Just (_, m) -> Kda $ roundTo 8 (_kda m / n)
   where
-    !n = int . order $ chainGraphAt v h
-
+    !n = int . order $ chainGraphAt h
