@@ -94,14 +94,13 @@ import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Exception
+import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad
-import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
-import Control.Monad.Trans.Resource
+import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson (ToJSON)
 import Data.Foldable
@@ -160,6 +159,11 @@ import P2P.TaskQueue
 
 import Utils.Logging.Trace
 import Chainweb.Ranked
+import Control.Monad.Trans.Maybe
+import Chainweb.Logger
+import Chainweb.Core.Brief
+import Chainweb.Parent
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -392,15 +396,16 @@ cutDbQueueSize = pQueueSize . _cutDbQueue
 
 withCutDb
     :: HasVersion
+    => Logger logger
     => CutDbParams
-    -> LogFunction
+    -> logger
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> ResourceT IO CutDb
-withCutDb config logfun headerStore providers cutHashesStore
+withCutDb config logger headerStore providers cutHashesStore
     = snd <$> allocate
-        (startCutDb config logfun headerStore providers cutHashesStore)
+        (startCutDb config logger headerStore providers cutHashesStore)
         stopCutDb
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
@@ -413,21 +418,24 @@ withCutDb config logfun headerStore providers cutHashesStore
 -- read-only version of the payload store.
 --
 startCutDb
-    :: HasVersion
+    :: Logger logger
+    => HasVersion
     => CutDbParams
-    -> LogFunction
+    -> logger
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> IO CutDb
-startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
+startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
     initialCut <- readInitialCut
+    recoveryCut <- synchronizeProviders logger wbhdb providers initialCut
     unless (_cutDbParamsReadOnly config) $
         deleteRangeRocksDb
             (unCasify cutHashesStore)
+            -- intentionally don't delete up to recovery cut, the initial cut could be useful later
             (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
-    cutVar <- newTVarIO initialCut
+    cutVar <- newTVarIO recoveryCut
     c <- readTVarIO cutVar
     logg Info $ T.unlines $
         "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
@@ -437,7 +445,7 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
         , _cutDbAsync = cutAsync
-        , _cutDbLogFunction = logfun
+        , _cutDbLogFunction = logFunction logger
         , _cutDbHeaderStore = headerStore
         , _cutDbPayloadProviders = providers
         , _cutDbQueueSize = _cutDbParamsBufferSize config
@@ -446,12 +454,12 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
         , _cutDbFastForwardHeightLimit = _cutDbParamsFastForwardHeightLimit config
         }
   where
-    logg = logfun @T.Text
+    logg = logFunctionText logger
     wbhdb = _webBlockHeaderStoreCas headerStore
 
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
-    processor queue cutVar = runForever logfun "CutDB" $
-        processCuts config logfun headerStore providers cutHashesStore queue cutVar
+    processor queue cutVar = runForever (logFunction logger) "CutDB" $
+        processCuts config (logFunction logger) headerStore providers cutHashesStore queue cutVar
 
     readInitialCut :: IO Cut
     readInitialCut = do
@@ -465,6 +473,99 @@ startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
                     unless (_cutDbParamsReadOnly config) $
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
                     return limitedCutHeaders
+
+synchronizeProviders
+    :: (Logger logger, HasVersion)
+    => logger -> WebBlockHeaderDb -> ChainMap ConfiguredPayloadProvider -> Cut -> IO Cut
+synchronizeProviders logger wbh providers c = do
+    let startHeaders = HM.unionWith
+            (\startHeader _genesisHeader -> startHeader)
+            (_cutHeaders c)
+            (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
+    syncsSuccessful <- mapConcurrently (runMaybeT . syncOne False) startHeaders
+    if all isJust syncsSuccessful
+    then return c
+    else do
+        -- try to recover from the fork automatically by removing ~`diameter`
+        -- blocks from the cut
+        let recoveryHeight =
+                _cutMinHeight c - max (_cutMinHeight c) (int (diameter (chainGraphAt maxBound)))
+        recoveryCut <- limitCut wbh recoveryHeight c
+        let recoveryHeaders = HM.unionWith
+                (\recoveryHeader _genesisHeader -> recoveryHeader)
+                (_cutHeaders recoveryCut)
+                (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
+        mapConcurrently_ (runMaybeT . syncOne True) recoveryHeaders
+        return recoveryCut
+    where
+    syncOne :: Bool -> BlockHeader -> MaybeT IO ()
+    syncOne recovery hdr = case providers ^?! atChain (_chainId hdr) of
+        ConfiguredPayloadProvider provider -> do
+            let loggr = logger & providerLogger provider . chainLogger hdr
+            liftIO $ logFunctionText loggr Info $
+                (if recovery then "recover" else "sync") <> " payload provider to "
+                    <> sshow (view blockHeight hdr)
+                    <> ":" <> sshow (view blockHash hdr)
+            finfo <- liftIO $ forkInfoForHeader wbh hdr Nothing Nothing
+            liftIO $ logFunctionText loggr Debug $ "syncToBlock with fork info " <> sshow finfo
+            r <- liftIO (syncToBlock provider Nothing finfo) `catch` \(e :: SomeException) -> do
+                liftIO $ logFunctionText loggr Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e
+                empty
+            if r == _forkInfoTargetState finfo
+            then return ()
+            else do
+                liftIO $ logFunctionText loggr Info
+                    $ "resolving fork on startup, from " <> brief r
+                    <> " to " <> brief (_forkInfoTargetState finfo)
+                bhdb <- liftIO $ getWebBlockHeaderDb wbh cid
+                let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
+                ppBlock <- liftIO (lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH)) `catch` \case
+                    e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
+                        liftIO $ logFunctionText loggr Warn $ "PP block is missing: " <> brief ppRBH <> ", error: " <> sshow e
+                        MaybeT $ return Nothing
+                    _ -> empty
+
+                (forkBlocksDescendingStream S.:> forkPoint) <- liftIO $
+                        S.toList $ branchDiff_ bhdb ppBlock hdr
+                let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
+                let newTrace =
+                        zipWith
+                            (\prent child ->
+                                ConsensusPayload (view blockPayloadHash child) Nothing <$
+                                    blockHeaderToEvaluationCtx (Parent prent))
+                            (forkPoint : forkBlocksAscending)
+                            forkBlocksAscending
+                let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                -- if this fails, there is no way for the payload provider
+                -- to sync to the block without using the ordinary cut pipeline.
+                -- so, we don't care.
+                r' <- liftIO $ syncToBlock provider Nothing newForkInfo
+                let syncSucceeded = _forkInfoTargetState finfo == r'
+                when (not syncSucceeded) $ do
+                    liftIO $ logFunctionText logger (if recovery then Error else Warn)
+                        $ "unexpected " <> (if recovery then "recovery" else "initial sync") <> " result state"
+                        <> "; expected: " <> brief (_forkInfoTargetState finfo)
+                        <> "; actual: " <> brief r
+                        <> "; PP latest block: " <> brief ppBlock
+                        <> "; target block: " <> brief hdr
+                        <> "; fork blocks: " <> brief forkBlocksAscending
+                        <> if recovery
+                            then ". recommend using --initial-block-height-limit to recover from fork manually."
+                            else ""
+                    empty
+        DisabledPayloadProvider -> do
+            liftIO $ logFunctionText logger Info $
+                "payload provider disabled, not synced, on chain: " <> toText (_chainId hdr)
+        where
+        cid = _chainId hdr
+
+
+chainLogger :: Logger logger => HasChainId c => c -> logger -> logger
+chainLogger cid = addLabel ("chain", toText (_chainId cid))
+
+providerLogger :: Logger logger => HasPayloadProviderType p => p -> logger -> logger
+providerLogger p =
+    addLabel ("provider", toText (_payloadProviderType p))
 
 readHighestCutHeaders
     :: HasVersion
