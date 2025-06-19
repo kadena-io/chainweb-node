@@ -26,6 +26,8 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM
@@ -294,6 +296,10 @@ data EvmPayloadProvider logger = EvmPayloadProvider
         --
         -- FIXME: if we actually need or want this, we should probably use a
         -- queue, or even better preempt earlier operations.
+    , _evmInSync :: !(TVar Bool)
+        -- ^ If False, the EL may not be in sync with the CL yet, so we need
+        -- to avoid telling EL to sync to any blocks it may not have yet,
+        -- otherwise the EL may get stuck during the initial sync.
     }
 
 stateIO :: EvmPayloadProvider logger -> IO (T2 ConsensusState (Maybe NewBlockCtx))
@@ -519,6 +525,7 @@ withEvmPayloadProvider logger c rdb mgr conf
         candidates <- liftIO $ emptyTable
         stateVar <- liftIO $ newTVarIO (T2 (genesisState c) Nothing)
         lock <- liftIO $ newMVar ()
+        inSync <- liftIO $ newTVarIO False
         let p = EvmPayloadProvider
                 { _evmChainId = _chainId c
                 , _evmLogger = logger
@@ -530,6 +537,7 @@ withEvmPayloadProvider logger c rdb mgr conf
                 , _evmPayloadId = pldIdVar
                 , _evmPayloadVar = pldVar
                 , _evmLock = lock
+                , _evmInSync = inSync
                 }
 
         listenerAsync <- withAsyncR (payloadListener p)
@@ -891,6 +899,10 @@ newPayload p t request = go t
 
                 Left e -> throwM e
 
+newtype InitialSyncFailed = InitialSyncFailed BlockHash
+    deriving stock Show
+    deriving anyclass Exception
+
 -- | Calls forkchoiceUpdate and updates the provider state.
 --
 -- NOTE: This must be called only for consensus states that have been validated
@@ -917,40 +929,59 @@ updateEvm
         -- forkchoiceUpdate and database insertion by it.
         --
     -> IO ()
-updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
-    Nothing -> do
-        lf Info $ "Consensus state lookup returned nothing for" <> briefJson state
-        return ()
-    Just fcs -> do
-        lf Info $ "Calling forkChoiceUpdate on state "
-            <> briefJson state <> " with " <> briefJson fcs
-        pt <- parentTimestamp
-        _ <- atomically $ tryTakeTMVar (_evmPayloadId p)
-        pid <- forkchoiceUpdate p forkchoiceUpdatedTimeout fcs (attr pt)
+updateEvm p state nctx plds = do
+    lookupConsensusState p state plds >>= \case
+        Nothing -> do
+            lf Info $ "Consensus state lookup returned nothing for" <> briefJson state
+            return ()
+        Just fcs -> do
+            inSync <- readTVarIO (_evmInSync p)
+            when (not inSync) $
+                -- the PP may not be in sync with consensus yet; the latest
+                -- block we were given may not be findable by the EL at all. we
+                -- need to check this, or we'd risk that the EL would be in an
+                -- infinite sync loop. TODO: find some way to more effectively
+                -- cancel FCUs to the EL. up the stack, the initial sync will be
+                -- retried with a lower cut, to recover.
+                RPC.callMethodHttp @Eth_GetBlockByHash
+                    (_evmEngineCtx p) (_forkchoiceHeadBlockHash fcs, False) >>= \case
+                        Nothing -> throwM $ InitialSyncFailed (_forkchoiceHeadBlockHash fcs)
+                        -- we're fine, the block can be found on the EL
+                        Just _ -> return ()
+            lf Info $ "Calling forkChoiceUpdate on state "
+                <> briefJson state <> " with " <> briefJson fcs
+            pt <- parentTimestamp
+            _ <- atomically $ tryTakeTMVar (_evmPayloadId p)
+            pid <- forkchoiceUpdate p forkchoiceUpdatedTimeout fcs (attr pt)
 
-        -- forkchoiceUpdate throws if it does not succeed.
+            -- forkchoiceUpdate throws if it does not succeed.
 
-        -- add new payloads to payload database
-        lf Info $ "new payloads added to database: " <> sshow (length plds)
-        mapM_ (uncurry (tableInsert (_evmPayloadStore p))) plds
+            -- add new payloads to payload database
+            lf Info $ "new payloads added to database: " <> sshow (length plds)
+            mapM_ (uncurry (tableInsert (_evmPayloadStore p))) plds
 
-        -- Update State and Payload Id:
-        -- There is a race here: If we fail updating the variable
-        -- the EVM is ahead. That could cause payload updates to
-        -- fail and possibly stale mining.
-        lf Info $ "update state and payload ID variable"
-        lf Debug $ briefJson $ object
-                [ "newState" .= state
-                , "newBlockCtx" .= nctx
-                , "newPayloadId" .= pid
-                ]
-        void $ atomically $ do
-            -- update state
-            writeTVar (_evmState p) (T2 state nctx)
-            -- update payloadId
-            case pid of
-                Nothing -> return ()
-                Just x -> writeTMVar (_evmPayloadId p) x
+            -- Update State and Payload Id:
+            -- There is a race here: If we fail updating the variable
+            -- the EVM is ahead. That could cause payload updates to
+            -- fail and possibly stale mining.
+            lf Info $ "update state and payload ID variable"
+            lf Debug $ briefJson $ object
+                    [ "newState" .= state
+                    , "newBlockCtx" .= nctx
+                    , "newPayloadId" .= pid
+                    ]
+
+            -- we did a successful sync, so the EL is now considered in sync
+            -- with consensus until the node restarts.
+            atomically $
+                writeTVar (_evmInSync p) True
+            void $ atomically $ do
+                -- update state
+                writeTVar (_evmState p) (T2 state nctx)
+                -- update payloadId
+                case pid of
+                    Nothing -> return ()
+                    Just x -> writeTMVar (_evmPayloadId p) x
   where
     lf = loggS p "updateEvm"
     attr pt = mkPayloadAttributes (_latestHeight state) (_latestBlockHash state) pt
