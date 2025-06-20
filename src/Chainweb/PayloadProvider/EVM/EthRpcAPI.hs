@@ -112,7 +112,7 @@ type Eth_GetBlockByHash = "eth_getBlockByHash"
 --
 instance JsonRpcMethod "eth_syncing" where
     type MethodRequest "eth_syncing" = Maybe Void
-    type MethodResponse "eth_syncing" = SyncingStatus
+    type MethodResponse "eth_syncing" = Value
     type ServerErrors "eth_syncing" = Int
     type ApplicationErrors "eth_syncing" = Int
     responseTimeoutMs = Nothing
