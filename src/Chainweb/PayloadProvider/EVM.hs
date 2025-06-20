@@ -92,6 +92,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Trans.Resource hiding (throwM)
 import Control.Monad.Writer
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Short qualified as BS
 import Data.List qualified as L
 import Data.LogMessage
@@ -445,6 +446,10 @@ newtype ForkchoiceUpdatedTimeoutException = ForkchoiceUpdatedTimeoutException Mi
     deriving (Eq, Show, Generic)
 instance Exception ForkchoiceUpdatedTimeoutException
 
+newtype ForkchoiceSyncFailedException = ForkchoiceSyncFailedException ForkchoiceStateV1
+    deriving (Eq, Show, Generic)
+instance Exception ForkchoiceSyncFailedException
+
 -- | Thrown on an invalid payload status.
 --
 -- The semantics of the first paramter depends on the context:
@@ -659,7 +664,101 @@ forkchoiceUpdate
         -- ^ the requested fork choice state
     -> Maybe PayloadAttributesV3
     -> IO (Maybe PayloadId)
-forkchoiceUpdate p t fcs attr = go t
+forkchoiceUpdate p t fcs attr = do
+    try @_ @(RPC.Error EngineServerErrors EngineErrors)
+        (RPC.callMethodHttp @Engine_ForkchoiceUpdatedV3 (_evmEngineCtx p) request)
+        >>= \r -> case r of
+        Right s -> case _forkchoiceUpdatedV1ResponsePayloadStatus s of
+            -- Syncing: we need to call eth_syncing to find out when the sync is
+            -- done, then check that we're where we expect.
+            -- if we are where we expect, we still need to request a payload ID
+            -- with a subsequent FCU.
+            PayloadStatusV1 Syncing Nothing Nothing -> go t
+
+            -- If the status is VALID, the latest hash is what was requested.
+            --
+            -- In particular, if the status is VALID the return latest hash
+            -- is never an ancestor of the requested hash.
+            --
+            -- If payload creation was requested the payload id is null only
+            -- if no payload attributes were provided. (If the payload
+            -- attributes are invalid an error is returned, even thought the
+            -- forkchoice state *is* updated.)
+            --
+            -- IMPORTANT NOTE:
+            --
+            -- The Engine API specification demands that, if the requested
+            -- hash was not the latest hash on the (selected) canonical
+            -- chain this returns the latest hash on the canonical chain. It
+            -- will not initiate payload creation. This behavior is not
+            -- acceptable for Chainweb consensus.
+            --
+            -- Therefore will have to patch the EVM client such that the
+            -- latest hash will be the requested hash and payload production
+            -- is initiated if it was requested.
+            --
+            PayloadStatusV1 Valid (Just _) Nothing -> do
+                lf Info "forkchoiceUpdate succeeded with VALID status"
+                return (_forkchoiceUpdatedV1ResponsePayloadId s)
+
+            -- Validation failed permenently.
+            --
+            -- FIXME: list precise list of possible reasons.
+            --
+            PayloadStatusV1 Invalid (Just h) e ->
+                throwM $ InvalidPayloadException (Just h) e
+
+            -- If the status is INVALID and no latest valid predecessor
+            -- can be determined.
+            --
+            -- This means probably means that the block for which
+            -- the upddate is requested is detached from the canonical
+            -- history.
+            --
+            -- FIXME: We should probably point that out in the exception
+            -- and possibly react to this scenario by banning the source
+            -- of the block.
+            --
+            -- (Note this could possibly also happen for shallow nodes
+            -- that are not yet fully synced.)
+            --
+            e@(PayloadStatusV1 Invalid Nothing _) ->
+                throwM $ UnexpectedForkchoiceUpdatedResponseException e
+
+            -- Something else when wrong.
+            --
+            e ->
+                throwM $ UnexpectedForkchoiceUpdatedResponseException e
+
+        -- According to Engine Spec [8, point 7]
+        -- {error: {code: -38003, message: "Invalid payload attributes"}}
+        -- is returned even when forkchoiceState has been updated, but
+        -- payload attributes were invalid.
+        --
+        -- NOTE: we must MUST address this case and update the state!
+        --
+        Left (RPC.Error (RPC.ApplicationError InvalidPayloadAttributes) msg Nothing) -> do
+
+            -- FIXME:
+            -- how to we signal this to caller, in particular,
+            -- consensus? If this goes undetected mining may get stuck.
+            -- If this is due to a timestamp being the same as the
+            -- previous block, we'll have to figure out what to do about
+            -- it. Maybe patching reth?
+            --
+            -- For now we log an Error.
+            --
+            T2 cur _ <- stateIO p
+            lf Error $ msg <> ": forkchoiceUpdate succeeded but no payload is produced, because of invalid payload attributes. This is most likely due to a non-increasing timestamp"
+            lf Error $ encodeToText $ object
+                [ "forkchoiceState" .= fcs
+                , "payloadAttributes" .= attr
+                , "previousState" .= cur
+                , "response" .= r
+                ]
+            return Nothing
+
+        Left e -> throwM e
   where
     request = ForkchoiceUpdatedV3Request fcs attr
     lf = loggS p "forkchoiceUpdate"
@@ -674,104 +773,32 @@ forkchoiceUpdate p t fcs attr = go t
                 , "forkchoiceState" .= fcs
                 , "payloadAttributes" .= attr
                 ]
-            r <- try @_ @(RPC.Error EngineServerErrors EngineErrors) $
-                RPC.callMethodHttp @Engine_ForkchoiceUpdatedV3 (_evmEngineCtx p)
-                    request
+
+            r <- RPC.callMethodHttp @Eth_Syncing (_evmEngineCtx p) Nothing
             case r of
-                Right s -> case _forkchoiceUpdatedV1ResponsePayloadStatus s of
-
-                    -- Syncing: retry
-                    PayloadStatusV1 Syncing Nothing Nothing -> do
-                        -- wait 500ms
-                        lf Warn $ "EVM is SYNCING. Waiting for " <> sshow waitTime <> " microseconds"
-                        threadDelay $ int waitTime
-                        go (remaining - waitTime)
-
-                    -- If the status is VALID, the latest hash is what was requested.
-                    --
-                    -- In particular, if the status is VALID the return latest hash
-                    -- is never an ancestor of the requested hash.
-                    --
-                    -- If payload creation was requested the payload id is null only
-                    -- if no payload attributes were provided. (If the payload
-                    -- attributes are invalid an error is returned, even thought the
-                    -- forkchoice state *is* updated.)
-                    --
-                    -- IMPORTANT NOTE:
-                    --
-                    -- The Engine API specification demands that, if the requested
-                    -- hash was not the latest hash on the (selected) canonical
-                    -- chain this returns the latest hash on the canonical chain. It
-                    -- will not initiate payload creation. This behavior is not
-                    -- acceptable for Chainweb consensus.
-                    --
-                    -- Therefore will have to patch the EVM client such that the
-                    -- latest hash will be the requested hash and payload production
-                    -- is initiated if it was requested.
-                    --
-                    PayloadStatusV1 Valid (Just _) Nothing -> do
-                        lf Info "forkchoiceUpdate succeeded with VALID status"
-                        return (_forkchoiceUpdatedV1ResponsePayloadId s)
-
-                    -- Validation failed permenently.
-                    --
-                    -- FIXME: list precise list of possible reasons.
-                    --
-                    PayloadStatusV1 Invalid (Just h) e ->
-                        throwM $ InvalidPayloadException (Just h) e
-
-
-                    -- If the status is INVALID and no latest valid predecessor
-                    -- can be determined.
-                    --
-                    -- This means probably means that the block for which
-                    -- the upddate is requested is detached from the canonical
-                    -- history.
-                    --
-                    -- FIXME: We should probably point that out in the exception
-                    -- and possibly react to this scenario by banning the source
-                    -- of the block.
-                    --
-                    -- (Note this could possibly also happen for shallow nodes
-                    -- that are not yet fully synced.)
-                    --
-                    e@(PayloadStatusV1 Invalid Nothing _) ->
-                        throwM $ UnexpectedForkchoiceUpdatedResponseException e
-
-                    -- Something else when wrong.
-                    --
-                    e ->
-                        throwM $ UnexpectedForkchoiceUpdatedResponseException e
-
-                -- According to Engine Spec [8, point 7]
-                -- {error: {code: -38003, message: "Invalid payload attributes"}}
-                -- is returned even when forkchoiceState has been updated, but
-                -- payload attributes were invalid.
-                --
-                -- NOTE: we must MUST address this case and update the state!
-                --
-                Left (RPC.Error (RPC.ApplicationError InvalidPayloadAttributes) msg Nothing) -> do
-
-                    -- FIXME:
-                    -- how to we signal this to caller, in particular,
-                    -- consensus? If this goes undetected mining may get stuck.
-                    -- If this is due to a timestamp being the same as the
-                    -- previous block, we'll have to figure out what to do about
-                    -- it. Maybe patching reth?
-                    --
-                    -- For now we log an Error.
-                    --
-                    T2 cur _ <- stateIO p
-                    lf Error $ msg <> ": forkchoiceUpdate succeeded but no payload is produced, because of invalid payload attributes. This is most likely due to a non-increasing timestamp"
-                    lf Error $ encodeToText $ object
-                        [ "forkchoiceState" .= fcs
-                        , "payloadAttributes" .= attr
-                        , "previousState" .= cur
-                        , "response" .= r
-                        ]
-                    return Nothing
-
-                Left e -> throwM e
+                SyncingStatusFalse -> do
+                    -- we're not syncing anymore, but that doesn't guarantee that we're at our target.
+                    -- poll the current consensus state of the EVM.
+                    Just evmLatest <- callMethodHttp @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockLatest, False)
+                    Just evmSafe <- callMethodHttp @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockSafe, False)
+                    Just evmFinalized <- callMethodHttp @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockFinalized, False)
+                    if EVM._hdrHash evmLatest == _forkchoiceHeadBlockHash fcs
+                        && EVM._hdrHash evmSafe == _forkchoiceSafeBlockHash fcs
+                        && EVM._hdrHash evmFinalized == _forkchoiceFinalizedBlockHash fcs
+                    then do
+                        -- we're synced! do another FCU to get the payload ID if needed.
+                        -- make sure not to reset the timeout by accident :)
+                        case attr of
+                            Nothing -> return Nothing
+                            Just _ -> forkchoiceUpdate p remaining fcs attr
+                    else do
+                        -- we're not synced, but the sync is done! sync must
+                        -- have failed, report an error.
+                        throwM $ ForkchoiceSyncFailedException fcs
+                SyncingStatus {} -> do
+                    lf Warn $ "EVM is SYNCING. Waiting for " <> sshow waitTime <> " microseconds"
+                    threadDelay $ int waitTime
+                    go (remaining - waitTime)
 
 -- | Engine NewPayloadV4
 --
