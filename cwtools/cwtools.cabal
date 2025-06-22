@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         cwtools
-version:      2.29
+version:      2.29.1
 synopsis:     A collection of various tools for Chainweb users and developers.
 description:  A collection of various tools for Chainweb users and developers.
 homepage:     https://github.com/kadena-io/chainweb

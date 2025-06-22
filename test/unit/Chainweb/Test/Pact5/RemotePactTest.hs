@@ -151,6 +151,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "transition occurs" (transitionOccurs rdb)
         , testCaseSteps "transition crosschain" (transitionCrosschain rdb)
         , testCaseSteps "upgradeNamespaceTests" (upgradeNamespaceTests rdb)
+        , testCaseSteps "invalidSigCapNameTest" (invalidSigCapNameTest rdb)
         , localTests rdb
         ]
 
@@ -1166,6 +1167,27 @@ upgradeNamespaceTests baseRdb _step = runResourceT $ do
                 ? P.match _PString
                 ? textContains "Loaded module ns"
 
+invalidSigCapNameTest :: RocksDb -> Step -> IO ()
+invalidSigCapNameTest baseRdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let cid = unsafeChainId 0
+    fx <- mkFixture v baseRdb
+
+    liftIO $ do
+        badCmd <- buildTextCmd v $
+            set cbSigners
+                [mkEd25519Signer' sender00
+                    -- sender00 controls ns, but module upgrades require unscoped signatures
+                    [CapToken (QualifiedName "GAS " (ModuleName "coin" Nothing)) []]
+                ] $
+            defaultCmd cid
+        send fx v cid [badCmd]
+            & P.fails
+            ? P.match _FailureResponse
+            ? P.succeed
+        advanceAllChains_ fx
+        poll fx v cid [cmdToRequestKey badCmd]
+            >>= P.match (_head . _Nothing) P.succeed
 
 ----------------------------------------------------
 

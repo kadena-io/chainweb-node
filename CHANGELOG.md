@@ -1,3 +1,13 @@
+## 2.29.1 (2025-06-17)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Unify Pact 5 command parsing between NewBlock and ValidateBlock [`055567d`](https://github.com/kadena-io/chainweb-node/commit/055567d00eef48d295cc35c510d1316e400073e8)
+- Add a test for malformed capability names [`9f0b409`](https://github.com/kadena-io/chainweb-node/commit/9f0b40936770e1a67ac45ecd81087ec2e66d09d7)
+
 ## 2.29 (2025-04-16)
 This is a major version update. This release replaces all previous versions.
 
