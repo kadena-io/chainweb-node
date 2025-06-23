@@ -90,11 +90,11 @@ evmDevnet = withVersion evmDevnet $ ChainwebVersion
             , (unsafeChainId 18, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
             , (unsafeChainId 19, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
             -- EVM Payload Provider
-            , (unsafeChainId 20, unsafeFromText "XEv4ey1P7XOu63vMZgH01ANKKUoEWuo3-PWOaHfOJfA")
-            , (unsafeChainId 21, unsafeFromText "FRCRkgrvBv7BgzahtJynhYLAh-ZSMTgNvpyHJIyAr-c")
-            , (unsafeChainId 22, unsafeFromText "c5Dg1YhC3Yafl_uMrlift9_f_UU0pHT2VEv70RAJQ4A")
-            , (unsafeChainId 23, unsafeFromText "pCCVAAxn7zBggAxaXqp5cqStrs62FKfE0--VsK3OWIk")
-            , (unsafeChainId 24, unsafeFromText "h93bpavjG94oytkKCe1yJUn4AU-PwW7dLsLeu-6LDwo")
+            , (unsafeChainId 20, unsafeFromText "9tTN4gIlX0Ejv5SQkcDLtLA6Ud_8AQGmy0YWOvEvRuA")
+            , (unsafeChainId 21, unsafeFromText "yGNn2Y7PMu3necKVlrr0gsET_VDVSPRtWmG11lMpDb4")
+            , (unsafeChainId 22, unsafeFromText "Rto2JWTsPeaCtLrkC0On_tSqw-5MGCjxbfPrV3hJOeU")
+            , (unsafeChainId 23, unsafeFromText "qKEsJPiIE5pVeei4luptp8kFFOsGGvFYmTUfQVGd1tw")
+            , (unsafeChainId 24, unsafeFromText "vQJsV5sOVKzUgTQz9kzPDRwaqxVehqhO847CukxeQ2w")
             -- Minimal Payload Provider
             , (unsafeChainId 25, unsafeFromText "Gt116uJVwjUEM0f07u_x8-SUFHgGpoH1xf3sfPoe0ZY")
             , (unsafeChainId 26, unsafeFromText "NLRP0OiqRldiZclvoKBGhv9m5wO0TrhNKaZZslZuZvw")

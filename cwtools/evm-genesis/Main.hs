@@ -159,6 +159,22 @@ mkRpcCtx u = do
 -- -------------------------------------------------------------------------- --
 -- Spec file settings
 
+-- |
+--
+-- System contract addresses:
+--
+-- * Chainweb-chainId system contract:
+--   0x9b02c3e2dF42533e0FD166798B5A616f59DBd2cc
+--   Keccak256("/Chainweb/Chain/Id/")
+--
+-- * Native X-Chan redeem system contract:
+--   0x49eed2ac33f09e931bd660f0168417b9614485b6
+--   Keccack256("/Chainweb/XChan/Redeem/")
+--
+-- * ERC-20 x-chain SPV Precompile address from KIP-34 (EthDenver 2025 demo):
+--   48c3b4d2757447601776837b6a85f31ef88a87bf
+--   Keccak256("/Chainweb/KIP-34/VERIFY/SVP/")
+--
 baseSpecFile
     :: Natural
         -- ^ Ethereum network id offset
@@ -196,11 +212,26 @@ baseSpecFile netId offset cid genesisTime allocs = object
         , "shanghaiTime" .= i 0
         , "cancunTime" .= i 0
         , "pragueTime" .= i 0
+        , "blobSchedule" .= object
+            [ "cancun" .= object
+                [ "target" .= i 0
+                , "max" .= i 0
+                , "baseFeeUpdateFraction" .= i 3338477
+                ]
+            , "prague" .= object
+                [ "target" .= i 0
+                , "max" .= i 0
+                , "baseFeeUpdateFraction" .= i 5007716
+                ]
+            ]
         ]
     , "timestamp" .= printf @(Natural -> String) "0x%x" genesisTime
     , "extraData" .= t "0x"
     , "gasLimit" .= t "0x1c9c380"
-    , "alloc" .= object (chainwebChainIdAlloc : allocs)
+    , "alloc" .= object
+        ( chainwebChainIdAlloc
+        : allocs
+        )
     , "number" .= t "0x0"
     , "nonce" .= t "0x0"
     , "difficulty" .= t "0x0"
@@ -288,6 +319,12 @@ evmDevnetSpecFile offset cid = baseSpecFile 1789 offset cid 0x684c5d2a
         [ "balance" .= t "0xd3c21bcecceda1000000" ]
     , "0x3492DA004098d728201fD82657f1207a6E5426bd" .= object
         [ "balance" .= t "0xd3c21bcecceda1000000" ]
+
+    -- Native X-Chan redeem system contract: Keccack256("/Chainweb/XChan/Redeem/")
+    -- TODO: code
+    , "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
+        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        ]
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -313,15 +350,20 @@ evmTestnetSpecFile
 evmTestnetSpecFile cid = baseSpecFile 5920 20 cid 0x684c5d2a
     -- faucet deployer address that corresponds to the DEPLOYER_PRIVATE_KEY
     [ "0x9440d8ff19D278F401f49080BEfdDEFbE54F0eF2" .= object
-        [ "balance" .= t "0xd3c21bcecceda1000000" ]
+        [ "balance" .= t "0x422ca8b0a00a425000000" ]
     -- is the faucet wallet address that correspondesds to the FAUCET_PRIVATE_KEY
     , "0xE482e4F590D4155B51F4Fc21d64823f4d7854397" .= object
-        [ "balance" .= t "0xd3c21bcecceda1000000" ]
+        [ "balance" .= t "0x422ca8b0a00a425000000" ]
     -- additional platform funds that are separate from the faucet accounts
     , "0xeC1B36992C3c7d0f7AbB8EDA43EEbC9A418c0A1e" .= object
-        [ "balance" .= t "0xd3c21bcecceda1000000" ]
+        [ "balance" .= t "0x422ca8b0a00a425000000" ]
+
+    -- Native X-Chan redeem system contract: Keccack256("/Chainweb/XChan/Redeem/")
+    -- TODO: code
+    , "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
+        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        ]
     ]
-    -- TODO: Native-X-Chain System contract
 
 -- -------------------------------------------------------------------------- --
 -- Spec File For Kadena Testnet
