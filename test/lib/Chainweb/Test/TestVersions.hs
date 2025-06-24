@@ -20,6 +20,7 @@ module Chainweb.Test.TestVersions
     , pact5CheckpointerTestVersion
     , pact5SlowCpmTestVersion
     , instantCpmTransitionTestVersion
+    , pact53TransitionCpmTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -138,6 +139,9 @@ testVersions = _versionName <$> concat
         | g :: KnownGraph <- [minBound..maxBound]
         ]
     ,   [ instantCpmTransitionTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ pact53TransitionCpmTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
     ]
@@ -460,6 +464,31 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionForks .~ tabulateHashMap (\case
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionQuirks .~ noQuirks
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, PIN0.payloadBlock) :
+            [(n, PINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
+
+pact53TransitionCpmTestVersion :: ChainGraph -> ChainwebVersion
+pact53TransitionCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("pact53-transition-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        -- SPV Bridge is not in effect for Pact 5 yet.
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
