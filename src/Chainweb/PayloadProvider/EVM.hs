@@ -446,7 +446,10 @@ newtype ForkchoiceUpdatedTimeoutException = ForkchoiceUpdatedTimeoutException Mi
     deriving (Eq, Show, Generic)
 instance Exception ForkchoiceUpdatedTimeoutException
 
-newtype ForkchoiceSyncFailedException = ForkchoiceSyncFailedException ForkchoiceStateV1
+data ForkchoiceSyncFailedException = ForkchoiceSyncFailedException
+    { forkchoiceSyncFailedTarget :: ForkchoiceStateV1
+    , forkchoiseSyncFailedActual :: EVM.Header
+    }
     deriving (Eq, Show, Generic)
 instance Exception ForkchoiceSyncFailedException
 
@@ -790,7 +793,7 @@ forkchoiceUpdate p t fcs attr = do
                     else do
                         -- we're not synced, but the sync is done! sync must
                         -- have failed, report an error.
-                        throwM $ ForkchoiceSyncFailedException fcs
+                        throwM $ ForkchoiceSyncFailedException fcs evmLatest
                 _ -> do
                     lf Info $ "EVM is SYNCING. Waiting for " <> sshow waitTime <> " microseconds"
                     threadDelay $ int waitTime
