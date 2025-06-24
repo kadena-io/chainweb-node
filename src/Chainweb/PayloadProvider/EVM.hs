@@ -780,11 +780,7 @@ forkchoiceUpdate p t fcs attr = do
                     -- we're not syncing anymore, but that doesn't guarantee that we're at our target.
                     -- poll the current consensus state of the EVM.
                     Just evmLatest <- callMethodHttp @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockLatest, False)
-                    Just evmSafe <- callMethodHttp @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockSafe, False)
-                    Just evmFinalized <- callMethodHttp @Eth_GetBlockByNumber (_evmEngineCtx p) (DefaultBlockFinalized, False)
                     if EVM._hdrHash evmLatest == _forkchoiceHeadBlockHash fcs
-                        && EVM._hdrHash evmSafe == _forkchoiceSafeBlockHash fcs
-                        && EVM._hdrHash evmFinalized == _forkchoiceFinalizedBlockHash fcs
                     then do
                         -- we're synced! do another FCU to get the payload ID if needed.
                         -- make sure not to reset the timeout by accident :)
