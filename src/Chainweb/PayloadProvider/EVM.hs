@@ -663,7 +663,7 @@ forkchoiceUpdate p t fcs attr = go t
   where
     request = ForkchoiceUpdatedV3Request fcs attr
     lf = loggS p "forkchoiceUpdate"
-    waitTime = Micros 500_000
+    waitTime = Micros 100_000
     go remaining
         | remaining <= 0 = do
             lf Warn $ "forkchoiceUpdate timed out while EVM is syncing"
