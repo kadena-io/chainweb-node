@@ -1007,4 +1007,4 @@ guardDisablePact51Flags txCtx
 guardDisablePact52Flags :: TxContext -> Set ExecutionFlag
 guardDisablePact52Flags txCtx
   | guardCtx chainweb230Pact txCtx = Set.empty
-  | otherwise = Set.singleton FlagDisablePact52
+  | otherwise = Set.fromList [FlagDisablePact52, FlagDisableReentrancyCheck]

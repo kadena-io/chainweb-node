@@ -1512,6 +1512,7 @@ pact4coin3UpgradeTest = do
       return $ buildBasic $ mkCont (mkContMsg pid 1)
 
 
+
 -- =========================================================
 --
 -- Fixture

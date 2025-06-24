@@ -152,6 +152,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "transition crosschain" (transitionCrosschain rdb)
         , testCaseSteps "upgradeNamespaceTests" (upgradeNamespaceTests rdb)
         , testCaseSteps "invalidSigCapNameTest" (invalidSigCapNameTest rdb)
+        , testCaseSteps "pact53TransitionTest" (pact53TransitionTest rdb)
         , localTests rdb
         ]
 
@@ -560,6 +561,102 @@ caplistTest baseRdb step = runResourceT $ do
                     , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
                     ]
 
+pact53TransitionTest :: RocksDb -> Step -> IO ()
+pact53TransitionTest baseRdb step = runResourceT $ do
+    let v = pact53TransitionCpmTestVersion petersenChainGraph
+    fx <- mkFixture v baseRdb
+
+    let cid = unsafeChainId 0
+        assertTxFailure tx msg = poll fx v cid [cmdToRequestKey tx]
+            >>= P.alignExact ? List.singleton ? P.match _Just ?
+                P.checkAll
+                    [ P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg ? P.equals msg
+                    ]
+        assertTxSuccess tx resultVal = poll fx v cid [cmdToRequestKey tx]
+            >>= P.alignExact ? List.singleton ? P.match _Just ?
+                P.checkAll
+                    [ P.fun _crResult ? P.match _PactResultOk ? P.equals resultVal
+                    ]
+
+    liftIO $ do
+        txErr0 <- buildTextCmd v
+            $ set cbRPC errorTx
+            $ defaultCmd cid
+        txPure0 <- buildTextCmd v
+            $ set cbRPC pureTx
+            $ defaultCmd cid
+        txReadOnlyGuardSetup <- buildTextCmd v
+            $ set cbRPC readOnlyGuardSetupTx
+            $ defaultCmd cid
+        txReadOnly0 <- buildTextCmd v
+            $ set cbRPC readOnlyGuardTx
+            $ defaultCmd cid
+
+        step "sending"
+        send fx v cid [txErr0, txPure0, txReadOnlyGuardSetup]
+
+        step "advancing chains"
+
+        advanceAllChains_ fx
+
+        step "sending read only guard tx"
+
+        send fx v cid [txReadOnly0]
+
+        advanceAllChains_ fx
+
+        step "polling"
+
+        assertTxFailure txErr0 "Cannot find module:  error"
+        assertTxFailure txPure0 "Cannot find module:  pure"
+        assertTxSuccess txReadOnlyGuardSetup (PString "Write succeeded")
+        assertTxFailure txReadOnly0 "Error during database operation: Operation is not allowed in read-only or system-only mode."
+
+        step "advancing past the fork"
+
+        replicateM_ 5 (advanceAllChains_ fx)
+
+        txErr1 <- buildTextCmd v
+            $ set cbRPC errorTx
+            $ defaultCmd cid
+        txPure1 <- buildTextCmd v
+            $ set cbRPC pureTx
+            $ defaultCmd cid
+        txReadOnly1 <- buildTextCmd v
+            $ set cbRPC readOnlyGuardTx
+            $ defaultCmd cid
+
+        step "Sending post fork txs"
+
+        send fx v cid [txErr1, txPure1, txReadOnly1]
+
+        step "advancing chains again"
+
+        advanceAllChains_ fx
+
+        step "polling post-fork results"
+
+        -- Note: correct output from calling (error "test error")
+        assertTxFailure txErr1 "test error"
+
+        assertTxSuccess txPure1 (PInteger 1)
+
+        assertTxSuccess txReadOnly1 (PBool True)
+  where
+    errorTx = mkExec' "(error \"test error\")"
+    pureTx = mkExec' "(pure 1)"
+    readOnlyGuardSetupTx = mkExec' $ T.concat
+      [ "(namespace 'free)"
+      , "(module test-read-only g (defcap g () true)"
+      , " (defschema my-schema key:integer)"
+      , " (deftable my-table:{my-schema})"
+      , " (defun read-only-fn () (read my-table 'key))"
+      , " (defun mk-ug () (create-user-guard (read-only-fn)))"
+      , ")"
+      , "(create-table my-table)"
+      , "(insert my-table 'key {'key:1})"
+      ]
+    readOnlyGuardTx = mkExec' "(enforce-guard (free.test-read-only.mk-ug))"
 
 allocation01KeyPair :: (Text, Text)
 allocation01KeyPair =
