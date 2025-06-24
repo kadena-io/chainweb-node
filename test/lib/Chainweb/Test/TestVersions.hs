@@ -488,6 +488,7 @@ pact53TransitionCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("pact53-transition-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
         -- SPV Bridge is not in effect for Pact 5 yet.
+        SPVBridge -> AllChains ForkNever
         Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
         _ -> AllChains ForkAtGenesis
         )
