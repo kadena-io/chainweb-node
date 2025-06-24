@@ -792,7 +792,7 @@ forkchoiceUpdate p t fcs attr = do
                         -- have failed, report an error.
                         throwM $ ForkchoiceSyncFailedException fcs
                 _ -> do
-                    lf Warn $ "EVM is SYNCING. Waiting for " <> sshow waitTime <> " microseconds"
+                    lf Info $ "EVM is SYNCING. Waiting for " <> sshow waitTime <> " microseconds"
                     threadDelay $ int waitTime
                     go (remaining - waitTime)
 
