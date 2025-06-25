@@ -1,5 +1,3 @@
-{-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-matches #-}
-
 {-# language
     ConstraintKinds
     , DataKinds
