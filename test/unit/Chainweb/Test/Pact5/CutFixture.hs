@@ -17,6 +17,7 @@
     , RecordWildCards
     , ScopedTypeVariables
     , TemplateHaskell
+    , TupleSections
     , TypeApplications
     , ViewPatterns
 #-}
@@ -37,15 +38,16 @@ module Chainweb.Test.Pact5.CutFixture
     , fixturePactQueues
     , advanceAllChains
     , advanceAllChains_
+    , advanceToForkHeight
     , withTestCutDb
     )
     where
 
-import Chainweb.Storage.Table (Casify)
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader hiding (blockCreationTime, blockNonce)
 import Chainweb.BlockHeader.Internal (blockCreationTime, blockNonce)
+import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.ChainId
 import Chainweb.ChainValue (ChainValue(..), ChainValueCasLookup, chainLookupM)
 import Chainweb.Cut
@@ -61,6 +63,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Storage.Table (Casify)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Pact5.Utils
@@ -83,6 +86,7 @@ import Data.ByteString.Short qualified as SBS
 import Data.Function
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector (Vector)
@@ -98,6 +102,48 @@ data Fixture = Fixture
     , _fixturePactQueues :: ChainMap PactQueue
     }
 makeLenses ''Fixture
+
+-- Advance to the forkheight of a fork.
+-- Throws an error if the fork is not found in the ChainwebVersion '_versionForks', or if
+-- the fork height is ever 'ForkNever' on any chain.
+advanceToForkHeight :: (HasFixture fx) => fx -> Fork -> IO ()
+advanceToForkHeight fx fork = do
+    Fixture{..} <- cutFixture fx
+    let v = _chainwebVersion _fixtureCutDb
+    latestCut <- liftIO $ _fixtureCutDb ^. cut
+    let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
+    let latestBlockHeight = maximum blockHeights
+
+    let targetHeight = 1 + getMaxForkHeight v fork latestBlockHeight
+    when (targetHeight > latestBlockHeight) $ do
+        -- advance all chains to the target height
+        replicateM_ (int (targetHeight - latestBlockHeight)) $ advanceAllChains_ fx
+
+        -- check if we reached the target height
+        latestCut' <- _fixtureCutDb ^. cut
+        let newHeights = fmap (view blockHeight) $ latestCut' ^. cutMap
+        when (maximum newHeights < targetHeight) $
+            throwM $ InternalInvariantViolation $ "advanceToForkHeight: did not reach target height " <> sshow targetHeight
+
+    where
+        -- get the max fork height for a given fork in the ChainwebVersion.
+        -- this will let us safely advance to where the unlocked feature(s) are available
+        -- on all chains.
+        getMaxForkHeight :: ChainwebVersion -> Fork -> BlockHeight -> BlockHeight
+        getMaxForkHeight v frk latestBlockHeight =
+            fromMaybe (error "getMaxForkHeight: no forks") $
+                maximumOf (versionForks . ix frk . to expand . folded . to (uncurry forkHeightAt)) v
+            where
+                expand :: ChainMap a -> [(ChainId, a)]
+                expand = \case
+                    AllChains fh -> (,fh) <$> HashSet.toList (chainIdsAt v latestBlockHeight)
+                    OnChains m -> m ^@.. ifolded
+
+                forkHeightAt :: ChainId -> ForkHeight -> BlockHeight
+                forkHeightAt cid = \case
+                    ForkAtBlockHeight bh -> bh
+                    ForkAtGenesis -> genesisHeight v cid
+                    ForkNever -> error "ForkNever encountered"
 
 class HasFixture a where
     cutFixture :: a -> IO Fixture

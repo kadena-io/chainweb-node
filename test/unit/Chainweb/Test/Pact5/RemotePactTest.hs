@@ -1,3 +1,5 @@
+{-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-matches #-}
+
 {-# language
     ConstraintKinds
     , DataKinds
@@ -114,7 +116,7 @@ import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils (someServerApplication)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_)
+import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_, advanceToForkHeight)
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
@@ -567,12 +569,12 @@ pact53TransitionTest baseRdb step = runResourceT $ do
     fx <- mkFixture v baseRdb
 
     let cid = unsafeChainId 0
-        assertTxFailure tx msg = poll fx v cid [cmdToRequestKey tx]
+    let assertTxFailure tx msg = poll fx v cid [cmdToRequestKey tx]
             >>= P.alignExact ? List.singleton ? P.match _Just ?
                 P.checkAll
                     [ P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg ? P.equals msg
                     ]
-        assertTxSuccess tx resultVal = poll fx v cid [cmdToRequestKey tx]
+    let assertTxSuccess tx resultVal = poll fx v cid [cmdToRequestKey tx]
             >>= P.alignExact ? List.singleton ? P.match _Just ?
                 P.checkAll
                     [ P.fun _crResult ? P.match _PactResultOk ? P.equals resultVal
@@ -614,7 +616,7 @@ pact53TransitionTest baseRdb step = runResourceT $ do
 
         step "advancing past the fork"
 
-        replicateM_ 5 (advanceAllChains_ fx)
+        advanceToForkHeight fx Chainweb230Pact
 
         txErr1 <- buildTextCmd v
             $ set cbRPC errorTx
