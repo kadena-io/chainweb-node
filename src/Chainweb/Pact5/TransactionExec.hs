@@ -294,7 +294,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
         }
 
   where
-  localFlags = S.fromList
+  defaultFlags = S.fromList
     [ FlagDisableRuntimeRTC
     , FlagEnforceKeyFormats
     -- Note: this is currently not conditional
@@ -302,7 +302,8 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
     -- anyone's workflow
     , FlagAllowReadInLocal
     , FlagRequireKeysetNs
-    ] `Set.union` guardDisablePact51Flags txCtx
+    ]
+  localFlags = Set.unions [defaultFlags, guardDisablePact51Flags txCtx, guardDisablePact52And53Flags txCtx]
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command,
@@ -338,7 +339,7 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
         , FlagEnforceKeyFormats
         , FlagRequireKeysetNs
         ]
-  let flags = Set.unions [defaultFlags, guardDisablePact51Flags txCtx, guardDisablePact52Flags txCtx]
+  let flags = Set.unions [defaultFlags, guardDisablePact51Flags txCtx, guardDisablePact52And53Flags txCtx]
 
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
@@ -475,7 +476,7 @@ applyCoinbase logger db reward txCtx = do
   let
     (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
     defaultFlags = Set.singleton FlagDisableRuntimeRTC
-    flags = Set.unions [defaultFlags, guardDisablePact52Flags txCtx]
+    flags = Set.unions [defaultFlags, guardDisablePact52And53Flags txCtx]
   eCoinbaseTxResult <-
     evalExecTerm Transactional
       db noSPVSupport freeGasEnv flags SimpleNamespacePolicy
@@ -565,7 +566,7 @@ runGenesisPayload logger db spv ctx cmd = do
   -- Todo gas logs
   freeGasEnv <- mkFreeGasEnv GasLogsDisabled
   let defaultFlags = Set.fromList [FlagDisableRuntimeRTC]
-      flags = Set.union defaultFlags (guardDisablePact52Flags ctx)
+      flags = Set.union defaultFlags (guardDisablePact52And53Flags ctx)
   runExceptT
     (runReaderT
       (runTransactionM
@@ -680,7 +681,7 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       let flags = Set.unions
             [ Set.singleton FlagDisableRuntimeRTC
-            , guardDisablePact52Flags txContext
+            , guardDisablePact52And53Flags txContext
             ]
       evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
         db noSPVSupport freeGasEnv flags
@@ -761,7 +762,7 @@ buyGas logger origGasEnv db txCtx cmd = do
         if isChainweb224Pact
         then mkBuyGasTerm sender supply
         else mkFundTxTerm mid mks sender supply
-      flags = Set.unions [Set.singleton FlagDisableRuntimeRTC, guardDisablePact52Flags txCtx]
+      flags = Set.unions [Set.singleton FlagDisableRuntimeRTC, guardDisablePact52And53Flags txCtx]
 
   runExceptT $ do
     gasPayerCap <- case gasPayerCaps of
@@ -861,7 +862,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
         "redeeming gas (post-2.24) for " <> sshow (_cmdHash cmd)
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
-          flags = Set.unions [Set.singleton FlagDisableRuntimeRTC, guardDisablePact52Flags txCtx]
+          flags = Set.unions [Set.singleton FlagDisableRuntimeRTC, guardDisablePact52And53Flags txCtx]
       -- todo: gas logs
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       evalExecTerm
@@ -888,7 +889,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
         "redeeming gas (pre-2.24) for " <> sshow (_cmdHash cmd)
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
-          flags = Set.unions [Set.singleton FlagDisableRuntimeRTC, guardDisablePact52Flags txCtx]
+          flags = Set.unions [Set.singleton FlagDisableRuntimeRTC, guardDisablePact52And53Flags txCtx]
 
       evalContinuation Transactional
         db noSPVSupport freeGasEnv flags SimpleNamespacePolicy
@@ -1004,7 +1005,7 @@ guardDisablePact51Flags txCtx
   | guardCtx chainweb228Pact txCtx = Set.empty
   | otherwise = Set.singleton FlagDisablePact51
 
-guardDisablePact52Flags :: TxContext -> Set ExecutionFlag
-guardDisablePact52Flags txCtx
+guardDisablePact52And53Flags :: TxContext -> Set ExecutionFlag
+guardDisablePact52And53Flags txCtx
   | guardCtx chainweb230Pact txCtx = Set.empty
-  | otherwise = Set.fromList [FlagDisablePact52, FlagDisableReentrancyCheck]
+  | otherwise = Set.fromList [FlagDisablePact52, FlagDisablePact53, FlagDisableReentrancyCheck]
