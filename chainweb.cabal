@@ -375,7 +375,6 @@ library
         , chainweb-storage >= 0.1
         , chronos >= 1.1
         , clock >= 0.7
-        , comonad
         , configuration-tools >= 0.6
         , containers >= 0.5
         , crypton >= 0.31
@@ -394,9 +393,7 @@ library
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
-        , free
         , ghc-compact >= 0.1
-        , growable-vector >= 0.1
         , hashable >= 1.4
         , hashes >=0.2.2.0
         , heaps >= 0.3
@@ -452,10 +449,8 @@ library
         , tls-session-manager >= 0.0
         , token-bucket >= 0.1
         , transformers >= 0.5
-        , trifecta >= 2.1
         , unliftio >= 0.2
         , unordered-containers >= 0.2.20
-        , uuid >= 1.3.16
         , validation
         , vector >= 0.12.2
         , vector-algorithms >= 0.7
