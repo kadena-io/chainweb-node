@@ -35,6 +35,8 @@ import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload as PIN0
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload as PINN
+import qualified Chainweb.BlockHeader.Genesis.Pact53TransitionTimedCPM0Payload as PIT0
+import qualified Chainweb.BlockHeader.Genesis.Pact53TransitionTimedCPM1to9Payload as PITN
 import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
 import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload as QPINN
 
@@ -465,8 +467,6 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
 
-        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
-
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
@@ -490,21 +490,18 @@ pact53TransitionCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("pact53-transition-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        -- pact 5 is off until here
-        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
-
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
 
-        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
 
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, IN0.payloadBlock) :
-            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, PIT0.payloadBlock) :
+            [(n, PITN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -559,8 +556,6 @@ instantCpmTransitionTestVersion g = buildTestVersion $ \v -> v
 
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
-
-        --Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
 
         _ -> AllChains ForkAtGenesis
         )
