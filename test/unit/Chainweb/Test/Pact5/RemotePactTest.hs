@@ -579,6 +579,9 @@ pact53TransitionTest baseRdb step = runResourceT $ do
                     ]
 
     liftIO $ do
+        let errorTx = mkExec' "(error \"test error\")"
+        let pureTx = mkExec' "(pure 1)"
+
         txErr0 <- buildTextCmd v
             $ set cbRPC errorTx
             $ defaultCmd cid
@@ -586,34 +589,38 @@ pact53TransitionTest baseRdb step = runResourceT $ do
             $ set cbRPC pureTx
             $ defaultCmd cid
         txReadOnlyGuardSetup <- buildTextCmd v
-            $ set cbRPC readOnlyGuardSetupTx
-            $ defaultCmd cid
-        txReadOnly0 <- buildTextCmd v
-            $ set cbRPC readOnlyGuardTx
+            $ set cbRPC (mkExec' $ T.concat
+                [ "(namespace 'free)"
+                , "(module test-read-only g (defcap g () true)"
+                , " (defschema my-schema key:integer)"
+                , " (deftable my-table:{my-schema})"
+                , " (defun read-only-fn () (read my-table 'key))"
+                , " (defun mk-ug () (create-user-guard (read-only-fn)))"
+                , ")"
+                , "(create-table my-table)"
+                , "(insert my-table 'key {'key:1})"
+                ])
             $ defaultCmd cid
 
-        step "sending"
+        step "sending first batch of transactions"
         send fx v cid [txErr0, txPure0, txReadOnlyGuardSetup]
-
-        step "advancing chains"
-
         advanceAllChains_ fx
-
-        step "sending read only guard tx"
-
-        send fx v cid [txReadOnly0]
-
-        advanceAllChains_ fx
-
-        step "polling"
-
+        step "polling for first batch of transactions"
         assertTxFailure txErr0 "Cannot find module:  error"
         assertTxFailure txPure0 "Cannot find module:  pure"
         assertTxSuccess txReadOnlyGuardSetup (PString "Write succeeded")
+
+        step "sending read only guard tx"
+        let readOnlyGuardTx = mkExec' "(enforce-guard (free.test-read-only.mk-ug))"
+        txReadOnly0 <- buildTextCmd v
+            $ set cbRPC readOnlyGuardTx
+            $ defaultCmd cid
+        send fx v cid [txReadOnly0]
+        advanceAllChains_ fx
+        step "polling for read only guard tx"
         assertTxFailure txReadOnly0 "Error during database operation: Operation is not allowed in read-only or system-only mode."
 
         step "advancing past the fork"
-
         advanceToForkHeight fx Chainweb230Pact
 
         txErr1 <- buildTextCmd v
@@ -627,36 +634,13 @@ pact53TransitionTest baseRdb step = runResourceT $ do
             $ defaultCmd cid
 
         step "Sending post fork txs"
-
         send fx v cid [txErr1, txPure1, txReadOnly1]
-
-        step "advancing chains again"
-
         advanceAllChains_ fx
-
         step "polling post-fork results"
-
         -- Note: correct output from calling (error "test error")
         assertTxFailure txErr1 "test error"
-
         assertTxSuccess txPure1 (PInteger 1)
-
         assertTxSuccess txReadOnly1 (PBool True)
-  where
-    errorTx = mkExec' "(error \"test error\")"
-    pureTx = mkExec' "(pure 1)"
-    readOnlyGuardSetupTx = mkExec' $ T.concat
-      [ "(namespace 'free)"
-      , "(module test-read-only g (defcap g () true)"
-      , " (defschema my-schema key:integer)"
-      , " (deftable my-table:{my-schema})"
-      , " (defun read-only-fn () (read my-table 'key))"
-      , " (defun mk-ug () (create-user-guard (read-only-fn)))"
-      , ")"
-      , "(create-table my-table)"
-      , "(insert my-table 'key {'key:1})"
-      ]
-    readOnlyGuardTx = mkExec' "(enforce-guard (free.test-read-only.mk-ug))"
 
 allocation01KeyPair :: (Text, Text)
 allocation01KeyPair =
