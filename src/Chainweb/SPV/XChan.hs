@@ -5,6 +5,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.SPV.XChan
@@ -18,17 +21,31 @@
 --
 module Chainweb.SPV.XChan
 ( XChanVersion(..)
+, encodeXChanVersion
+, decodeXChanVersion
 , XChanPolicy(..)
+, encodeXChanPolicy
+, decodeXChanPolicy
 
+-- * XChan
 , XChan(..)
+, XChanId(..)
+, encodeXChanId
+, decodeXChanId
 , xChanRoot
 , XChanProof(..)
 , xChanProof
 , xChanProof'
 , runXChanProof
-, verifyXChan
+
+-- * XChanClaim
+, XChanClaim(..)
+, xChanClaim
+, encodeXChanClaim
+, decodeXChanClaim
 
 -- * internal
+, MerkleRoot(..)
 , merkleRoot
 , merkleHash
 , MerkleProof(..)
@@ -38,6 +55,9 @@ module Chainweb.SPV.XChan
 , Tree(..)
 , merkleTree
 , root
+, xChanMerkleTree
+-- , testXChan
+-- , test
 ) where
 
 import Control.Monad.Catch
@@ -59,6 +79,8 @@ import Ethereum.Misc (BytesN, unsafeBytesN, _getBytesN)
 import Ethereum.Utils qualified as E
 import GHC.Num.Natural
 import Text.Printf (printf)
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -77,6 +99,16 @@ merkleHash = MerkleRoot . unsafeBytesN . coerce . hashShortByteString_ @Blake2s2
 
 newtype MerkleRoot = MerkleRoot (BytesN 32)
     deriving (Eq, Ord, Show)
+
+encodeMerklRoot :: MerkleRoot -> Put
+encodeMerklRoot (MerkleRoot b) = putShortByteString $ _getBytesN b
+{-# INLINE encodeMerklRoot #-}
+
+decodeMerkleRoot :: Get MerkleRoot
+decodeMerkleRoot = label "MerkleRoot" $ do
+    b <- getShortByteString 32
+    return $ MerkleRoot $ unsafeBytesN b
+{-# INLINE decodeMerkleRoot #-}
 
 merkleNode :: Enum tag => tag -> BS.ShortByteString -> MerkleRoot
 merkleNode t b = merkleHash $ tag <> b
@@ -161,7 +193,7 @@ runProof p = foldLeafs (_merkleProofLeafs p) (_merkleProofRoots p) [] >>= \case
         (r', s') <- go h xi r ((0,x):s)
         foldLeafs (x' NE.:| xt) r' s'
       where
-        h = fromIntegral $ finiteBitSize xi - countLeadingZeros (xor xi xi') - 1
+        h = int $ finiteBitSize xi - countLeadingZeros (xor xi xi') - 1
 
     -- Proof the subtree for a given leaf index up to the the given height.
     --
@@ -246,11 +278,16 @@ merkleTree = go []
 -- XChan
 
 data XChanVersion
-    = XChainVersion1
+    = XChainVersion0
     deriving (Show, Eq, Ord)
 
 encodeXChanVersion :: XChanVersion -> Put
-encodeXChanVersion XChainVersion1 = putWord16le 1
+encodeXChanVersion XChainVersion0 = putWord16le 0
+
+decodeXChanVersion :: Get XChanVersion
+decodeXChanVersion = label "XChanVersion" $ getWord16le >>= \case
+    0 -> return XChainVersion0
+    n -> throwM $ DecodeException $ "XChanVersion: unknown version: " <> sshow n
 
 -- | In the future more policies may be supported. Policies are dijunctive: funds
 -- in a channel without policy can't be redeemed (policy is always "false"). If
@@ -268,7 +305,26 @@ data XChanPolicy
     deriving (Show, Eq, Ord)
 
 encodeXChanPolicy :: XChanPolicy -> Put
-encodeXChanPolicy (TrgAccount bs) = putWord32le 0 >> putShortByteString bs
+encodeXChanPolicy (TrgAccount bs) = do
+    putWord32le 0
+    putWord32le $ int $ BS.length bs
+    putShortByteString bs
+
+decodeXChanPolicy :: Get XChanPolicy
+decodeXChanPolicy = label "XChanPolicy" $ getWord32le >>= \case
+    0 -> TrgAccount <$> do
+        l <- getWord32le
+        getShortByteString (int l)
+    t -> throwM $ DecodeException $ "XChanPolicy: unknown tag: " <> sshow t
+
+newtype XChanId = XChanId MerkleRoot
+    deriving (Eq, Ord, Show)
+
+encodeXChanId :: XChanId -> Put
+encodeXChanId (XChanId r) = encodeMerklRoot r
+
+decodeXChanId :: Get XChanId
+decodeXChanId = label "XChanId" $ XChanId <$> decodeMerkleRoot
 
 -- | A XChan is represents a channel for transfering funds of fungible tokens
 -- between accounts on different block chains. It implements a proof-of-burn
@@ -324,8 +380,8 @@ dataNode = merkleNode TagData . _xData
 policyNode :: XChanPolicy -> MerkleRoot
 policyNode = merkleNode TagPolicy . runPutBS . encodeXChanPolicy
 
-xChanRoot :: XChan -> MerkleRoot
-xChanRoot c = merkleRoot
+xChanRoot :: XChan -> XChanId
+xChanRoot c = XChanId $ merkleRoot
     $ versionNode (_xVersion c)
     : trgChainNode (_xTrgChain c)
     : dataNode c
@@ -344,7 +400,7 @@ data XChanProof = XChanProof
     , _xChanProofTrgChain :: !ChainId
         -- ^ The target chain of the channel. The second position in the Merkle
         -- tree.
-    , _xChanPolicyIndex :: !Natural
+    , _xChanProofPolicyIndex :: !Natural
         -- ^ The zero based index of the policy in the Merkle tree.
     , _xChanProofPolicy :: !XChanPolicy
         -- ^ The policy for redeeming from the the channel.
@@ -352,6 +408,43 @@ data XChanProof = XChanProof
         -- ^ The auxiliary roots of the proof
     }
     deriving (Show, Eq, Ord)
+
+-- | The claim of an XChan Proof.
+--
+data XChanClaim = XChanClaim
+    { _xChanClaimVersion :: !XChanVersion
+        -- ^ The version of the channel. The first position in the Merkle tree.
+    , _xChanClaimTrgChain :: !ChainId
+        -- ^ The target chain of the channel. The second position in the Merkle
+        -- tree.
+    , _xChanClaimPolicy :: !XChanPolicy
+        -- ^ The policy for redeeming from the the channel.
+    }
+    deriving (Show, Eq, Ord)
+
+encodeXChanClaim :: XChanClaim -> Put
+encodeXChanClaim c = do
+    encodeXChanVersion (_xChanClaimVersion c)
+    encodeChainId (_xChanClaimTrgChain c)
+    encodeXChanPolicy (_xChanClaimPolicy c)
+
+decodeXChanClaim :: Get XChanClaim
+decodeXChanClaim = label "XChanClaim" $ XChanClaim
+    <$> decodeXChanVersion
+    <*> decodeChainId
+    <*> decodeXChanPolicy
+
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag XChanClaim where
+    type Tag XChanClaim = 'XChanClaimTag
+    toMerkleNode = encodeMerkleInputNode encodeXChanClaim
+    fromMerkleNode = decodeMerkleInputNode decodeXChanClaim
+
+instance Brief XChanClaim where
+    brief c = "XChanClaim {"
+        <> " version: " <> brief (_xChanClaimVersion c)
+        <> ", trgChain: " <> brief (_xChanClaimTrgChain c)
+        <> ", policy: " <> brief (_xChanClaimPolicy c)
+        <> "}"
 
 -- -------------------------------------------------------------------------- --
 -- Proof Verification
@@ -364,12 +457,12 @@ data XChanProof = XChanProof
 -- proving that the address is the public key of a secret key that is known to
 -- the signer of the transaction.
 --
-runXChanProof :: forall m . MonadThrow m => XChanProof -> m MerkleRoot
-runXChanProof p = runProof MerkleProof
+runXChanProof :: forall m . MonadThrow m => XChanProof -> m XChanId
+runXChanProof p = XChanId <$> runProof MerkleProof
     { _merkleProofRoots = _xChanProofRoots p
     , _merkleProofLeafs = (0, versionNode (_xChanProofVersion p)) NE.:|
         [ (1, trgChainNode (_xChanProofTrgChain p))
-        , (fromIntegral (_xChanPolicyIndex p), policyNode (_xChanProofPolicy p))
+        , (int (_xChanProofPolicyIndex p), policyNode (_xChanProofPolicy p))
         ]
     }
 
@@ -383,7 +476,7 @@ xChanProof
     -> m XChanProof
 xChanProof c policy = case L.findIndex (== policy) (_xPolicy c) of
     Nothing -> throwM $ userError "XChanProof: policy not found in channel"
-    Just n -> xChanProof' c (fromIntegral n)
+    Just n -> xChanProof' c (int n)
 
 xChanProof'
     :: MonadThrow m
@@ -392,14 +485,14 @@ xChanProof'
         -- ^ The zero based index of the policy in the channel.
     -> m XChanProof
 xChanProof' c n
-    | n >= fromIntegral (length (_xPolicy c)) = throwM $
+    | n >= int (length (_xPolicy c)) = throwM $
         userError "XChanProof: policy index out of bounds"
     | otherwise = return XChanProof
         { _xChanProofVersion = _xVersion c
         , _xChanProofTrgChain = _xTrgChain c
-        , _xChanPolicyIndex = n + 3
+        , _xChanProofPolicyIndex = n + 3
             -- +2 for the version and target chain, +1 for '_xData'.
-        , _xChanProofPolicy = _xPolicy c !! fromIntegral n
+        , _xChanProofPolicy = _xPolicy c !! int n
             -- FIXME: report proper error if is out of bounds
         , _xChanProofRoots = proofRoots
             -- FIXME: use dlist or accumulator.
@@ -444,9 +537,18 @@ xChanProof' c n
         :
             [ (policyNode x, y)
             | (i, x) <- zip [0::Int ..] (_xPolicy c)
-            , let y = i == fromIntegral n
+            , let y = i == int n
             ]
 
+xChanClaim :: XChanProof -> XChanClaim
+xChanClaim p = XChanClaim
+    { _xChanClaimVersion = _xChanProofVersion p
+    , _xChanClaimTrgChain = _xChanProofTrgChain p
+    , _xChanClaimPolicy = _xChanProofPolicy p
+    }
+
+-- | For debugging purposes only. This is the Merkle tree of the XChan
+--
 xChanMerkleTree :: XChan -> Tree
 xChanMerkleTree c = merkleTree leafs
   where
@@ -483,10 +585,22 @@ xChanMerkleTree c = merkleTree leafs
 -- chanPactAccount chan = kaccount $ xChanRoot chan
 
 -- -------------------------------------------------------------------------- --
+-- Redeem XChan
+--
+-- To redeem funds from an XChan, the following evidence must be provided:
+--
+-- 1. The XChanClaim, which includes the version, target chain and policy.
+-- 2. The blanance of the account that is identified by the XChan.
+-- 3. The root of the blance proof is included in the targeted chain.
+
+-- -------------------------------------------------------------------------- --
 -- Brief Instances
 
 instance Brief MerkleRoot where
     brief (MerkleRoot b) = briefJson $ E.HexBytes $ _getBytesN b
+
+instance Brief XChanId where
+    brief (XChanId b) = brief b
 
 instance Brief Tree where
     brief (L r) = brief r
@@ -496,7 +610,7 @@ instance Brief XChanPolicy where
     brief (TrgAccount a) = "TrgAccount " <> briefJson (E.HexBytes a)
 
 instance Brief XChanVersion where
-    brief XChainVersion1 = "XChainVersion1"
+    brief XChainVersion0 = "XChainVersion0"
 
 instance Brief XChan where
     brief c = "XChan {"
@@ -510,7 +624,7 @@ instance Brief XChanProof where
     brief p = "XChanProof {"
         <> " version: " <> brief (_xChanProofVersion p)
         <> ", trgChain: " <> brief (_xChanProofTrgChain p)
-        <> ", policyIndex: " <> sshow (_xChanPolicyIndex p)
+        <> ", policyIndex: " <> sshow (_xChanProofPolicyIndex p)
         <> ", policy: " <> brief (_xChanProofPolicy p)
         <> ", roots: " <> brief (_xChanProofRoots p)
         <> "}"
@@ -538,7 +652,7 @@ test = forM_ [1..10] $ \i -> do
 
 testXChan :: Natural -> XChan
 testXChan n = XChan
-    { _xVersion = XChainVersion1
+    { _xVersion = XChainVersion0
     , _xTrgChain = unsafeChainId 0
     , _xPolicy = policy
     , _xData = BS.toShort "test channel data"

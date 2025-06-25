@@ -151,6 +151,18 @@ data ChainwebHashTag
     | EthParentBeaconBlockRootTag
     | EthReceiptTag
     | EthRequestsHashTag
+
+    -- Ethereum state
+    | EthAccountTag
+
+    -- X-Channels
+    | XChanIdTag
+    | XChanClaimTag
+
+
+    -- Composite Tags
+    | ConjunctTag
+
     deriving (Show, Eq, Bounded, Enum)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -165,6 +177,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'ChainwebVersionTag = 0x0008
     type MerkleTagVal ChainwebHashTag 'PowHashTag = 0x0009
     type MerkleTagVal ChainwebHashTag 'BlockHashTag = 0x0010
+    -- ...
     type MerkleTagVal ChainwebHashTag 'HashTargetTag = 0x0011
     type MerkleTagVal ChainwebHashTag 'TransactionTag = 0x0013
     type MerkleTagVal ChainwebHashTag 'TransactionOutputTag = 0x0014
@@ -174,6 +187,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'CoinbaseOutputTag = 0x0018
     type MerkleTagVal ChainwebHashTag 'EpochStartTimeTag = 0x0019
     type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x0020
+    -- ...
 
     -- Event Proofs
     type MerkleTagVal ChainwebHashTag 'OutputEventsTag = 0x0030
@@ -207,6 +221,17 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'EthParentBeaconBlockRootTag = 0x0053
     type MerkleTagVal ChainwebHashTag 'EthReceiptTag = 0x0054
     type MerkleTagVal ChainwebHashTag 'EthRequestsHashTag = 0x0055
+
+    -- Ethereum state
+    type MerkleTagVal ChainwebHashTag 'EthAccountTag = 0x0070
+
+    -- X-Channels
+    type MerkleTagVal ChainwebHashTag 'XChanIdTag = 0x0090
+    type MerkleTagVal ChainwebHashTag 'XChanClaimTag = 0x0091
+
+    -- FIXME: This is a hack to make the definition
+    -- of SomeArgument simpler. Do we really need this?
+    type MerkleTagVal ChainwebHashTag 'ConjunctTag = 0x1000
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
@@ -403,6 +428,15 @@ data instance Sing :: ChainwebHashTag -> Type where
     SEthRequestsHashTag
         :: SNat (MerkleTagVal ChainwebHashTag EthRequestsHashTag)
         -> Sing 'EthRequestsHashTag
+    SEthAccountTag
+        :: SNat (MerkleTagVal ChainwebHashTag EthAccountTag)
+        -> Sing 'EthAccountTag
+    SXChanIdTag
+        :: SNat (MerkleTagVal ChainwebHashTag XChanIdTag)
+        -> Sing 'XChanIdTag
+    SXChanClaimTag
+        :: SNat (MerkleTagVal ChainwebHashTag XChanClaimTag)
+        -> Sing 'XChanClaimTag
 
 deriving instance Show (Sing (a :: ChainwebHashTag))
 
@@ -463,6 +497,9 @@ sTagVal (SEthExcessBlobGasTag n) = n
 sTagVal (SEthParentBeaconBlockRootTag n) = n
 sTagVal (SEthReceiptTag n) = n
 sTagVal (SEthRequestsHashTag n) = n
+sTagVal (SEthAccountTag n) = n
+sTagVal (SXChanIdTag n) = n
+sTagVal (SXChanClaimTag n) = n
 
 pattern STagVal
     :: forall (a :: ChainwebHashTag)
@@ -518,6 +555,9 @@ instance SingI 'EthExcessBlobGasTag where sing = SEthExcessBlobGasTag SNat
 instance SingI 'EthParentBeaconBlockRootTag where sing = SEthParentBeaconBlockRootTag SNat
 instance SingI 'EthReceiptTag where sing = SEthReceiptTag SNat
 instance SingI 'EthRequestsHashTag where sing = SEthRequestsHashTag SNat
+instance SingI 'EthAccountTag where sing = SEthAccountTag SNat
+instance SingI 'XChanIdTag where sing = SXChanIdTag SNat
+instance SingI 'XChanClaimTag where sing = SXChanClaimTag SNat
 
 instance SingKind ChainwebHashTag where
     type Demote ChainwebHashTag = ChainwebHashTag
@@ -568,6 +608,9 @@ instance SingKind ChainwebHashTag where
     fromSing (SEthParentBeaconBlockRootTag SNat) = EthParentBeaconBlockRootTag
     fromSing (SEthReceiptTag SNat) = EthReceiptTag
     fromSing (SEthRequestsHashTag SNat) = EthRequestsHashTag
+    fromSing (SEthAccountTag SNat) = EthAccountTag
+    fromSing (SXChanIdTag SNat) = XChanIdTag
+    fromSing (SXChanClaimTag SNat) = XChanClaimTag
 
     toSing VoidTag = SomeSing (SVoidTag SNat)
     toSing MerkleRootTag = SomeSing (SMerkleRootTag SNat)
@@ -616,6 +659,9 @@ instance SingKind ChainwebHashTag where
     toSing EthParentBeaconBlockRootTag = SomeSing (SEthParentBeaconBlockRootTag SNat)
     toSing EthReceiptTag = SomeSing (SEthReceiptTag SNat)
     toSing EthRequestsHashTag = SomeSing (SEthRequestsHashTag SNat)
+    toSing EthAccountTag = SomeSing (SEthAccountTag SNat)
+    toSing XChanIdTag = SomeSing (SXChanIdTag SNat)
+    toSing XChanClaimTag = SomeSing (SXChanClaimTag SNat)
 
 tagList :: [ChainwebHashTag]
 tagList = [minBound .. maxBound]

@@ -46,7 +46,7 @@ test c i = do
 
 testXChan :: Natural -> XChan
 testXChan n = XChan
-    { _xVersion = XChainVersion1
+    { _xVersion = XChainVersion0
     , _xTrgChain = unsafeChainId 0
     , _xPolicy = policy
     , _xData = BS.toShort "test channel data"
