@@ -28,7 +28,7 @@ import Servant
 
 -- internal modules
 import Chainweb.Chainweb.Configuration
-import Chainweb.PayloadProvider.EVM (evmConfMinerAddress)
+import Chainweb.PayloadProvider.EVM
 import Chainweb.PayloadProvider.Minimal (mpcRedeemAccount)
 import Chainweb.PayloadProvider.Minimal.Payload (invalidAccount)
 import Chainweb.PayloadProvider.Pact.Configuration (pactConfigMiner)
@@ -60,6 +60,7 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
     $ set (configPayloadProviders . payloadProviderConfigMinimal . mpcRedeemAccount) invalidAccount
     $ set (configPayloadProviders . payloadProviderConfigPact . traversed . pactConfigMiner) Nothing
     $ set (configPayloadProviders . payloadProviderConfigEvm . traversed . evmConfMinerAddress) Nothing
+    $ set (configPayloadProviders . payloadProviderConfigEvm . traversed . evmConfEngineJwtSecret) (_evmConfEngineJwtSecret defaultEvmProviderConfig)
 
     -- Service API port
     $ set (configServiceApi . serviceApiConfigPort) 0
