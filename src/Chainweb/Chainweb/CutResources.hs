@@ -95,7 +95,7 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
 
-    cutDb <- withCutDb cutDbParams (logFunction logger) headerStore providers cutHashesStore
+    cutDb <- withCutDb cutDbParams logger headerStore providers cutHashesStore
     cutP2pNode <- liftIO $ mkP2pNode True "cut" $
         C.syncSession myInfo cutDb
     headerP2pNode <- liftIO $ mkP2pNode False "header" $

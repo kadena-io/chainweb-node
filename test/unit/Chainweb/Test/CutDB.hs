@@ -118,6 +118,7 @@ cutFetchTimeout = 3_000_000
 withTestCutDb
     :: HasCallStack
     => HasVersion
+    => Logger logger
     => RocksDb
         -- ^ the chainweb version
     -> (CutDbParams -> CutDbParams)
@@ -133,20 +134,19 @@ withTestCutDb
         -- service that can be given a transaction generator, that allows to
         -- create blocks with a well-defined set of test transactions.
         --
-    -> LogFunction
-        -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
+    -> logger
     -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb)
-withTestCutDb rdb conf n providers logfun = do
+withTestCutDb rdb conf n providers logger = do
     rocksDb <- liftIO $ testRocksDb "withTestCutDb" rdb
     let cutHashesDb = cutHashesTable rocksDb
     webDb <- liftIO $ initWebBlockHeaderDb rocksDb
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
     headerStore <- withLocalWebBlockHeaderStore mgr webDb
-    cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logfun headerStore providers cutHashesDb
+    cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logger headerStore providers cutHashesDb
     liftIO $ synchronizeProviders webDb genesisCut
 
-    liftIO $ logfun @Text Debug "GOING TO MINE AT THE START"
-    liftIO $ foldM_ (\c _ -> view _1 <$> mine logfun cutDb c) genesisCut [1..n]
+    liftIO $ logFunctionText logger Debug "GOING TO MINE AT THE START"
+    liftIO $ foldM_ (\c _ -> view _1 <$> mine logger cutDb c) genesisCut [1..n]
     return (cutHashesDb, cutDb)
     where
     synchronizeProviders :: WebBlockHeaderDb -> Cut -> IO ()
@@ -163,10 +163,10 @@ withTestCutDb rdb conf n providers logfun = do
                     throwM e
                 unless (r == _forkInfoTargetState finfo) $ do
                     error "Chainweb.Test.CutDB.synchronizeProviders: unexpected result state"
-                logfun Debug $ "payload provider synced, on chain: " <> toText (_chainId hdr)
+                logFunctionText logger Debug $ "payload provider synced, on chain: " <> toText (_chainId hdr)
                     -- FIXME
             DisabledPayloadProvider -> do
-                logfun Debug $
+                logFunctionText logger Debug $
                     "payload provider disabled, not synced, on chain: " <> toText (_chainId hdr)
 
 
@@ -256,14 +256,14 @@ awaitBlockHeight cdb bh cid = atomically $ do
 withTestCutDbWithoutPact
     :: HasCallStack
     => HasVersion
+    => Logger logger
     => RocksDb
         -- ^ the chainweb version
     -> (CutDbParams -> CutDbParams)
         -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
-    -> LogFunction
-        -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
+    -> logger
     -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb)
 withTestCutDbWithoutPact rdb conf n =
     withTestCutDb rdb conf n (onAllChains DisabledPayloadProvider)
@@ -272,33 +272,35 @@ withTestCutDbWithoutPact rdb conf n =
 --
 withTestPayloadResource
     :: HasVersion
+    => Logger logger
     => RocksDb
     -> Int
-    -> LogFunction
+    -> logger
     -> ResourceT IO CutDb
-withTestPayloadResource rdb n logfun
+withTestPayloadResource rdb n logger
     = view _2 . snd <$> allocate start stopTestPayload
   where
-    start = startTestPayload rdb logfun n
+    start = startTestPayload rdb logger n
 
 -- -------------------------------------------------------------------------- --
 -- Internal Utils for mocking up the backends
 
 startTestPayload
     :: HasVersion
+    => Logger logger
     => RocksDb
-    -> LogFunction
+    -> logger
     -> Int
     -> IO (Async (), CutDb)
-startTestPayload rdb logfun n = do
+startTestPayload rdb logger n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
     let cutHashesDb = cutHashesTable rocksDb
     webDb <- initWebBlockHeaderDb rocksDb
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
     let disabledPayloadProviders = onAllChains DisabledPayloadProvider
-    cutDb <- startCutDb (defaultCutDbParams cutFetchTimeout) logfun hstore disabledPayloadProviders cutHashesDb
-    foldM_ (\c _ -> view _1 <$> mine logfun cutDb c) genesisCut [0..n]
+    cutDb <- startCutDb (defaultCutDbParams cutFetchTimeout) logger hstore disabledPayloadProviders cutHashesDb
+    foldM_ (\c _ -> view _1 <$> mine logger cutDb c) genesisCut [0..n]
     return (hserver, cutDb)
 
 stopTestPayload :: (Async (), CutDb) -> IO ()
@@ -330,8 +332,8 @@ startLocalWebBlockHeaderStore mgr webDb = do
 mine
     :: HasCallStack
     => HasVersion
-    => LogFunctionText
-        -- ^ The miner. For testing you may use 'defaultMiner'.
+    => Logger logger
+    => logger
     -> CutDb
     -> Cut
     -> IO (Cut, ChainId, NewPayload)
@@ -344,15 +346,15 @@ mine logger cutDb c = do
     -- - the chainweb is in a consistent state,
     -- - the pact execution service is synced with the cutdb, and
     -- - the transaction generator produces valid blocks.
-    logger Debug "going to mine"
+    logFunctionText logger Debug "going to mine"
     cid <- getRandomUnblockedChain c
-    logger Debug "got unblocked chain"
+    logFunctionText logger Debug "got unblocked chain"
 
     tryMineForChain cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
             "Failed to create new cut. This is a bug in Chainweb.Test.CutDB or one of it's users"
         Right x -> do
-            logger Debug "awaiting cut with block"
+            logFunctionText logger Debug "awaiting cut with block"
             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
             return x
 
@@ -519,7 +521,7 @@ testCutPruning rdb = testCase "cut pruning" $ runResourceT $ withVersion (barebo
     (cutHashesStore, _) <- withTestCutDb rdb alterPruningSettings
         (int $ avgCutHeightAt minedBlockHeight)
         pps
-        (logFunction testLogger)
+        testLogger
     liftIO $ do
         -- peek inside the cut DB's store to find the oldest and newest cuts
         let table = unCasify cutHashesStore
@@ -544,6 +546,7 @@ testCutGet rdb = testCase "cut get" $ withVersion (barebonesTestVersion pairChai
     let ch = avgCutHeightAt bh
     let halfCh = ch `div` 2
     tmp <- withTempDir "donotuse"
+    testLogger <- liftIO getTestLogger
 
     pps <- tabulateChainsM $ \cid -> view providerResPayloadProvider <$> withPayloadProviderResources
         (genericLogger Error (\_ -> return ()))
@@ -554,7 +557,7 @@ testCutGet rdb = testCase "cut get" $ withVersion (barebonesTestVersion pairChai
         False
         tmp
         defaultPayloadProviderConfig
-    (_, cutDb) <- withTestCutDb rdb id (2 * int ch) pps (\_ _ -> return ())
+    (_, cutDb) <- withTestCutDb rdb id (2 * int ch) pps testLogger
     liftIO $ do
         curHeight <- _cutHeight <$> _cut cutDb
         assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
