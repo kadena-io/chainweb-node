@@ -856,11 +856,7 @@ transitionOccurs rdb _step = runResourceT $ do
 
     liftIO $ do
         checkPactVersion fx v cid >>= P.equals Pact4
-        forM_ @_ @_ @Word [1..17] $ \i -> do
-            advanceAllChains_ fx
-            -- index trick to show which iteration fails, if any
-            (i,) <$> checkPactVersion fx v cid >>= P.equals (i, Pact4)
-        advanceAllChains_ fx
+        advanceToForkHeight fx Pact5Fork
         checkPactVersion fx v cid >>= P.equals Pact5
 
 -- | Test that xchains work across the Pact4->Pact4 transition boundary.
