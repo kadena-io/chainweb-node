@@ -464,6 +464,9 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionForks .~ tabulateHashMap (\case
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
+
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
+
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
@@ -487,16 +490,21 @@ pact53TransitionCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("pact53-transition-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
+        -- pact 5 is off until here
+        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
-        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
+
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
+
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
-            (unsafeChainId 0, PIN0.payloadBlock) :
-            [(n, PINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -507,6 +515,42 @@ pact53TransitionCpmTestVersion g = buildTestVersion $ \v -> v
             , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
             )
         )
+
+{-
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("pact53-transition-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisBlockHeight v cid)) | cid <- HS.toList $ graphChainIds g ]
+        -- SPV Bridge is not in effect for Pact 5 yet.
+        SPVBridge -> AllChains ForkNever
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionQuirks .~ noQuirks
+    {-
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, PIN0.payloadBlock) :
+            [(n, PINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    -}
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
+-}
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
 -- at genesis. We also have an upgrade after genesis that redeploys Coin v5 as
@@ -546,8 +590,14 @@ instantCpmTransitionTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("instant-CPM-transition-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        -- pact 5 is off
+        -- pact 5 is off until here
         Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+
+        -- SPV Bridge is not in effect for Pact 5 yet.
+        SPVBridge -> AllChains ForkNever
+
+        --Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
+
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
