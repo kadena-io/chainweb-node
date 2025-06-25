@@ -81,6 +81,7 @@ main = do
       , fastnet
       , instantnet
       , pact5Instantnet
+      , pact53Transitionnet
       , quirkedPact5Instantnet
       , testnet04
       , mainnet
@@ -104,6 +105,7 @@ main = do
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
     pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
+    pact53Transitionnet = mkPayloads [pact53TransitionCPM0, pact53TransitionCPMN]
     quirkedPact5Instantnet = mkPayloads [quirkedPact5InstantCPM0, quirkedPact5InstantCPMN]
     testnet04 = mkPayloads [testnet040, testnet04N]
     mainnet = mkPayloads
