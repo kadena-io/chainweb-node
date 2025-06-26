@@ -24,7 +24,6 @@ import Control.Monad
 import Data.Aeson
 import Data.String
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
 import Ethereum.Misc qualified as E
 import Ethereum.RLP qualified as E
 import Network.HTTP.Client qualified as HTTP
@@ -72,15 +71,16 @@ main = do
             return ("evm-development-pair", cids, evmDevnetSpecFile 1)
         _ -> error "Invalid argument for the chainweb version provided. The version must be one of: 'mainnet', 'testnet', 'evm-testnet', or 'evm-development'."
 
+    let specFileDir = "./chain-specs/" <> n
+    createDirectoryIfMissing True specFileDir
     hdrs <- forM cids $ \cid -> do
-        let specFileDir = "./chain-specs/" <> n
-        createDirectoryIfMissing True specFileDir
         let specFileName = specFileDir <> "/chain-spec-" <> show cid <> ".json"
         encodeFile specFileName $ spec cid
         hdr <- queryNode cid specFileName
         return (cid, hdr)
 
-    T.putStrLn $ encodeToText
+    let payloadFileName = specFileDir <> "/payloads.json"
+    encodeFile payloadFileName $
         [ object
             [ "chainId" .= cid
             , "blockPayloadHash" .= E._hdrPayloadHash hdr
