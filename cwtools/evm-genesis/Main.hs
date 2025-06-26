@@ -161,7 +161,7 @@ mkRpcCtx u = do
 
 -- |
 --
--- System contract addresses:
+-- Chainweb System contract addresses:
 --
 -- * Chainweb-chainId system contract:
 --   0x9b02c3e2dF42533e0FD166798B5A616f59DBd2cc
@@ -174,6 +174,8 @@ mkRpcCtx u = do
 -- * ERC-20 x-chain SPV Precompile address from KIP-34 (EthDenver 2025 demo):
 --   48c3b4d2757447601776837b6a85f31ef88a87bf
 --   Keccak256("/Chainweb/KIP-34/VERIFY/SVP/")
+--   (This is a precompile in kadena-reth and not included in the genesis
+--   allocations)
 --
 baseSpecFile
     :: Natural
@@ -230,7 +232,6 @@ baseSpecFile netId offset cid genesisTime allocs = object
     , "gasLimit" .= t "0x1c9c380"
     , "alloc" .= object
         ( chainwebChainIdAlloc
-        : xChanRedeemAlloc
         : eip4788Alloc
         : eip2935Alloc
         : allocs
@@ -245,20 +246,19 @@ baseSpecFile netId offset cid genesisTime allocs = object
     i :: Natural -> Natural
     i = id
 
-    -- Chainweb System Contracts: Keccak256("/Chainweb/Chain/Id/")
-    --
+    -- Chainweb System Contracts
+
+    -- Chainweb Chain Id
+    -- Address: Keccak256("/Chainweb/Chain/Id/")
     chainwebChainIdAlloc = "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc" .= object
         [ "balance" .= t "0x0"
         , "code" .= t "0x5f545f526004601cf3"
         , "storage" .= object [ zero32 .= (printf "0x%064x" cid :: String) ]
         ]
 
-    -- Native X-Chan redeem system contract: Keccack256("/Chainweb/XChan/Redeem/")
-    -- TODO: cleanup and optimize the code
-    xChanRedeemAlloc = "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
-        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        , "code" .= t "0x346101535773ad9923c37370bcbcf00ed194506d8950848956965f9060209160c060e091610140946101609061018091609a9660e3360361014c575f359860203560f01c9360223560ea1c9860263560601c9a603a3599605a359b607a359a5f60db3560c01c9a03610145576004815f80739b02c3e2df42533e0fd166798b5a616f59dbd2cc5afa1561013e5751036101375760408593602060018580896080985f869c372086528181601f8601370191013760015afa1561013057510361012957602083918193720f3df6d732807ef1319fb7b8bb8522d0beac029082525afa1561012257510361011b5781548091038411610114575f84819482948284950190555af11561010d575f80f35b600a610157565b6009610157565b6008610157565b6007610157565b6006610157565b6005610157565b6004610157565b6003610157565b6002610157565b6001610157565b5f80fd5b5f5260205ffd"
-        ]
+    -- Native X-Chan Redeem
+    -- Address: Keccack256("/Chainweb/XChan/Redeem/")
+    -- See below
 
     -- Official Ethreum System Contracts:
 
@@ -352,6 +352,15 @@ evmDevnetSpecFile offset cid = baseSpecFile 1789 offset cid 0x684c5d2a
     , "0x3492DA004098d728201fD82657f1207a6E5426bd" .= object
         [ "balance" .= t "0xd3c21bcecceda1000000" ]
 
+    -- Native X-Chan Redeem
+    -- Address: Keccack256("/Chainweb/XChan/Redeem/")
+    -- Redeem key address: 0xaD9923C37370BCbCF00ed194506D895084895696
+    -- Redeem public key: 0x02d33118ef4a40a2bd797daf61e71488d465b1174c11ae582abfd2ce1c77d0a2a4
+    , "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
+        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        , "code" .= t "0x346101535773ad9923c37370bcbcf00ed194506d8950848956965f9060209160c060e091610140946101609061018091609a9660e3360361014c575f359860203560f01c9360223560ea1c9860263560601c9a603a3599605a359b607a359a5f60db3560c01c9a03610145576004815f80739b02c3e2df42533e0fd166798b5a616f59dbd2cc5afa1561013e5751036101375760408593602060018580896080985f869c372086528181601f8601370191013760015afa1561013057510361012957602083918193720f3df6d732807ef1319fb7b8bb8522d0beac029082525afa1561012257510361011b5781548091038411610114575f84819482948284950190555af11561010d575f80f35b600a610157565b6009610157565b6008610157565b6007610157565b6006610157565b6005610157565b6004610157565b6003610157565b6002610157565b6001610157565b5f80fd5b5f5260205ffd"
+        ]
+
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -382,8 +391,17 @@ evmTestnetSpecFile cid = baseSpecFile 5920 20 cid 0x684c5d2a
     , "0xE482e4F590D4155B51F4Fc21d64823f4d7854397" .= object
         [ "balance" .= t "0x422ca8b0a00a425000000" ]
     -- additional platform funds that are separate from the faucet accounts
-    , "0xeC1B36992C3c7d0f7AbB8EDA43EEbC9A418c0A1e" .= object
+    , "0x8cb33Ecc40C31B79aE414a3D958B1b094B8993ce" .= object
         [ "balance" .= t "0x422ca8b0a00a425000000" ]
+
+    -- Native X-Chan Redeem
+    -- Address: Keccack256("/Chainweb/XChan/Redeem/")
+    -- Redeem key address: 0xcFc539fe84a4Dd6a50070CEFD638B869c745C58D
+    -- Redeem public key: 0x02afe12e765568cc0ca395e3aad1f42108afa63cdf08562c062afc94aeecc47eb5
+    , "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
+        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        , "code" .= t "0x346101535773cfc539fe84a4dd6a50070cefd638b869c745c58d5f9060209160c060e091610140946101609061018091609a9660e3360361014c575f359860203560f01c9360223560ea1c9860263560601c9a603a3599605a359b607a359a5f60db3560c01c9a03610145576004815f80739b02c3e2df42533e0fd166798b5a616f59dbd2cc5afa1561013e5751036101375760408593602060018580896080985f869c372086528181601f8601370191013760015afa1561013057510361012957602083918193720f3df6d732807ef1319fb7b8bb8522d0beac029082525afa1561012257510361011b5781548091038411610114575f84819482948284950190555af11561010d575f80f35b600a610157565b6009610157565b6008610157565b6007610157565b6006610157565b6005610157565b6004610157565b6003610157565b6002610157565b6001610157565b5f80fd5b5f5260205ffd"
+        ]
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -408,9 +426,7 @@ testnetSpecFile
     -> Value
 testnetSpecFile cid = baseSpecFile 5910 20 cid 0x684c5d2a
     [
-      error "mainnetSpecFile: the EVM genesis allocations for mainnet are TBD"
-      -- TODO: Native-X-Chain System contract
-      -- TODO: other allocations.
+      error "testnetSpecFile: the EVM genesis allocations for mainnet are TBD"
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -432,7 +448,5 @@ mainnetSpecFile
 mainnetSpecFile cid = baseSpecFile 5900 20 cid 0x684c5d2a
     [
       error "mainnetSpecFile: the EVM genesis allocations for mainnet are TBD"
-      -- TODO: Native-X-Chain System contract
-      -- TODO: other allocations.
     ]
 

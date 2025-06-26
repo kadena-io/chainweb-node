@@ -77,7 +77,7 @@ evmDevnetPair = withVersion evmDevnetPair $ ChainwebVersion
             -- Pact Payload Provider
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
             -- EVM Payload Provider
-            , (unsafeChainId 1, unsafeFromText "MlhkFoanwAk9wn1yl2ol7GlYq6A0pTharRhqEPH4jRg")
+            , (unsafeChainId 1, unsafeFromText "E8Z96yfRFs9dHYlml71XhWmZHmWzK5TRAmpXLvPj5rQ")
             ]
         }
 
@@ -122,7 +122,7 @@ evmDevnetSingleton = withVersion evmDevnetSingleton $ ChainwebVersion
             [ (unsafeChainId 0, BlockCreationTime (Time (secondsToTimeSpan 0x684c5d2a))) ]
         , _genesisBlockPayload = onChains $
             -- EVM Payload Provider
-            [ (unsafeChainId 0, unsafeFromText "a4zEmOvuUN4yE8dKUmLRE86TrChu9_lnZya4mEWa-Sc") ]
+            [ (unsafeChainId 0, unsafeFromText "ogx6zpVYf2jh1WHwYXFxCt211b1TspNymq0B7p2i3KI") ]
         }
 
     -- still the *default* block gas limit is set, see
