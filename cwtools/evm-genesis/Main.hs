@@ -230,6 +230,9 @@ baseSpecFile netId offset cid genesisTime allocs = object
     , "gasLimit" .= t "0x1c9c380"
     , "alloc" .= object
         ( chainwebChainIdAlloc
+        : xChanRedeemAlloc
+        : eip4788Alloc
+        : eip2935Alloc
         : allocs
         )
     , "number" .= t "0x0"
@@ -242,11 +245,40 @@ baseSpecFile netId offset cid genesisTime allocs = object
     i :: Natural -> Natural
     i = id
 
+    -- Chainweb System Contracts: Keccak256("/Chainweb/Chain/Id/")
+    --
     chainwebChainIdAlloc = "0x9b02c3e2df42533e0fd166798b5a616f59dbd2cc" .= object
         [ "balance" .= t "0x0"
         , "code" .= t "0x5f545f526004601cf3"
         , "storage" .= object [ zero32 .= (printf "0x%064x" cid :: String) ]
         ]
+
+    -- Native X-Chan redeem system contract: Keccack256("/Chainweb/XChan/Redeem/")
+    -- TODO: cleanup and optimize the code
+    xChanRedeemAlloc = "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
+        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        , "code" .= t "0x3460f15773ad9923c37370bcbcf00ed194506d8950848956965f9060209160c060e0916101409361016090609a9560e3360360eb575f359760ea6022351c9660606026351c98603635976056359960c060d7351c986004815f80739b02c3e2df42533e0fd166798b5a616f59dbd2cc5afa1560e557510360df5760408593602060018580896080985f869c372086528181601f8601370191013760015afa1560d957510360d357528154809103841160cd575f84819482948284950190555af11560c7575f80f35b600960f5565b600860f5565b600560f5565b600460f5565b600360f5565b600260f5565b600160f5565b5f80fd5b5f5260205ffd"
+        ]
+
+    -- Official Ethreum System Contracts:
+
+    -- EIP-4788 BeaconRoot Oracle. Included in Cancun fork
+    eip4788Alloc = "0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02" .= object
+        [ "balance" .= t "0x0"
+        , "code" .= t "0x3373fffffffffffffffffffffffffffffffffffffffe14604d57602036146024575f5ffd5b5f35801560495762001fff810690815414603c575f5ffd5b62001fff01545f5260205ff35b5f5ffd5b62001fff42064281555f359062001fff015500"
+        ]
+
+    -- EIP-2935 Historical Block Hashes. Included in the Prague fork
+    eip2935Alloc = "0x0000F90827F1C53a10cb7A02335B175320002935" .= object
+        [ "balance" .= t "0x0"
+        , "code" .= t "0x3373fffffffffffffffffffffffffffffffffffffffe14604657602036036042575f35600143038111604257611fff81430311604257611fff9006545f5260205ff35b5f5ffd5b5f35611fff60014303065500"
+        ]
+
+    -- EIP-7002 EL Triggered Withdrawal Requests. Included in Prague fork
+    -- Not available on Kadena EVM networks
+
+    -- EIP-7251 EL triggered Consolidations. Included in Prague fork
+    -- Not available on Kadena EVM networks
 
 zero32 :: IsString s => s
 zero32 = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -320,11 +352,6 @@ evmDevnetSpecFile offset cid = baseSpecFile 1789 offset cid 0x684c5d2a
     , "0x3492DA004098d728201fD82657f1207a6E5426bd" .= object
         [ "balance" .= t "0xd3c21bcecceda1000000" ]
 
-    -- Native X-Chan redeem system contract: Keccack256("/Chainweb/XChan/Redeem/")
-    -- TODO: code
-    , "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
-        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        ]
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -357,12 +384,6 @@ evmTestnetSpecFile cid = baseSpecFile 5920 20 cid 0x684c5d2a
     -- additional platform funds that are separate from the faucet accounts
     , "0xeC1B36992C3c7d0f7AbB8EDA43EEbC9A418c0A1e" .= object
         [ "balance" .= t "0x422ca8b0a00a425000000" ]
-
-    -- Native X-Chan redeem system contract: Keccack256("/Chainweb/XChan/Redeem/")
-    -- TODO: code
-    , "0x49eed2ac33f09e931bd660f0168417b9614485b6" .= object
-        [ "balance" .= t "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        ]
     ]
 
 -- -------------------------------------------------------------------------- --
