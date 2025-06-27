@@ -1157,7 +1157,10 @@ awaitNewPayload p = do
 
                 -- Check that the fees of the execution paylod match the block
                 -- value of the response.
-                -- FIXME FIXME FIXME
+                -- FXIME: the fee computation is wrong. I think, the block value
+                -- is not the base fee per gas times the gas used. It's probably
+                -- a lower bound, but not 100% sure.
+                --
                 -- unless (EVM._blockValueStu (_getPayloadV4ResponseBlockValue resp) == fees v1) $
                 --    throwM InconsistentNewPayloadFees
                 --        { _inconsistentPayloadBlockValue = _getPayloadV4ResponseBlockValue resp
