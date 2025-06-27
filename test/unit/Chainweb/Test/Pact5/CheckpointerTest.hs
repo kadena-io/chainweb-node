@@ -47,7 +47,7 @@ import Pact.Core.Builtin
 import Pact.Core.Evaluate (Info)
 import Pact.Core.Literal
 import Pact.Core.Names
-import qualified Pact.Core.PactDbRegression as Pact.Core
+import qualified Pact.Core.PactDbRegression as Pact
 import Pact.Core.PactValue
 import Pact.Core.Persistence
 import qualified Streaming.Prelude as Stream
@@ -187,18 +187,26 @@ runBlocks
     -> ParentHeader
     -> [DbBlock (Const ())]
     -> IO [(BlockHeader, DbBlock Identity)]
-runBlocks cp ph blks = do
-    ((), finishedBlks) <- Checkpointer.restoreAndSave cp (Just ph) $ traverse_ Stream.yield
-        [ Pact5RunnableBlock $ \db _ph startHandle -> do
+runBlocks cp rewindPt blks = do
+    ((), finishedBlks) <- Checkpointer.restoreAndSave cp (Just rewindPt) $ traverse_ Stream.yield
+        [ Pact5RunnableBlock $ \db ph startHandle -> do
             doPact5DbTransaction db startHandle Nothing $ \txdb -> do
-                _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
-                blk' <- traverse (runDbAction txdb) blk
-                txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
-                bh <- blockHeaderFromTxLogs (fromJuste _ph) txLogs
-                return ([(bh, blk')], bh)
+                runBlk txdb ph (traverse (runDbAction txdb) blk)
         | blk <- blks
         ]
     return finishedBlks
+
+runBlk
+    :: PactDb x Info
+    -> Maybe ParentHeader
+    -> IO r
+    -> IO ([(BlockHeader, r)], BlockHeader)
+runBlk txdb ph blk = do
+    _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
+    blk' <- blk
+    txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
+    bh <- blockHeaderFromTxLogs (fromJuste ph) txLogs
+    return ([(bh, blk')], bh)
 
 -- Check that a block's result at the time it was added to the checkpointer
 -- is consistent with us executing that block with `readFrom`
@@ -234,7 +242,7 @@ tests = testGroup "Pact5 Checkpointer tests"
             ((), _handle) <- (throwIfNoHistory =<<) $
                 Checkpointer.readFrom cp Nothing Pact5T $ \db blockHandle -> do
                     doPact5DbTransaction db blockHandle Nothing $ \txdb ->
-                        Pact.Core.runPactDbRegression txdb
+                        Pact.runPactDbRegression txdb
             return ()
     , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
         testProperty "readFrom with linear block history is valid" $ withTests 1000 $ property $ do
@@ -253,6 +261,33 @@ tests = testGroup "Pact5 Checkpointer tests"
                 -- gives the same results
                 forM_ finishedBlocksWithParents $ \(ph, block) -> do
                     assertBlock cp ph block
+    , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
+        testCase "reading doesn't duplicate keys results" $ do
+            cp <- cpIO
+            _ <- Checkpointer.restoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
+                return (((), gh), hndl)
+            _ <- Checkpointer.restoreAndSave cp (Just $ ParentHeader gh) $ do
+                let coinTable = TableName "coin-table" (ModuleName "coin" Nothing)
+                let domain = DUserTables coinTable
+                Stream.yield $ Pact5RunnableBlock $ \db ph hndl ->
+                    doPact5DbTransaction db hndl Nothing $ \txdb ->
+                        runBlk txdb ph $ do
+                            ignoreGas noInfo $ _pdbCreateUserTable txdb
+                                coinTable
+                            ignoreGas noInfo $ _pdbWrite txdb Insert
+                                domain
+                                (RowKey "k")
+                                (RowData $ Map.singleton (Field "f") (PString "value"))
+                Stream.yield $ Pact5RunnableBlock $ \db ph hndl ->
+                    doPact5DbTransaction db hndl Nothing $ \txdb ->
+                        runBlk txdb ph $ do
+                            _ <- ignoreGas noInfo $ _pdbRead txdb
+                                domain
+                                (RowKey "k")
+                            keys <- ignoreGas noInfo $ _pdbKeys txdb domain
+                            assertEqual "keys after reading" [RowKey "k"] keys
+
+            return ()
     ]
 
 testVer :: ChainwebVersion

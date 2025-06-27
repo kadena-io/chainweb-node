@@ -82,7 +82,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Utils (sshow, T2)
 import Chainweb.Utils.Serialization (runPutS)
 import Chainweb.Version
-import Chainweb.Version.Guards (pact5Serialiser)
+import Chainweb.Version.Guards
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Exception.Safe
@@ -105,7 +105,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.Int
-import Data.List(sort)
+import Data.List(group, sort)
 import Data.Map.Strict qualified as M
 import Data.Maybe
 import Data.Singletons (Dict(..))
@@ -130,6 +130,7 @@ import Pact.Core.Serialise qualified as Pact
 import Pact.Core.StableEncoding (encodeStable)
 import Pact.Types.Persistence qualified as Pact4
 import Prelude hiding (concat, log)
+import System.LogLevel
 
 data InternalDbException = InternalDbException CallStack Text
 instance Show InternalDbException where show = displayException
@@ -566,7 +567,8 @@ doWriteRow wt d k v = case d of
 doKeys
     :: forall k v logger
     -- ^ the highest block we should be reading writes from
-    . Pact.Domain k v Pact.CoreBuiltin Pact.Info
+    . Logger logger
+    => Pact.Domain k v Pact.CoreBuiltin Pact.Info
     -> BlockHandler logger [k]
 doKeys d = do
     dbKeys <- getDbKeys
@@ -594,8 +596,20 @@ doKeys d = do
               Just v -> pure (v, Dict ())
               Nothing -> internalDbError $ "doKeys.DModuleSources: unexpected decoding"
     case ordDict of
-        Dict () ->
-            return $ sort (memKeys ++ parsedKeys)
+        Dict () -> do
+            v <- view blockHandlerVersion
+            cid <- view blockHandlerChainId
+            bh <- view blockHandlerBlockHeight
+            let preResult = sort (memKeys ++ parsedKeys)
+            -- the read-cache contains duplicate keys that we need to remove.
+            let postResult = fmap head $ group $ sort (memKeys ++ parsedKeys)
+            when (postResult /= preResult) $ do
+                lgr <- view blockHandlerLogger
+                liftIO $ logFunctionText lgr Warn $ "duplicate keys in domain " <> sshow d
+            return $
+                if chainweb230Pact v cid bh
+                then postResult
+                else preResult
 
     where
 
