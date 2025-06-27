@@ -104,13 +104,13 @@ test_finalMinerReward = withVersion mainnet $ do
 
 test_minerRewardsMax :: Assertion
 test_minerRewardsMax = assertBool
-    "maximum miner reward is smaller than 1e12 * 24"
-    (_stu (maximum minerRewards) < 1e12 * 24)
+    "maximum miner reward is smaller than 1e9 * 24"
+    (_gstu (maximum minerRewards) < 1e9 * 24)
 
 test_minerRewardsFitWord64 :: Assertion
 test_minerRewardsFitWord64 = assertBool
     "maximum miner reward fits into Word64"
-    (_stu (maximum minerRewards) <= fromIntegral (maxBound @Word64))
+    (_gstu (maximum minerRewards) <= fromIntegral (maxBound @Word64))
 
 test_expectedMinerRewardsHash :: Assertion
 test_expectedMinerRewardsHash = assertEqual
