@@ -532,6 +532,7 @@ data ExecutionPayloadV1 = ExecutionPayloadV1
         -- ^ gasLimit: QUANTITY, 64 Bits
     , _executionPayloadV1GasUsed :: !E.GasUsed
         -- ^ gasUsed: QUANTITY, 64 Bits
+        -- Denoted in GWei
     , _executionPayloadV1Timestamp :: !E.Timestamp
         -- ^ timestamp: QUANTITY, 64 Bits
     , _executionPayloadV1ExtraData :: !E.ExtraData

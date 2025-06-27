@@ -29,16 +29,29 @@ module Chainweb.MinerReward
   Stu(..)
 , divideStu
 
+-- * MStu
+, MStu(..)
+, divideMStu
+
+-- * GStu
+, GStu(..)
+, divideGStu
+
 -- * KDA
 , Kda
 , pattern Kda
 , _kda
 , stuToKda
 , kdaToStu
+, mstuToKda
+, kdaToMStu
+, gstuToKda
+, kdaToGStu
 
 -- * Miner Reward
 , MinerReward(..)
 , minerRewardKda
+, minerRewardGStu
 , blockMinerReward
 , encodeMinerReward
 , decodeMinerReward
@@ -81,16 +94,23 @@ import GHC.Stack
 import Numeric.Natural
 
 -- -------------------------------------------------------------------------- --
--- STU
+-- Stu
 
--- | Smallest Unit of KDA: 1 KDA == 1e12 STU.
+-- | Stu: 1 KDA == 1e18 Stu.
+--
+-- This is the smallest unit of KDA throughout the Chainweb ecosystem.
+--
+-- It is used for balances in native X-Channels.
+--
+-- It is also used to represent balances and transfered amount of native KDA in
+-- the EVM.
 --
 -- Values are non-negative and substraction can result in an arithmetic
 -- underflow.
 --
 newtype Stu = Stu { _stu :: Natural }
-    deriving stock (Show, Eq, Ord, Generic)
-    deriving newtype (Enum, Num, Real, Integral, NFData)
+    deriving stock (Show, Generic)
+    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData)
 
 instance HasTextRepresentation Stu where
     toText = toText . _stu
@@ -116,14 +136,102 @@ divideStu :: Stu -> Natural -> Stu
 divideStu s n = round $ s % fromIntegral n
 
 -- -------------------------------------------------------------------------- --
+-- Mega Stu
+
+-- | Mega Stu: 1 KDA == 1e12 MStu.
+--
+-- This is smallest unit of KDA on Pact Chains.
+--
+-- Values are non-negative and substraction can result in an arithmetic
+-- underflow.
+--
+newtype MStu = MStu { _mstu :: Natural }
+    deriving stock (Show, Generic)
+    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData)
+
+instance HasTextRepresentation MStu where
+    toText = toText . _mstu
+    fromText = fmap MStu . fromText
+    {-# INLINEABLE toText #-}
+    {-# INLINEABLE fromText #-}
+
+instance ToJSON MStu where
+    toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
+    {-# INLINEABLE toJSON #-}
+    {-# INLINEABLE toEncoding #-}
+
+instance FromJSON MStu where
+    parseJSON = parseJsonFromText "MStu"
+    {-# INLINABLE parseJSON #-}
+
+-- | Divide a MStu by a Natural number.
+--
+-- The result is rounded using bankers rounding.
+--
+divideMStu :: MStu -> Natural -> MStu
+divideMStu s n = round $ s % fromIntegral n
+
+-- -------------------------------------------------------------------------- --
+-- Giga Stu
+
+-- | Giga Stu: 1 KDA == 1e9 gstu.
+--
+-- This is used to represent gas and withdrawals in the EVM. In particular, it
+-- is used for mining rewards in the EVM.
+--
+-- Values are non-negative and substraction can result in an arithmetic
+-- underflow.
+--
+newtype GStu = GStu { _gstu :: Natural }
+    deriving stock (Show, Generic)
+    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData)
+
+instance HasTextRepresentation GStu where
+    toText = toText . _gstu
+    fromText = fmap GStu . fromText
+    {-# INLINEABLE toText #-}
+    {-# INLINEABLE fromText #-}
+
+instance ToJSON GStu where
+    toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
+    {-# INLINEABLE toJSON #-}
+    {-# INLINEABLE toEncoding #-}
+
+instance FromJSON GStu where
+    parseJSON = parseJsonFromText "GStu"
+    {-# INLINABLE parseJSON #-}
+
+-- | Divide a GStu by a Natural number.
+--
+-- The result is rounded using bankers rounding.
+--
+divideGStu :: GStu -> Natural -> GStu
+divideGStu s n = round $ s % fromIntegral n
+
+-- -------------------------------------------------------------------------- --
 -- KDA
 
 -- | KDA encoded as Decimal.
 --
 -- No arithmetic conversions or operations are provided.
 --
--- The precision of KDA values is 1e12 decimal digits. The value is stored in
--- a normalized format with the smallest possible mantissa.
+-- The available precision of KDA values depends on the payload provider
+-- context.
+--
+-- The maximum precision across the Chainweb ecosystem is 1e18 decimal digits
+-- (Stu). The minimum precision that payload providers must suppport is 1e9
+-- (GStu).
+--
+-- Native X-channels use KDA with a precision of 1e18 (Stu). Fractional amounts
+-- that are smaller than the precision available at the receiver can not be
+-- withdrawn and remain in the channel.
+--
+-- Mining rewards are calcuated in KDA with a precision of 1e9 (GStu).
+--
+-- The value is stored in a normalized format with the smallest possible
+-- mantissa.
 --
 newtype Kda = Kda_ Decimal
     deriving stock (Show, Eq, Ord, Generic)
@@ -138,61 +246,82 @@ pattern Kda { _kda } <- Kda_ _kda where
         | otherwise = Kda_ $ normalizeDecimal k
 {-# COMPLETE Kda #-}
 
+-- -----------------------------------------------------------------------------
+-- Conversions
+
 stuToKda :: HasCallStack => Stu -> Kda
-stuToKda (Stu k) = Kda $ normalizeDecimal $ Decimal 12 (fromIntegral k)
+stuToKda (Stu k) = Kda $ normalizeDecimal $ Decimal 18 (fromIntegral k)
 
 kdaToStu :: Kda -> Stu
-kdaToStu (Kda { _kda = s }) = Stu $ round (s * 1e12)
+kdaToStu (Kda { _kda = s }) = Stu $ round (s * 1e18)
+
+mstuToKda :: MStu -> Kda
+mstuToKda (MStu k) = Kda $ normalizeDecimal $ Decimal 12 (fromIntegral k)
+
+kdaToMStu :: Kda -> MStu
+kdaToMStu (Kda { _kda = s }) = MStu $ round (s * 1e12)
+
+gstuToKda :: GStu -> Kda
+gstuToKda (GStu k) = Kda $ normalizeDecimal $ Decimal 9 (fromIntegral k)
+
+kdaToGStu :: Kda -> GStu
+kdaToGStu (Kda { _kda = s }) = GStu $ round (s * 1e9)
 
 -- -------------------------------------------------------------------------- --
 -- Miner Reward
 
---  | Miner Reward in Stu
+--  | Miner Reward in GStu
 --
---  The maximum miner reward is 23045230000000, which is smaller than 2^51-1.
+--  The maximum miner reward is 23045230000, which is smaller than 2^51-1.
 --  Miner rewards can thus be represented losslessly as JSON numbers.
 --
-newtype MinerReward = MinerReward { _minerReward :: Stu }
+newtype MinerReward = MinerReward { _minerReward :: GStu }
     deriving (Show, Eq, Ord, Generic)
     deriving (ToJSON, FromJSON) via JsonTextRepresentation "MinerReward" MinerReward
 
 instance HasTextRepresentation MinerReward where
-    toText (MinerReward (Stu n)) = toText n
-    fromText t = MinerReward . Stu <$> fromText t
+    toText (MinerReward (GStu n)) = toText n
+    fromText t = MinerReward . GStu <$> fromText t
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
 
 
 minerRewardKda :: MinerReward -> Kda
-minerRewardKda (MinerReward d) = stuToKda d
+minerRewardKda (MinerReward d) = gstuToKda d
+
+minerRewardGStu :: MinerReward -> GStu
+minerRewardGStu (MinerReward d) = d
 
 -- | Calculate miner reward for a block at the given height.
 --
 -- NOTE:
 -- This used to compute the value as @roundTo 8 $ (_kda $ stuToKda m) / n@.
--- The new caclulcation based on Stu is equivalent for 10 and 20 chains,
+-- The new caclulcation based on GStu is equivalent for 10 and 20 chains,
 -- except for the pre-last entry in the miner rewards table, namely
--- @(125538056,0.023999333). However, since this value hasen't yet been used
+-- @(125538056,0.023999333). However, since this value has not yet been used
 -- in any network, we can still change the algorithm.
+--
+-- For other graphs that do not cleanly divide 10000, this value is does not
+-- hold and changes in precision constitue a forking change.
 --
 blockMinerReward
     :: HasVersion
     => BlockHeight
     -> MinerReward
 blockMinerReward h = case M.lookupGE h minerRewards of
-    Nothing -> MinerReward $ Stu 0
-    Just (_, s) -> MinerReward $ divideStu s n
+    Nothing -> MinerReward $ GStu 0
+    Just (_, s) -> MinerReward $ divideGStu s n
   where
     !n = int . order $ chainGraphAt h
 
 -- | Binary encoding of mining rewards as unsigned integral number in little
 -- endian encoding.
 --
--- The maximum miner reward is 23045230000000. The miner reward can therefore be
+-- The maximum miner reward is 23045230000. The miner reward can therefore be
 -- encoded in as Word64 value.
 --
 encodeMinerReward :: MinerReward -> Put
-encodeMinerReward (MinerReward (Stu n)) = putWord64le (int n)
+encodeMinerReward (MinerReward (GStu n)) = putWord64le (int n)
 {-# INLINE encodeMinerReward #-}
 
 decodeMinerReward :: Get MinerReward
@@ -206,7 +335,7 @@ decodeMinerReward = MinerReward . int <$>  getWord64le
 -- -------------------------------------------------------------------------- --
 -- Miner Rewards Table
 
-type MinerRewardsTable = M.Map BlockHeight Stu
+type MinerRewardsTable = M.Map BlockHeight GStu
 
 -- | Rewards table mapping 3-month periods to their rewards according to the
 -- calculated exponential decay over about a 120 year period (125538057 block
@@ -243,8 +372,8 @@ mkMinerRewards =
                 then rewards
                 else error $ "hash of miner rewards table does not match expected hash"
   where
-    formatRow :: (Word64, CsvDecimal) -> (BlockHeight, Stu)
-    formatRow (a, b) = (BlockHeight $ int a, kdaToStu (Kda $ _csvDecimal b))
+    formatRow :: (Word64, CsvDecimal) -> (BlockHeight, GStu)
+    formatRow (a, b) = (BlockHeight $ int a, kdaToGStu (Kda $ _csvDecimal b))
 
 -- -------------------------------------------------------------------------- --
 -- Miner Rewards File
@@ -273,7 +402,7 @@ minerRewardsHash = hash
     . M.toAscList
 
 expectedMinerRewardsHash :: Digest SHA512
-expectedMinerRewardsHash = read "8e4fb006c5045b3baab638d16d62c952e4981a4ba473ec63620dfb54093d5104abd0be1a62ce52113575d598881fb57e84a41ec5c617e4348e270b9eacd300c9"
+expectedMinerRewardsHash = read "264189d9d9181d76e2be948e3b336ab09b723cc095c059b6b3c79ff4e58b5c412c5d0b01882464a4f27fbe297b3f0dcbe3bda6ee6eb85556eeba6224ecb6458e"
 
 expectedRawMinerRewardsHash :: Digest SHA512
 expectedRawMinerRewardsHash = read "903d10b06666c0d619c8a28c74c3bb0af47209002f005b12bbda7b7df1131b2072ce758c1a8148facb1506022215ea201629f38863feb285c7e66f5965498fe0"

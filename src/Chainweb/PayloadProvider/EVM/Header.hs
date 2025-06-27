@@ -177,7 +177,7 @@ timestamp (Timestamp e) (Chainweb.BlockCreationTime (Time (TimeSpan (Micros t)))
 -- The mixHash field was repurposed in the Paris hardfork to store the previous
 -- RANDAO mix.
 
--- | Base Fee Per Gas of a Block
+-- | Base Fee Per Gas of a Block in Wei
 --
 -- A natural number [cf. yellow paper 4.4.3 (44)]
 --

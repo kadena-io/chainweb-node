@@ -1088,7 +1088,11 @@ awaitNewPayload p = do
     ctx = _evmEngineCtx p
     cid = _chainId p
 
-    fees v1 = Stu $ bf * gu
+    -- GasUsed is demoninated in Gwei, BaseFeePerGas is in Wei.
+    -- Wei in Ethereum is equivalent to Stu in Chainweb.
+    gweiToWei x =  x * 1_000_000_000
+
+    fees v1 = Stu $ bf * gweiToWei gu
       where
         EVM.BaseFeePerGas bf = _executionPayloadV1BaseFeePerGas v1
         GasUsed gu = _executionPayloadV1GasUsed v1
@@ -1154,11 +1158,11 @@ awaitNewPayload p = do
                 -- Check that the fees of the execution paylod match the block
                 -- value of the response.
                 -- FIXME FIXME FIXME
-                -- unless (EVM._blockValueStu (_getPayloadV4ResponseBlockValue resp) == fees v1) $
-                --     throwM InconsistentNewPayloadFees
-                --         { _inconsistentPayloadBlockValue = _getPayloadV4ResponseBlockValue resp
-                --         , _inconsistentPayloadFees = fees v1
-                --         }
+                unless (EVM._blockValueStu (_getPayloadV4ResponseBlockValue resp) == fees v1) $
+                    throwM InconsistentNewPayloadFees
+                        { _inconsistentPayloadBlockValue = _getPayloadV4ResponseBlockValue resp
+                        , _inconsistentPayloadFees = fees v1
+                        }
 
                 -- Check that the computed block hash matches the hash from the
                 -- response
