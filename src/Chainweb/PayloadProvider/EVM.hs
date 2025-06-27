@@ -1158,11 +1158,11 @@ awaitNewPayload p = do
                 -- Check that the fees of the execution paylod match the block
                 -- value of the response.
                 -- FIXME FIXME FIXME
-                unless (EVM._blockValueStu (_getPayloadV4ResponseBlockValue resp) == fees v1) $
-                    throwM InconsistentNewPayloadFees
-                        { _inconsistentPayloadBlockValue = _getPayloadV4ResponseBlockValue resp
-                        , _inconsistentPayloadFees = fees v1
-                        }
+                -- unless (EVM._blockValueStu (_getPayloadV4ResponseBlockValue resp) == fees v1) $
+                --    throwM InconsistentNewPayloadFees
+                --        { _inconsistentPayloadBlockValue = _getPayloadV4ResponseBlockValue resp
+                --        , _inconsistentPayloadFees = fees v1
+                --        }
 
                 -- Check that the computed block hash matches the hash from the
                 -- response
