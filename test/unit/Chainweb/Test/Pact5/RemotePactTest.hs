@@ -114,7 +114,7 @@ import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils (someServerApplication)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_)
+import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_, advanceToForkHeight)
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
@@ -151,6 +151,8 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "transition occurs" (transitionOccurs rdb)
         , testCaseSteps "transition crosschain" (transitionCrosschain rdb)
         , testCaseSteps "upgradeNamespaceTests" (upgradeNamespaceTests rdb)
+        , testCaseSteps "invalidSigCapNameTest" (invalidSigCapNameTest rdb)
+        , testCaseSteps "pact53TransitionTest" (pact53TransitionTest rdb)
         , localTests rdb
         ]
 
@@ -559,6 +561,86 @@ caplistTest baseRdb step = runResourceT $ do
                     , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
                     ]
 
+pact53TransitionTest :: RocksDb -> Step -> IO ()
+pact53TransitionTest baseRdb step = runResourceT $ do
+    let v = pact53TransitionCpmTestVersion petersenChainGraph
+    fx <- mkFixture v baseRdb
+
+    let cid = unsafeChainId 0
+    let assertTxFailure tx msg = poll fx v cid [cmdToRequestKey tx]
+            >>= P.alignExact ? List.singleton ? P.match _Just ?
+                P.checkAll
+                    [ P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg ? P.equals msg
+                    ]
+    let assertTxSuccess tx resultVal = poll fx v cid [cmdToRequestKey tx]
+            >>= P.alignExact ? List.singleton ? P.match _Just ?
+                P.checkAll
+                    [ P.fun _crResult ? P.match _PactResultOk ? P.equals resultVal
+                    ]
+
+    liftIO $ do
+        let errorTx = mkExec' "(error \"test error\")"
+        let pureTx = mkExec' "(pure 1)"
+
+        txErr0 <- buildTextCmd v
+            $ set cbRPC errorTx
+            $ defaultCmd cid
+        txPure0 <- buildTextCmd v
+            $ set cbRPC pureTx
+            $ defaultCmd cid
+        txReadOnlyGuardSetup <- buildTextCmd v
+            $ set cbRPC (mkExec' $ T.concat
+                [ "(namespace 'free)"
+                , "(module test-read-only g (defcap g () true)"
+                , " (defschema my-schema key:integer)"
+                , " (deftable my-table:{my-schema})"
+                , " (defun read-only-fn () (read my-table 'key))"
+                , " (defun mk-ug () (create-user-guard (read-only-fn)))"
+                , ")"
+                , "(create-table my-table)"
+                , "(insert my-table 'key {'key:1})"
+                ])
+            $ defaultCmd cid
+
+        step "sending first batch of transactions"
+        send fx v cid [txErr0, txPure0, txReadOnlyGuardSetup]
+        advanceAllChains_ fx
+        step "polling for first batch of transactions"
+        assertTxFailure txErr0 "Cannot find module:  error"
+        assertTxFailure txPure0 "Cannot find module:  pure"
+        assertTxSuccess txReadOnlyGuardSetup (PString "Write succeeded")
+
+        step "sending read only guard tx"
+        let readOnlyGuardTx = mkExec' "(enforce-guard (free.test-read-only.mk-ug))"
+        txReadOnly0 <- buildTextCmd v
+            $ set cbRPC readOnlyGuardTx
+            $ defaultCmd cid
+        send fx v cid [txReadOnly0]
+        advanceAllChains_ fx
+        step "polling for read only guard tx"
+        assertTxFailure txReadOnly0 "Error during database operation: Operation is not allowed in read-only or system-only mode."
+
+        step "advancing past the fork"
+        advanceToForkHeight fx Chainweb230Pact
+
+        txErr1 <- buildTextCmd v
+            $ set cbRPC errorTx
+            $ defaultCmd cid
+        txPure1 <- buildTextCmd v
+            $ set cbRPC pureTx
+            $ defaultCmd cid
+        txReadOnly1 <- buildTextCmd v
+            $ set cbRPC readOnlyGuardTx
+            $ defaultCmd cid
+
+        step "Sending post fork txs"
+        send fx v cid [txErr1, txPure1, txReadOnly1]
+        advanceAllChains_ fx
+        step "polling post-fork results"
+        -- Note: correct output from calling (error "test error")
+        assertTxFailure txErr1 "test error"
+        assertTxSuccess txPure1 (PInteger 1)
+        assertTxSuccess txReadOnly1 (PBool True)
 
 allocation01KeyPair :: (Text, Text)
 allocation01KeyPair =
@@ -758,11 +840,7 @@ transitionOccurs rdb _step = runResourceT $ do
 
     liftIO $ do
         checkPactVersion fx v cid >>= P.equals Pact4
-        forM_ @_ @_ @Word [1..17] $ \i -> do
-            advanceAllChains_ fx
-            -- index trick to show which iteration fails, if any
-            (i,) <$> checkPactVersion fx v cid >>= P.equals (i, Pact4)
-        advanceAllChains_ fx
+        advanceToForkHeight fx Pact5Fork
         checkPactVersion fx v cid >>= P.equals Pact5
 
 -- | Test that xchains work across the Pact4->Pact4 transition boundary.
@@ -1166,6 +1244,27 @@ upgradeNamespaceTests baseRdb _step = runResourceT $ do
                 ? P.match _PString
                 ? textContains "Loaded module ns"
 
+invalidSigCapNameTest :: RocksDb -> Step -> IO ()
+invalidSigCapNameTest baseRdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let cid = unsafeChainId 0
+    fx <- mkFixture v baseRdb
+
+    liftIO $ do
+        badCmd <- buildTextCmd v $
+            set cbSigners
+                [mkEd25519Signer' sender00
+                    -- sender00 controls ns, but module upgrades require unscoped signatures
+                    [CapToken (QualifiedName "GAS " (ModuleName "coin" Nothing)) []]
+                ] $
+            defaultCmd cid
+        send fx v cid [badCmd]
+            & P.fails
+            ? P.match _FailureResponse
+            ? P.succeed
+        advanceAllChains_ fx
+        poll fx v cid [cmdToRequestKey badCmd]
+            >>= P.match (_head . _Nothing) P.succeed
 
 ----------------------------------------------------
 

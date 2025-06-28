@@ -48,7 +48,7 @@ nsReplV2 = "pact/pact5/namespaces/ns.repl"
 
 runReplTest :: FilePath -> Assertion
 runReplTest file = do
-  (scriptout, rstate) <- execScript False file
+  (scriptout, rstate) <- execScript False False file
   case scriptout of
     Left e -> failWithErr rstate e
     Right _ -> do

@@ -20,6 +20,7 @@ module Chainweb.Test.TestVersions
     , pact5CheckpointerTestVersion
     , pact5SlowCpmTestVersion
     , instantCpmTransitionTestVersion
+    , pact53TransitionCpmTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -34,6 +35,8 @@ import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload as PIN0
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload as PINN
+import qualified Chainweb.BlockHeader.Genesis.Pact53TransitionTimedCPM0Payload as PIT0
+import qualified Chainweb.BlockHeader.Genesis.Pact53TransitionTimedCPM1to9Payload as PITN
 import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
 import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload as QPINN
 
@@ -138,6 +141,9 @@ testVersions = _versionName <$> concat
         | g :: KnownGraph <- [minBound..maxBound]
         ]
     ,   [ instantCpmTransitionTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ pact53TransitionCpmTestVersion (knownChainGraph g)
         | g :: KnownGraph <- [minBound..maxBound]
         ]
     ]
@@ -460,6 +466,7 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionForks .~ tabulateHashMap (\case
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
+
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks
@@ -467,6 +474,34 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, PIN0.payloadBlock) :
             [(n, PINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
+
+pact53TransitionCpmTestVersion :: ChainGraph -> ChainwebVersion
+pact53TransitionCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("pact53-transition-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        -- SPV Bridge is not in effect for Pact 5 yet.
+        SPVBridge -> AllChains ForkNever
+
+        Chainweb230Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
+
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionQuirks .~ noQuirks
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, PIT0.payloadBlock) :
+            [(n, PITN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -516,8 +551,12 @@ instantCpmTransitionTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("instant-CPM-transition-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        -- pact 5 is off
+        -- pact 5 is off until here
         Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+
+        -- SPV Bridge is not in effect for Pact 5 yet.
+        SPVBridge -> AllChains ForkNever
+
         _ -> AllChains ForkAtGenesis
         )
     & versionQuirks .~ noQuirks

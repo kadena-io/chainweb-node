@@ -26,6 +26,8 @@ module Ea.Genesis
 , instantCPMN
 , pact5InstantCPM0
 , pact5InstantCPMN
+, pact53TransitionCPM0
+, pact53TransitionCPMN
 , quirkedPact5InstantCPM0
 , quirkedPact5InstantCPMN
 
@@ -266,6 +268,23 @@ pact5InstantCPM0 = Genesis
 
 pact5InstantCPMN :: Genesis
 pact5InstantCPMN = pact5InstantCPM0
+  & txChainIds .~ mkChainIdRange 1 9
+  & coinbase ?~ fastNGrants
+
+pact53TransitionCPM0 :: Genesis
+pact53TransitionCPM0 = Genesis
+    { _version = pact53TransitionCpmTestVersion petersenChainGraph
+    , _tag = "Pact53TransitionTimedCPM"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just fast0Grants
+    , _keysets = Just fastKeysets
+    , _allocations = Just fastAllocations
+    , _namespaces = Just devNs2
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+pact53TransitionCPMN :: Genesis
+pact53TransitionCPMN = pact53TransitionCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 

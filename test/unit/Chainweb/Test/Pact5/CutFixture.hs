@@ -17,6 +17,7 @@
     , RecordWildCards
     , ScopedTypeVariables
     , TemplateHaskell
+    , TupleSections
     , TypeApplications
     , ViewPatterns
 #-}
@@ -37,11 +38,11 @@ module Chainweb.Test.Pact5.CutFixture
     , fixturePactQueues
     , advanceAllChains
     , advanceAllChains_
+    , advanceToForkHeight
     , withTestCutDb
     )
     where
 
-import Chainweb.Storage.Table (Casify)
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader hiding (blockCreationTime, blockNonce)
@@ -61,6 +62,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Storage.Table (Casify)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Pact5.Utils
@@ -83,6 +85,7 @@ import Data.ByteString.Short qualified as SBS
 import Data.Function
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector (Vector)
@@ -169,6 +172,25 @@ advanceAllChains_
     => a
     -> IO ()
 advanceAllChains_ = void . advanceAllChains
+
+-- Advance to the forkheight of a fork.
+--
+-- Throws an 'error' if the fork is not found in the ChainwebVersion '_versionForks', or if
+-- the fork height is ever 'ForkNever' or 'ForkGenesis' on all chains.
+--
+-- Does nothing if you are already at or past the the forkheight.
+advanceToForkHeight :: (HasCallStack, HasFixture fx) => fx -> Fork -> IO ()
+advanceToForkHeight fx fork = do
+    Fixture{..} <- cutFixture fx
+    let v = _chainwebVersion _fixtureCutDb
+    latestCut <- liftIO $ _fixtureCutDb ^. cut
+    let latestBlockHeight = latestCut ^. cutMaxHeight
+
+    let targetHeight = fromMaybe (error "advanceToForkHeight: no fork found") $
+            maximumOf (versionForks . ix fork . folded . _ForkAtBlockHeight) v
+
+    when (targetHeight > latestBlockHeight) $ do
+        replicateM_ (int (targetHeight - latestBlockHeight)) $ advanceAllChains_ fx
 
 withTestCutDb :: (Logger logger)
     => logger
