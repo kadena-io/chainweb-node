@@ -403,4 +403,4 @@ constraints: any.Cabal ==3.12.1.0,
              any.zigzag ==0.1.0.0,
              any.zip-archive ==0.4.3.2,
              any.zlib ==0.7.1.0
-index-state: hackage.haskell.org 2025-06-17T19:59:02Z
+index-state: hackage.haskell.org 2025-07-02T20:17:36Z
