@@ -154,7 +154,8 @@ mainnet = ChainwebVersion
         Pact5Fork -> AllChains (ForkAtBlockHeight $ BlockHeight 5_555_698)       -- 2025-02-10 00:00:00+00:00
         Chainweb228Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_659_280) -- 2025-03-18 00:00:00+00:00
         Chainweb229Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_785_923) -- 2025-05-01 00:00:00+00:00
-        Chainweb230Pact -> AllChains ForkNever
+        Chainweb230Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 6_027_616) -- 2025-07-24 00:00:00+00:00
+        Chainweb231Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
@@ -226,5 +227,5 @@ mainnet = ChainwebVersion
             , (unsafeChainId 9, HM.fromList [((BlockHeight 4594049, TxBlockIdx 0), Gas 69_092)])
             ]
         }
-    , _versionServiceDate = Just "2025-07-23T00:00:00Z"
+    , _versionServiceDate = Just "2025-10-15T00:00:00Z"
     }
