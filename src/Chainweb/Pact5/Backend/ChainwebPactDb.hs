@@ -79,7 +79,7 @@ import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Utils (sshow, T2)
+import Chainweb.Utils (sshow, unsafeHead, T2)
 import Chainweb.Utils.Serialization (runPutS)
 import Chainweb.Version
 import Chainweb.Version.Guards
@@ -600,7 +600,7 @@ doKeys d = do
             bh <- view blockHandlerBlockHeight
             if chainweb230Pact v cid bh
             -- the read-cache contains duplicate keys that we need to remove.
-            then return $ fmap head $ group $ sort (memKeys ++ parsedKeys)
+            then return $ fmap (unsafeHead "doKeys") $ group $ sort (memKeys ++ parsedKeys)
             else return $ sort (memKeys ++ parsedKeys)
 
     where
