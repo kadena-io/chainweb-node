@@ -15,6 +15,7 @@ module Chainweb.Mempool.RestAPI.Client
   , getPendingClient
   , memberClient
   , lookupClient
+  , lookupEncodedClient
   , toMempool
   ) where
 
@@ -25,6 +26,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Identity
+import Data.ByteString (ByteString)
 import Data.Proxy
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -56,8 +58,9 @@ toMempool version chain txcfg env =
     { mempoolTxConfig = txcfg
     , mempoolMember = member
     , mempoolLookup = lookup
-    , mempoolLookupEncoded = const unsupported
+    , mempoolLookupEncoded = lookupEncoded
     , mempoolInsert = insert
+    , mempoolInsertEncoded = insertEncoded
     , mempoolInsertCheck = const unsupported
     , mempoolInsertCheckVerbose = const unsupported
     , mempoolMarkValidated = const unsupported
@@ -73,7 +76,9 @@ toMempool version chain txcfg env =
 
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
-    insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
+    lookupEncoded v = V.fromList <$> go (lookupEncodedClient version chain (V.toList v))
+    insert _ _ v = void $ go (insertClient txcfg version chain (V.toList v))
+    insertEncoded _ v = void $ go (insertEncodedClient version chain (V.toList v))
 
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
@@ -105,6 +110,16 @@ insertClient txcfg v c k0 = runIdentity $ do
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
 
+insertEncodedClient
+    :: ChainwebVersion
+    -> ChainId
+    -> [ByteString]
+    -> ClientM NoContent
+insertEncodedClient v c k0 = runIdentity $ do
+    let k = map T.decodeUtf8 k0
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ insertClient_ @v @c k
 
 ------------------------------------------------------------------------------
 memberClient_
@@ -150,6 +165,17 @@ lookupClient txcfg v c txs = do
       Right t -> return t
 
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8
+
+lookupEncodedClient
+  :: ChainwebVersion
+  -> ChainId
+  -> [TransactionHash]
+  -> ClientM [LookupResult ByteString]
+lookupEncodedClient v c txs = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    cs <- lookupClient_ @v @c txs
+    return $ fmap (fmap T.encodeUtf8) cs
 
 ------------------------------------------------------------------------------
 getPendingClient_
