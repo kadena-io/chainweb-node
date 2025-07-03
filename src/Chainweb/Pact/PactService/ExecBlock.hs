@@ -488,14 +488,12 @@ validateParsedChainwebTx _logger blockEnv tx
         signers = Pact._pSigners $ view Pact.payloadObj $ Pact._cmdPayload t
 
 pact5TransactionsFromPayload
-    :: forall m
-    . MonadIO m
-    => PayloadData
-    -> ExceptT BlockInvalidError m (Vector Pact.Transaction)
+    :: PayloadData
+    -> Either BlockInvalidError (Vector Pact.Transaction)
 pact5TransactionsFromPayload plData = do
-    vtrans <- liftIO $
-      mapM toCWTransaction $
-        toList (view payloadDataTransactions plData)
+    let vtrans =
+          map toCWTransaction $
+            toList (view payloadDataTransactions plData)
     let (theLefts, theRights) = partitionEithers vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
@@ -503,7 +501,7 @@ pact5TransactionsFromPayload plData = do
     return $! V.fromList theRights
   where
     toCWTransaction bs =
-      evaluate (force (codecDecode commandCodec $ _transactionBytes bs))
+      codecDecode commandCodec (_transactionBytes bs)
 
 execExistingBlock
   :: (CanReadablePayloadCas tbl, Logger logger)
@@ -517,7 +515,7 @@ execExistingBlock logger serviceEnv blockEnv payload = do
   let blockCtx = _psBlockCtx blockEnv
   let plData = checkablePayloadToPayloadData payload
   miner :: Miner <- decodeStrictOrThrow (_minerData $ view payloadDataMiner plData)
-  txs <- lift $ pact5TransactionsFromPayload plData
+  txs <- liftEither $ pact5TransactionsFromPayload plData
   let
   errors <- liftIO $ flip foldMap txs $ \tx -> do
     errorOrSuccess <- runExceptT $
