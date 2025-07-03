@@ -40,6 +40,39 @@ module Chainweb.Pact.PactService
     ) where
 
 import Control.Concurrent.Async
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.ChainId
+import Chainweb.Core.Brief
+import Chainweb.Counter
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils (withSavepoint, SavepointName (..))
+import Chainweb.Pact.NoCoinbase qualified as Pact
+import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
+import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.ExecBlock qualified as Pact
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.TransactionExec qualified as Pact
+import Chainweb.Pact.Types
+import Chainweb.Pact.Validations qualified as Pact
+import Chainweb.Parent
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.P2P
+import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
+import Chainweb.Ranked
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.Map qualified as MapTable
+import Chainweb.Time
+import Chainweb.Utils hiding (check)
+import Chainweb.Version
 import Control.Concurrent.STM
 import Control.Exception.Safe (mask)
 import Control.Lens hiding ((:>))
@@ -49,81 +82,37 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Resource
-
+import Control.Parallel.Strategies qualified as Strategies
+import Data.Align
+import Data.ByteString.Short qualified as SB
+import Data.Coerce (coerce)
+import Data.DList qualified as DList
 import Data.Either
 import Data.Foldable (traverse_)
-import qualified Data.HashMap.Strict as HM
+import Data.HashMap.Strict qualified as HM
+import Data.List.NonEmpty qualified as NEL
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe
 import Data.Monoid
 import Data.Pool (Pool)
-import qualified Data.Text as Text
+import Data.Pool qualified as Pool
+import Data.Text qualified as Text
 import Data.Vector (Vector)
-import qualified Data.Vector as V
-
-import System.IO
-import System.LogLevel
-
-import Prelude hiding (lookup)
-
-import qualified Pact.JSON.Encode as J
-
-import qualified Pact.Core.Gas as Pact
-
-import qualified Chainweb.Pact.TransactionExec as Pact
-import qualified Chainweb.Pact.Validations as Pact
-
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.ChainId
-import Chainweb.Logger
-import Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Miner.Pact
-
-import Chainweb.Pact.PactService.ExecBlock
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as Pact
-import Chainweb.Pact.Types
--- import Chainweb.Pact.SPV qualified as Pact
-import Chainweb.Parent
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Time
-import qualified Chainweb.Pact.Transaction as Pact
-import Chainweb.Utils hiding (check)
-import Chainweb.Version
-import Chainweb.Counter
-import Pact.Core.Command.Types qualified as Pact
-import Pact.Core.Hash qualified as Pact
-import Data.ByteString.Short qualified as SB
-import Data.Coerce (coerce)
+import Data.Vector qualified as V
 import Data.Void
-import Chainweb.Pact.PactService.ExecBlock qualified as Pact
-import qualified Pact.Core.Evaluate as Pact
-import qualified Pact.Core.Errors as Pact
-import Chainweb.Pact.Backend.Types
-import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
-import qualified Pact.Core.StableEncoding as Pact
-import qualified Data.List.NonEmpty as NonEmpty
-import Chainweb.PayloadProvider
-import Chainweb.Storage.Table
-import qualified Chainweb.Storage.Table.Map as MapTable
-import Chainweb.PayloadProvider.P2P
-import P2P.TaskQueue (Priority(..))
-import qualified Network.HTTP.Client as HTTP
-import qualified Chainweb.PayloadProvider.P2P.RestAPI.Client as Rest
-import Chainweb.Pact.Backend.Utils (withSavepoint, SavepointName (..))
-import qualified Data.DList as DList
-import Chainweb.Ranked
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as ChainwebPactDb
-import qualified Pact.Core.ChainData as Pact
 import GHC.Stack (HasCallStack)
-import qualified Data.Pool as Pool
-import qualified Data.List.NonEmpty as NEL
-import qualified Control.Parallel.Strategies as Strategies
-import qualified Chainweb.Pact.NoCoinbase as Pact
-import Chainweb.Core.Brief
-import Data.Align
-import qualified Data.List.NonEmpty as NE
+import Network.HTTP.Client qualified as HTTP
+import P2P.TaskQueue (Priority(..))
+import Pact.Core.ChainData qualified as Pact
+import Pact.Core.Command.Types qualified as Pact
+import Pact.Core.Errors qualified as Pact
+import Pact.Core.Evaluate qualified as Pact
+import Pact.Core.Gas qualified as Pact
+import Pact.Core.Hash qualified as Pact
+import Pact.Core.StableEncoding qualified as Pact
+import Pact.JSON.Encode qualified as J
+import Prelude hiding (lookup)
+import System.LogLevel
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -633,7 +622,7 @@ syncToFork logger serviceEnv hints forkInfo = do
     getRewoundTxs :: Parent BlockHeight -> IO (Vector Pact.Transaction)
     getRewoundTxs rewindTargetHeight = do
         rewoundPayloadHashes <- Checkpointer.getPayloadsAfter sql rewindTargetHeight
-        rewoundPayloads <- liftIO $ fmap fromJuste <$>
+        rewoundPayloads <- liftIO $ catMaybes <$>
             lookupPayloadDataWithHeightBatch
                 (_payloadStoreTable pdb)
                 [(Just (rank rbph), _ranked rbph) | rbph <- rewoundPayloadHashes]
