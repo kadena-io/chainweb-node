@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- |
 -- Module: P2P.Node.Configuration
@@ -29,6 +30,7 @@ module P2P.Node.Configuration
 , p2pConfigKnownPeers
 , p2pConfigIgnoreBootstrapNodes
 , p2pConfigBootstrapReachability
+, p2pConfigThrottleConfig
 , defaultP2pConfiguration
 , validateP2pConfiguration
 , pP2pConfiguration
@@ -50,6 +52,7 @@ import Numeric.Natural
 
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
+import qualified Chainweb.Utils.Throttle as Throttle
 
 import P2P.Peer
 
@@ -101,6 +104,7 @@ data P2pConfiguration = P2pConfiguration
     , _p2pConfigValidateSpec :: !Bool
         -- ^ enable OpenAPI specification validation for requests and responses.
         -- this will likely cause significant performance degradation.
+    , _p2pConfigThrottleConfig :: !(EnableConfig Throttle.ThrottleConfig)
     }
     deriving (Show, Eq, Generic)
 
@@ -125,6 +129,14 @@ defaultP2pConfiguration = P2pConfiguration
     , _p2pConfigBootstrapReachability = 0.5
     , _p2pConfigTls = True
     , _p2pConfigValidateSpec = False
+    , _p2pConfigThrottleConfig = defaultEnableConfig Throttle.ThrottleConfig
+        { Throttle._requestCost = 10
+        , Throttle._requestBody100ByteCost = 1
+        , Throttle._responseBody100ByteCost = 2
+        , Throttle._maxBudget = 35_000
+        , Throttle._tokenBucketRefillPerSecond = 750
+        , Throttle._throttleExpiry = 30
+        }
     }
 
 validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
@@ -169,6 +181,7 @@ instance ToJSON P2pConfiguration where
         , "ignoreBootstrapNodes" .= _p2pConfigIgnoreBootstrapNodes o
         , "private" .= _p2pConfigPrivate o
         , "bootstrapReachability" .= _p2pConfigBootstrapReachability o
+        , "throttling" .= _p2pConfigThrottleConfig o
         ]
         -- hidden: Do not print the default value.
         <> [ "tls" .= _p2pConfigTls o | not (_p2pConfigTls o) ]
@@ -186,6 +199,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigBootstrapReachability ..: "bootstrapReachability" % o
         <*< p2pConfigTls ..: "tls" % o
         <*< p2pConfigValidateSpec ..: "validateSpec" % o
+        <*< p2pConfigThrottleConfig %.: "throttling" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -199,6 +213,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "bootstrapReachability"
         <*> o .:? "tls" .!= True
         <*> o .:? "validateSpec" .!= False
+        <*> o .: "throttling"
 
 pP2pConfiguration :: MParser P2pConfiguration
 pP2pConfiguration = id
@@ -230,6 +245,9 @@ pP2pConfiguration = id
     <*< p2pConfigValidateSpec .:: enableDisableFlag
         % prefixLong net "validate-spec"
         <> internal -- hidden option, only for expert use
+    <*< p2pConfigThrottleConfig . enableConfigEnabled .:: enableDisableFlag
+        % prefixLong net "throttling"
+        <> suffixHelp net "enable HTTP throttling"
   where
     net = Nothing
 

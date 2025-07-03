@@ -84,6 +84,7 @@ import qualified Chainweb.Test.Roundtrips (tests)
 import qualified Chainweb.Test.SPV (tests)
 import qualified Chainweb.Test.SPV.EventProof (properties)
 import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
+import qualified Chainweb.Test.Throttle (tests)
 import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.Version (tests)
@@ -179,6 +180,7 @@ suite rdb =
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , Chainweb.Test.BlockHeader.Validation.tests
+        , Chainweb.Test.Throttle.tests
         , Chainweb.Test.Version.tests
         , testProperties "Chainweb.Test.Chainweb.Utils.Paging" Chainweb.Test.Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
