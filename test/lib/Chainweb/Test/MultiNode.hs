@@ -78,7 +78,7 @@ import Chainweb.WebBlockHeaderDB
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, (^?!), ix)
+import Control.Lens (set, view, (^?!), ix, (^.))
 import Control.Monad
 import Data.Aeson (ToJSON, object, (.=))
 import Data.ByteString (ByteString)
@@ -110,6 +110,9 @@ import System.LogLevel
 import System.Timeout
 import Test.Tasty.HUnit
 import Chainweb.Miner.Pact
+import Chainweb.Storage.Table (IterableTable(withTableIterator), Casify)
+import Chainweb.Cut.CutHashes
+import Data.Function
 
 -- -------------------------------------------------------------------------- --
 -- * Configuration
@@ -216,10 +219,11 @@ harvestConsensusState
     -> MVar ConsensusState
     -> Int
     -> StartedChainweb logger
+    -> RocksDb
     -> IO ()
-harvestConsensusState _ _ _ (Replayed _ _) =
+harvestConsensusState _ _ _ (Replayed _ _) _ =
     error "harvestConsensusState: doesn't work when replaying, replays don't do consensus"
-harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
+harvestConsensusState logger stateVar nid (StartedChainweb cw) rdb = do
     runChainweb cw (\_ -> return ()) `finally` do
         logFunctionText logger Info "write sample data"
         modifyMVar_ stateVar $
@@ -227,6 +231,8 @@ harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
                 nid
                 (view (chainwebCutResources . cutResCutDb . cutDbWebBlockHeaderDb) cw)
                 (view (chainwebCutResources . cutResCutDb) cw)
+                (cutHashesTable rdb)
+        logFunctionText logger Info "assert on cut count"
         logFunctionText logger Info "shutdown node"
 
 multiNode
@@ -238,7 +244,7 @@ multiNode
     -> FilePath
     -> Int
         -- ^ Unique node id. Node id 0 is used for the bootstrap node
-    -> (forall logger. Int -> StartedChainweb logger -> IO ())
+    -> (forall logger. Int -> StartedChainweb logger -> RocksDb -> IO ())
     -> IO ()
 multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
@@ -248,7 +254,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
                             $ view (chainwebPeer . peerResPeer . peerInfo) cw'
                     Replayed _ _ -> return ()
-                inner nid cw
+                inner nid cw namespacedNodeRocksDb
   where
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel T.putStrLn
@@ -266,7 +272,7 @@ runNodes
         -- ^ number of nodes
     -> RocksDb
     -> FilePath
-    -> (forall logger. Int -> StartedChainweb logger -> IO ())
+    -> (forall logger. Int -> StartedChainweb logger -> RocksDb -> IO ())
     -> IO ()
 runNodes loglevel write baseConf n rdb pactDbDir inner = do
     -- NOTE: pact is enabled until we have a good way to disable it globally in
@@ -304,7 +310,7 @@ runNodesForSeconds
         -- ^ test duration in seconds
     -> RocksDb
     -> FilePath
-    -> (forall logger. Int -> StartedChainweb logger -> IO ())
+    -> (forall logger. Int -> StartedChainweb logger -> RocksDb -> IO ())
     -> IO ()
 runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inner = do
     void $ timeout (int seconds * 1_000_000)
@@ -413,7 +419,7 @@ pactImportTest logLevel n rocksDb pactDir step = do
   -- on the current cut. This is fine because we ultimately just want
   -- to make sure that we are making progress (i.e, new blocks).
   stateVar <- newMVar emptyConsensusState
-  let ct :: Int -> StartedChainweb logger -> IO ()
+  let ct :: Int -> StartedChainweb logger -> RocksDb -> IO ()
       ct = harvestConsensusState logger stateVar
   runNodesForSeconds logLevel logFun (multiConfig n) n 10 rocksDb pactDir ct
   consensusState <- swapMVar stateVar emptyConsensusState
@@ -591,14 +597,14 @@ replayTest loglevel n rdb pactDbDir step = do
             (multiConfig n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySync True)
-            n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
+            n (Seconds 20) rdb pactDbDir $ \nid cw _ -> case cw of
                 Replayed l (Just u) -> do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
                     -- TODO: this is flaky, presumably because a node's cutdb
                     -- is not being cancelled synchronously enough
-                    assertEqual "upper cut" (_stateCutMap state2 HM.! nid) u
+                    assertEqual "upper cut" (snd $ _stateCutMap state2 HM.! nid) u
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertGe ("upper chain " <> sshow cid) (Actual $ view blockHeight bh) (Expected replayInitialHeight)
                     return ()
@@ -613,7 +619,7 @@ replayTest loglevel n rdb pactDbDir step = do
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
                 & set configOnlySync True)
-            n (Seconds 20) rdb pactDbDir $ \_ cw -> case cw of
+            n (Seconds 20) rdb pactDbDir $ \_ cw _ -> case cw of
                 Replayed l (Just u) -> do
                     writeIORef secondReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
@@ -665,6 +671,10 @@ test loglevel n seconds rdb pactDbDir step = do
                 ]
 
             (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
+            (assertLe "max stored cut count")
+                (Actual $ _statMaxCutCount stats)
+                (Expected $ ceiling (avgBlockHeightAtCutHeight $ _statMaxHeight stats)
+                    + int (diameterAtCutHeight (_statMaxHeight stats)))
             (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
             (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
             (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
@@ -689,8 +699,8 @@ data ConsensusState = ConsensusState
         -- ^ for short tests this is fine. For larger test runs we should
         -- use HyperLogLog+
 
-    , _stateCutMap :: !(HM.HashMap Int Cut)
-        -- ^ Node Id map
+    , _stateCutMap :: !(HM.HashMap Int (Int, Cut))
+        -- ^ The latest cut in each node, as well as the number of cuts stored
     }
     deriving (Show, Generic, NFData)
 
@@ -703,16 +713,18 @@ sampleConsensusState
         -- ^ node Id
     -> WebBlockHeaderDb
     -> CutDb
+    -> Casify RocksDbTable CutHashes
     -> ConsensusState
     -> IO ConsensusState
-sampleConsensusState nid bhdb cutdb s = do
+sampleConsensusState nid bhdb cutdb ct s = do
+    numStoredCuts <- withTableIterator ct $ \i -> iterToEntryStream i & S.length_
     !hashes' <- webEntries bhdb
         $ S.fold_ (flip HS.insert) (_stateBlockHashes s) id
         . S.map (view blockHash)
     !c <- _cut cutdb
     return $! s
         { _stateBlockHashes = hashes'
-        , _stateCutMap = HM.insert nid c (_stateCutMap s)
+        , _stateCutMap = HM.insert nid (numStoredCuts, c) (_stateCutMap s)
         }
 
 data Stats = Stats
@@ -721,6 +733,7 @@ data Stats = Stats
     , _statMinHeight :: !CutHeight
     , _statMedHeight :: !CutHeight
     , _statAvgHeight :: !Double
+    , _statMaxCutCount :: Int
     }
     deriving (Show, Eq, Ord, Generic, ToJSON)
 
@@ -733,11 +746,12 @@ consensusStateSummary s
         , _statMinHeight = minHeight
         , _statMedHeight = medHeight
         , _statAvgHeight = avgHeight
+        , _statMaxCutCount = fst $ maximumBy (compare `on` fst) $ _stateCutMap s
         }
   where
-    cutHeights = _cutHeight <$> _stateCutMap s
+    cutHeights = _cutHeight . snd <$> _stateCutMap s
     graph = chainGraphAt
-        $ maximum . concatMap chainHeights
+        $ maximum . concatMap (chainHeights . snd)
         $ toList
         $ _stateCutMap s
     hashCount = HS.size (_stateBlockHashes s) - int (order graph)
@@ -766,6 +780,7 @@ lowerStats seconds = Stats
     , _statMinHeight = round $ ebc * 0.1 -- temporarily, was 0.3
     , _statMedHeight = round $ ebc * 0.5
     , _statAvgHeight = ebc * 0.5
+    , _statMaxCutCount = undefined
     }
   where
     ebc = expectedBlockCount seconds
@@ -778,6 +793,7 @@ upperStats seconds = Stats
     , _statMinHeight = round $ ech * 1.4
     , _statMedHeight = round $ ech * 1.4
     , _statAvgHeight = ech * 1.4
+    , _statMaxCutCount = undefined
     }
   where
     ebc = expectedBlockCount seconds
