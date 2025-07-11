@@ -359,29 +359,28 @@ jobs:
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
     # # Temporarily disabled on lars/pp/* branches
-    # - name: Build chainweb applications
-    #   run: |
-    #     cabal build -j2 --ghc-options=-j2 \
-    #       chainweb:bench:bench \
-    #       exe:b64 \
-    #       exe:calculate-release \
-    #       exe:compact \
-    #       exe:db-checksum \
-    #       exe:ea \
-    #       exe:genconf \
-    #       exe:header-dump \
-    #       exe:known-graphs \
-    #       exe:pact-diff \
-    #       exe:run-nodes \
-    #       exe:tx-list \
-    #       test:chainweb-tests \
-    #       test:compaction-tests \
-    #       test:multi-node-network-tests \
-    #       test:remote-tests \
-    #       test:chainweb-storage-tests
     - name: Build chainweb applications
       run: |
-        cabal build -j2 --ghc-options=-j2 exe:evm-genesis
+        cabal build -j2 --ghc-options=-j2 \
+          exe:b64 \
+          exe:calculate-release \
+          exe:compact \
+          exe:ea \
+          exe:genconf \
+          exe:known-graphs \
+          exe:pact-diff \
+          test:chainweb-tests \
+          test:multi-node-network-tests \
+          test:remote-tests \
+          test:chainweb-storage-tests \
+          exe:evm-genesis
+      # TODO: PP
+      # exe:tx-list \
+      # exe:header-dump \
+      # exe:run-nodes \
+      # exe:db-checksum \
+      # chainweb:bench:bench \
+      # test:compaction-tests \
     - name: Build chainweb-node application
       run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
@@ -408,20 +407,15 @@ jobs:
         mkdir -p artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
         cp $(cabal list-bin evm-genesis) artifacts/chainweb
-        # cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
-        # cp $(cabal list-bin chainweb-tests) artifacts/chainweb
-        # cp $(cabal list-bin compact) artifacts/chainweb
-        # cp $(cabal list-bin compaction-tests) artifacts/chainweb
-        # cp $(cabal list-bin db-checksum) artifacts/chainweb
-        # cp $(cabal list-bin ea) artifacts/chainweb
-        # cp $(cabal list-bin genconf) artifacts/chainweb
-        # cp $(cabal list-bin header-dump) artifacts/chainweb
-        # cp $(cabal list-bin known-graphs) artifacts/chainweb
-        # cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
-        # cp $(cabal list-bin pact-diff) artifacts/chainweb
-        # cp $(cabal list-bin remote-tests) artifacts/chainweb
-        # cp $(cabal list-bin run-nodes) artifacts/chainweb
-        # cp $(cabal list-bin tx-list) artifacts/chainweb
+        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
+        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin compact) artifacts/chainweb
+        cp $(cabal list-bin ea) artifacts/chainweb
+        cp $(cabal list-bin genconf) artifacts/chainweb
+        cp $(cabal list-bin known-graphs) artifacts/chainweb
+        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
+        cp $(cabal list-bin pact-diff) artifacts/chainweb
+        cp $(cabal list-bin remote-tests) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
@@ -429,6 +423,11 @@ jobs:
         cp cabal.project artifacts/chainweb
         cp cabal.project.local artifacts/chainweb
         cp cabal.project.freeze artifacts/chainweb
+      # cp $(cabal list-bin tx-list) artifacts/chainweb
+      # cp $(cabal list-bin header-dump) artifacts/chainweb
+      # cp $(cabal list-bin run-nodes) artifacts/chainweb
+      # cp $(cabal list-bin compaction-tests) artifacts/chainweb
+      # cp $(cabal list-bin db-checksum) artifacts/chainweb
     - name: Create artifacts archive
       run: |
         echo "tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb"
