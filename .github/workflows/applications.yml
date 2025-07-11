@@ -408,20 +408,20 @@ jobs:
         mkdir -p artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
         cp $(cabal list-bin evm-genesis) artifacts/chainweb
-        # cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
-        # cp $(cabal list-bin chainweb-tests) artifacts/chainweb
-        # cp $(cabal list-bin compact) artifacts/chainweb
-        # cp $(cabal list-bin compaction-tests) artifacts/chainweb
-        # cp $(cabal list-bin db-checksum) artifacts/chainweb
-        # cp $(cabal list-bin ea) artifacts/chainweb
-        # cp $(cabal list-bin genconf) artifacts/chainweb
-        # cp $(cabal list-bin header-dump) artifacts/chainweb
-        # cp $(cabal list-bin known-graphs) artifacts/chainweb
-        # cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
-        # cp $(cabal list-bin pact-diff) artifacts/chainweb
-        # cp $(cabal list-bin remote-tests) artifacts/chainweb
-        # cp $(cabal list-bin run-nodes) artifacts/chainweb
-        # cp $(cabal list-bin tx-list) artifacts/chainweb
+        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
+        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin compact) artifacts/chainweb
+        cp $(cabal list-bin compaction-tests) artifacts/chainweb
+        cp $(cabal list-bin db-checksum) artifacts/chainweb
+        cp $(cabal list-bin ea) artifacts/chainweb
+        cp $(cabal list-bin genconf) artifacts/chainweb
+        cp $(cabal list-bin header-dump) artifacts/chainweb
+        cp $(cabal list-bin known-graphs) artifacts/chainweb
+        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
+        cp $(cabal list-bin pact-diff) artifacts/chainweb
+        cp $(cabal list-bin remote-tests) artifacts/chainweb
+        cp $(cabal list-bin run-nodes) artifacts/chainweb
+        cp $(cabal list-bin tx-list) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
