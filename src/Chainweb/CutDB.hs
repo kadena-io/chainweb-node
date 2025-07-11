@@ -39,7 +39,6 @@ module Chainweb.CutDB
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
-, cutDbParamsPruningFrequency
 , cutDbParamsReadOnly
 , defaultCutDbParams
 , farAheadThreshold
@@ -125,7 +124,6 @@ import Prelude hiding (lookup)
 import Streaming.Prelude qualified as S
 
 import System.LogLevel
-import System.Random.MWC qualified as Prob
 import System.Timeout
 
 -- internal modules
@@ -179,8 +177,6 @@ data CutDbParams = CutDbParams
     , _cutDbParamsAvgBlockHeightPruningDepth :: !BlockHeight
     -- ^ How many block heights' worth of cuts should we keep around?
     -- (how far back do we expect that a fork can happen)
-    , _cutDbParamsPruningFrequency :: !BlockHeight
-    -- ^ After how many blocks do we prune cuts (on average)?
     , _cutDbParamsReadOnly :: !Bool
     -- ^ Should the cut store be read-only?
     -- Enabled during replay-only mode.
@@ -199,12 +195,22 @@ defaultCutDbParams ft = CutDbParams
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
     , _cutDbParamsFastForwardHeightLimit = Nothing
+    -- really this is 2500 minutes, or ~1.7 days, which gives us some time to
+    -- recover from long-lived forks.
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
-    , _cutDbParamsPruningFrequency = 10000
     , _cutDbParamsReadOnly = False
     }
   where
     g = chainGraphAt (maxBound @BlockHeight)
+
+newtype CutPruningState = CutPruningState
+    { cutPruningStateLatestWrittenHeight :: BlockHeight
+    }
+
+initialCutPruningState :: Cut -> CutPruningState
+initialCutPruningState initialCut = CutPruningState
+    { cutPruningStateLatestWrittenHeight = view cutMaxHeight initialCut
+    }
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -384,12 +390,10 @@ pruneCuts logfun conf curAvgBlockHeight cutHashesStore = do
     let pruneCutHeight =
             avgCutHeightAt (curAvgBlockHeight - min curAvgBlockHeight avgBlockHeightPruningDepth)
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
+    -- deleteRange is constant time in rocksdb, it just inserts a tombstone.
+    -- either way, we will use constant space for cuts.
     deleteRangeRocksDb (unCasify cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
-    -- compactRangeRocksDb waits for compaction to complete which takes a while
-    void $ async $
-        compactRangeRocksDb (unCasify cutHashesStore)
-            (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
 
 cutDbQueueSize :: CutDb -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
@@ -436,11 +440,13 @@ startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
             -- intentionally don't delete up to recovery cut, the initial cut could be useful later
             (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO recoveryCut
+    -- use the recovery cut for the pruning state, so that we write cuts more quickly after recovering
+    cutPruningStateVar <- newTVarIO $ initialCutPruningState recoveryCut
     c <- readTVarIO cutVar
     logg Info $ T.unlines $
         "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
     queue <- newEmptyPQueue
-    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
+    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar cutPruningStateVar
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
@@ -457,9 +463,9 @@ startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
     logg = logFunctionText logger
     wbhdb = _webBlockHeaderStoreCas headerStore
 
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
-    processor queue cutVar = runForever (logFunction logger) "CutDB" $
-        processCuts config (logFunction logger) headerStore providers cutHashesStore queue cutVar
+    processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar CutPruningState -> IO ()
+    processor queue cutVar cutPruningStateVar = runForever (logFunction logger) "CutDB" $
+        processCuts config (logFunction logger) headerStore providers cutHashesStore queue cutVar cutPruningStateVar
 
     readInitialCut :: IO Cut
     readInitialCut = do
@@ -646,73 +652,105 @@ processCuts
     -> Casify RocksDbTable CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
+    -> TVar CutPruningState
     -> IO ()
-processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
-    rng <- Prob.createSystemRandom
-    queueToStream
-        & S.chain (\c -> loggCutId logFun Debug c "start processing")
-        & S.filterM (fmap not . isVeryOld)
-        & S.filterM (fmap not . farAhead)
-        & S.filterM (fmap not . isOld)
-        & S.filterM (fmap not . isCurrent)
+processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPruningStateVar =
+    flip onException writeLatestCutOnExit $ do
+        pQueueToStream queue
+            & S.map getDown
+            & S.chain (\c -> loggCutId logFun Debug c "start processing")
+            & S.filterM (fmap not . isVeryOld)
+            & S.filterM (fmap not . farAhead)
+            & S.filterM (fmap not . isOld)
+            & S.filterM (fmap not . isCurrent)
 
-        & S.chain (\c -> loggCutId logFun Info c "fetching all prerequisites")
-        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore providers)
-        & S.catMaybes
-        -- ignore unsuccessful values for now
+            & S.chain (\c -> loggCutId logFun Info c "fetching all prerequisites")
+            & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore providers)
+            & S.catMaybes
+            -- ignore unsuccessful values for now
 
-        -- using S.scanM would be slightly more efficient (one pointer dereference)
-        -- by keeping the value of cutVar in memory. We use the S.mapM variant with
-        -- an redundant 'readTVarIO' because it is easier to read.
-        & S.mapM_ (\newCut -> do
-            curCut <- readTVarIO cutVar
-            !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
-                $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            unless (_cutDbParamsReadOnly conf) $ do
-                maybePrune rng (cutAvgBlockHeight curCut)
-                loggCutId logFun Debug newCut "writing cut"
-                casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
-            -- ensure that payload providers are in sync with the *merged*
-            -- cut, so that they produce payloads on the correct parents.
-            iforM_ (_cutMap resultCut) $ \cid bh -> do
-                -- avoid asking for syncToBlock when we know that we're already
-                -- in sync, otherwise some payload providers misbehave.
-                when (Just bh /= curCut ^? ixg cid) $
-                    case providers ^?! atChain cid of
-                        ConfiguredPayloadProvider provider -> do
-                            finfo <- forkInfoForHeader hdrStore bh Nothing Nothing
-                            r <- syncToBlock provider Nothing finfo
-                            unless (r == _forkInfoTargetState finfo) $ do
-                                error $ "unexpected result state"
-                                    <> "; expected: " <> sshow (_forkInfoTargetState finfo)
-                                    <> "; actual: " <> sshow r
-                        _ -> return ()
-            let cutDiff = cutDiffToTextShort curCut resultCut
-            let currentCutIdMsg = T.unwords
-                    [ "current cut is now"
-                    , cutIdToTextShort (_cutId resultCut) <> ","
-                    , "diff:"
-                    ]
-            let catOverflowing x xs =
-                    if length xs == 1
-                    then T.unwords (x : xs)
-                    else T.intercalate "\n" (x : (map ("    " <>) xs))
-            logFun @T.Text Info $ catOverflowing currentCutIdMsg cutDiff
-            atomically $ writeTVar cutVar resultCut
-            )
+            -- using S.scanM would be slightly more efficient (one pointer dereference)
+            -- by keeping the value of cutVar in memory. We use the S.mapM variant with
+            -- an redundant 'readTVarIO' because it is easier to read.
+            & S.mapM_ (\newCut -> do
+                curCut <- readTVarIO cutVar
+                !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
+                    $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
+                -- write the cut to storage for later use when the node restarts
+                -- or if the operator has to do manual fork resolution later.
+                --
+                -- we don't write *all* cuts. in the worst case if the node
+                -- receives each block one at a time, we have one cut for each
+                -- block. each cut has one block hash per chain, so that would
+                -- be quadratic storage in the number of chains.
+                -- we also prune old cuts for this reason.
+
+                -- however, we do want to write them at least *once in a while*,
+                -- to ensure that the node doesn't have to replay too much
+                -- history on restart, and to ensure that we can do manual fork
+                -- recovery without more complicated cut rediscovery mechanisms.
+                unless (_cutDbParamsReadOnly conf) $ do
+                    let resultCutMaxHeight = view cutMaxHeight resultCut
+                    shouldWriteAndPrune <- atomically $ do
+                        latestPruningState <- readTVar cutPruningStateVar
+                        -- we write one cut each time the max height advances by
+                        -- a block ahead of the previously written cut.
+                        -- note that we are not that smart here; this code isn't
+                        -- aware of reorgs. reorgs, especially rewinds, would
+                        -- probably make some sense to write; but we assume that
+                        -- this is good enough, because reorgs are small, one
+                        -- block is a fast thing to wait for, and we
+                        -- regardless write our current cut on a healthy
+                        -- shutdown.
+                        let lastWriteHeight = cutPruningStateLatestWrittenHeight latestPruningState
+                        let nextWriteHeight = succ lastWriteHeight
+                        if all (\bh -> view blockHeight bh >= nextWriteHeight) (view cutMap resultCut)
+                        then do
+                            writeTVar cutPruningStateVar
+                                latestPruningState { cutPruningStateLatestWrittenHeight = resultCutMaxHeight }
+                            return True
+                        else
+                            return False
+                    when shouldWriteAndPrune $ do
+                        pruneCuts logFun conf (cutAvgBlockHeight curCut) cutHashesStore
+                        loggCutId logFun Info newCut
+                            $ "writing cut at bh " <> sshow resultCutMaxHeight
+                        casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
+                -- ensure that payload providers are in sync with the *merged*
+                -- cut, so that they produce payloads on the correct parents.
+                iforM_ (_cutMap resultCut) $ \cid bh -> do
+                    -- avoid asking for syncToBlock when we know that we're already
+                    -- in sync, otherwise some payload providers misbehave.
+                    when (Just bh /= curCut ^? ixg cid) $
+                        case providers ^?! atChain cid of
+                            ConfiguredPayloadProvider provider -> do
+                                finfo <- forkInfoForHeader hdrStore bh Nothing Nothing
+                                r <- syncToBlock provider Nothing finfo
+                                unless (r == _forkInfoTargetState finfo) $ do
+                                    error $ "unexpected result state"
+                                        <> "; expected: " <> sshow (_forkInfoTargetState finfo)
+                                        <> "; actual: " <> sshow r
+                            _ -> return ()
+                let cutDiff = cutDiffToTextShort curCut resultCut
+                let currentCutIdMsg = T.unwords
+                        [ "current cut is now"
+                        , cutIdToTextShort (_cutId resultCut) <> ","
+                        , "diff:"
+                        ]
+                let catOverflowing x xs =
+                        if length xs == 1
+                        then T.unwords (x : xs)
+                        else T.intercalate "\n" (x : (map ("    " <>) xs))
+                logFun @T.Text Info $ catOverflowing currentCutIdMsg cutDiff
+                atomically $ writeTVar cutVar resultCut
+                )
   where
 
-    maybePrune rng curCutAvgBlockHeight = do
-        r :: Double <- Prob.uniform rng
-        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt maxBound)) $
-            pruneCuts logFun conf curCutAvgBlockHeight cutHashesStore
+    writeLatestCutOnExit = do
+        latestCut <- readTVarIO cutVar
+        casInsert cutHashesStore (cutToCutHashes Nothing latestCut)
 
     hdrStore = _webBlockHeaderStoreCas headerStore
-
-    queueToStream = do
-        Down a <- liftIO (pQueueRemove queue)
-        S.yield a
-        queueToStream
 
     -- FIXME: this is problematic. We should drop these much earlier before they
     -- are even added to the queue, to prevent the queue from becoming stale.

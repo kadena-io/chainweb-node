@@ -536,8 +536,7 @@ testCutPruning rdb = testCase "cut pruning" $ runResourceT $ withVersion (barebo
             round (avgBlockHeightAtCutHeight mostCutHeight) >= int minedBlockHeight - fuzz
   where
     alterPruningSettings =
-        set cutDbParamsAvgBlockHeightPruningDepth 50 .
-        set cutDbParamsPruningFrequency 1
+        set cutDbParamsAvgBlockHeightPruningDepth 50
     minedBlockHeight = 300
 
 testCutGet :: RocksDb -> TestTree
