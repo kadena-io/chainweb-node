@@ -17,6 +17,8 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.Chainweb.ChainResources
@@ -110,6 +112,9 @@ import Chainweb.Version
 import Chainweb.Version.Guards (maxBlockGasLimit)
 import Pact.Core.Gas qualified as Pact
 import Control.Monad (forM)
+import Chainweb.Payload.PayloadStore (CanReadablePayloadCas)
+import qualified Chainweb.Payload.RestAPI as PactPayload.RestAPI
+import qualified Chainweb.Payload.RestAPI.Server as PactPayload.RestAPI.Server
 
 -- -------------------------------------------------------------------------- --
 -- Payload P2P Network Resources
@@ -160,7 +165,7 @@ payloadP2pResources logger p2pConfig myInfo peerDb tbl queue mgr = do
         { _payloadResPeerDb = peerDb
         , _payloadResP2pNode = p2pNode
         , _payloadResP2pApi = SomeApi (payloadApi @v @c @p)
-        , _payloadResP2pServer = somePayloadServer @_ @v @c @p 20 tbl
+        , _payloadResP2pServer = somePayloadServer @_ @v @c @p (PayloadBatchLimit 20) tbl
         }
   where
     p2pLogger = addLabel ("sub-component", "p2p") logger
@@ -187,10 +192,10 @@ runPayloadP2pNodes r = [ p2pRunNode (_payloadResP2pNode r) ]
 -- -------------------------------------------------------------------------- --
 -- Payload Service API Resources
 
-data PayloadServiceApiResources = PayloadServiceApiResources
-    { _payloadResServiceApi :: !SomeApi
-    , _payloadResServiceServer :: !SomeServer
+newtype PayloadServiceApiResources = PayloadServiceApiResources
+    { _payloadResServiceServer :: SomeServer
     }
+    deriving newtype (Semigroup, Monoid)
 
 payloadServiceApiResources
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (p :: PayloadProviderType) tbl
@@ -202,10 +207,22 @@ payloadServiceApiResources
     -> tbl
     -> PayloadServiceApiResources
 payloadServiceApiResources config pdb = PayloadServiceApiResources
-    { _payloadResServiceApi = SomeApi (payloadApi @v @c @p)
-    , _payloadResServiceServer = somePayloadServer @_ @v @c @p batchLimit pdb
+    { _payloadResServiceServer = somePayloadServer @_ @v @c @p batchLimit pdb
     }
-  where
+    where
+    batchLimit = int $ _serviceApiPayloadBatchLimit config
+
+pactPayloadServiceApiResources
+    :: forall tbl
+    . HasVersion
+    => CanReadablePayloadCas tbl
+    => ServiceApiConfig
+    -> PactPayload.RestAPI.SomePayloadDb tbl
+    -> PayloadServiceApiResources
+pactPayloadServiceApiResources config pdb = PayloadServiceApiResources
+    { _payloadResServiceServer = PactPayload.RestAPI.Server.somePayloadServer @_ batchLimit pdb
+    }
+    where
     batchLimit = int $ _serviceApiPayloadBatchLimit config
 
 -- -------------------------------------------------------------------------- --
@@ -226,6 +243,7 @@ withPayloadProviderResources
     => HasVersion
     => logger
     -> ChainId
+    -> ServiceApiConfig
     -> Maybe (P2pConfiguration, PeerInfo, PeerDb, HTTP.Manager)
     -> RocksDb
     -> RewindLimit
@@ -238,7 +256,7 @@ withPayloadProviderResources
         -- default db location from the chainweb configuration.
     -> PayloadProviderConfig
     -> ResourceT IO ProviderResources
-withPayloadProviderResources logger cid peerStuff rdb rewindLimit initialUnlimitedRewind defaultPactDbDir configs = do
+withPayloadProviderResources logger cid serviceApiConfig peerStuff rdb rewindLimit initialUnlimitedRewind defaultPactDbDir configs = do
     SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal
     SomeChainIdT @c' _ <- return $ someChainIdVal cid
     withSomeSing provider $ \case
@@ -259,9 +277,11 @@ withPayloadProviderResources logger cid peerStuff rdb rewindLimit initialUnlimit
             p2pRes <- liftIO $ forM peerStuff $ \(p2pConfig, myPeerInfo, peerDb, mgr) ->
                 payloadP2pResources @v' @c' @'MinimalProvider
                     logger p2pConfig myPeerInfo peerDb pdb queue mgr
+            let serviceRes =
+                    payloadServiceApiResources @v' @c' @'MinimalProvider serviceApiConfig pdb
             return ProviderResources
                 { _providerResPayloadProvider = ConfiguredPayloadProvider p
-                , _providerResServiceApi = Nothing
+                , _providerResServiceApi = Just serviceRes
                 , _providerResP2pApiResources = p2pRes
                 }
 
@@ -328,6 +348,8 @@ withPayloadProviderResources logger cid peerStuff rdb rewindLimit initialUnlimit
                 p2pRes <- liftIO $ forM peerStuff $ \(p2pConfig, myPeerInfo, peerDb, mgr) ->
                     payloadP2pResources @v' @c' @'PactProvider
                         logger p2pConfig myPeerInfo peerDb pdb queue mgr
+                let serviceApiPayloadServer = pactPayloadServiceApiResources serviceApiConfig
+                        (PactPayload.RestAPI.SomePayloadDb $ PactPayload.RestAPI.PayloadDb' @_ @v' @c' pdb)
                 let pactServerData = Pact.PactServerData
                         { Pact._pactServerDataLogger =
                             pactPayloadProviderLogger pp
@@ -336,15 +358,11 @@ withPayloadProviderResources logger cid peerStuff rdb rewindLimit initialUnlimit
                         , Pact._pactServerDataPact =
                             pactPayloadProviderServiceEnv pp
                         }
-                let pactServer = Pact.somePactServer (Pact.somePactServerData cid pactServerData)
+                -- this is a bit of a misnomer, as it's not a payload API
+                let pactServer = PayloadServiceApiResources $ Pact.somePactServer (Pact.somePactServerData cid pactServerData)
                 return ProviderResources
                     { _providerResPayloadProvider = ConfiguredPayloadProvider pp
-                    , _providerResServiceApi = Just $ PayloadServiceApiResources
-                        -- TODO: I think this isn't what was in mind for this...
-                        -- this seems to really just be for the payload API
-                        { _payloadResServiceApi = Pact.somePactServiceApi cid
-                        , _payloadResServiceServer = pactServer
-                        }
+                    , _providerResServiceApi = Just $ pactServer <> serviceApiPayloadServer
                     , _providerResP2pApiResources = p2pRes
                     }
 
@@ -359,13 +377,19 @@ withPayloadProviderResources logger cid peerStuff rdb rewindLimit initialUnlimit
                 p <- withEvmPayloadProvider logger cid rdb (view _4 <$> peerStuff) config
                 let pdb = view evmPayloadDb p
                 let queue = view evmPayloadQueue p
-                p2pRes <- liftIO $ forM peerStuff $ \(p2pConfig, myPeerInfo, peerDb, mgr) ->
-                    payloadP2pResources @v' @c' @('EvmProvider n)
-                        logger p2pConfig myPeerInfo peerDb pdb queue mgr
+                apiRes <- liftIO $ forM peerStuff $ \(p2pConfig, myPeerInfo, peerDb, mgr) -> do
+                    p2pRes <-
+                        payloadP2pResources @v' @c' @('EvmProvider n)
+                            logger p2pConfig myPeerInfo peerDb pdb queue mgr
+                    let
+                        serviceRes =
+                            payloadServiceApiResources @v' @c' @('EvmProvider n) serviceApiConfig pdb
+                    return (p2pRes, serviceRes)
+
                 return ProviderResources
                     { _providerResPayloadProvider = ConfiguredPayloadProvider p
-                    , _providerResServiceApi = Nothing
-                    , _providerResP2pApiResources = p2pRes
+                    , _providerResServiceApi = snd <$> apiRes
+                    , _providerResP2pApiResources = fst <$> apiRes
                     }
             _ -> return $ ProviderResources DisabledPayloadProvider Nothing Nothing
 
@@ -412,6 +436,7 @@ withChainResources
         -- payload providers live within chainweb-consensus they inherit the
         -- default db location from the chainweb configuration.
     -> P2pConfiguration
+    -> ServiceApiConfig
     -> PeerInfo
     -> PeerDb
     -> RewindLimit
@@ -420,7 +445,7 @@ withChainResources
         -- ^ whether to allow unlimited rewind on startup
     -> PayloadProviderConfig
     -> ResourceT IO (ChainResources logger)
-withChainResources logger cid rdb mgr defaultPactDbDir p2pConf myInfo peerDb rewindLimit initialUnlimitedRewind configs = do
+withChainResources logger cid rdb mgr defaultPactDbDir p2pConf serviceConf myInfo peerDb rewindLimit initialUnlimitedRewind configs = do
 
     -- This uses the the CutNetwork for fetching block headers.
     cdb <- withBlockHeaderDb rdb cid
@@ -428,7 +453,8 @@ withChainResources logger cid rdb mgr defaultPactDbDir p2pConf myInfo peerDb rew
     -- Payload Providers are using per chain payload networks for fetching
     -- block headers.
     provider <- withPayloadProviderResources
-        providerLogger cid (Just (p2pConf, myInfo, peerDb, mgr)) rdb rewindLimit initialUnlimitedRewind defaultPactDbDir configs
+        providerLogger cid serviceConf (Just (p2pConf, myInfo, peerDb, mgr))
+        rdb rewindLimit initialUnlimitedRewind defaultPactDbDir configs
 
     return ChainResources
         { _chainResBlockHeaderDb = cdb

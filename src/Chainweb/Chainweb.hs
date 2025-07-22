@@ -285,6 +285,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                         (_peerResManager peerRes)
                         defaultPactDbDir
                         (_peerResConfig peerRes)
+                        (_configServiceApi conf)
                         myInfo
                         peerDb
                         (_configReorgLimit conf)

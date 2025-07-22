@@ -98,7 +98,7 @@ import Chainweb.Logger
 import System.LogLevel
 import Chainweb.Chainweb.ChainResources (withPayloadProviderResources, providerResPayloadProvider)
 import P2P.Node.Configuration (defaultP2pConfiguration)
-import Chainweb.Chainweb.Configuration (PayloadProviderConfig(PayloadProviderConfig), defaultPayloadProviderConfig)
+import Chainweb.Chainweb.Configuration (PayloadProviderConfig(PayloadProviderConfig), defaultPayloadProviderConfig, defaultServiceApiConfig)
 import Chainweb.Test.Pact.Utils (getTestLogger)
 import qualified Data.HashSet as HS
 
@@ -512,6 +512,7 @@ testCutPruning rdb = testCase "cut pruning" $ runResourceT $ withVersion (barebo
     pps <- tabulateChainsM $ \cid -> view providerResPayloadProvider <$> withPayloadProviderResources
         testLogger
         cid
+        defaultServiceApiConfig
         Nothing
         rdb
         (RewindLimit 10)
@@ -550,6 +551,7 @@ testCutGet rdb = testCase "cut get" $ withVersion (barebonesTestVersion pairChai
     pps <- tabulateChainsM $ \cid -> view providerResPayloadProvider <$> withPayloadProviderResources
         (genericLogger Error (\_ -> return ()))
         cid
+        defaultServiceApiConfig
         Nothing
         rdb
         (RewindLimit 10)
