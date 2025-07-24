@@ -620,8 +620,6 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
 
 data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
--- TODO: catch, wrap, and forward exceptions from chainwebApplication
---
 withChainwebTestServer
     :: HasVersion
     => ShouldValidateSpec
