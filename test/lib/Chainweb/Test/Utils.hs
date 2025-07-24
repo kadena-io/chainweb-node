@@ -620,48 +620,39 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
 
 data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
--- TODO: catch, wrap, and forward exceptions from chainwebApplication
---
 withChainwebTestServer
     :: HasVersion
     => ShouldValidateSpec
     -> Bool
     -> W.Application
     -> ResourceT IO Int
-withChainwebTestServer shouldValidateSpec tls app =
-    view _3 . snd <$> allocate start stop
+withChainwebTestServer shouldValidateSpec tls app = do
+    mw <- liftIO $ case shouldValidateSpec of
+        ValidateSpec -> mkApiValidationMiddleware
+        DoNotValidateSpec -> return id
+    let app' = mw app
+    (_, (port, sock)) <- allocate W.openFreePort (close . snd)
+    readyVar <- liftIO newEmptyMVar
+    _ <- withAsyncR $ do
+        let
+            settings =
+                W.setBeforeMainLoop (putMVar readyVar ()) $
+                W.setOnExceptionResponse verboseOnExceptionResponse $
+                W.defaultSettings
+        if
+            | tls -> do
+                let certBytes = testBootstrapCertificate
+                let keyBytes = testBootstrapKey
+                let tlsSettings = tlsServerSettings certBytes keyBytes
+                W.runTLSSocket tlsSettings settings sock app'
+            | otherwise ->
+                W.runSettingsSocket settings sock app'
+
+    _ <- liftIO $ takeMVar readyVar
+    return port
   where
     verboseOnExceptionResponse exn =
         W.responseLBS HTTP.internalServerError500 [] ("exception: " <> sshow exn)
-    start = do
-        mw <- case shouldValidateSpec of
-            ValidateSpec -> mkApiValidationMiddleware
-            DoNotValidateSpec -> return id
-        let app' = mw app
-        (port, sock) <- W.openFreePort
-        readyVar <- newEmptyMVar
-        server <- async $ do
-            let
-                settings =
-                    W.setBeforeMainLoop (putMVar readyVar ()) $
-                    W.setOnExceptionResponse verboseOnExceptionResponse $
-                    W.defaultSettings
-            if
-                | tls -> do
-                    let certBytes = testBootstrapCertificate
-                    let keyBytes = testBootstrapKey
-                    let tlsSettings = tlsServerSettings certBytes keyBytes
-                    W.runTLSSocket tlsSettings settings sock app'
-                | otherwise ->
-                    W.runSettingsSocket settings sock app'
-
-        link server
-        _ <- takeMVar readyVar
-        return (server, sock, port)
-
-    stop (server, sock, _) = do
-        uninterruptibleCancel server
-        close sock
 
 clientEnvWithChainwebTestServer
     :: forall t
