@@ -83,6 +83,8 @@ import Chainweb.Logger
 import Chainweb.Chainweb.ChainResources (payloadP2pResources)
 import P2P.Node.Configuration (defaultP2pConfiguration)
 import System.LogLevel
+import Chainweb.BlockHeaderDB.RestAPI.Client
+import Control.Exception (evaluate)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -172,20 +174,22 @@ simpleSessionTests rdb tls = withVersion version $
         let neverLogger = genericLogger Error (\_ -> return ())
         in withResourceT (do { mgr <- liftIO mgrIO; dbs <- liftIO dbsIO; mkEnv neverLogger mgr rdb tls dbs})
         $ \env -> testGroup "client session tests"
-            $ [httpHeaderTests env (head $ toList chainIds)]
-            -- : (simpleClientSession env <$> toList chainIds)
+            $ httpHeaderTests env (head $ toList chainIds)
+            : (simpleClientSession env <$> toList chainIds)
 
 httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
     testGroup ("http header tests for chain " <> sshow cid)
         [ testCase "headerClient" $ go $ \h -> headerClient' cid (key h)
         , testCase "headersClient" $ go $ \_ -> headersClient' cid Nothing Nothing Nothing Nothing
+        -- TODO: PP
         -- , testCase "blocksClient" $ go $ \_ -> blocksClient' cid Nothing Nothing Nothing Nothing
         , testCase "hashesClient" $ go $ \_ -> hashesClient' cid Nothing Nothing Nothing Nothing
         , testCase "branchHashesClient" $ go $ \_ -> branchHashesClient' cid Nothing Nothing Nothing
             Nothing (BranchBounds mempty mempty)
         , testCase "branchHeadersClient" $ go $ \_ -> branchHeadersClient' cid Nothing Nothing Nothing
             Nothing (BranchBounds mempty mempty)
+        -- TODO: PP
         -- , testCase "branchBlocksClient" $ go $ \_ -> branchBlocksClient' cid Nothing Nothing Nothing
         --     Nothing (BranchBounds mempty mempty)
         ]
@@ -210,243 +214,237 @@ httpHeaderTests envIO cid =
                             (d <= 2)
                         return res
 
--- simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
--- simpleClientSession envIO cid =
---     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
---         env <- _envClientEnv <$> envIO
---         bhdbs <- _envBlockHeaderDbs <$> envIO
---         pdbs <- _envPayloads <$> envIO
---         res <- runClientM (withVersion version $ session bhdbs pdbs step) env
---         assertBool ("test failed: " <> sshow res) (isRight res)
---   where
+simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
+simpleClientSession envIO cid =
+    testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
+        env <- _envClientEnv <$> envIO
+        bhdbs <- _envBlockHeaderDbs <$> envIO
+        -- pdbs <- _envPayloads <$> envIO
+        res <- runClientM (withVersion version $ session bhdbs step) env
+        assertBool ("test failed: " <> sshow res) (isRight res)
+  where
 
---     session :: HasVersion => [(ChainId, BlockHeaderDb)] -> [(ChainId, PayloadDb RocksDbTable)] -> (String -> IO a) -> ClientM ()
---     session bhdbs pdbs step = do
+    session :: HasVersion => ChainMap BlockHeaderDb -> (String -> IO a) -> ClientM ()
+    session bhdbs step = do
 
---         let gbh0 = genesisBlockHeader cid
+        let gbh0 = genesisBlockHeader cid
 
---         bhdb <- case Prelude.lookup cid bhdbs of
---             Just x -> return x
---             Nothing -> error "Chainweb.Test.RestAPI.simpleClientSession: missing block header db in test"
+        bhdb <- liftIO $ evaluate $ bhdbs ^?! atChain cid
 
---         pdb <- case Prelude.lookup cid pdbs of
---             Just x -> return x
---             Nothing -> error "Chainweb.Test.RestAPI.simpleClientSession: missing payload db in test"
+        void $ liftIO $ step "headerClient: get genesis block header"
+        gen0 <- headerClient cid (key gbh0)
+        assertExpectation "header client returned wrong entry"
+            (Expected gbh0)
+            (Actual gen0)
 
---         void $ liftIO $ step "headerClient: get genesis block header"
---         gen0 <- headerClient cid (key gbh0)
---         assertExpectation "header client returned wrong entry"
---             (Expected gbh0)
---             (Actual gen0)
+        void $ liftIO $ step "headerClient: get genesis block header pretty"
+        gen01 <- headerClientJsonPretty cid (key gbh0)
+        assertExpectation "header client returned wrong entry"
+            (Expected gbh0)
+            (Actual gen01)
 
---         void $ liftIO $ step "headerClient: get genesis block header pretty"
---         gen01 <- headerClientJsonPretty cid (key gbh0)
---         assertExpectation "header client returned wrong entry"
---             (Expected gbh0)
---             (Actual gen01)
+        void $ liftIO $ step "headerClient: get genesis block header binary"
+        gen02 <- headerClientJsonBinary cid (key gbh0)
+        assertExpectation "header client returned wrong entry"
+            (Expected gbh0)
+            (Actual gen02)
 
---         void $ liftIO $ step "headerClient: get genesis block header binary"
---         gen02 <- headerClientJsonBinary cid (key gbh0)
---         assertExpectation "header client returned wrong entry"
---             (Expected gbh0)
---             (Actual gen02)
+        void $ liftIO $ step "headersClient: get genesis block header"
+        bhs1 <- headersClient cid Nothing Nothing Nothing Nothing
+        gen1 <- case _pageItems bhs1 of
+            [] -> liftIO $ assertFailure "headersClient did return empty result"
+            (h:_) -> return h
+        assertExpectation "header client returned wrong entry"
+            (Expected gbh0)
+            (Actual gen1)
 
---         void $ liftIO $ step "headersClient: get genesis block header"
---         bhs1 <- headersClient cid Nothing Nothing Nothing Nothing
---         gen1 <- case _pageItems bhs1 of
---             [] -> liftIO $ assertFailure "headersClient did return empty result"
---             (h:_) -> return h
---         assertExpectation "header client returned wrong entry"
---             (Expected gbh0)
---             (Actual gen1)
+        -- void $ liftIO $ step "blocksClient: get genesis block"
+        -- block1 <- blocksClient cid Nothing Nothing Nothing Nothing
+        -- gen1Block <- case _pageItems block1 of
+        --     [] -> liftIO $ assertFailure "blocksClient did return empty result"
+        --     (h:_) -> return h
+        -- assertExpectation "block client returned wrong entry"
+        --     (Expected (Block gbh0 (implicitVersion ^?! versionGenesis . genesisBlockPayload . atChain cid)))
+        --     (Actual gen1Block)
 
---         void $ liftIO $ step "blocksClient: get genesis block"
---         block1 <- blocksClient cid Nothing Nothing Nothing Nothing
---         gen1Block <- case _pageItems block1 of
---             [] -> liftIO $ assertFailure "blocksClient did return empty result"
---             (h:_) -> return h
---         assertExpectation "block client returned wrong entry"
---             (Expected (Block gbh0 (implicitVersion ^?! versionGenesis . genesisBlockPayload . atChain cid)))
---             (Actual gen1Block)
+        void $ liftIO $ step "put 3 new blocks"
+        let newHeaders = take 3 $ testBlockHeaders (Parent gbh0)
+        liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders
+        -- liftIO $ traverse_ (\x -> addNewPayload pdb (view blockHeight x) (testBlockPayload_ x)) newHeaders
 
---         void $ liftIO $ step "put 3 new blocks"
---         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
---         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders
---         liftIO $ traverse_ (\x -> addNewPayload pdb (view blockHeight x) (testBlockPayload_ x)) newHeaders
+        void $ liftIO $ step "headersClient: get all 4 block headers"
+        bhs2 <- headersClient cid Nothing Nothing Nothing Nothing
+        assertExpectation "headersClient returned wrong number of entries"
+            (Expected 4)
+            (Actual $ _pageLimit bhs2)
 
---         void $ liftIO $ step "headersClient: get all 4 block headers"
---         bhs2 <- headersClient cid Nothing Nothing Nothing Nothing
---         assertExpectation "headersClient returned wrong number of entries"
---             (Expected 4)
---             (Actual $ _pageLimit bhs2)
+        -- void $ liftIO $ step "blocksClient: get all 4 blocks"
+        -- blocks2 <- blocksClient cid Nothing Nothing Nothing Nothing
+        -- assertExpectation "blocksClient returned wrong number of entries"
+        --     (Expected 4)
+        --     (Actual $ _pageLimit blocks2)
 
---         void $ liftIO $ step "blocksClient: get all 4 blocks"
---         blocks2 <- blocksClient cid Nothing Nothing Nothing Nothing
---         assertExpectation "blocksClient returned wrong number of entries"
---             (Expected 4)
---             (Actual $ _pageLimit blocks2)
+        void $ liftIO $ step "hashesClient: get all 4 block hashes"
+        hs2 <- hashesClient cid Nothing Nothing Nothing Nothing
+        assertExpectation "hashesClient returned wrong number of entries"
+            (Expected $ _pageLimit bhs2)
+            (Actual $ _pageLimit hs2)
+        assertExpectation "hashesClient returned wrong hashes"
+            (Expected $ key <$> _pageItems bhs2)
+            (Actual $ _pageItems hs2)
 
---         void $ liftIO $ step "hashesClient: get all 4 block hashes"
---         hs2 <- hashesClient cid Nothing Nothing Nothing Nothing
---         assertExpectation "hashesClient returned wrong number of entries"
---             (Expected $ _pageLimit bhs2)
---             (Actual $ _pageLimit hs2)
---         assertExpectation "hashesClient returned wrong hashes"
---             (Expected $ key <$> _pageItems bhs2)
---             (Actual $ _pageItems hs2)
+        forM_ newHeaders $ \h -> do
+            void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (view blockHash h))
+            r <- headerClient cid (key h)
+            assertExpectation "header client returned wrong entry"
+                (Expected h)
+                (Actual r)
 
---         forM_ newHeaders $ \h -> do
---             void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (view blockHash h))
---             r <- headerClient cid (key h)
---             assertExpectation "header client returned wrong entry"
---                 (Expected h)
---                 (Actual r)
+        -- branchHeaders
 
---         -- branchHeaders
+        do
+          void $ liftIO $ step "branchHeadersClient: BranchBounds limits exceeded"
+          clientEnv <- liftIO $ _envClientEnv <$> envIO
+          let query bounds = liftIO
+                $ flip runClientM clientEnv
+                $ branchHeadersClient
+                    cid Nothing Nothing Nothing Nothing bounds
+          let limit = 32
+          let blockHeaders = testBlockHeaders (Parent gbh0)
+          let maxBlockHeaders = take limit blockHeaders
+          let excessBlockHeaders = take (limit + 1) blockHeaders
 
---         do
---           void $ liftIO $ step "branchHeadersClient: BranchBounds limits exceeded"
---           clientEnv <- liftIO $ _envClientEnv <$> envIO
---           let query bounds = liftIO
---                 $ flip runClientM clientEnv
---                 $ branchHeadersClient
---                     cid Nothing Nothing Nothing Nothing bounds
---           let limit = 32
---           let blockHeaders = testBlockHeaders (ParentHeader gbh0)
---           let maxBlockHeaders = take limit blockHeaders
---           let excessBlockHeaders = take (limit + 1) blockHeaders
+          let mkLower :: [BlockHeader] -> HS.HashSet (LowerBound BlockHash)
+              mkLower hs = HS.fromList $ map (LowerBound . key) hs
+          let mkUpper :: [BlockHeader] -> HS.HashSet (UpperBound BlockHash)
+              mkUpper hs = HS.fromList $ map (UpperBound . key) hs
 
---           let mkLower :: [BlockHeader] -> HS.HashSet (LowerBound BlockHash)
---               mkLower hs = HS.fromList $ map (LowerBound . key) hs
---           let mkUpper :: [BlockHeader] -> HS.HashSet (UpperBound BlockHash)
---               mkUpper hs = HS.fromList $ map (UpperBound . key) hs
+          let emptyLower = mkLower []
+          let badLower = mkLower excessBlockHeaders
+          let goodLower = mkLower maxBlockHeaders
 
---           let emptyLower = mkLower []
---           let badLower = mkLower excessBlockHeaders
---           let goodLower = mkLower maxBlockHeaders
+          let emptyUpper = mkUpper []
+          let badUpper = mkUpper excessBlockHeaders
+          let goodUpper = mkUpper maxBlockHeaders
 
---           let emptyUpper = mkUpper []
---           let badUpper = mkUpper excessBlockHeaders
---           let goodUpper = mkUpper maxBlockHeaders
+          let badRespCheck :: Int -> ClientError -> Bool
+              badRespCheck s e = isFailureResponse e && clientErrorStatusCode e == Just s
 
---           let badRespCheck :: Int -> ClientError -> Bool
---               badRespCheck s e = isFailureResponse e && clientErrorStatusCode e == Just s
+          badLowerResponse <- query (BranchBounds badLower emptyUpper)
+          assertExpectation "branchHeadersClient returned a 400 error code on excess lower"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 400) badLowerResponse))
 
---           badLowerResponse <- query (BranchBounds badLower emptyUpper)
---           assertExpectation "branchHeadersClient returned a 400 error code on excess lower"
---             (Expected (Left True))
---             (Actual (first (badRespCheck 400) badLowerResponse))
+          badUpperResponse <- query (BranchBounds emptyLower badUpper)
+          assertExpectation "branchHeadersClient returned a 400 error code on excess upper"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 400) badUpperResponse))
 
---           badUpperResponse <- query (BranchBounds emptyLower badUpper)
---           assertExpectation "branchHeadersClient returned a 400 error code on excess upper"
---             (Expected (Left True))
---             (Actual (first (badRespCheck 400) badUpperResponse))
+          -- This will still fail because a bunch of these keys won't be found,
+          -- but it won't fail the bounds check, which happens first
+          doesntFailBoundsCheck <- query (BranchBounds goodLower goodUpper)
+          assertExpectation "branchHeadersClient returned a 404; bounds were within the limits, still fails key exists check"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 404) doesntFailBoundsCheck))
 
---           -- This will still fail because a bunch of these keys won't be found,
---           -- but it won't fail the bounds check, which happens first
---           doesntFailBoundsCheck <- query (BranchBounds goodLower goodUpper)
---           assertExpectation "branchHeadersClient returned a 404; bounds were within the limits, still fails key exists check"
---             (Expected (Left True))
---             (Actual (first (badRespCheck 404) doesntFailBoundsCheck))
+          doesntFailAtAll <- query (BranchBounds emptyLower emptyUpper)
+          assertExpectation "branchHeadersClient returned a 200; bounds were within the limits, and no keys to check at all"
+            (Expected (Right ()))
+            (Actual (() <$ doesntFailAtAll))
 
---           doesntFailAtAll <- query (BranchBounds emptyLower emptyUpper)
---           assertExpectation "branchHeadersClient returned a 200; bounds were within the limits, and no keys to check at all"
---             (Expected (Right ()))
---             (Actual (() <$ doesntFailAtAll))
+        void $ liftIO $ step "branchHeadersClient: get no block headers"
+        bhs3 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
+            (BranchBounds mempty mempty)
+        assertExpectation "branchHeadersClient returned wrong number of entries"
+            (Expected 0)
+            (Actual $ _pageLimit bhs3)
 
---         void $ liftIO $ step "branchHeadersClient: get no block headers"
---         bhs3 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
---             (BranchBounds mempty mempty)
---         assertExpectation "branchHeadersClient returned wrong number of entries"
---             (Expected 0)
---             (Actual $ _pageLimit bhs3)
+        forM_ ([2..] `zip` newHeaders) $ \(i, h) -> do
+            void $ liftIO $ step $ "branchHeadersClient: get " <> sshow i <> " block headers with upper bound"
+            bhs4 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds mempty (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected i)
+                (Actual $ _pageLimit bhs4)
 
---         forM_ ([2..] `zip` newHeaders) $ \(i, h) -> do
---             void $ liftIO $ step $ "branchHeadersClient: get " <> sshow i <> " block headers with upper bound"
---             bhs4 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds mempty (HS.singleton (UpperBound $ key h)))
---             assertExpectation "branchHeadersClient returned wrong number of entries"
---                 (Expected i)
---                 (Actual $ _pageLimit bhs4)
+            void $ liftIO $ step "branchHeadersClient: get no block headers with lower and upper bound"
+            bhs5 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h)) (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected 0)
+                (Actual $ _pageLimit bhs5)
 
---             void $ liftIO $ step "branchHeadersClient: get no block headers with lower and upper bound"
---             bhs5 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key h)) (HS.singleton (UpperBound $ key h)))
---             assertExpectation "branchHeadersClient returned wrong number of entries"
---                 (Expected 0)
---                 (Actual $ _pageLimit bhs5)
+        forM_ (newHeaders `zip` drop 1 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHeadersClient: get one block headers with lower and upper bound"
+            bhs5 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected 1)
+                (Actual $ _pageLimit bhs5)
 
---         forM_ (newHeaders `zip` drop 1 newHeaders) $ \(h0, h1) -> do
---             void $ liftIO $ step "branchHeadersClient: get one block headers with lower and upper bound"
---             bhs5 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
---             assertExpectation "branchHeadersClient returned wrong number of entries"
---                 (Expected 1)
---                 (Actual $ _pageLimit bhs5)
+        forM_ (newHeaders `zip` drop 2 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHeadersClient: get two block headers with lower and upper bound"
+            bhs5 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected 2)
+                (Actual $ _pageLimit bhs5)
 
---         forM_ (newHeaders `zip` drop 2 newHeaders) $ \(h0, h1) -> do
---             void $ liftIO $ step "branchHeadersClient: get two block headers with lower and upper bound"
---             bhs5 <- branchHeadersClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
---             assertExpectation "branchHeadersClient returned wrong number of entries"
---                 (Expected 2)
---                 (Actual $ _pageLimit bhs5)
+        -- branchHeaders
 
---         -- branchHeaders
+        void $ liftIO $ step "branchHashesClient: get no block headers"
+        hs3 <- branchHashesClient cid Nothing Nothing Nothing Nothing
+            (BranchBounds mempty mempty)
+        assertExpectation "branchHashesClient returned wrong number of entries"
+            (Expected 0)
+            (Actual $ _pageLimit hs3)
 
---         void $ liftIO $ step "branchHashesClient: get no block headers"
---         hs3 <- branchHashesClient cid Nothing Nothing Nothing Nothing
---             (BranchBounds mempty mempty)
---         assertExpectation "branchHashesClient returned wrong number of entries"
---             (Expected 0)
---             (Actual $ _pageLimit hs3)
+        forM_ ([2..] `zip` newHeaders) $ \(i, h) -> do
+            void $ liftIO $ step $ "branchHashesClient: get " <> sshow i <> " block headers with upper bound"
+            hs4 <- branchHashesClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds mempty (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected i)
+                (Actual $ _pageLimit hs4)
 
---         forM_ ([2..] `zip` newHeaders) $ \(i, h) -> do
---             void $ liftIO $ step $ "branchHashesClient: get " <> sshow i <> " block headers with upper bound"
---             hs4 <- branchHashesClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds mempty (HS.singleton (UpperBound $ key h)))
---             assertExpectation "branchHashesClient returned wrong number of entries"
---                 (Expected i)
---                 (Actual $ _pageLimit hs4)
+            void $ liftIO $ step "branchHashesClient: get no block headers with lower and upper bound"
+            hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h)) (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected 0)
+                (Actual $ _pageLimit hs5)
 
---             void $ liftIO $ step "branchHashesClient: get no block headers with lower and upper bound"
---             hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key h)) (HS.singleton (UpperBound $ key h)))
---             assertExpectation "branchHashesClient returned wrong number of entries"
---                 (Expected 0)
---                 (Actual $ _pageLimit hs5)
+        forM_ (newHeaders `zip` drop 1 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
+            hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected 1)
+                (Actual $ _pageLimit hs5)
 
---         forM_ (newHeaders `zip` drop 1 newHeaders) $ \(h0, h1) -> do
---             void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
---             hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
---             assertExpectation "branchHashesClient returned wrong number of entries"
---                 (Expected 1)
---                 (Actual $ _pageLimit hs5)
+        forM_ (newHeaders `zip` drop 2 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHashesClient: get two block headers with lower and upper bound"
+            hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected 2)
+                (Actual $ _pageLimit hs5)
 
---         forM_ (newHeaders `zip` drop 2 newHeaders) $ \(h0, h1) -> do
---             void $ liftIO $ step "branchHashesClient: get two block headers with lower and upper bound"
---             hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
---             assertExpectation "branchHashesClient returned wrong number of entries"
---                 (Expected 2)
---                 (Actual $ _pageLimit hs5)
+        -- branch hashes with fork
 
---         -- branch hashes with fork
+        void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
+        let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (Parent gbh0)
+        liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders2
+        -- liftIO $ traverse_ (\x -> addNewPayload pdb (view blockHeight x) (testBlockPayload_ x)) newHeaders2
 
---         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
---         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
---         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders2
---         liftIO $ traverse_ (\x -> addNewPayload pdb (view blockHeight x) (testBlockPayload_ x)) newHeaders2
-
---         let lower = last newHeaders
---         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do
---             void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
---             hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
---                 (BranchBounds (HS.singleton (LowerBound $ key lower)) (HS.singleton (UpperBound $ key h)))
---             assertExpectation "branchHashesClient returned wrong number of entries"
---                 (Expected i)
---                 (Actual $ _pageLimit hs5)
+        let lower = last newHeaders
+        forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do
+            void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
+            hs5 <- branchHashesClient cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key lower)) (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected i)
+                (Actual $ _pageLimit hs5)
 
 
 
