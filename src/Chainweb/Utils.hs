@@ -196,6 +196,7 @@ module Chainweb.Utils
 , concurrentWith
 , withLink
 , withAsyncR
+, resourceToBracket
 , concurrentlies
 , concurrentlies_
 
@@ -296,6 +297,7 @@ import Data.Functor.Of
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Hashable
+import Data.IORef
 import Data.String (IsString(..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -1369,6 +1371,24 @@ withLink act = do
 -- | Spawn a thread to do the input action and kill it on exit.
 withAsyncR :: IO a -> ResourceT IO (Async a)
 withAsyncR act = snd <$> allocate (async act) uninterruptibleCancel
+
+-- | Use a ResourceT-allocated resource from @bracket@.
+resourceToBracket
+    :: ResourceT IO a
+    -> (IO (a, InternalState)
+        , (a, InternalState) -> IO ())
+resourceToBracket res = do
+    let prime = do
+            r <- res
+            uninterruptibleMask_ $ do
+                s <- getInternalState
+                releaseMap <- liftIO $ readIORef s
+                s' <- createInternalState
+                liftIO $ writeIORef s =<< readIORef s'
+                liftIO $ writeIORef s' releaseMap
+                return (r, s')
+
+    (runResourceT prime, (\(_, s) -> closeInternalState s))
 
 -- | Like `sequence` for IO but concurrent
 concurrentlies :: forall a. [IO a] -> IO [a]

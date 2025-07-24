@@ -586,37 +586,30 @@ pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb }
 
 withTestAppServer
     :: Bool
-    -> IO W.Application
-    -> (Int -> IO a)
-    -> (a -> IO b)
-    -> IO b
-withTestAppServer tls appIO envIO userFunc = bracket start stop go
-  where
-    warpOnException _ _ = return ()
-    start = do
-        app <- appIO
-        (port, sock) <- W.openFreePort
-        readyVar <- newEmptyMVar
-        server <- async $ do
-            let settings = W.setOnException warpOnException $
-                           W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
-            if
-                | tls -> do
-                    let certBytes = testBootstrapCertificate
-                    let keyBytes = testBootstrapKey
-                    let tlsSettings = tlsServerSettings certBytes keyBytes
-                    W.runTLSSocket tlsSettings settings sock app
-                | otherwise ->
-                    W.runSettingsSocket settings sock app
+    -> W.Application
+    -> ResourceT IO Int
+withTestAppServer tls app = do
+    (port, sock) <- snd <$> allocate W.openFreePort (close . snd)
+    readyVar <- liftIO newEmptyMVar
+    server <- withAsyncR $ do
+        let settings =
+                W.setOnException warpOnException $
+                W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+        if
+            | tls -> do
+                let certBytes = testBootstrapCertificate
+                let keyBytes = testBootstrapKey
+                let tlsSettings = tlsServerSettings certBytes keyBytes
+                W.runTLSSocket tlsSettings settings sock app
+            | otherwise ->
+                W.runSettingsSocket settings sock app
 
-        link server
-        _ <- takeMVar readyVar
-        env <- envIO port
-        return (server, sock, env)
-    stop (server, sock, _) = do
-        uninterruptibleCancel server
-        close sock
-    go (_, _, env) = userFunc env
+    liftIO $ link server
+    _ <- liftIO $ takeMVar readyVar
+    return port
+
+    where
+    warpOnException _ _ = return ()
 
 data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
