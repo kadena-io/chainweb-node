@@ -206,24 +206,30 @@ pP2pConfiguration = id
     <*< p2pConfigMaxSessionCount .:: option auto
         % prefixLong net "p2p-max-session-count"
         <> suffixHelp net "maximum number of sessions that are active at any time"
+        <> internal
     <*< p2pConfigMaxPeerCount .:: option auto
         % prefixLong net "p2p-max-peer-count"
         <> suffixHelp net "maximum number of entries in the peer database"
+        <> internal
     <*< p2pConfigSessionTimeout .:: textOption
         % prefixLong net "p2p-session-timeout"
         <> suffixHelp net "timeout for sessions in seconds"
+        <> internal
     <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate
         (pure <$> pKnownPeerInfo)
     <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
         % prefixLong net "ignore-bootstrap-nodes"
         <> help "when enabled the hard-coded bootstrap nodes for network are ignored"
+        <> internal
     <*< p2pConfigPrivate .:: enableDisableFlag
         % prefixLong net "private"
         <> help "when enabled this node becomes private and communicates only with the initially configured known peers"
+        <> internal
     <*< p2pConfigBootstrapReachability .:: option auto
         % prefixLong net "bootstrap-reachability"
         <> help "the fraction of bootstrap nodes that must be reachable at startup"
         <> metavar "[0,1]"
+        <> internal
     <*< p2pConfigTls .:: enableDisableFlag
         % prefixLong net "tls"
         <> internal -- hidden option, only for expert use
