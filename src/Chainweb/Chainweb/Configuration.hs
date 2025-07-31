@@ -251,7 +251,8 @@ instance FromJSON (PayloadProviderConfig -> PayloadProviderConfig) where
 --
 pPayloadProviderConfig :: MParser PayloadProviderConfig
 pPayloadProviderConfig = id
-    <$< payloadProviderConfigMinimal %:: pMinimalProviderConfig
+    <$< parserOptionGroup "Minimal Payload Provider"
+        (payloadProviderConfigMinimal %:: pMinimalProviderConfig)
     <*< pevm
   where
     cids = [ unsafeChainId i | i <- [0..100]]
