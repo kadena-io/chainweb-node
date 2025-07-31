@@ -19,7 +19,6 @@ module Chainweb.PayloadProvider.Pact.Configuration
 , pactConfigBlockGasLimit
 , pactConfigLogGas
 , pactConfigMinGasPrice
-, pactConfigPactQueueSize
 , pactConfigPreInsertCheckTimeout
 , pactConfigAllowReadsInLocal
 , pactConfigFullHistoricPactState
@@ -81,7 +80,6 @@ data PactProviderConfig = PactProviderConfig
     , _pactConfigBlockGasLimit :: !Mempool.GasLimit
     , _pactConfigLogGas :: !Bool
     , _pactConfigMinGasPrice :: !Mempool.GasPrice
-    , _pactConfigPactQueueSize :: !Natural
     , _pactConfigPreInsertCheckTimeout :: !Micros
     , _pactConfigAllowReadsInLocal :: !Bool
 
@@ -104,7 +102,6 @@ instance ToJSON PactProviderConfig where
         , "gasLimitOfBlock" .= J.toJsonViaEncode (StableEncoding $ _pactConfigBlockGasLimit o)
         , "logGas" .= _pactConfigLogGas o
         , "minGasPrice" .= J.toJsonViaEncode (StableEncoding $ _pactConfigMinGasPrice o)
-        , "pactQueueSize" .= _pactConfigPactQueueSize o
         , "preInsertCheckTimeout" .= _pactConfigPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _pactConfigAllowReadsInLocal o
         , "fullHistoricPactState" .= _pactConfigFullHistoricPactState o
@@ -121,7 +118,6 @@ instance FromJSON (PactProviderConfig -> PactProviderConfig) where
         <*< pactConfigBlockGasLimit . iso StableEncoding _stableEncoding ..: "gasLimitOfBlock" % o
         <*< pactConfigLogGas ..: "logGas" % o
         <*< pactConfigMinGasPrice . iso StableEncoding _stableEncoding ..: "minGasPrice" % o
-        <*< pactConfigPactQueueSize ..: "pactQueueSize" % o
         <*< pactConfigPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
         <*< pactConfigAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< pactConfigFullHistoricPactState ..: "fullHistoricPactState" % o
@@ -137,7 +133,6 @@ defaultPactProviderConfig = PactProviderConfig
     , _pactConfigBlockGasLimit = Pact.GasLimit (Pact.Gas 150_000)
     , _pactConfigLogGas = False
     , _pactConfigMinGasPrice = Pact.GasPrice 1e-8
-    , _pactConfigPactQueueSize = 2000
     , _pactConfigPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _pactConfigAllowReadsInLocal = False
     , _pactConfigFullHistoricPactState = True
@@ -162,9 +157,6 @@ pPactProviderConfig cid = id
     <*< pactConfigMinGasPrice . iso StableEncoding _stableEncoding .:: jsonOption
         % prefixLongCid cid "pact-min-gas-price"
         <> helpCid cid "the gas price of an individual transaction in a block must not be beneath this number"
-    <*< pactConfigPactQueueSize .:: jsonOption
-        % prefixLongCid cid "pact-queue-size"
-        <> helpCid cid "max size of pact internal queue"
     <*< pactConfigPreInsertCheckTimeout .:: jsonOption
         % prefixLongCid cid "pact-pre-insert-check-timeout"
         <> helpCid cid "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
