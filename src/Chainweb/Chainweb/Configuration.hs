@@ -48,6 +48,7 @@ module Chainweb.Chainweb.Configuration
 , ServiceApiConfig(..)
 , serviceApiConfigPort
 , serviceApiConfigInterface
+, serviceApiConfigHeaderStream
 , defaultServiceApiConfig
 , pServiceApiConfig
 
@@ -62,7 +63,6 @@ module Chainweb.Chainweb.Configuration
 , configChainwebVersion
 , configCuts
 , configMining
-, configHeaderStream
 , configP2p
 , configThrottling
 , configReorgLimit
@@ -399,6 +399,8 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
         -- ^ maximum size for payload batches on the service API. Default is
         -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
+    , _serviceApiConfigHeaderStream :: !Bool
+        -- ^ whether to serve a header update stream endpoint.
     }
     deriving (Show, Eq, Generic)
 
@@ -410,6 +412,7 @@ defaultServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface = "*"
     , _serviceApiConfigValidateSpec = False
     , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
+    , _serviceApiConfigHeaderStream = False
     }
 
 instance ToJSON ServiceApiConfig where
@@ -418,6 +421,7 @@ instance ToJSON ServiceApiConfig where
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
         , "validateSpec" .= _serviceApiConfigValidateSpec o
         , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
+        , "headerStream" .= _serviceApiConfigHeaderStream o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
@@ -426,6 +430,7 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
         <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
         <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
+        <*< serviceApiConfigHeaderStream ..: "headerStream" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -440,6 +445,10 @@ pServiceApiConfig = id
     <*< serviceApiConfigValidateSpec .:: enableDisableFlag
         % prefixLong service "validate-spec"
         <> internal -- hidden option, for expert use
+    <*< serviceApiConfigHeaderStream .:: boolOption_
+        % prefixLong service "header-stream"
+        <> help "whether to enable an endpoint for streaming block updates"
+
   where
     service = Just "service"
 
@@ -505,7 +514,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
-    , _configHeaderStream :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configReorgLimit :: !RewindLimit
@@ -566,7 +574,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
-    , _configHeaderStream = False
     , _configP2p = defaultP2pConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configReorgLimit = defaultReorgLimit
@@ -583,7 +590,6 @@ instance ToJSON ChainwebConfiguration where
         [ "chainwebVersion" .= _versionName (_configChainwebVersion o)
         , "cuts" .= _configCuts o
         , "mining" .= _configMining o
-        , "headerStream" .= _configHeaderStream o
         , "p2p" .= _configP2p o
         , "throttling" .= _configThrottling o
         , "reorgLimit" .= _configReorgLimit o
@@ -604,7 +610,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
             (findKnownVersion <=< parseJSON) o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
-        <*< configHeaderStream ..: "headerStream" % o
         <*< configP2p %.: "p2p" % o
         <*< configThrottling %.: "throttling" % o
         <*< configReorgLimit ..: "reorgLimit" % o
@@ -618,9 +623,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
     <$< configChainwebVersion %:: parseVersion
-    <*< configHeaderStream .:: boolOption_
-        % long "header-stream"
-        <> help "whether to enable an endpoint for streaming block updates"
     <*< parserOptionGroup "P2P" (configP2p %:: pP2pConfiguration)
     <*< configReorgLimit .:: jsonOption
         % long "reorg-limit"

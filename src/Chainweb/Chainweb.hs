@@ -801,7 +801,7 @@ runChainweb cw nowServing = do
                 , _chainwebServerPeerDbs = []
                 }
             (_chainwebCoordinator cw)
-            (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
+            (HeaderStream . _serviceApiConfigHeaderStream . _configServiceApi $ _chainwebConfig cw)
             (_chainwebBackup cw <$ guard backupApiEnabled)
             (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
             mw
