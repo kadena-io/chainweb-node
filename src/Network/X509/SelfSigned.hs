@@ -720,7 +720,7 @@ certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
                 <> " expected fingerprint: " <> T.unpack (fingerprintToText f)
                 <> " but got fingerprint: " <> T.unpack (fingerprintToText fp)
 
--- | Check whether a connection failed due to an certificate missmatch
+-- | Check whether a connection failed due to an certificate mismatch
 --
 isCertificateMismatchException :: HttpException -> Bool
 isCertificateMismatchException (HttpExceptionRequest _ (InternalException e)) =
