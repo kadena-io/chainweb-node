@@ -543,8 +543,8 @@ validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = do
     unless (isDevelopment || elem v knownVersions) $
         throwError $ T.unwords
-            [ "Specifying version properties is only legal with chainweb-version"
-            , "set to recap-development or development, but version is set to"
+            [ "Specifying network properties is only legal with network-id"
+            , "set to recap-development or development, but network is set to"
             , sshow (_versionName v)
             ]
     where
@@ -580,7 +580,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
 
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
-        [ "chainwebVersion" .= _versionName (_configChainwebVersion o)
+        [ "networkId" .= _versionName (_configChainwebVersion o)
         , "cuts" .= _configCuts o
         , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
@@ -600,7 +600,7 @@ instance FromJSON ChainwebConfiguration where
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfiguration" $ \o -> id
-        <$< setProperty configChainwebVersion "chainwebVersion"
+        <$< setProperty configChainwebVersion "networkId"
             (findKnownVersion <=< parseJSON) o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
@@ -649,9 +649,11 @@ parseVersion :: MParser ChainwebVersion
 parseVersion = constructVersion
     <$> optional
         (option (findKnownVersion =<< textReader)
-            % long "chainweb-version"
-            <> short 'v'
-            <> help "the chainweb version that this node is using"
+            % long "network-id"
+            <> short 'n'
+            <> help "the network that this node will communicate with"
+            <> metavar (T.unpack $
+                "[" <> T.intercalate "," (getChainwebVersionName . _versionName <$> knownVersions) <> "]")
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
     <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
