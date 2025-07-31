@@ -418,11 +418,20 @@ logg p l t = logFunctionText (_evmLogger p) l t
 -- Exceptions
 
 data EvmExecutionEngineException
-    = EvmChainIdMissmatch (Expected EVM.ChainId) (Actual EVM.ChainId)
-    | EvmInvalidGensisHeader (Expected BlockPayloadHash) (Actual BlockPayloadHash)
-    deriving (Show, Eq, Generic)
+    = EvmChainIdMismatch (Expected EVM.ChainId) (Actual EVM.ChainId)
+    | EvmInvalidGenesisHeader (Expected BlockPayloadHash) (Actual BlockPayloadHash)
+    deriving (Eq, Generic)
 
-instance Exception EvmExecutionEngineException
+instance Show EvmExecutionEngineException where
+    show = displayException
+
+instance Exception EvmExecutionEngineException where
+    displayException (EvmChainIdMismatch e a) =
+        "Mismatched chain IDs: " <> sshow e <> ", " <> sshow a
+        <> ". The most probable cause is a mismatch between chainweb network-id and chainspec files."
+    displayException (EvmInvalidGenesisHeader e a) =
+        "Invalid genesis header: " <> sshow e <> ", " <> sshow a
+        <> ". The most probable cause is a mismatch between chainweb network-id and chainspec files."
 
 -- | Raised when an EVM header ca nnot be found
 data EvmHeaderNotFoundException
@@ -579,12 +588,12 @@ checkExecutionClient logger c ctx expectedEcid = do
             error "Error connecting to EVM"
         Right ecid -> return ecid
     unless (expectedEcid == ecid) $
-        throwM $ EvmChainIdMissmatch (Expected expectedEcid) (Actual ecid)
+        throwM $ EvmChainIdMismatch (Expected expectedEcid) (Actual ecid)
     callMethodHttp @Eth_GetBlockByNumber ctx (DefaultBlockNumber 0, False) >>= \case
         Nothing -> throwM EvmGenesisHeaderNotFound
         Just h -> do
             unless (EVM._hdrPayloadHash h == expectedGenesisHeader) $
-                throwM $ EvmInvalidGensisHeader
+                throwM $ EvmInvalidGenesisHeader
                     (Expected expectedGenesisHeader)
                     (Actual $ EVM._hdrPayloadHash h)
             return h
