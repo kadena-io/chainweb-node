@@ -80,10 +80,12 @@ pMempoolP2pConfig cid = id
     <$< mempoolP2pConfigMaxSessionCount .:: option auto
         % prefixLongCid cid "mempool-p2p-max-session-count"
         <> helpCid cid "maximum number of sessions that are active at any time"
+        <> internal
     <*< mempoolP2pConfigSessionTimeout .:: textOption
         % prefixLongCid cid "mempool-p2p-session-timeout"
         <> helpCid cid "timeout for sessions in seconds"
+        <> internal
     <*< mempoolP2pConfigPollInterval .:: textOption
         % prefixLongCid cid "mempool-p2p-poll-interval"
         <> helpCid cid "poll interval for synchronizing mempools in seconds"
-
+        <> internal
