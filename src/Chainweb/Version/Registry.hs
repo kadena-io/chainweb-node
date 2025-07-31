@@ -80,11 +80,11 @@ knownVersions =
     [ mainnet
     , testnet04
     , evmTestnet
-    , recapDevnet
     , devnet
     , evmDevnet
-    , evmDevnetSingleton
-    , evmDevnetPair
+    , recapDevnet
+    -- , evmDevnetSingleton
+    -- , evmDevnetPair
     ]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
