@@ -652,6 +652,8 @@ parseVersion = constructVersion
             % long "chainweb-version"
             <> short 'v'
             <> help "the chainweb version that this node is using"
+            <> metavar (T.unpack $
+                "[" <> T.intercalate "," (getChainwebVersionName . _versionName <$> knownVersions) <> "]")
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
     <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
