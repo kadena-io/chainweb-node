@@ -179,7 +179,7 @@ getConfig = do
 
     parser :: O.Parser Config
     parser = Config
-      <$> (parseVersion <$> O.strOption (O.long "chainweb-version" <> O.value "mainnet01"))
+      <$> (parseVersion <$> O.strOption (O.long "network-id" <> O.value "mainnet01"))
       <*> O.strOption (O.long "from" <> O.help "Directory containing SQLite Pact state and RocksDB block data to compact (expected to be in $DIR/0/{sqlite,rocksDb}")
       <*> O.strOption (O.long "to" <> O.help "Directory where to place the compacted Pact state and block data. It will place them in $DIR/0/{sqlite,rocksDb}, respectively.")
       <*> O.flag SingleChain ManyChainsAtOnce (O.long "parallel" <> O.help "Turn on multi-threaded compaction. The threads are per-chain.")
