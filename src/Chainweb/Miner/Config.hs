@@ -174,6 +174,7 @@ pCoordinationConfig = id
     <*< coordinationUpdateStreamTimeout .:: jsonOption
         % long "mining-update-stream-timeout"
         <> help "duration that an update stream is kept open in seconds"
+        <> internal
 
 -- -------------------------------------------------------------------------- --
 -- Node Mining Config
@@ -206,6 +207,7 @@ pNodeMiningConfig = id
     <$< nodeMiningEnabled .:: enableDisableFlag
         % long "node-mining"
         <> help "ONLY FOR TESTING NETWORKS: whether to enable in node mining"
+        <> internal
 
 defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig

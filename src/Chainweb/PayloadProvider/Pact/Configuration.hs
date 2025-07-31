@@ -147,6 +147,7 @@ pPactProviderConfig cid = id
     <$< pactConfigReintroTxs .:: enableDisableFlag
         % prefixLongCid cid "pact-tx-reintro"
         <> helpCid cid "whether to enable transaction reintroduction from losing forks"
+        <> internal
     <*< pactConfigMempoolP2p %:: pEnableConfigCid "pact-mempool-p2p" cid pMempoolP2pConfig
     <*< pactConfigBlockGasLimit . iso StableEncoding _stableEncoding .:: jsonOption
         % prefixLongCid cid "pact-block-gas-limit"
@@ -160,6 +161,7 @@ pPactProviderConfig cid = id
     <*< pactConfigPreInsertCheckTimeout .:: jsonOption
         % prefixLongCid cid "pact-pre-insert-check-timeout"
         <> helpCid cid "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
+        <> internal
     <*< pactConfigAllowReadsInLocal .:: boolOption_
         % prefixLongCid cid "pact-allowReadsInLocal"
         <> helpCid cid "Enable direct database reads of smart contract tables in local queries."
