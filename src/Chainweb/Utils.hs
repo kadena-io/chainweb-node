@@ -659,10 +659,13 @@ eitherFromText = either f return . fromText
 
 -- | Unsafely decode a value rom its textual representation. It is an program
 -- error if decoding fails.
+-- Marked NOINLINE heuristically, because usually the runtime performance is not
+-- very important and if applied to a lot of literals at once (as in the
+-- *Payload files) it can result in severe code blowup, slowing compilation.
 --
 unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
 unsafeFromText = fromJuste . fromText
-{-# INLINE unsafeFromText #-}
+{-# NOINLINE unsafeFromText #-}
 
 -- | Run a 'A.Parser' on a text input. All input must be consume by the parser.
 -- A 'TextFormatException' is thrown if parsing fails.
