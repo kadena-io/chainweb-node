@@ -863,7 +863,7 @@ encodeAsMiningWork b = do
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersionCode (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
-    encodeNonce (Nonce 0)
+    encodeNonce (_blockNonce b)
 
 -- | Decode and check that
 --
