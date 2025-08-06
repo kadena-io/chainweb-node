@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.Test.Orphans.Internal
@@ -69,6 +70,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import Data.Function
+import Data.Functor ((<&>))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Hash.Keccak
@@ -308,6 +310,17 @@ instance Arbitrary NodeInfo where
                 , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
                 , nodeServiceDate = T.pack <$> _versionServiceDate v
                 , nodeBlockDelay = _versionBlockDelay v
+                , nodePayloadProviders = _versionPayloadProviderTypes implicitVersion <&> \case
+                    EvmProvider n -> object
+                        [ "type" .= ("eth" :: T.Text)
+                        , "ethChainId" .= n
+                        ]
+                    PactProvider -> object
+                        [ "type" .= ("pact" :: T.Text)
+                        ]
+                    MinimalProvider -> object
+                        [ "type" .= ("parked" :: T.Text)
+                        ]
                 }
 
 -- -------------------------------------------------------------------------- --
