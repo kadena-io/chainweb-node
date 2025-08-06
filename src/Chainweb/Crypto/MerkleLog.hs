@@ -594,7 +594,8 @@ computeMerkleLogRoot
     . HasMerkleLog a u b
     => b
     -> MerkleRoot a
-computeMerkleLogRoot = _merkleLogRoot . toLog @a
+computeMerkleLogRoot = 
+    merkleRoot . toList . mapLogEntries (toMerkleNodeTagged @a) . _merkleLogEntries . toLog @a
 {-# INLINE computeMerkleLogRoot #-}
 
 -- -------------------------------------------------------------------------- --
