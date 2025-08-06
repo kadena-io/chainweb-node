@@ -65,7 +65,7 @@ recapDevnet = withVersion recapDevnet ChainwebVersion
         Chainweb224Pact -> onAllChains ForkAtGenesis
         Chainweb225Pact -> onAllChains ForkAtGenesis
         Chainweb226Pact -> onAllChains ForkAtGenesis
-        Pact5Fork -> onAllChains $ ForkAtGenesis
+        Pact5Fork -> onAllChains ForkAtGenesis
         Chainweb228Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 10
         Chainweb229Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 20
         Chainweb230Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 30

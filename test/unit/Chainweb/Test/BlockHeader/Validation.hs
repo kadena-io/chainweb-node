@@ -312,7 +312,7 @@ validationFailures =
 
 daValidation :: [(TestHeader, [ValidationFailureType])]
 daValidation =
-    -- test corret epoch transition
+    -- test correct epoch transition
     [ ( hdr, expected)
 
     -- epoch transition with wrong epoch start time
