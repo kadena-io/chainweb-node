@@ -721,7 +721,7 @@ data MockTx = MockTx {
 instance J.Encode MockTx where
     build o = J.object
         [ "mockNonce" J..= J.Aeson (mockNonce o)
-        , "mockGasPrice" J..= J.number (realToFrac @Decimal @_ (view _GasPrice (mockGasPrice o)))
+        , "mockGasPrice" J..= J.string (show (view _GasPrice (mockGasPrice o)))
         , "mockGasLimit" J..= J.number (fromIntegral $ view (_GasLimit . to _gas) (mockGasLimit o))
         , "mockMeta" J..= mockMeta o
         ]
@@ -735,7 +735,7 @@ instance ToJSON MockTx where
 instance FromJSON MockTx where
     parseJSON = withObject "MockTx" $ \o -> MockTx
         <$> o .: "mockNonce"
-        <*> fmap (GasPrice . realToFrac @Double @Decimal) (o .: "mockGasPrice")
+        <*> fmap (GasPrice . read @Decimal) (o .: "mockGasPrice")
         <*> fmap (GasLimit . Gas . fromIntegral @Int @SatWord) (o .: "mockGasLimit")
         <*> o .: "mockMeta"
     {-# INLINE parseJSON #-}
