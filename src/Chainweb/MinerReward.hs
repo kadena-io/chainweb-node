@@ -242,7 +242,7 @@ newtype Kda = Kda_ Decimal
 pattern Kda :: HasCallStack => Decimal -> Kda
 pattern Kda { _kda } <- Kda_ _kda where
     Kda k
-        | roundTo 12 k /= k = error "KDA value with a precision of more than 12 decimal digits"
+        | roundTo 18 k /= k = error "KDA value with a precision of more than 18 decimal digits"
         | otherwise = Kda_ $ normalizeDecimal k
 {-# COMPLETE Kda #-}
 
