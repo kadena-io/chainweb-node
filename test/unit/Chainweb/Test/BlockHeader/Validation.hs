@@ -240,7 +240,11 @@ validationFailures =
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ _versionCode RecapDevelopment
-      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent, AdjacentChainMismatch, InvalidAdjacentVersion]
+      -- , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent, AdjacentChainMismatch, InvalidAdjacentVersion]
+      -- no longer. we don't check InvalidFeatureFlags according to the version
+      -- in the header anymore, but in the HasVersion version. Doesn't matter
+      -- materially because we get a VersionMismatch error anyway.
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidAdjacentVersion]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
