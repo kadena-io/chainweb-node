@@ -69,7 +69,7 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
     , prop_validateTestnet04
     , withVersion mainnet prop_fail_validate
-    , withVersion mainnet prop_da_validate
+    , prop_da_validate
     , withVersion mainnet prop_legacy_da_validate
     , withVersion (barebonesTestVersion petersenChainGraph) prop_featureFlag 10
     , testProperty "validate arbitrary test header" $ \v -> withVersion v prop_validateArbitrary
@@ -146,8 +146,8 @@ prop_validateHeader msg h = testCase msg $ do
 prop_fail_validate :: HasVersion => TestTree
 prop_fail_validate = validate_cases "validate invalid BlockHeaders" validationFailures
 
-prop_da_validate :: HasVersion => TestTree
-prop_da_validate = validate_cases "difficulty adjustment validation" daValidation
+prop_da_validate :: TestTree
+prop_da_validate = withVersion recapDevnet $ validate_cases "difficulty adjustment validation" daValidation
 
 prop_legacy_da_validate :: HasVersion => TestTree
 prop_legacy_da_validate = validate_cases "legacy difficulty adjustment validation" legacyDaValidation
