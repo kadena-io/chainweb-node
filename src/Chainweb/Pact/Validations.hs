@@ -74,7 +74,8 @@ assertPreflightMetadata
     -> Either (NonEmpty Text) ()
 assertPreflightMetadata env cmd@(Pact.Command pay sigs hsh) blockCtx sigVerify = do
     let cid = view chainId env
-    -- TODO PP: fix this in master too; master uses the wrong block gas limit.
+    -- note that we use the maximum legal block gas limit here. if no miner is
+    -- willing to accept this tx, it still may not make it on the chain.
     let mbgl = maxBlockGasLimit (_bctxCurrentBlockHeight blockCtx)
 
     let Pact.PublicMeta pcid _ gl gp _ _ = Pact._pMeta pay
