@@ -371,14 +371,17 @@ pCutConfig = id
     <$< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
+        <> internal
     <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "initial-block-height-limit"
         <> help "Reset initial cut to this block height."
         <> metavar "INT"
+        <> internal
     <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "fast-forward-block-height-limit"
         <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
         <> metavar "INT"
+        <> internal
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -443,6 +446,7 @@ pServiceApiConfig = id
     <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
         % prefixLong service "payload-batch-limit"
         <> suffixHelp service "upper limit for the size of payload batches on the service API"
+        <> internal
     <*< serviceApiConfigValidateSpec .:: enableDisableFlag
         % prefixLong service "validate-spec"
         <> internal -- hidden option, for expert use
@@ -630,19 +634,23 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
+        <> internal
     <*< parserOptionGroup "Cut Processing" (configCuts %:: pCutConfig)
     <*< parserOptionGroup "Service API" (configServiceApi %:: pServiceApiConfig)
     <*< parserOptionGroup "Mining Coordination" (configMining %:: pMiningConfig)
     <*< configOnlySync .:: boolOption_
         % long "only-sync"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+        <> internal
     <*< configReadOnlyReplay .:: boolOption_
         % long "read-only-replay"
         <> help "Replay the block history non-destructively"
+        <> internal
     <*< configSyncChains .:: fmap Just % jsonOption
         % long "sync-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
+        <> internal
     <*< parserOptionGroup "Backup" (configBackup %:: pBackupConfig)
 
     -- FIXME support payload providers
@@ -658,9 +666,9 @@ parseVersion = constructVersion
             <> metavar (T.unpack $
                 "[" <> T.intercalate "," (getChainwebVersionName . _versionName <$> knownVersions) <> "]")
         )
-    <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
-    <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
-    <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
+    <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable" <> internal))
+    <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block" <> internal) )
+    <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check" <> internal)
     where
     constructVersion cliVersion fub bd disablePow' oldVersion = winningVersion
         & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) bd
