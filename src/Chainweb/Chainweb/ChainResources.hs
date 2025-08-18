@@ -305,6 +305,7 @@ withPayloadProviderResources logger cid peerStuff rdb rewindLimit initialUnlimit
                     pp <-
                         withPactPayloadProvider
                             cid
+                            rdb
                             (view _4 <$> peerStuff)
                             logger
                             Nothing

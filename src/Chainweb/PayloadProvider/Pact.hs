@@ -45,6 +45,10 @@ import Chainweb.Version
 import qualified Data.Pool as Pool
 import Control.Monad.Trans.Resource (ResourceT, allocate)
 import Chainweb.Core.Brief
+import Chainweb.PayloadProvider.Pact.BlockHistoryMigration
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.BlockHeaderDB (withBlockHeaderDb)
+import Control.Monad.IO.Class
 
 data PactPayloadProvider logger tbl = PactPayloadProvider
     { pactPayloadProviderLogger :: logger
@@ -106,6 +110,8 @@ withPactPayloadProvider
     => Logger logger
     => HasVersion
     => ChainId
+    -> RocksDb
+    -- ^ Temporary requirement for the `migrateBlockHistoryTable` step.
     -> Maybe HTTP.Manager
     -> logger
     -> Maybe (Counter "txFailures")
@@ -115,8 +121,13 @@ withPactPayloadProvider
     -> PactServiceConfig
     -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
+withPactPayloadProvider cid rdb http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
+
+    -- perform the database migration of the `BlockHeader` Table.
+    bhdb <- withBlockHeaderDb rdb cid
+    liftIO $ migrateBlockHistroyTable logger readWriteSqlenv bhdb
+
     readOnlySqlPool <- withReadSqlitePool cid pactDbDir
     PactPayloadProvider logger <$>
         PactService.withPactService cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config

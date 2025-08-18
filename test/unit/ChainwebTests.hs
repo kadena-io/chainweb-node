@@ -77,6 +77,7 @@ import qualified P2P.Test.Node (properties)
 import qualified P2P.Test.TaskQueue (properties)
 import Chainweb.Version (withVersion)
 import qualified Test.Chainweb.SPV.Argument
+import qualified Chainweb.Test.Pact.BlockHistoryMigrationTest
 
 setTestLogLevel :: LogLevel -> IO ()
 setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
@@ -113,6 +114,7 @@ suite rdb =
             ]
         , Chainweb.Test.CutDB.tests rdb
         , Chainweb.Test.Pact.CheckpointerTest.tests
+        , Chainweb.Test.Pact.BlockHistoryMigrationTest.tests
         , Chainweb.Test.Pact.TransactionExecTest.tests rdb
         , Chainweb.Test.Pact.PactServiceTest.tests rdb
         -- TODO: PP
