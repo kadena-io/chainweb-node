@@ -37,6 +37,11 @@ suite = independentSequentialTestGroup "MultiNodeNetworkTests"
         withSystemTempDirectory "multinode-tests-timedconsensus-petersen-twenty-pact" $ \pactDbDir ->
         withVersion (timedConsensusVersion petersenChainGraph twentyChainGraph) $
             Chainweb.Test.MultiNode.test loglevel 10 30 rdb pactDbDir step
+    , testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds - d4k4 upgrade" $ \step ->
+        withTempRocksDb "multinode-tests-timedconsensus-twenty-d4k4-rocks" $ \rdb ->
+        withSystemTempDirectory "multinode-tests-timedconsensus-twenty-d4k4-pact" $ \pactDbDir ->
+        withVersion (timedConsensusVersion twentyChainGraph d4k4ChainGraph) $
+            Chainweb.Test.MultiNode.test loglevel 4 100 rdb pactDbDir step
     , testCaseSteps "ConsensusNetwork - InstantTimedCPM singleChainGraph - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-instantcpm-single-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-instantcpm-single-pact" $ \pactDbDir ->
