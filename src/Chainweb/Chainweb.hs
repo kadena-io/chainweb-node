@@ -330,6 +330,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         , _cutDbParamsFastForwardHeightLimit = _cutFastForwardBlockHeightLimit cutConf
         , _cutDbParamsReadOnly = _configOnlySync conf || _configReadOnlyReplay conf
+        , _cutDbParamsInitialCutFile = _cutInitialCutFile cutConf
         }
       where
         cutConf = _configCuts conf

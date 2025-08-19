@@ -101,7 +101,7 @@ import Control.Monad.Morph
 import Control.Monad.STM
 import Control.Monad.Trans.Resource hiding (throwM)
 
-import Data.Aeson (ToJSON)
+import Data.Aeson (ToJSON, decodeStrict')
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -162,6 +162,7 @@ import Chainweb.Logger
 import Chainweb.Core.Brief
 import Chainweb.Parent
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import qualified Data.ByteString.Lazy as BS
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -469,16 +470,22 @@ startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
 
     readInitialCut :: IO Cut
     readInitialCut = do
-        unsafeMkCut <$> do
-            hm <- readHighestCutHeaders logg wbhdb cutHashesStore
-            case _cutDbParamsInitialHeightLimit config of
-                Nothing -> return hm
-                Just h -> do
-                    limitedCutHeaders <- limitCutHeaders wbhdb h hm
-                    let limitedCut = unsafeMkCut limitedCutHeaders
-                    unless (_cutDbParamsReadOnly config) $
-                        casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
-                    return limitedCutHeaders
+        case _cutDbParamsInitialCutFile config of
+            Nothing -> do
+                unsafeMkCut <$> do
+                    hm <- readHighestCutHeaders logg wbhdb cutHashesStore
+                    case _cutDbParamsInitialHeightLimit config of
+                        Nothing -> return hm
+                        Just h -> do
+                            limitedCutHeaders <- limitCutHeaders wbhdb h hm
+                            let limitedCut = unsafeMkCut limitedCutHeaders
+                            unless (_cutDbParamsReadOnly config) $
+                                casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
+                            return limitedCutHeaders
+            Just f -> do
+                rankedBlockHashes :: HM.HashMap ChainId RankedBlockHash <- decodeOrThrow =<< BS.readFile f
+                blockHeaders <- iforM rankedBlockHashes (lookupRankedWebBlockHeaderDb wbhdb)
+                return $ unsafeMkCut blockHeaders
 
 synchronizeProviders
     :: (Logger logger, HasVersion)

@@ -342,6 +342,7 @@ data CutConfig = CutConfig
     { _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
     , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
+    , _cutInitialCutFile :: !(Maybe FilePath)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -351,6 +352,7 @@ instance ToJSON CutConfig where
         [ "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
         , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
+        , "initialCutFile" .= _cutInitialCutFile o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
@@ -358,12 +360,14 @@ instance FromJSON (CutConfig -> CutConfig) where
         <$< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
         <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
+        <*< cutInitialCutFile ..: "initialCutFile" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
     , _cutFastForwardBlockHeightLimit = Nothing
+    , _cutInitialCutFile = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -379,6 +383,9 @@ pCutConfig = id
         % long "fast-forward-block-height-limit"
         <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
         <> metavar "INT"
+    <*< cutInitialCutFile .:: fmap Just . textOption
+        % long "initial-cut-file"
+        <> help "When --initial-cut-file is given, use the cut in the given file as the initial cut. Note that this will not contact the P2P network."
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration

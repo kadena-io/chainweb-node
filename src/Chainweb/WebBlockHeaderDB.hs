@@ -26,6 +26,7 @@ module Chainweb.WebBlockHeaderDB
 , webBlockHeaderDb
 , webEntries
 , lookupWebBlockHeaderDb
+, lookupRankedWebBlockHeaderDb
 , lookupAdjacentParentHeader
 , lookupParentHeader
 , insertWebBlockHeaderDb
@@ -69,6 +70,7 @@ import Chainweb.Version
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Ranked(Ranked(..))
 
 -- -------------------------------------------------------------------------- --
 -- Web Chain Database
@@ -151,6 +153,17 @@ lookupWebBlockHeaderDb wdb c h = do
     checkWebChainId (chainGraphAt $ maxBound @BlockHeight) c
     db <- getWebBlockHeaderDb wdb c
     lookupM db h
+
+lookupRankedWebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
+    -> ChainId
+    -> RankedBlockHash
+    -> IO BlockHeader
+lookupRankedWebBlockHeaderDb wdb c rh = do
+    checkWebChainId (chainGraphAt $ maxBound @BlockHeight) c
+    db <- getWebBlockHeaderDb wdb c
+    lookupRankedM db (int $ _rankedHeight rh) (_ranked rh)
 
 blockAdjacentParentHeaders
     :: HasVersion
