@@ -22,6 +22,7 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 
 import Pact.Core.Names
+import P2P.BootstrapNodes (evmTestnetBootstrapHosts)
 
 pattern EvmTestnet :: ChainwebVersion
 pattern EvmTestnet <- ((== evmTestnet) -> True) where
@@ -59,7 +60,7 @@ evmTestnet = withVersion evmTestnet $ ChainwebVersion
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
-    , _versionBootstraps = []
+    , _versionBootstraps = domainAddr2PeerInfo evmTestnetBootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = onAllChains $ HashTarget (maxBound `div` 100_000)
         , _genesisTime = onChains
