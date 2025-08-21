@@ -56,6 +56,8 @@ module Chainweb.Version.Guards
     , maxBlockGasLimit
     , validPPKSchemes
     , validKeyFormats
+    , isWebAuthnPrefixLegal
+    , pact4ParserVersion
     , pact5Serialiser
 
     -- ** BlockHeader Validation Guards
@@ -68,6 +70,7 @@ module Chainweb.Version.Guards
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import Control.Lens
@@ -304,3 +307,13 @@ validKeyFormats cid bh =
   if chainweb222Pact cid bh
   then [ed25519HexFormat, webAuthnFormat]
   else [ed25519HexFormat]
+
+isWebAuthnPrefixLegal :: HasVersion => ChainId -> BlockHeight -> Pact4.IsWebAuthnPrefixLegal
+isWebAuthnPrefixLegal cid bh
+    | chainweb222Pact cid bh = Pact4.WebAuthnPrefixLegal
+    | otherwise = Pact4.WebAuthnPrefixIllegal
+
+pact4ParserVersion :: HasVersion => ChainId -> BlockHeight -> Pact4.PactParserVersion
+pact4ParserVersion cid bh
+    | chainweb213Pact cid bh = Pact4.PactParserChainweb213
+    | otherwise = Pact4.PactParserGenesis

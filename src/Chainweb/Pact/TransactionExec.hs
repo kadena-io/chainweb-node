@@ -493,9 +493,9 @@ applyUpgrades
   -> BlockCtx
   -> IO ()
 applyUpgrades logger db txCtx
-    | Just PactUpgrade{_pactUpgradeTransactions = upgradeTxs} <-
+    | Just Pact5Upgrade{_pact5UpgradeTransactions = upgradeTxs} <-
         implicitVersion ^? versionUpgrades . atChain cid . ix currentHeight = applyUpgrade upgradeTxs
-     | otherwise = return ()
+    | otherwise = return ()
   where
     currentHeight = _bctxCurrentBlockHeight txCtx
     cid = _chainId txCtx

@@ -352,6 +352,17 @@ library
         , Chainweb.Pact.Types
         , Chainweb.Pact.Validations
         , Chainweb.Pact.Utils
+        -- pact 4
+        , Chainweb.Pact4.Backend.ChainwebPactDb
+        , Chainweb.Pact4.ModuleCache
+        , Chainweb.Pact4.NoCoinbase
+        , Chainweb.Pact.PactService.Pact4.ExecBlock
+        , Chainweb.Pact4.SPV
+        , Chainweb.Pact4.Templates
+        , Chainweb.Pact4.Transaction
+        , Chainweb.Pact4.TransactionExec
+        , Chainweb.Pact4.Types
+        , Chainweb.Pact4.Validations
 
         -- utils
         , Utils.Logging
@@ -449,6 +460,7 @@ library
         , tls-session-manager >= 0.0
         , token-bucket >= 0.1
         , transformers >= 0.5
+        , trifecta >= 2.1
         , unliftio >= 0.2
         , unordered-containers >= 0.2.20
         , validation
@@ -491,6 +503,8 @@ library chainweb-test-utils
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.CmdBuilder
         Chainweb.Test.Pact.Utils
+        Chainweb.Test.Pact4.Utils
+        Chainweb.Test.Pact4.VerifierPluginTest.Unit
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.RestAPI.Utils
         Chainweb.Test.TestVersions
@@ -631,6 +645,13 @@ test-suite chainweb-tests
         -- Chainweb.Test.Pact.SPVTest
         Chainweb.Test.Pact.TransactionExecTest
         Chainweb.Test.Pact.TransactionTests
+        Chainweb.Test.Pact4.DbCacheTest
+        Chainweb.Test.Pact4.GrandHash
+        Chainweb.Test.Pact4.NoCoinbase
+        Chainweb.Test.Pact4.RewardsTest
+        Chainweb.Test.Pact4.SQLite
+        Chainweb.Test.Pact4.TransactionTests
+        Chainweb.Test.Pact4.VerifierPluginTest
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         -- Chainweb.Test.SPV

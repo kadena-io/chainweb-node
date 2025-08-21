@@ -36,7 +36,6 @@ import GHC.Stack
 import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.EvmDevelopment
-import Chainweb.Version.EvmDevelopmentSingleton
 import Chainweb.Version.EvmTestnet
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
@@ -72,7 +71,8 @@ validateVersion v = do
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors
     where
-    isUpgradeEmpty PactUpgrade{_pactUpgradeTransactions = upg} = null upg
+    isUpgradeEmpty Pact4Upgrade{_pact4UpgradeTransactions = upg} = null upg
+    isUpgradeEmpty Pact5Upgrade{_pact5UpgradeTransactions = upg} = null upg
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]

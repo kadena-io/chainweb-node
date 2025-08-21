@@ -64,8 +64,9 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
-import Chainweb.Pact.Types(internalError)
+import Chainweb.Pact.Backend.Types (HeaderOracle)
 import Chainweb.Pact.Utils (aeson)
+import Chainweb.Pact4.Types(internalError)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
@@ -84,37 +85,43 @@ import qualified Pact.Types.Info as Pact4
 import qualified Pact.Types.PactValue as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Types.SPV as Pact4
+import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 
-catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
-catchAndDisplaySPVError bh =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (CW._chainId bh) (view blockHeight bh)
-  then flip catch $ \case
-    SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
-    spvErr -> throwM spvErr
-  else id
-
-forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
+forkedThrower :: CW.HasVersion => BlockHeader -> Text -> ExceptT Text IO a
 forkedThrower bh =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (CW._chainId bh) (view blockHeight bh)
+  if CW.chainweb219Pact (CW._chainId bh) (view blockHeight bh)
   then throwError
   else internalError
+
+catchAndDisplaySPVError :: CW.HasVersion => BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
+catchAndDisplaySPVError bh =
+  if CW.chainweb219Pact (CW._chainId bh) (view blockHeight bh)
+  then flip catch $ \case
+    -- only error we expect
+    SpvExceptionVerificationFailed _ -> throwError ("spv verification failed: target header is not in the chain")
+    spvErr -> throwM spvErr
+  else id
 
 -- | Spv support for pact
 --
 pactSPV
-    :: BlockHeaderDb
+    :: CW.HasVersion
+    => HeaderOracle
       -- ^ handle into the cutdb
     -> BlockHeader
       -- ^ the context for verifying the proof
     -> Pact4.SPVSupport
-pactSPV bdb bh = Pact4.SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
+pactSPV headerOracle bh = Pact4.SPVSupport
+  (verifySPV headerOracle bh)
+  (verifyCont headerOracle bh)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
 -- requisite calls to the SPV api and verifying the output proof.
 --
 verifySPV
-    :: BlockHeaderDb
+    :: CW.HasVersion
+    => HeaderOracle
       -- ^ handle into the cut db
     -> BlockHeader
         -- ^ the context for verifying the proof
@@ -124,10 +131,10 @@ verifySPV
     -> Pact4.Object Pact4.Name
       -- ^ the proof object to validate
     -> IO (Either Text (Pact4.Object Pact4.Name))
-verifySPV bdb bh typ proof = runExceptT $ go typ proof
+verifySPV headerOracle bh typ proof = runExceptT $ go typ proof
   where
-    cid = CW._chainId bdb
-    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (view blockHeight bh)
+    cid = CW._chainId headerOracle
+    enableBridge = CW.enableSPVBridge cid (view blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =
@@ -159,7 +166,8 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt_ bdb u (view blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError bh $
+          checkProofAndExtractOutput headerOracle u
 
         q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
           Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -250,19 +258,17 @@ base64DowngradeErrorMessage msg = case msg of
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
 --
 verifyCont
-    :: BlockHeaderDb
+    :: CW.HasVersion
+    => HeaderOracle
       -- ^ handle into the cut db
     -> BlockHeader
         -- ^ the context for verifying the proof
     -> Pact4.ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text Pact4.PactExec)
-verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
+verifyCont headerOracle bh (Pact4.ContProof cp) = runExceptT $ do
     let errorMessageType =
-          if CW.chainweb221Pact
-             (CW._chainwebVersion bh)
-             (CW._chainId bh)
-             (view blockHeight bh)
+          if CW.chainweb221Pact (CW._chainId bh) (view blockHeight bh)
           then Simplified
           else Legacy
     t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ Text.decodeUtf8 cp
@@ -282,7 +288,8 @@ verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt_ bdb u (view blockHash bh)
+          TransactionOutput p <- catchAndDisplaySPVError bh $
+            checkProofAndExtractOutput headerOracle u
 
           q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
             Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -292,11 +299,11 @@ verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
             Nothing -> throwError "no pact exec found in command result"
             Just pe -> return pe
   where
-    cid = CW._chainId bdb
+    cid = CW._chainId headerOracle
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
-extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof SHA512t_256)
+extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof ChainwebMerkleHashAlgorithm)
 extractProof False o = Pact4.toPactValue (Pact4.TObject o Pact4.noInfo) >>= k
   where
     k = aeson (Left . pack) Right
@@ -381,16 +388,17 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
 --
 getTxIdx
     :: HasCallStack
+    => CW.HasVersion
     => CanReadablePayloadCas tbl
     => BlockHeaderDb
     -> PayloadDb tbl
     -> BlockHeight
     -> Pact4.PactHash
     -> IO (Either Text Int)
-getTxIdx bdb pdb bh th = do
+getTxIdx headerOracle pdb bh th = do
     -- get BlockPayloadHash
-    m <- maxEntry bdb
-    ph <- seekAncestor bdb m (int bh) >>= \case
+    m <- maxEntry headerOracle
+    ph <- seekAncestor headerOracle m (int bh) >>= \case
         Just x -> return $ Right $! view blockPayloadHash x
         Nothing -> return $ Left "unable to find payload associated with transaction hash"
 

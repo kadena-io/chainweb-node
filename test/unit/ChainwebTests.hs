@@ -63,6 +63,11 @@ import qualified Chainweb.Test.Pact.RemotePactTest
 -- import qualified Chainweb.Test.Pact.SPVTest
 import qualified Chainweb.Test.Pact.TransactionExecTest
 import qualified Chainweb.Test.Pact.TransactionTests
+import qualified Chainweb.Test.Pact4.NoCoinbase
+import qualified Chainweb.Test.Pact4.RewardsTest
+import qualified Chainweb.Test.Pact4.SQLite
+import qualified Chainweb.Test.Pact4.VerifierPluginTest
+import qualified Chainweb.Test.Pact4.TransactionTests
 import qualified Chainweb.Test.RestAPI (tests)
 import qualified Chainweb.Test.Roundtrips (tests)
 -- import qualified Chainweb.Test.SPV (tests)
@@ -124,10 +129,17 @@ suite rdb =
         , Chainweb.Test.RestAPI.tests rdb
         -- TODO: PP
         -- , testGroup "SPV"
-        --     [ Chainweb.Test.SPV.tests rdb
-        --     , Chainweb.Test.Pact4.SPV.tests rdb
+            -- [ Chainweb.Test.SPV.tests rdb
+            -- [ Chainweb.Test.Pact4.SPV.tests rdb
         --     , Chainweb.Test.SPV.EventProof.properties
-        --     ]
+            -- ]
+        , testGroup "Pact 4"
+            [ Chainweb.Test.Pact4.NoCoinbase.tests
+            , Chainweb.Test.Pact4.RewardsTest.tests
+            , Chainweb.Test.Pact4.SQLite.tests
+            , Chainweb.Test.Pact4.VerifierPluginTest.tests
+            , Chainweb.Test.Pact4.TransactionTests.tests
+            ]
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests

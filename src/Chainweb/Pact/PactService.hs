@@ -57,10 +57,12 @@ import Chainweb.Pact.NoCoinbase qualified as Pact
 import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.ExecBlock qualified as Pact
+import Chainweb.Pact.PactService.Pact4.ExecBlock qualified as Pact4
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.TransactionExec qualified as Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Validations qualified as Pact
+import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact4
 import Chainweb.Parent
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -113,6 +115,8 @@ import Pact.Core.StableEncoding qualified as Pact
 import Pact.JSON.Encode qualified as J
 import Prelude hiding (lookup)
 import System.LogLevel
+import Chainweb.Version.Guards (pact5)
+import Control.Concurrent.MVar (newMVar)
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -141,6 +145,7 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
 
     liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
     candidatePdb <- liftIO MapTable.emptyTable
+    moduleInitCacheVar <- liftIO $ newMVar mempty
 
     let !pse = ServiceEnv
             { _psChainId = cid
@@ -165,6 +170,7 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
                 GenesisPayload p -> Just p
                 GenesisNotNeeded -> Nothing
             , _psBlockRefreshInterval = _pactBlockRefreshInterval config
+            , _psModuleInitCacheVar = moduleInitCacheVar
             }
 
     case pactGenesis of
@@ -208,10 +214,16 @@ runGenesisIfNeeded logger serviceEnv = do
 
             maybeErr <- runExceptT $ Checkpointer.restoreAndSave logger cid (_psReadWriteSql serviceEnv)
                 $ NEL.singleton
-                $ (blockCtx, \blockEnv -> do
+                $ (blockCtx,
+                if pact5 cid (genesisHeight cid)
+                then Checkpointer.Pact5RunnableBlock $ \blockEnv -> do
                     _ <- Pact.execExistingBlock logger serviceEnv blockEnv
                         (CheckablePayloadWithOutputs genesisPayload)
                     return ((), (genesisBlockHash, genesisPayloadHash))
+                else Checkpointer.Pact4RunnableBlock $ \blockDbEnv -> do
+                    _ <- Pact4.execBlock logger serviceEnv (Pact4.BlockEnv blockCtx blockDbEnv)
+                        (CheckablePayloadWithOutputs genesisPayload)
+                    return $ ((), (genesisBlockHash, genesisPayloadHash))
                 )
             case maybeErr of
                 Left err -> error $ "genesis block invalid: " <> sshow err
@@ -221,15 +233,22 @@ runGenesisIfNeeded logger serviceEnv = do
                         (genesisHeight cid)
                         genesisPayload
                     Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
-                    forM_ (_psMiner serviceEnv) $ \_ -> do
-                        emptyBlock <- (throwIfNoHistory =<<) $
-                            Checkpointer.readFrom logger cid
-                                (_psReadWriteSql serviceEnv)
-                                (Parent gTime)
-                                (Parent genesisRankedBlockHash) $
-                                    \blockEnv blockHandle -> makeEmptyBlock logger serviceEnv blockEnv blockHandle
-                        -- we have to kick off payload refreshing here first
-                        startPayloadRefresher logger serviceEnv emptyBlock
+                    -- we can't produce pact 4 blocks anymore, so don't make
+                    -- payloads if pact 4 is on
+                    when (pact5 cid (succ $ genesisHeight cid)) $
+                        forM_ (_psMiner serviceEnv) $ \_ -> do
+                            emptyBlock <- (throwIfNoHistory =<<) $
+                                Checkpointer.readFrom logger cid
+                                    (_psReadWriteSql serviceEnv)
+                                    (Parent gTime)
+                                    (Parent genesisRankedBlockHash)
+                                    Checkpointer.PactRead
+                                        { pact5Read = \blockEnv blockHandle ->
+                                            makeEmptyBlock logger serviceEnv blockEnv blockHandle
+                                        , pact4Read = error "Pact 4 cannot make new blocks"
+                                        }
+                            -- we have to kick off payload refreshing here first
+                            startPayloadRefresher logger serviceEnv emptyBlock
 
     where
     cid = _chainId serviceEnv
@@ -247,40 +266,43 @@ execNewGenesisBlock logger serviceEnv newTrans = do
     let cid = _chainId serviceEnv
     let parentCreationTime = Parent (implicitVersion ^?! versionGenesis . genesisTime . atChain cid)
     let genesisParent = Parent $ RankedBlockHash (genesisHeight cid) (unwrapParent $ genesisParentBlockHash cid)
-    historicalBlock <- Checkpointer.readFrom logger cid (_psReadWriteSql serviceEnv) parentCreationTime genesisParent $ \blockEnv startHandle -> do
+    historicalBlock <- Checkpointer.readFrom logger cid (_psReadWriteSql serviceEnv) parentCreationTime genesisParent Checkpointer.PactRead
+        { pact5Read = \blockEnv startHandle -> do
 
-        let bipStart = BlockInProgress
-                { _blockInProgressHandle = startHandle
-                , _blockInProgressNumber = 0
-                -- fake gas limit, gas is free for genesis
-                , _blockInProgressRemainingGasLimit = Pact.GasLimit (Pact.Gas 999_999_999)
-                , _blockInProgressTransactions = Transactions
-                    { _transactionCoinbase = absurd <$> Pact.noCoinbase
-                    , _transactionPairs = mempty
+            let bipStart = BlockInProgress
+                    { _blockInProgressHandle = startHandle
+                    , _blockInProgressNumber = 0
+                    -- fake gas limit, gas is free for genesis
+                    , _blockInProgressRemainingGasLimit = Pact.GasLimit (Pact.Gas 999_999_999)
+                    , _blockInProgressTransactions = Transactions
+                        { _transactionCoinbase = absurd <$> Pact.noCoinbase
+                        , _transactionPairs = mempty
+                        }
+                    , _blockInProgressBlockCtx = _psBlockCtx blockEnv
                     }
-                , _blockInProgressBlockCtx = _psBlockCtx blockEnv
-                }
 
-        let fakeMempoolServiceEnv = serviceEnv
-                & psMempoolAccess .~ mempty
-                    { mpaGetBlock = \bf pbc evalCtx -> do
-                        if _bfCount bf == 0
-                        then do
-                            maybeInvalidTxs <- pbc evalCtx newTrans
-                            validTxs <- case partitionEithers (V.toList maybeInvalidTxs) of
-                                ([], validTxs) -> return validTxs
-                                (errs, _) -> error $ "Pact 5 genesis commands invalid: " <> sshow errs
-                            V.fromList validTxs `Strategies.usingIO` traverse Strategies.rseq
-                        else do
-                            return V.empty
-                    }
-                & psMiner .~ Just noMiner
+            let fakeMempoolServiceEnv = serviceEnv
+                    & psMempoolAccess .~ mempty
+                        { mpaGetBlock = \bf pbc evalCtx -> do
+                            if _bfCount bf == 0
+                            then do
+                                maybeInvalidTxs <- pbc evalCtx newTrans
+                                validTxs <- case partitionEithers (V.toList maybeInvalidTxs) of
+                                    ([], validTxs) -> return validTxs
+                                    (errs, _) -> error $ "Pact 5 genesis commands invalid: " <> sshow errs
+                                V.fromList validTxs `Strategies.usingIO` traverse Strategies.rseq
+                            else do
+                                return V.empty
+                        }
+                    & psMiner .~ Just noMiner
 
-        results <- Pact.continueBlock logger fakeMempoolServiceEnv (_psBlockDbEnv blockEnv) bipStart
-        let !pwo = toPayloadWithOutputs
-                noMiner
-                (_blockInProgressTransactions results)
-        return $! pwo
+            results <- Pact.continueBlock logger fakeMempoolServiceEnv (_psBlockDbEnv blockEnv) bipStart
+            let !pwo = toPayloadWithOutputs
+                    noMiner
+                    (_blockInProgressTransactions results)
+            return $! pwo
+        , pact4Read = error "cannot make new Pact 4 genesis blocks"
+        }
     case historicalBlock of
         NoHistory -> error "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
         Historical block -> return block
@@ -311,9 +333,14 @@ execReadOnlyReplay logger serviceEnv blocks = do
                     sql
                     (_evaluationCtxParentCreationTime evalCtx)
                     (_evaluationCtxRankedParentHash evalCtx)
-                    (\blockEnv blockHandle ->
-                        runExceptT $ flip evalStateT blockHandle $
-                            void $ Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload))
+                    Checkpointer.PactRead
+                        { pact5Read = \blockEnv blockHandle ->
+                            runExceptT $ flip evalStateT blockHandle $
+                                void $ Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
+                        , pact4Read = \blockEnv ->
+                            runExceptT $
+                                void $ Pact4.execBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
+                        }
                 either Just (\_ -> Nothing) <$> throwIfNoHistory hist
             else
                 return Nothing
@@ -345,69 +372,70 @@ execLocal logger serviceEnv cwtx preflight sigVerify rdepth = do
 
     doLocal = Pool.withResource (view psReadSqlPool serviceEnv) $ \sql -> do
         fakeNewBlockCtx <- liftIO Checkpointer.mkFakeParentCreationTime
-        Checkpointer.readFromNthParent logger cid sql fakeNewBlockCtx (fromIntegral rewindDepth) $ \blockEnv blockHandle -> do
-            let blockCtx = view psBlockCtx blockEnv
-            let requestKey = Pact.cmdToRequestKey cwtx
-            evalContT $ withEarlyReturn $ \earlyReturn -> do
-                -- this is just one of our metadata validation passes.
-                -- in preflight, we do another one, which replicates some of this work;
-                -- TODO: unify preflight, newblock, and validateblock tx metadata validation
-                case (preflight, sigVerify) of
-                    (_, Just NoVerify) -> do
-                        let payloadBS = SB.fromShort (Pact._cmdPayload $ view Pact.payloadBytes <$> cwtx)
-                        case Pact.verifyHash (Pact._cmdHash cwtx) payloadBS of
-                            Left err -> earlyReturn $
-                                MetadataValidationFailure $ NonEmpty.singleton $ Text.pack err
-                            Right _ -> return ()
-                    _ -> do
-                        case Pact.assertCommand cwtx of
-                            Left err -> earlyReturn $
-                                MetadataValidationFailure (pure $ displayAssertCommandError err)
-                            Right () -> return ()
+        Checkpointer.readFromNthParent logger cid sql fakeNewBlockCtx (fromIntegral rewindDepth)
+            $ Checkpointer.readPact5 "Pact 4 cannot execute local calls" $ \blockEnv blockHandle -> do
+                let blockCtx = view psBlockCtx blockEnv
+                let requestKey = Pact.cmdToRequestKey cwtx
+                evalContT $ withEarlyReturn $ \earlyReturn -> do
+                    -- this is just one of our metadata validation passes.
+                    -- in preflight, we do another one, which replicates some of this work;
+                    -- TODO: unify preflight, newblock, and validateblock tx metadata validation
+                    case (preflight, sigVerify) of
+                        (_, Just NoVerify) -> do
+                            let payloadBS = SB.fromShort (Pact._cmdPayload $ view Pact.payloadBytes <$> cwtx)
+                            case Pact.verifyHash (Pact._cmdHash cwtx) payloadBS of
+                                Left err -> earlyReturn $
+                                    MetadataValidationFailure $ NonEmpty.singleton $ Text.pack err
+                                Right _ -> return ()
+                        _ -> do
+                            case Pact.assertCommand cwtx of
+                                Left err -> earlyReturn $
+                                    MetadataValidationFailure (pure $ displayAssertCommandError err)
+                                Right () -> return ()
 
-                case preflight of
-                    Just PreflightSimulation -> do
-                        -- preflight needs to do additional checks on the metadata
-                        -- to match on-chain tx validation
-                        case (Pact.assertPreflightMetadata serviceEnv (view Pact.payloadObj <$> cwtx) blockCtx sigVerify) of
-                            Left err -> earlyReturn $ MetadataValidationFailure err
-                            Right () -> return ()
-                        let initialGas = Pact.initialGasOf $ Pact._cmdPayload cwtx
-                        applyCmdResult <- flip evalStateT blockHandle $ pactTransaction blockEnv Nothing (\dbEnv spvSupport ->
-                            Pact.applyCmd
-                                logger gasLogger dbEnv noMiner
-                                blockCtx (TxBlockIdx 0) spvSupport initialGas (view Pact.payloadObj <$> cwtx)
-                                )
-                        commandResult <- case applyCmdResult of
-                            Left err ->
-                                earlyReturn $ LocalResultWithWarns (Pact.CommandResult
-                                    { _crReqKey = requestKey
-                                    , _crTxId = Nothing
-                                    , _crResult = Pact.PactResultErr $
-                                        txInvalidErrorToOnChainPactError err
-                                    , _crGas =
-                                        cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasLimit . Pact._GasLimit
-                                    , _crLogs = Nothing
-                                    , _crContinuation = Nothing
-                                    , _crMetaData = Nothing
-                                    , _crEvents = []
-                                    })
-                                    []
-                            Right commandResult -> return commandResult
-                        let pact5Pm = cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta
-                        let metadata = J.toJsonViaEncode $ Pact.StableEncoding $ Pact.ctxToPublicData pact5Pm blockCtx
-                        let commandResult' = hashPactTxLogs $ set Pact.crMetaData (Just metadata) commandResult
-                        -- TODO: once Pact 5 has warnings, include them here.
-                        pure $ LocalResultWithWarns
-                            (Pact.pactErrorToOnChainError <$> commandResult')
-                            []
-                    _ -> lift $ do
-                        -- default is legacy mode: use applyLocal, don't buy gas, don't do any
-                        -- metadata checks beyond signature and hash checking
-                        cr <- flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \dbEnv spvSupport -> do
-                            -- TODO: PPgaslog
-                            fmap Pact.pactErrorToOnChainError <$> Pact.applyLocal logger Nothing dbEnv blockCtx spvSupport (view Pact.payloadObj <$> cwtx)
-                        pure $ LocalResultLegacy $ hashPactTxLogs cr
+                    case preflight of
+                        Just PreflightSimulation -> do
+                            -- preflight needs to do additional checks on the metadata
+                            -- to match on-chain tx validation
+                            case (Pact.assertPreflightMetadata serviceEnv (view Pact.payloadObj <$> cwtx) blockCtx sigVerify) of
+                                Left err -> earlyReturn $ MetadataValidationFailure err
+                                Right () -> return ()
+                            let initialGas = Pact.initialGasOf $ Pact._cmdPayload cwtx
+                            applyCmdResult <- flip evalStateT blockHandle $ pactTransaction blockEnv Nothing (\dbEnv spvSupport ->
+                                Pact.applyCmd
+                                    logger gasLogger dbEnv noMiner
+                                    blockCtx (TxBlockIdx 0) spvSupport initialGas (view Pact.payloadObj <$> cwtx)
+                                    )
+                            commandResult <- case applyCmdResult of
+                                Left err ->
+                                    earlyReturn $ LocalResultWithWarns (Pact.CommandResult
+                                        { _crReqKey = requestKey
+                                        , _crTxId = Nothing
+                                        , _crResult = Pact.PactResultErr $
+                                            txInvalidErrorToOnChainPactError err
+                                        , _crGas =
+                                            cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasLimit . Pact._GasLimit
+                                        , _crLogs = Nothing
+                                        , _crContinuation = Nothing
+                                        , _crMetaData = Nothing
+                                        , _crEvents = []
+                                        })
+                                        []
+                                Right commandResult -> return commandResult
+                            let pact5Pm = cwtx ^. Pact.cmdPayload . Pact.payloadObj . Pact.pMeta
+                            let metadata = J.toJsonViaEncode $ Pact.StableEncoding $ Pact.ctxToPublicData pact5Pm blockCtx
+                            let commandResult' = hashPactTxLogs $ set Pact.crMetaData (Just metadata) commandResult
+                            -- TODO: once Pact 5 has warnings, include them here.
+                            pure $ LocalResultWithWarns
+                                (Pact.pactErrorToOnChainError <$> commandResult')
+                                []
+                        _ -> lift $ do
+                            -- default is legacy mode: use applyLocal, don't buy gas, don't do any
+                            -- metadata checks beyond signature and hash checking
+                            cr <- flip evalStateT blockHandle $ pactTransaction blockEnv Nothing $ \dbEnv spvSupport -> do
+                                -- TODO: PPgaslog
+                                fmap Pact.pactErrorToOnChainError <$> Pact.applyLocal logger Nothing dbEnv blockCtx spvSupport (view Pact.payloadObj <$> cwtx)
+                            pure $ LocalResultLegacy $ hashPactTxLogs cr
 
     gasLogger = view psGasLogger serviceEnv
     enableLocalTimeout = view psEnableLocalTimeout serviceEnv
@@ -483,7 +511,7 @@ syncToFork logger serviceEnv hints forkInfo = do
         -- check if some past block had the target as its parent; if so, that
         -- means we can rewind to it
         latestBlockRewindable <-
-            Checkpointer.lookupBlockHash sql (_latestBlockHash forkInfo._forkInfoTargetState)
+            isJust <$> Checkpointer.lookupBlockHash sql (_latestBlockHash forkInfo._forkInfoTargetState)
         if atTarget
         then do
             -- no work to do at all except set consensus state
@@ -535,13 +563,24 @@ syncToFork logger serviceEnv hints forkInfo = do
                             Nothing -> getPayloadForContext logger serviceEnv hints evalCtx
                             Just payload -> return payload
                         let expectedPayloadHash = _consensusPayloadHash $ _evaluationCtxPayload evalCtx
-                        return $
-                            (blockCtxOfEvaluationCtx cid evalCtx, \blockEnv -> do
-                                (_, pwo, validatedTxs) <- Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayload expectedPayloadHash payload)
-                                -- add payload immediately after executing the block, because this is when we learn it's valid
-                                liftIO $ addNewPayload (_payloadStoreTable $ _psPdb serviceEnv) (_evaluationCtxCurrentHeight evalCtx) pwo
-                                return $ (DList.singleton validatedTxs, (_ranked rankedBHash, expectedPayloadHash))
-                            )
+                        let blockCtx = blockCtxOfEvaluationCtx cid evalCtx
+                        if guardCtx pact5 blockCtx
+                        then
+                            return $
+                                (blockCtx, Checkpointer.Pact5RunnableBlock $ \blockEnv -> do
+                                    (_, pwo, validatedTxs) <- Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayload expectedPayloadHash payload)
+                                    -- add payload immediately after executing the block, because this is when we learn it's valid
+                                    liftIO $ addNewPayload (_payloadStoreTable $ _psPdb serviceEnv) (_evaluationCtxCurrentHeight evalCtx) pwo
+                                    return $ (DList.singleton validatedTxs, (_ranked rankedBHash, expectedPayloadHash))
+                                )
+                        else
+                            return $
+                                (blockCtx, Checkpointer.Pact4RunnableBlock $ \blockDbEnv -> do
+                                    (_, pwo) <- Pact4.execBlock logger serviceEnv (Pact4.BlockEnv blockCtx blockDbEnv) (CheckablePayload expectedPayloadHash payload)
+                                    -- add payload immediately after executing the block, because this is when we learn it's valid
+                                    liftIO $ addNewPayload (_payloadStoreTable $ _psPdb serviceEnv) (_evaluationCtxCurrentHeight evalCtx) pwo
+                                    return $ (mempty, (_ranked rankedBHash, expectedPayloadHash))
+                                    )
 
                     runExceptT (Checkpointer.restoreAndSave logger cid sql runnableBlocks) >>= \case
                         Left err -> do
@@ -555,6 +594,7 @@ syncToFork logger serviceEnv hints forkInfo = do
     case forkInfo._forkInfoNewBlockCtx of
         Just newBlockCtx
             | Just _ <- _psMiner serviceEnv
+            , pact5 cid (_rankedHeight (_latestRankedBlockHash newConsensusState))
             , _syncStateBlockHash (_consensusStateLatest newConsensusState) ==
                 _latestBlockHash (forkInfo._forkInfoTargetState) -> do
                     -- if we're at the target block we were sent, and we were
@@ -562,8 +602,10 @@ syncToFork logger serviceEnv hints forkInfo = do
                     -- immediately. then we set up a separate thread
                     -- to add new transactions to the block.
                     logFunctionText logger Debug "producing new block"
-                    emptyBlock <- Checkpointer.readFromLatest logger cid sql (_newBlockCtxParentCreationTime newBlockCtx) $ \blockEnv blockHandle ->
-                        makeEmptyBlock logger serviceEnv blockEnv blockHandle
+                    emptyBlock <-
+                        Checkpointer.readFromLatest logger cid sql (_newBlockCtxParentCreationTime newBlockCtx)
+                            $ Checkpointer.readPact5 "Pact 4 cannot make new blocks" $ \blockEnv blockHandle ->
+                                makeEmptyBlock logger serviceEnv blockEnv blockHandle
                     let payloadVar = view psMiningPayloadVar serviceEnv
 
                     -- cancel payload refresher thread
@@ -660,9 +702,12 @@ refreshPayloads logger serviceEnv = do
         "refreshing payloads for " <>
         brief (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress)
     maybeRefreshedBlockInProgress <- Pool.withResource (view psReadSqlPool serviceEnv) $ \sql ->
-        Checkpointer.readFrom logger cid sql (_bctxParentCreationTime $ _blockInProgressBlockCtx blockInProgress) (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress) $ \blockEnv _bh -> do
-        let dbEnv = view psBlockDbEnv blockEnv
-        continueBlock logger serviceEnv dbEnv blockInProgress
+        Checkpointer.readFrom logger cid sql
+            (_bctxParentCreationTime $ _blockInProgressBlockCtx blockInProgress)
+            (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx blockInProgress)
+            $ Checkpointer.readPact5 "Pact 4 cannot make new blocks" $ \blockEnv _bh -> do
+                let dbEnv = view psBlockDbEnv blockEnv
+                continueBlock logger serviceEnv dbEnv blockInProgress
     case maybeRefreshedBlockInProgress of
         -- the block's parent was removed
         NoHistory -> logOutraced
@@ -725,14 +770,19 @@ execPreInsertCheckReq logger serviceEnv txs = do
     let requestKeys = V.map Pact.cmdToRequestKey txs
     logFunctionText logger Info $ "(pre-insert check " <> sshow requestKeys <> ")"
     fakeParentCreationTime <- Checkpointer.mkFakeParentCreationTime
-    let act sql = Checkpointer.readFromLatest logger cid sql fakeParentCreationTime $ \blockEnv bh -> do
-            forM txs $ \tx ->
-                fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
-                    -- it's safe to use initialBlockHandle here because it's
-                    -- only used to check for duplicate pending txs in a block
-                    () <- mapExceptT liftIO
-                        $ Pact.validateParsedChainwebTx logger blockEnv tx
-                    evalStateT (attemptBuyGas blockEnv tx) bh
+    let act sql = Checkpointer.readFromLatest logger cid sql fakeParentCreationTime $ Checkpointer.PactRead
+            { pact5Read = \blockEnv bh -> do
+                forM txs $ \tx ->
+                    fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
+                        -- it's safe to use initialBlockHandle here because it's
+                        -- only used to check for duplicate pending txs in a block
+                        () <- mapExceptT liftIO
+                            $ Pact.validateParsedChainwebTx logger blockEnv tx
+                        evalStateT (attemptBuyGas blockEnv tx) bh
+            -- pessimistically, if we're catching up and not even past the Pact
+            -- 5 activation, just badlist everything as in-the-future.
+            , pact4Read = \_ -> return $ Just InsertErrorTimeInFuture <$ txs
+            }
     Pool.withResource (view psReadSqlPool serviceEnv) $ \sql ->
         timeoutYield timeoutLimit (act sql) >>= \case
             Just r -> do
@@ -785,6 +835,9 @@ execLookupPactTxs logger serviceEnv confDepth txs = do
     depth = maybe 0 (fromIntegral . _confirmationDepth) confDepth
     cid = _chainId serviceEnv
     go ctx = Pool.withResource (_psReadSqlPool serviceEnv) $ \sql ->
-        Checkpointer.readFromNthParent logger cid sql ctx depth $ \blockEnv _ -> do
-            let dbenv = view psBlockDbEnv blockEnv
-            fmap (HM.mapKeys coerce) $ liftIO $ Pact.lookupPactTransactions dbenv (coerce txs)
+        Checkpointer.readFromNthParent logger cid sql ctx depth
+            -- not sure about this, disallows looking up pact txs if we haven't
+            -- caught up to pact 5
+            $ Checkpointer.readPact5 "Pact 4 cannot look up transactions" $ \blockEnv _ -> do
+                let dbenv = view psBlockDbEnv blockEnv
+                fmap (HM.mapKeys coerce) $ liftIO $ Pact.lookupPactTransactions dbenv (coerce txs)
