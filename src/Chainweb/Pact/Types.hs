@@ -39,6 +39,7 @@ module Chainweb.Pact.Types
     , psNewBlockGasLimit
     , psGenesisPayload
     , psBlockRefreshInterval
+    , psModuleInitCacheVar
 
     , BlockCtx(..)
     , blockCtxOfEvaluationCtx
@@ -48,6 +49,11 @@ module Chainweb.Pact.Types
     , _bctxIsGenesis
     , _bctxCurrentBlockHeight
     , genesisEvaluationCtx
+    , bctxParentCreationTime
+    , bctxParentHash
+    , bctxParentHeight
+    , bctxChainId
+    , bctxMinerReward
 
     , PactServiceConfig(..)
     , defaultPactServiceConfig
@@ -171,6 +177,7 @@ import Chainweb.Miner.Pact (Miner, toMinerData, noMiner)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact4.ModuleCache
 import Chainweb.Payload qualified as Chainweb
 import Chainweb.Payload.PayloadStore
 import Chainweb.PayloadProvider.P2P
@@ -193,6 +200,7 @@ import Chainweb.MinerReward
 import Chainweb.BlockCreationTime
 import Control.Concurrent.Async
 import qualified Data.Aeson as A
+import Control.Concurrent.MVar (MVar)
 
 data Transactions t r = Transactions
     { _transactionPairs :: !(Vector (T2 t r))
@@ -356,6 +364,8 @@ data BlockCtx = BlockCtx
   , _bctxChainId :: !ChainId
   , _bctxMinerReward :: !MinerReward
   } deriving stock (Eq, Generic, Show)
+
+makeLenses ''BlockCtx
 
 instance ToJSON BlockCtx where
   toJSON BlockCtx{..} = object
@@ -534,6 +544,7 @@ data ServiceEnv tbl = ServiceEnv
     , _psGenesisPayload :: Maybe Chainweb.PayloadWithOutputs
     -- ^ The genesis payload for this chain.
     , _psBlockRefreshInterval :: Micros
+    , _psModuleInitCacheVar :: MVar ModuleInitCache
     }
 
 instance HasChainId (ServiceEnv tbl) where

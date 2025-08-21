@@ -54,6 +54,7 @@ module Chainweb.Version
     , decodeChainwebVersionCode
     , ChainwebVersionName(..)
     , ChainwebVersion(..)
+    , pact4Upgrade
     , TxIdxInBlock(..)
     , _TxBlockIdx
     , VersionQuirks(..)
@@ -192,6 +193,7 @@ import Data.Singletons
 
 import P2P.Peer
 import GHC.Exts (WithDict(..))
+import qualified Chainweb.Pact4.Transaction as Pact4
 
 -- -------------------------------------------------------------------------- --
 -- Forks
@@ -377,19 +379,36 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
 
-data PactUpgrade =
-    PactUpgrade
-        { _pactUpgradeTransactions :: [Pact.Transaction]
-        } deriving Eq
+data PactUpgrade where
+    Pact4Upgrade ::
+        { _pact4UpgradeTransactions :: [Pact4.Transaction]
+        , _legacyUpgradeIsPrecocious :: Bool
+        -- ^ when set to `True`, the upgrade transactions are executed using the
+        -- forks of the next block, rather than the block the upgrade
+        -- transactions are included in.  do not use this for new upgrades
+        -- unless you are sure you need it, this mostly exists for old upgrades.
+        } -> PactUpgrade
+    Pact5Upgrade ::
+        { _pact5UpgradeTransactions :: [Pact.Transaction]
+        } -> PactUpgrade
+
+instance Eq PactUpgrade where
+    Pact4Upgrade txs precocious == Pact4Upgrade txs' precocious' =
+        txs == txs' && precocious == precocious'
+    Pact5Upgrade txs == Pact5Upgrade txs' =
+        txs == txs'
+    _ == _ = False
 
 instance Show PactUpgrade where
-    show PactUpgrade {} = "<pact upgrade>"
+    show Pact4Upgrade {} = "<pact4 upgrade>"
+    show Pact5Upgrade {} = "<pact5 upgrade>"
 
 instance NFData PactUpgrade where
-    rnf (PactUpgrade txs) = rnf txs
+    rnf (Pact4Upgrade txs precocious) = rnf txs `seq` rnf precocious
+    rnf (Pact5Upgrade txs) = rnf txs
 
--- -------------------------------------------------------------------------- --
--- Version Quirks
+pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
+pact4Upgrade txs = Pact4Upgrade txs False
 
 data TxIdxInBlock = TxBlockIdx Word
     deriving stock (Eq, Ord, Show, Generic)

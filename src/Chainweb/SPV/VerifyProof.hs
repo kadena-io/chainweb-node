@@ -14,9 +14,13 @@
 --
 module Chainweb.SPV.VerifyProof
 ( runTransactionOutputProof
+, checkProofAndExtractOutput
 ) where
 
 import Control.Monad.Catch
+import Control.Monad.Except
+import Control.Monad.IO.Class
+import Data.Text (Text)
 
 import Data.MerkleLog.V1 qualified as V1
 
@@ -24,12 +28,16 @@ import Data.MerkleLog.V1 qualified as V1
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeaderDB
+import Chainweb.Crypto.MerkleLog (proofSubject)
 import Chainweb.CutDB
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Version
+import Chainweb.Pact.Backend.Types (HeaderOracle (..))
+import Chainweb.Parent
+import Chainweb.Utils (unlessM)
 
 -- -------------------------------------------------------------------------- --
 
@@ -42,3 +50,10 @@ runTransactionOutputProof
     -> m BlockHash
 runTransactionOutputProof (TransactionOutputProof _ p)
     = BlockHash . MerkleLogHash <$> V1.runMerkleProof p
+
+checkProofAndExtractOutput :: HeaderOracle -> TransactionOutputProof ChainwebMerkleHashAlgorithm -> ExceptT Text IO TransactionOutput
+checkProofAndExtractOutput oracle proof@(TransactionOutputProof _cid p) = do
+    h <- runTransactionOutputProof proof
+    unlessM (liftIO $ oracle.consult (Parent h)) $ throwError
+        "spv verification failed: target header is not in the chain"
+    proofSubject p

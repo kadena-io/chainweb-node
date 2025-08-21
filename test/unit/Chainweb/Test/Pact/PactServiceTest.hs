@@ -610,7 +610,8 @@ makeEmptyBlock Fixture{..} ph = do
     Pool.withResource (_psReadSqlPool serviceEnv) $ \roSql -> do
         (throwIfNoHistory =<<) $
             Checkpointer.readFrom _fixtureLogger cid roSql (view blockCreationTime <$> ph) (view rankedBlockHash <$> ph) $
-                \blockEnv initialBlockHandle -> PactService.makeEmptyBlock _fixtureLogger serviceEnv blockEnv initialBlockHandle
+                Checkpointer.readPact5 "unexpected Pact 4" $ \blockEnv initialBlockHandle ->
+                    PactService.makeEmptyBlock _fixtureLogger serviceEnv blockEnv initialBlockHandle
     where
     cid = _chainId ph
     serviceEnv = _fixturePacts ^?! atChain cid
@@ -620,7 +621,8 @@ continueBlock Fixture{..} bip = do
     Pool.withResource (_psReadSqlPool serviceEnv) $ \roSql -> do
         (throwIfNoHistory =<<) $
             Checkpointer.readFrom _fixtureLogger cid roSql parentCreationTime parentRankedHash $
-                \blockEnv _initialBlockHandle -> PactService.continueBlock _fixtureLogger serviceEnv (_psBlockDbEnv blockEnv) bip
+                Checkpointer.readPact5 "unexpected Pact 4" $ \blockEnv _initialBlockHandle ->
+                    PactService.continueBlock _fixtureLogger serviceEnv (_psBlockDbEnv blockEnv) bip
     where
     parentCreationTime = (_bctxParentCreationTime $ _blockInProgressBlockCtx bip)
     parentRankedHash = (_bctxParentRankedBlockHash $ _blockInProgressBlockCtx bip)

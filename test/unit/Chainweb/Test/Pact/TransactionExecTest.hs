@@ -73,6 +73,7 @@ import Chainweb.Pact.Backend.Types
 import Control.Monad.State.Strict
 import Chainweb.Parent
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as PIN0
+import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"
@@ -116,7 +117,7 @@ readFromAfterGenesis rdb act = runResourceT $ do
         throwIfNoHistory =<<
             readFrom logger cid writeSql fakeParentCreationTime
                 (Parent (gh cid ^. rankedBlockHash))
-                act
+                (Checkpointer.readPact5 "unexpected Pact 4" $ act)
 
 buyGasShouldTakeGasTokensFromTheTransactionSender :: RocksDb -> IO ()
 buyGasShouldTakeGasTokensFromTheTransactionSender rdb = withVersion v $ readFromAfterGenesis rdb $ \blockEnv blockHandle ->

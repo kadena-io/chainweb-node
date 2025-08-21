@@ -50,6 +50,9 @@ module Chainweb.Pact.PactService.Checkpointer
     , getPayloadsAfter
     , getConsensusState
     , setConsensusState
+    , RunnableBlock(..)
+    , PactRead(..)
+    , readPact5
     ) where
 
 import Control.Lens hiding ((:>), (:<))
@@ -86,6 +89,17 @@ import qualified Data.List.NonEmpty as NE
 import Chainweb.Pact.Backend.ChainwebPactDb (lookupRankedBlockHash)
 import Control.Monad.State.Strict
 import System.LogLevel
+import qualified Chainweb.Pact4.Types as Pact4
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
+import Control.Concurrent.MVar
+import qualified Pact.Types.Persistence as Pact4
+import Chainweb.Pact.Backend.DbCache (defaultModuleCacheLimit)
+import qualified Pact.Interpreter as Pact4
+import qualified Data.ByteString.Short as BS
+import Data.Coerce
+import qualified Data.HashMap.Strict as HashMap
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Types.Hash as Pact4
 
 -- readFrom demands to know this context in case it's mining a block.
 -- But it's not really used by /local, or polling, so we fabricate it
@@ -106,7 +120,7 @@ readFromLatest
     -> ChainId
     -> SQLiteEnv
     -> Parent BlockCreationTime
-    -> (BlockEnv -> BlockHandle -> IO a)
+    -> PactRead a
     -> IO a
 readFromLatest logger cid sql parentCreationTime doRead =
     readFromNthParent logger cid sql parentCreationTime 0 doRead >>= \case
@@ -122,7 +136,7 @@ readFromNthParent
     -> SQLiteEnv
     -> Parent BlockCreationTime
     -> Word
-    -> (BlockEnv -> BlockHandle -> IO a)
+    -> PactRead a
     -> IO (Historical a)
 readFromNthParent logger cid sql parentCreationTime n doRead = do
     withSavepoint sql ReadFromNSavepoint $ do
@@ -154,9 +168,9 @@ readFrom
     -> Parent BlockCreationTime
     -- ^ you can fake this if you're not making a new block
     -> Parent RankedBlockHash
-    -> (BlockEnv -> BlockHandle -> IO a)
+    -> PactRead a
     -> IO (Historical a)
-readFrom logger cid sql parentCreationTime parent doRead = do
+readFrom logger cid sql parentCreationTime parent pactRead = do
     let blockCtx = BlockCtx
             { _bctxParentCreationTime = parentCreationTime
             , _bctxParentHash = _rankedBlockHashHash <$> parent
@@ -170,22 +184,44 @@ readFrom logger cid sql parentCreationTime parent doRead = do
         -- is the parent the latest header, i.e., can we get away without rewinding?
         let parentIsLatestHeader = latestHeader == parent
         let currentHeight = _bctxCurrentBlockHeight blockCtx
-        if pact5 cid currentHeight
-        then PactDb.getEndTxId cid sql parent >>= traverse \startTxId -> do
-            let
-                blockHandlerEnv = ChainwebPactDb.BlockHandlerEnv
-                    { ChainwebPactDb._blockHandlerDb = sql
-                    , ChainwebPactDb._blockHandlerLogger = logger
-                    , ChainwebPactDb._blockHandlerChainId = cid
-                    , ChainwebPactDb._blockHandlerBlockHeight = currentHeight
-                    , ChainwebPactDb._blockHandlerMode = Pact.Transactional
-                    , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
-                    , ChainwebPactDb._blockHandlerAtTip = parentIsLatestHeader
-                    }
-            let pactDb = ChainwebPactDb.chainwebPactBlockDb blockHandlerEnv
-            let blockEnv = BlockEnv blockCtx pactDb
-            doRead blockEnv (emptyBlockHandle startTxId)
-        else error "Pact 4 blocks are not playable anymore"
+        PactDb.getEndTxId cid sql parent >>= traverse \startTxId ->
+            if pact5 cid currentHeight then do
+                let
+                    blockHandlerEnv = ChainwebPactDb.BlockHandlerEnv
+                        { ChainwebPactDb._blockHandlerDb = sql
+                        , ChainwebPactDb._blockHandlerLogger = logger
+                        , ChainwebPactDb._blockHandlerChainId = cid
+                        , ChainwebPactDb._blockHandlerBlockHeight = currentHeight
+                        , ChainwebPactDb._blockHandlerMode = Pact.Transactional
+                        , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
+                        , ChainwebPactDb._blockHandlerAtTip = parentIsLatestHeader
+                        }
+                let pactDb = ChainwebPactDb.chainwebPactBlockDb blockHandlerEnv
+                let blockEnv = BlockEnv blockCtx pactDb
+                pact5Read pactRead blockEnv (emptyBlockHandle startTxId)
+            else do
+                let pact4TxId = Pact4.TxId (coerce startTxId)
+                let blockHandlerEnv = Pact4.mkBlockHandlerEnv cid currentHeight sql logger
+                newBlockDbEnv <- liftIO $ newMVar $ Pact4.BlockDbEnv
+                    blockHandlerEnv
+                    -- FIXME not sharing the cache
+                    (Pact4.initBlockState defaultModuleCacheLimit pact4TxId)
+                let pactDb = Pact4.rewoundPactDb currentHeight pact4TxId
+
+                let pact4DbEnv = Pact4.CurrentBlockDbEnv
+                        { _cpPactDbEnv = Pact4.PactDbEnv pactDb newBlockDbEnv
+                        , _cpRegisterProcessedTx = \hash ->
+                            Pact4.runBlockDbEnv newBlockDbEnv (Pact4.indexPactTransaction $ BS.fromShort $ Pact4.unHash $ Pact4.unRequestKey hash)
+                        , _cpLookupProcessedTx = \hs -> do
+                            res <- doLookupSuccessful sql currentHeight (coerce hs)
+                            return
+                                $ HashMap.mapKeys coerce
+                                $ HashMap.map
+                                    (\(T3 height _payloadhash bhash) -> T2 height bhash)
+                                    res
+                        , _cpHeaderOracle = Pact4.headerOracleForBlock blockHandlerEnv
+                        }
+                pact4Read pactRead (Pact4.BlockEnv blockCtx pact4DbEnv)
 
 -- the special case where one doesn't want to extend the chain, just rewind it.
 rewindTo
@@ -197,6 +233,23 @@ rewindTo
 rewindTo cid sql ancestor = do
     withSavepoint sql RewindSavePoint $
         void $ PactDb.rewindDbTo cid sql ancestor
+
+data PactRead a
+    = PactRead
+        { pact4Read :: (forall logger. Logger logger => Pact4.BlockEnv logger -> IO a)
+        , pact5Read :: BlockEnv -> BlockHandle -> IO a
+        }
+
+readPact5 :: String -> (BlockEnv -> BlockHandle -> IO a) -> PactRead a
+readPact5 msg act = PactRead
+    { pact4Read = \_ -> error msg
+    , pact5Read = act
+    }
+
+data RunnableBlock m q
+    = Pact4RunnableBlock
+            (forall logger. Logger logger => Pact4.CurrentBlockDbEnv logger -> m (q, (BlockHash, BlockPayloadHash)))
+    | Pact5RunnableBlock (BlockEnv -> StateT BlockHandle m (q, (BlockHash, BlockPayloadHash)))
 
 -- TODO: log more?
 -- | Given a list of blocks in ascending order, rewind to the first
@@ -215,7 +268,7 @@ restoreAndSave
     => logger
     -> ChainId
     -> SQLiteEnv
-    -> NonEmpty (BlockCtx, BlockEnv -> StateT BlockHandle m (q, (BlockHash, BlockPayloadHash)))
+    -> NonEmpty (BlockCtx, RunnableBlock m q)
     -> m q
 restoreAndSave logger cid sql blocks = do
     withSavepoint sql RestoreAndSaveSavePoint $ do
@@ -240,21 +293,51 @@ restoreAndSave logger cid sql blocks = do
     executeBlock startTxId (blockCtx, blockAction) = do
         let
             !bh = _bctxCurrentBlockHeight blockCtx
-            blockEnv = ChainwebPactDb.BlockHandlerEnv
-                { ChainwebPactDb._blockHandlerDb = sql
-                , ChainwebPactDb._blockHandlerLogger = logger
-                , ChainwebPactDb._blockHandlerBlockHeight = bh
-                , ChainwebPactDb._blockHandlerChainId = cid
-                , ChainwebPactDb._blockHandlerMode = Pact.Transactional
-                , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
-                , ChainwebPactDb._blockHandlerAtTip = True
-                }
-            pactDb = ChainwebPactDb.chainwebPactBlockDb blockEnv
-            in if pact5 cid bh then do
+        case blockAction of
+            Pact4RunnableBlock block | not (pact5 cid bh) -> do
+                let pact4TxId = Pact4.TxId (coerce startTxId)
+                let blockHandlerEnv = Pact4.mkBlockHandlerEnv cid bh sql logger
+                newBlockDbEnv <- liftIO $ newMVar $ Pact4.BlockDbEnv
+                    blockHandlerEnv
+                    -- FIXME not sharing the cache
+                    (Pact4.initBlockState defaultModuleCacheLimit pact4TxId)
+                let pactDb = Pact4.chainwebPactDb
 
+                let pact4DbEnv = Pact4.CurrentBlockDbEnv
+                        { _cpPactDbEnv = Pact4.PactDbEnv pactDb newBlockDbEnv
+                        , _cpRegisterProcessedTx = \hash ->
+                            Pact4.runBlockDbEnv newBlockDbEnv (Pact4.indexPactTransaction $ BS.fromShort $ Pact4.unHash $ Pact4.unRequestKey hash)
+                        , _cpLookupProcessedTx = \hs -> do
+                            res <- doLookupSuccessful sql bh (coerce hs)
+                            return
+                                $ HashMap.mapKeys coerce
+                                $ HashMap.map
+                                    (\(T3 height _payloadhash bhash) -> T2 height bhash)
+                                    res
+                        , _cpHeaderOracle = Pact4.headerOracleForBlock blockHandlerEnv
+                        }
+                ((m, blockInfo)) <- block pact4DbEnv
+                -- let outputBlockHandle =
+                finalBlockState <- liftIO $
+                    Pact4._benvBlockState <$> readMVar newBlockDbEnv
+                -- TODO Robert: use payload hash here too
+                liftIO $ Pact4.commitBlockStateToDatabase sql (fst blockInfo) (snd blockInfo) bh finalBlockState
+                return (m, Pact.TxId $ coerce $ Pact4._bsTxId finalBlockState)
+            Pact5RunnableBlock block | pact5 cid bh -> do
+                let
+                    blockEnv = ChainwebPactDb.BlockHandlerEnv
+                        { ChainwebPactDb._blockHandlerDb = sql
+                        , ChainwebPactDb._blockHandlerLogger = logger
+                        , ChainwebPactDb._blockHandlerBlockHeight = bh
+                        , ChainwebPactDb._blockHandlerChainId = cid
+                        , ChainwebPactDb._blockHandlerMode = Pact.Transactional
+                        , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
+                        , ChainwebPactDb._blockHandlerAtTip = True
+                        }
+                    pactDb = ChainwebPactDb.chainwebPactBlockDb blockEnv
                 -- run the block
                 ((m, blockInfo), blockHandle) <-
-                    runStateT (blockAction (BlockEnv blockCtx pactDb)) (emptyBlockHandle startTxId)
+                    runStateT (block (BlockEnv blockCtx pactDb)) (emptyBlockHandle startTxId)
                 -- TODO PP: also check the child matches the parent height
                 -- case maybeParent of
                 --   Nothing
@@ -272,8 +355,8 @@ restoreAndSave logger cid sql blocks = do
 
                 return (m, _blockHandleTxId blockHandle)
 
-            else error $
-                "Pact 5 block executed on block height before Pact 5 fork, height: " <> sshow bh
+            _ -> do
+                error $ "pact 4/5 mismatch: " <> sshow (cid, bh)
 
 getEarliestBlock :: SQLiteEnv -> IO (Maybe RankedBlockHash)
 getEarliestBlock sql = do
@@ -291,7 +374,7 @@ lookupBlockWithHeight :: HasCallStack => SQLiteEnv -> BlockHeight -> IO (Maybe (
 lookupBlockWithHeight sql bh = do
     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockWithHeight sql bh
 
-lookupBlockHash :: HasCallStack => SQLiteEnv -> BlockHash -> IO Bool
+lookupBlockHash :: HasCallStack => SQLiteEnv -> BlockHash -> IO (Maybe BlockHeight)
 lookupBlockHash sql pbh = do
     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockHash sql pbh
 

@@ -205,7 +205,7 @@ runBlocks sql rootBlockCtx blks =
         (fakeBlockInfo, block', _finalBlockHandle) <-
             (throwIfNoHistory =<<) $
                 Checkpointer.readFrom logger cid sql fakeParentCreationTime parent $
-                    executeBlockTransaction parent block
+                    Checkpointer.readPact5 "unexpected pact 5" $ executeBlockTransaction parent block
         let childBlockCtx = BlockCtx
                 { _bctxParentCreationTime = fakeParentCreationTime
                 , _bctxParentHash = Parent $ fst fakeBlockInfo
@@ -221,7 +221,7 @@ runBlocks sql rootBlockCtx blks =
                 , _bctxMinerReward = blockMinerReward (unwrapParent $ _rankedBlockHashHeight <$> parent)
                 }
         _ <- Checkpointer.restoreAndSave logger cid sql
-            (NE.singleton (parentBlockCtx, \blockEnv -> do
+            (NE.singleton (parentBlockCtx, Checkpointer.Pact5RunnableBlock $ \blockEnv -> do
                 blockHandle <- get
                 (fakeBlockInfo', _blk, finalBlockHandle) <-
                     liftIO $ executeBlockTransaction parent block blockEnv blockHandle
@@ -246,27 +246,28 @@ assertBlock :: SQLiteEnv -> BlockCtx -> (BlockHash, BlockPayloadHash) -> DbBlock
 assertBlock sql blockCtx expectedBlockInfo blk = withVersion testVer $ do
     fakeNewBlockCtx <- Checkpointer.mkFakeParentCreationTime
     logger <- getTestLogger
-    hist <- Checkpointer.readFrom logger cid sql fakeNewBlockCtx (_bctxParentRankedBlockHash blockCtx) $ \blockEnv startHandle -> do
-        ((), _endHandle) <- doChainwebPactDbTransaction (_psBlockDbEnv blockEnv) startHandle Nothing $ \txdb _spv -> do
-            _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
-            blk' <- forM blk (runDbAction' txdb)
-            txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
-            forM_ blk' $ \case
-                DbRead _d _k (Pair expected actual) ->
-                    assertEqual "read result" expected actual
-                DbWrite _wt _d _k _v (Pair expected actual) ->
-                    assertEqual "write result" expected actual
-                DbKeys _d (Pair expected actual) ->
-                    assertEqual "keys result" expected actual
-                DbSelect _d (Pair expected actual) ->
-                    assertEqual "select result" expected actual
-                DbCreateTable _tn (Pair expected actual) ->
-                    assertEqual "create table result" expected actual
+    hist <- Checkpointer.readFrom logger cid sql fakeNewBlockCtx (_bctxParentRankedBlockHash blockCtx) $
+        Checkpointer.readPact5 "unexpected Pact 4" $ \blockEnv startHandle -> do
+            ((), _endHandle) <- doChainwebPactDbTransaction (_psBlockDbEnv blockEnv) startHandle Nothing $ \txdb _spv -> do
+                _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
+                blk' <- forM blk (runDbAction' txdb)
+                txLogs <- ignoreGas noInfo $ _pdbCommitTx txdb
+                forM_ blk' $ \case
+                    DbRead _d _k (Pair expected actual) ->
+                        assertEqual "read result" expected actual
+                    DbWrite _wt _d _k _v (Pair expected actual) ->
+                        assertEqual "write result" expected actual
+                    DbKeys _d (Pair expected actual) ->
+                        assertEqual "keys result" expected actual
+                    DbSelect _d (Pair expected actual) ->
+                        assertEqual "select result" expected actual
+                    DbCreateTable _tn (Pair expected actual) ->
+                        assertEqual "create table result" expected actual
 
-            actualBlockInfo <-
-                blockHeaderFromTxLogs (_bctxParentRankedBlockHash blockCtx) txLogs
-            assertEqual "block header" expectedBlockInfo actualBlockInfo
-        return ()
+                actualBlockInfo <-
+                    blockHeaderFromTxLogs (_bctxParentRankedBlockHash blockCtx) txLogs
+                assertEqual "block header" expectedBlockInfo actualBlockInfo
+            return ()
     throwIfNoHistory hist
 
 tests :: TestTree
@@ -280,7 +281,7 @@ tests = testGroup "Pact5 Checkpointer tests"
             fakeNewBlockCtx <- Checkpointer.mkFakeParentCreationTime
             ((), _handle) <- (throwIfNoHistory =<<) $
                 Checkpointer.readFrom logger cid sql fakeNewBlockCtx genesisParentRanked
-                    $ \db blockHandle -> do
+                    $ Checkpointer.readPact5 "unexpected Pact 4" $ \db blockHandle -> do
                     doChainwebPactDbTransaction (_psBlockDbEnv db) blockHandle Nothing $ \txdb _spv ->
                         Pact.Core.runPactDbRegression txdb
             return ()
@@ -296,7 +297,7 @@ tests = testGroup "Pact5 Checkpointer tests"
                 _ <- Checkpointer.restoreAndSave logger cid sql $
                     (
                         NE.singleton (blockCtxOfEvaluationCtx cid (genesisEvalCtx cid),
-                        \_ -> return ((), (view blockHash (genesisBlockHeader cid), genesisBlockPayloadHash cid)))
+                        Checkpointer.Pact5RunnableBlock $ \_ -> return ((), (view blockHash (genesisBlockHeader cid), genesisBlockPayloadHash cid)))
                     )
                 handle @_ @SomeException
                     (\ex -> putStrLn (displayException ex) >> throw ex)

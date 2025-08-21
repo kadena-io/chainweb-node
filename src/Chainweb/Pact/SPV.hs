@@ -30,7 +30,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Parent
 import Chainweb.Payload (TransactionOutput(..))
 import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
-import Chainweb.SPV.VerifyProof (runTransactionOutputProof)
+import Chainweb.SPV.VerifyProof (runTransactionOutputProof, checkProofAndExtractOutput)
 import Chainweb.Utils (decodeB64UrlNoPaddingText, unlessM)
 import Chainweb.Version qualified as CW
 
@@ -39,13 +39,6 @@ pactSPV oracle = SPVSupport
     { _spvSupport = \proofType proof -> verifySPV oracle proofType proof
     , _spvVerifyContinuation = \contProof -> verifyCont oracle contProof
     }
-
-checkProofAndExtractOutput :: HeaderOracle -> TransactionOutputProof ChainwebMerkleHashAlgorithm -> ExceptT Text IO TransactionOutput
-checkProofAndExtractOutput oracle proof@(TransactionOutputProof _cid p) = do
-    h <- runTransactionOutputProof proof
-    unlessM (liftIO $ oracle.consult (Parent h)) $ throwError
-        "spv verification failed: target header is not in the chain"
-    proofSubject p
 
 -- | Attempt to verify an SPV proof of a continuation given
 --   a continuation payload object bytestring. On success, returns
