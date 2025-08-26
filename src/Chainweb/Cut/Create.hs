@@ -948,6 +948,13 @@ joinIntoHeavier_ wdb a b = do
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
 
+-- | Finds a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is smaller or equal to the given height. Also, returns a queue
+-- ordered by height of all of the blocks that lie between the resulting cut and
+-- the input cut.
+--
+-- Always iterates over every block being removed from the input cut. For a
+-- faster version, see `limitCut`.
 limitCut_
     :: (HasCallStack, HasVersion)
     => WebBlockHeaderDb
@@ -993,6 +1000,7 @@ limitCut_ wdb h c
 -- Otherwise, the predecessor of the given cut at the given height on each chain
 -- is returned.
 --
+-- See the performance notes for `seekAncestor`.
 limitCut
     :: (HasCallStack, HasVersion)
     => WebBlockHeaderDb
@@ -1001,7 +1009,23 @@ limitCut
         -- bound.
     -> Cut
     -> IO Cut
-limitCut wdb h c = evalStateT (limitCut_ wdb h c) mempty
+limitCut wdb h c
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
+        return c
+    | otherwise = do
+        hdrs <- itraverse go $ view cutHeaders c
+        return $! unsafeMkCut $ projectChains $ HM.mapMaybe id hdrs
+  where
+
+    go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
+    go cid bh = do
+        if h >= view blockHeight bh
+        then return (Just bh)
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            seekAncestor db bh (min (int $ view blockHeight bh) (int h))
+        -- this is safe because it's guaranteed that the requested rank is
+        -- smaller then the block height of the argument
 
 -- | Find a `Cut` that is a predecessor of the given one, and that has a block
 -- height that is as low as possible while not exceeding the given height and
