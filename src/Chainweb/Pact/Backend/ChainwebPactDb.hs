@@ -139,7 +139,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.SPV (pactSPV)
 import Chainweb.Parent
 import Chainweb.PayloadProvider (ConsensusState (..), SyncState (..))
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (sshow, int)
 import Chainweb.Utils.Serialization (runPutS, runGetEitherS)
 import Chainweb.Version
 import Chainweb.Version.Guards (pact5Serialiser)
@@ -252,9 +252,13 @@ chainwebPactBlockDb env = ChainwebPactDb
                 , Pact._pdbRollbackTx =
                     runOnBlockGassed env stateVar doRollback
                 }
+        let currentHeight = _blockHandlerBlockHeight env
         let headerOracle = HeaderOracle
                 { chain = _chainId env
-                , consult = throwOnDbError . lookupBlockHash (_blockHandlerDb env) . unwrapParent
+                , consult = \(Parent hsh) -> do
+                    throwOnDbError (lookupBlockHash (_blockHandlerDb env) hsh) <&> \case
+                        Nothing -> False
+                        Just rootHeight -> rootHeight > currentHeight
                 }
         let spv = pactSPV headerOracle
         r <- kont pactDb spv
@@ -906,13 +910,14 @@ lookupBlockWithHeight db bheight = do
     where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?;"
 
-lookupBlockHash :: HasCallStack => SQ3.Database -> BlockHash -> ExceptT LocatedSQ3Error IO Bool
+lookupBlockHash :: HasCallStack => SQ3.Database -> BlockHash -> ExceptT LocatedSQ3Error IO (Maybe BlockHeight)
 lookupBlockHash db hash = do
     qry db qtext [SBlob (runPutS (encodeBlockHash hash))] [RInt] >>= \case
-        [[SInt n]] -> return $! n == 1
+        [[SInt n]] -> return $! Just $! int n
+        [] -> return $ Nothing
         res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE hash = ?;"
+    qtext = "SELECT blockheight FROM BlockHistory WHERE hash = ?;"
 
 lookupRankedBlockHash :: HasCallStack => SQ3.Database -> RankedBlockHash -> IO Bool
 lookupRankedBlockHash db rankedBHash = throwOnDbError $ do
