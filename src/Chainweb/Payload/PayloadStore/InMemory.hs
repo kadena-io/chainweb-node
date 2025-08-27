@@ -23,6 +23,8 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.HashMap(HashMapTable)
 import qualified Chainweb.Storage.Table.HashMap as HashMapTable
+import Chainweb.Storage.Table.RocksDB (Codec(..))
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- HashMap CAS
@@ -35,20 +37,20 @@ newTransactionDb = TransactionDb
     <*> oldBlockPayloadStore
     <*> oldBlockTransactionsStore
   where
-    newBlockPayloadHeightIndex :: IO (HashMapTable (BlockPayloadHash_ a) BlockHeight)
-    newBlockPayloadHeightIndex = HashMapTable.emptyTable
+    newBlockPayloadHeightIndex :: IO (HashMapTable BlockPayloadHash BlockHeight)
+    newBlockPayloadHeightIndex = HashMapTable.emptyTable (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
 
-    newBlockPayloadStore :: IO (HashMapTable (BlockHeight, CasKeyType (BlockPayload_ a)) (BlockPayload_ a))
-    newBlockPayloadStore = HashMapTable.emptyTable
+    newBlockPayloadStore :: IO (HashMapTable (BlockHeight, CasKeyType BlockPayload) BlockPayload)
+    newBlockPayloadStore = HashMapTable.emptyTable (Codec encodeBlockPayloads decodeBlockPayloads)
 
-    newBlockTransactionsStore :: IO (HashMapTable (BlockHeight, CasKeyType (BlockTransactions_ a)) (BlockTransactions_ a))
-    newBlockTransactionsStore = HashMapTable.emptyTable
+    newBlockTransactionsStore :: IO (HashMapTable (BlockHeight, CasKeyType BlockTransactions) BlockTransactions)
+    newBlockTransactionsStore = HashMapTable.emptyTable (Codec encodeBlockTransactions decodeBlockTransactions)
 
     oldBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
-    oldBlockPayloadStore = Casify <$> HashMapTable.emptyTable
+    oldBlockPayloadStore = Casify <$> HashMapTable.emptyTable (Codec encodeBlockPayloads decodeBlockPayloads)
 
     oldBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
-    oldBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
+    oldBlockTransactionsStore = Casify <$> HashMapTable.emptyTable (Codec encodeBlockTransactions decodeBlockTransactions)
 
 newPayloadDb :: IO (PayloadDb HashMapTable)
 newPayloadDb = PayloadDb <$> newTransactionDb <*> newPayloadCache
@@ -61,15 +63,15 @@ newPayloadDb = PayloadDb <$> newTransactionDb <*> newPayloadCache
 
     newBlockOutputsStore :: IO (BlockOutputsStore HashMapTable)
     newBlockOutputsStore = BlockOutputsStore
-        <$> (Casify <$> HashMapTable.emptyTable)
-        <*> HashMapTable.emptyTable
+        <$> (Casify <$> HashMapTable.emptyTable (Codec encodeBlockOutputs decodeBlockOutputs))
+        <*> HashMapTable.emptyTable (Codec encodeBlockOutputs decodeBlockOutputs)
 
     newTransactionTreeStore :: IO (TransactionTreeStore HashMapTable)
     newTransactionTreeStore = TransactionTreeStore
-        <$> (Casify <$> HashMapTable.emptyTable)
-        <*> HashMapTable.emptyTable
+        <$> (Casify <$> HashMapTable.emptyTable (Codec encodeTransactionTree decodeTransactionTree))
+        <*> HashMapTable.emptyTable (Codec encodeTransactionTree decodeTransactionTree)
 
     newOutputTreeStore :: IO (OutputTreeStore HashMapTable)
     newOutputTreeStore = OutputTreeStore
-        <$> (Casify <$> HashMapTable.emptyTable)
-        <*> HashMapTable.emptyTable
+        <$> (Casify <$> HashMapTable.emptyTable (Codec encodeOutputTree decodeOutputTree))
+        <*> HashMapTable.emptyTable (Codec encodeOutputTree decodeOutputTree)
