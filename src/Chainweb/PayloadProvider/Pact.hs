@@ -19,31 +19,38 @@ module Chainweb.PayloadProvider.Pact
 , decodeNewPayload
 ) where
 
-import Control.Concurrent.STM
-import Control.Exception.Safe
-import Data.LogMessage
-import Data.Vector (Vector)
-import System.LogLevel
-import Control.Lens
-import Network.HTTP.Client qualified as HTTP
-import Data.Vector qualified as V
+import Chainweb.BlockHeaderDB (withBlockHeaderDb)
 import Chainweb.ChainId
+import Chainweb.Core.Brief
+import Chainweb.Core.Brief
 import Chainweb.Counter
 import Chainweb.Logger
-import Chainweb.Pact.Mempool.Mempool
 import Chainweb.MerkleUniverse
 import Chainweb.MinerReward qualified as MinerReward
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Pact.PactService qualified as PactService
-import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Core.Brief
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Types
 import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.Pact.BlockHistoryMigration
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Utils
 import Chainweb.Version
-import Control.Monad.Trans.Resource (ResourceT)
+import Control.Concurrent.STM
+import Control.Exception.Safe
+import Control.Lens
+import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource (ResourceT, allocate)
+import Data.LogMessage
+import Data.Pool qualified as Pool
+import Data.Vector (Vector)
+import Data.Vector qualified as V
+import Network.HTTP.Client qualified as HTTP
+import System.LogLevel
 
 data PactPayloadProvider logger tbl = PactPayloadProvider
     { pactPayloadProviderLogger :: logger
@@ -105,6 +112,8 @@ withPactPayloadProvider
     => Logger logger
     => HasVersion
     => ChainId
+    -> RocksDb
+    -- ^ Temporary requirement for the `migrateBlockHistoryTable` step.
     -> Maybe HTTP.Manager
     -> logger
     -> Maybe (Counter "txFailures")
@@ -114,8 +123,19 @@ withPactPayloadProvider
     -> PactServiceConfig
     -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider cid http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
+withPactPayloadProvider cid rdb http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
+
+    -- perform the database migration of the `BlockHeader` Table.
+    bhdb <- withBlockHeaderDb rdb cid
+
+    liftIO $ do
+        needsMigration <- tableNeedsMigration logger readWriteSqlenv
+        when needsMigration $
+            -- We cleanup potential old state and start migrating the entire database
+            -- from scratch.
+            migrateBlockHistoryTable logger readWriteSqlenv bhdb True
+
     readOnlySqlPool <- withReadSqlitePool cid pactDbDir
     PactPayloadProvider logger <$>
         PactService.withPactService cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config

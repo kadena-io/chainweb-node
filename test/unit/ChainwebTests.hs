@@ -35,6 +35,7 @@ import Chainweb.Test.Mempool.Sync qualified (tests)
 import Chainweb.Test.MinerReward qualified (tests)
 import Chainweb.Test.Mining qualified (tests)
 import Chainweb.Test.Misc qualified (tests)
+import Chainweb.Test.Pact.BlockHistoryMigrationTest qualified (tests)
 import Chainweb.Test.Pact.CheckpointerTest qualified
 import Chainweb.Test.Pact.HyperlanePluginTests qualified
 import Chainweb.Test.Pact.PactServiceTest qualified
@@ -100,6 +101,7 @@ suite rdb =
             ]
         , Chainweb.Test.CutDB.tests rdb
         , Chainweb.Test.Pact.CheckpointerTest.tests
+        , Chainweb.Test.Pact.BlockHistoryMigrationTest.tests
         , Chainweb.Test.Pact.TransactionExecTest.tests rdb
         , Chainweb.Test.Pact.PactServiceTest.tests rdb
         -- TODO: PP

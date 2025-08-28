@@ -234,7 +234,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   do
     log LL.Info "Compacting BlockHistory"
     activeRow <- getBlockHistoryRowAt logger srcDb targetBlockHeight
-    throwOnDbError $ exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
+    throwOnDbError $ exec' targetDb "INSERT INTO BlockHistory2 ('blockheight', 'hash', 'payloadhash', 'endingtxid') VALUES (?1, ?2, ?3, ?4)" activeRow
 
   -- Compact VersionedTableMutation
   -- This is extremely fast and low residency
@@ -497,10 +497,11 @@ createCheckpointerTables db logger = do
 
   log "Creating Checkpointer table BlockHistory"
   inTx db $ throwOnDbError $ exec_ db $ mconcat
-    [ "CREATE TABLE IF NOT EXISTS BlockHistory "
+    [ "CREATE TABLE IF NOT EXISTS BlockHistory2 "
     , "(blockheight UNSIGNED BIGINT NOT NULL"
-    , ", hash BLOB NOT NULL"
     , ", endingtxid UNSIGNED BIGINT NOT NULL"
+    , ", hash BLOB NOT NULL"
+    , ", payloadhash BLOB NOT NULL"
     , ");"
     ]
 
@@ -530,7 +531,7 @@ createCheckpointerTables db logger = do
 
   -- We have to delete from these tables because of the way the test harnesses work.
   -- Ideally in the future this can be removed.
-  forM_ ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"] $ \tblname -> do
+  forM_ ["BlockHistory2", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"] $ \tblname -> do
     log $ "Deleting from table " <> fromUtf8 tblname
     throwOnDbError $ exec_ db $ "DELETE FROM " <> tbl tblname
 
@@ -541,7 +542,7 @@ createCheckpointerIndexes db logger = do
 
   log "Creating BlockHistory index"
   inTx db $ throwOnDbError $ exec_ db
-    "CREATE UNIQUE INDEX IF NOT EXISTS BlockHistory_blockheight_unique_ix ON BlockHistory (blockheight)"
+    "CREATE UNIQUE INDEX IF NOT EXISTS BlockHistory_blockheight_unique_ix ON BlockHistory2 (blockheight)"
 
   log "Creating VersionedTableCreation index"
   inTx db $ throwOnDbError $ exec_ db
@@ -586,18 +587,18 @@ createUserTableIndex db tblname = do
       , tbl tblname, " (txid DESC)"
       ]
 
--- | Returns the active @(blockheight, hash, endingtxid)@ from BlockHistory
+-- | Returns the active @(blockheight, hash, endingtxid)@ from BlockHistory2
 getBlockHistoryRowAt :: (Logger logger)
   => logger
   -> Database
   -> BlockHeight
   -> IO [SType]
 getBlockHistoryRowAt logger db target = do
-  r <- throwOnDbError $ qry db "SELECT blockheight, hash, endingtxid FROM BlockHistory WHERE blockheight = ?1" [SInt (int target)] [RInt, RBlob, RInt]
+  r <- throwOnDbError $ qry db "SELECT blockheight, hash, payloadhash, endingtxid FROM BlockHistory2 WHERE blockheight = ?1" [SInt (int target)] [RInt, RBlob, RBlob, RInt]
   case r of
-    [row@[SInt bh, SBlob _hash, SInt _endingTxId]] -> do
+    [row@[SInt bh, SBlob _hash, SBlob _phash, SInt _endingTxId]] -> do
       unless (target == int bh) $ do
-        exitLog logger "BlockHeight mismatch in BlockHistory query. This is a bug in the compaction tool. Please report it on the issue tracker or discord."
+        exitLog logger "BlockHeight mismatch in BlockHistory2 query. This is a bug in the compaction tool. Please report it on the issue tracker or discord."
       pure row
     _ -> do
       exitLog logger "getBlockHistoryRowAt query: invalid query"

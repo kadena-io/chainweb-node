@@ -344,7 +344,7 @@ doLookupSuccessful db curHeight hashes = throwOnDbError $ do
         qtext = Utf8 $ BS.intercalate " "
             [ "SELECT blockheight, payloadhash, hash, txhash"
             , "FROM TransactionIndex"
-            , "INNER JOIN BlockHistory USING (blockheight)"
+            , "INNER JOIN BlockHistory2 USING (blockheight)"
             , "WHERE txhash IN (" <> params <> ")" <> " AND blockheight < ?;"
             ]
         qvals
@@ -382,7 +382,7 @@ getEndTxId cid sql pc
 getEndTxId' :: HasCallStack => SQLiteEnv -> Parent RankedBlockHash -> IO (Historical Pact.TxId)
 getEndTxId' sql (Parent rbh) = throwOnDbError $ do
     r <- qry sql
-      "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
+      "SELECT endingtxid FROM BlockHistory2 WHERE blockheight = ? and hash = ?;"
       [ SInt $ fromIntegral $ _rankedBlockHashHeight rbh
       , SBlob $ runPutS (encodeBlockHash $ _rankedBlockHashHash rbh)
       ]
@@ -423,7 +423,7 @@ rewindDbToGenesis
   => SQLiteEnv
   -> IO ()
 rewindDbToGenesis db = throwOnDbError $ do
-    exec_ db "DELETE FROM BlockHistory;"
+    exec_ db "DELETE FROM BlockHistory2;"
     exec_ db "DELETE FROM [SYS:KeySets];"
     exec_ db "DELETE FROM [SYS:Modules];"
     exec_ db "DELETE FROM [SYS:Namespaces];"
@@ -471,7 +471,7 @@ rewindDbToBlock db bh endingTxId = throwOnDbError $ do
 
     deleteHistory :: ExceptT LocatedSQ3Error IO ()
     deleteHistory =
-        exec' db "DELETE FROM BlockHistory WHERE blockheight > ?"
+        exec' db "DELETE FROM BlockHistory2 WHERE blockheight > ?"
               [SInt (fromIntegral bh)]
 
     vacuumTablesAtRewind :: HashSet BS.ByteString -> ExceptT LocatedSQ3Error IO ()
