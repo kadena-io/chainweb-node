@@ -854,7 +854,7 @@ commitBlockStateToDatabase db blockHash payloadHash bh blockState = do
             ]
       where
         stmt =
-          "INSERT INTO BlockHistory ('blockheight','hash','payloadhash','endingtxid') VALUES (?,?,?,?);"
+          "INSERT INTO BlockHistory2 ('blockheight','hash','payloadhash','endingtxid') VALUES (?,?,?,?);"
 
     createUserTable :: Text -> IO ()
     createUserTable (toUtf8 -> tablename) = do
@@ -911,7 +911,7 @@ lookupBlockHash db hash = do
         [] -> return $ Nothing
         res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT blockheight FROM BlockHistory WHERE hash = ?;"
+    qtext = "SELECT blockheight FROM BlockHistory2 WHERE hash = ?;"
 
 headerOracleForBlock :: BlockHandlerEnv logger -> HeaderOracle
 headerOracleForBlock env = HeaderOracle

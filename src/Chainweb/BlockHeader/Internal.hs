@@ -62,6 +62,7 @@ module Chainweb.BlockHeader.Internal
 , encodeEpochStartTime
 , decodeEpochStartTime
 , epochStart
+, makeGenesisBlockHeader
 
 -- * FeatureFlags
 , FeatureFlags

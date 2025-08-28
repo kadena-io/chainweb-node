@@ -717,7 +717,7 @@ commitBlockStateToDatabase db blockInfo blockHandle = throwOnDbError $ do
             , SInt (fromIntegral t)
             ]
         where
-        stmt = "INSERT INTO BlockHistory ('blockheight', 'hash', 'payloadhash', 'endingtxid') VALUES (?,?,?,?);"
+        stmt = "INSERT INTO BlockHistory2 ('blockheight', 'hash', 'payloadhash', 'endingtxid') VALUES (?,?,?,?);"
 
     createUserTable :: SQ3.Utf8 -> ExceptT LocatedSQ3Error IO ()
     createUserTable tablename = do
@@ -838,7 +838,7 @@ initSchema sql =
     createBlockHistoryTable :: ExceptT LocatedSQ3Error IO ()
     createBlockHistoryTable = do
         exec_ sql
-            "CREATE TABLE IF NOT EXISTS BlockHistory \
+            "CREATE TABLE IF NOT EXISTS BlockHistory2 \
             \(blockheight UNSIGNED BIGINT NOT NULL, \
             \ endingtxid UNSIGNED BIGINT NOT NULL, \
             \ hash BLOB NOT NULL, \
@@ -883,7 +883,7 @@ getSerialiser = do
 
 getPayloadsAfter :: HasCallStack => SQLiteEnv -> Parent BlockHeight -> ExceptT LocatedSQ3Error IO [Ranked BlockPayloadHash]
 getPayloadsAfter db parentHeight = do
-    qry db "SELECT blockheight, payloadhash FROM BlockHistory WHERE blockheight > ?"
+    qry db "SELECT blockheight, payloadhash FROM BlockHistory2 WHERE blockheight > ?"
         [SInt (fromIntegral @BlockHeight @Int64 (unwrapParent parentHeight))]
         [RInt, RBlob] >>= traverse
         \case
@@ -900,7 +900,7 @@ getEarliestBlock db = do
         [] -> return Nothing
         (!o:_) -> return (Just o)
     where
-    qtext = "SELECT blockheight, hash FROM BlockHistory ORDER BY blockheight ASC LIMIT 1"
+    qtext = "SELECT blockheight, hash FROM BlockHistory2 ORDER BY blockheight ASC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
@@ -915,7 +915,7 @@ lookupBlockWithHeight db bheight = do
         [] -> return Nothing
         res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?;"
+    qtext = "SELECT hash FROM BlockHistory2 WHERE blockheight = ?;"
 
 lookupBlockHash :: HasCallStack => SQ3.Database -> BlockHash -> ExceptT LocatedSQ3Error IO (Maybe BlockHeight)
 lookupBlockHash db hash = do
@@ -924,7 +924,7 @@ lookupBlockHash db hash = do
         [] -> return $ Nothing
         res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT blockheight FROM BlockHistory WHERE hash = ?;"
+   qtext = "SELECT blockheight FROM BlockHistory2 WHERE hash = ?;"
 
 lookupRankedBlockHash :: HasCallStack => SQ3.Database -> RankedBlockHash -> IO Bool
 lookupRankedBlockHash db rankedBHash = throwOnDbError $ do
@@ -935,4 +935,4 @@ lookupRankedBlockHash db rankedBHash = throwOnDbError $ do
         [[SInt n]] -> return $! n == 1
         res -> error $ "Invalid result, " <> sshow res
     where
-    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
+    qtext = "SELECT COUNT(*) FROM BlockHistory2 WHERE blockheight = ? AND hash = ?;"

@@ -374,6 +374,7 @@ withPayloadProviderResources logger cid serviceApiConfig peerStuff rdb rewindLim
                     pp <-
                         withPactPayloadProvider
                             cid
+                            rdb
                             (view _4 <$> peerStuff)
                             logger
                             Nothing

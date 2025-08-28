@@ -93,20 +93,20 @@ import Control.Monad.Trans.Resource
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables
   where
-    checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
+    checkpointerTables = ["BlockHistory2", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
     compactionTables = ["CompactGrandHash", "CompactActiveRow"]
 
 -- | Get the latest blockheight on chain.
 getLatestBlockHeight :: Database -> IO BlockHeight
 getLatestBlockHeight db = do
-  let qryText = "SELECT MAX(blockheight) FROM BlockHistory"
+  let qryText = "SELECT MAX(blockheight) FROM BlockHistory2"
   throwOnDbError $ qry db qryText [] [RInt] >>= \case
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getLatestBlockHeight: expected int"
 
 getEarliestBlockHeight :: Database -> IO BlockHeight
 getEarliestBlockHeight db = do
-  let qryText = "SELECT MIN(blockheight) FROM BlockHistory"
+  let qryText = "SELECT MIN(blockheight) FROM BlockHistory2"
   throwOnDbError $ qry db qryText [] [RInt] >>= \case
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getEarliestBlockHeight: expected int"
@@ -116,13 +116,13 @@ getEarliestBlockHeight db = do
 --   Throws an exception if it doesn't.
 ensureBlockHeightExists :: Database -> BlockHeight -> IO ()
 ensureBlockHeightExists db bh = do
-  r <- throwOnDbError $ qry db "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1" [SInt (fromIntegral bh)] [RInt]
+  r <- throwOnDbError $ qry db "SELECT blockheight FROM BlockHistory2 WHERE blockheight = ?1" [SInt (fromIntegral bh)] [RInt]
   case r of
     [[SInt rBH]] -> do
       when (fromIntegral bh /= rBH) $ do
         error "ensureBlockHeightExists: malformed query"
     _ -> do
-      error $ "ensureBlockHeightExists: empty BlockHistory: height=" ++ show bh
+      error $ "ensureBlockHeightExists: empty BlockHistory2: height=" ++ show bh
 
 getLatestCommonBlockHeight :: (Logger logger)
   => logger
@@ -251,7 +251,7 @@ getEndingTxId :: ()
   -> IO Int64
 getEndingTxId db bh = do
   r <- throwOnDbError $ qry db
-         "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
+         "SELECT endingtxid FROM BlockHistory2 WHERE blockheight=?"
          [SInt (int bh)]
          [RInt]
   case r of
