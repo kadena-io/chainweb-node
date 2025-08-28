@@ -64,7 +64,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils (diameterAt)
 import Chainweb.WebBlockHeaderDB
-import Control.Concurrent.Async
+-- import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -87,6 +87,7 @@ import Chainweb.Parent
 import Streaming.Prelude qualified as S
 import Data.These (partitionHereThere, These (..))
 import Chainweb.Core.Brief
+import Control.Concurrent.Async.Pool hiding (Task)
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -303,7 +304,8 @@ getBlockHeaderInternal
     => BlockHeaderCas candidateHeaderCas
         -- ^ CandidateHeaderCas is a content addressed store for BlockHeaders
     => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
-    => WebBlockHeaderStore
+    => TaskGroup
+    -> WebBlockHeaderStore
         -- ^ Block Header Store for all Chains
     -> candidateHeaderCas
         -- ^ Ephemeral store for block headers under consideration
@@ -321,6 +323,7 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
         -- ^ If validation is successful the added block header is returned
 getBlockHeaderInternal
+    taskGroup
     headerStore
     candidateHeaderCas
     candidatePldTbl
@@ -371,11 +374,12 @@ getBlockHeaderInternal
         -- created.
         --
         let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash p
-            queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
+            queryAdjacentParent p = Concurrently $ \_ -> unless (isGenesisParentHash p) $ void $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisiteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
                 getBlockHeaderInternal
+                    taskGroup
                     headerStore
                     candidateHeaderCas
                     candidatePldTbl
@@ -389,11 +393,12 @@ getBlockHeaderInternal
             -- header. There's another complete pass of block header validations
             -- after payload validation when the header is finally added to the db.
             --
-            queryParent p = Concurrently $ do
+            queryParent p = Concurrently $ \_ -> do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisiteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
                 parentHdr <- Parent <$> getBlockHeaderInternal
+                    taskGroup
                     headerStore
                     candidateHeaderCas
                     candidatePldTbl
@@ -416,17 +421,17 @@ getBlockHeaderInternal
                     --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
                 DisabledPayloadProvider -> return ()
 
-        parentHdr <- runConcurrently
+        parentHdr <- flip runConcurrently taskGroup
             -- instruct the payload provider to fetch payload data and prepare
             -- validation.
-            $ Concurrently prefetchProviderPayloads
+            $ Concurrently (\_ -> prefetchProviderPayloads)
 
             -- query parent (recursively)
             --
             *> queryParent (view blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
-            <* mconcat (queryAdjacentParent <$> adjParents header)
+            <* sequenceA_ (queryAdjacentParent <$> adjParents header)
 
             -- TODO Above recursive calls are potentially long running
             -- computations. In particular pact validation can take significant
@@ -643,7 +648,8 @@ getBlockHeader
     :: HasVersion
     => BlockHeaderCas candidateHeaderCas
     => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
-    => WebBlockHeaderStore
+    => TaskGroup
+    -> WebBlockHeaderStore
     -> candidateHeaderCas
     -> candidatePldTbl
     -> ChainMap ConfiguredPayloadProvider
@@ -653,11 +659,12 @@ getBlockHeader
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
+getBlockHeader taskGroup headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
         `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h (sshow es)
   where
     go = getBlockHeaderInternal
+        taskGroup
         headerStore
         candidateHeaderCas
         candidatePldTbl
