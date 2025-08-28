@@ -91,8 +91,10 @@ module Chainweb.CutDB
 
 import Control.Applicative
 import Control.Concurrent.Async
+import Control.Concurrent.Async.Pool (withTaskGroup)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
 import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad
@@ -102,6 +104,7 @@ import Control.Monad.STM
 import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson (ToJSON, decodeStrict')
+import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -161,8 +164,6 @@ import Control.Monad.Trans.Maybe
 import Chainweb.Logger
 import Chainweb.Core.Brief
 import Chainweb.Parent
-import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
-import qualified Data.ByteString.Lazy as BS
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -483,7 +484,7 @@ startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
                                 casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
                             return limitedCutHeaders
             Just f -> do
-                rankedBlockHashes :: HM.HashMap ChainId RankedBlockHash <- decodeOrThrow =<< BS.readFile f
+                rankedBlockHashes :: HM.HashMap ChainId RankedBlockHash <- decodeOrThrow =<< LBS.readFile f
                 blockHeaders <- iforM rankedBlockHashes (lookupRankedWebBlockHeaderDb wbhdb)
                 return $ unsafeMkCut blockHeaders
 
@@ -949,27 +950,28 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
         -- the payload provider by inserting them in the evluation contexts for
         -- the respective blocks
         --
-        plds <- emptyTable
+        plds <- emptyTable (Codec _encodedPayloadData (return . EncodedPayloadData))
         tableInsertBatch plds $ HM.toList $ _cutHashesPayloads hs
 
-        hdrs <- emptyTable
+        hdrs <- emptyTable (Codec (runPutS . encodeBlockHeaderWithoutHash) (runGetS decodeBlockHeaderWithoutHash))
         casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
 
         -- for better error messages on validation failure
         let localPayload = _cutHashesLocalPayload hs
 
-        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-            & S.mapM (\(cid, bh) -> tryGetBlockHeader hdrs plds localPayload $ (cid, bh))
-            & S.partitionEithers
-            & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-            & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
-        if null missing
-        then return $! Right headers
-        else do
-            when (isJust $ _cutHashesLocalPayload hs) $
-                logfun @Text Error
-                    "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
-            return $! Left missing
+        withTaskGroup 20 $ \taskGroup -> do
+            (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
+                & S.mapM (\(cid, bh) -> tryGetBlockHeader taskGroup hdrs plds localPayload $ (cid, bh))
+                & S.partitionEithers
+                & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
+                & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+            if null missing
+            then return $! Right headers
+            else do
+                when (isJust $ _cutHashesLocalPayload hs) $
+                    logfun @Text Error
+                        "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
+                return $! Left missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
@@ -982,8 +984,9 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
     --                     return (Left cv)
     --                 e -> throwM e
 
-    tryGetBlockHeader hdrs plds localPayload cv@(cid, _) = do
+    tryGetBlockHeader taskGroup hdrs plds localPayload cv@(cid, _) = do
         fmap Right $ forM cv $ getBlockHeader
+            taskGroup
             headerStore
             hdrs
             plds

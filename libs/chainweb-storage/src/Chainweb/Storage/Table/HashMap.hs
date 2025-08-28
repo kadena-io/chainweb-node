@@ -28,38 +28,41 @@ import Control.Monad.STM
 
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
+import Data.Maybe (fromMaybe)
 
 -- internal modules
 
 import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB (Codec(..))
+import Data.ByteString (ByteString)
+import Control.Exception (throw)
 
 -- | An 'IsTable' implementation that is base on 'HM.HashMap'.
 --
-newtype HashMapTable k v = HashMapTable (TVar (HM.HashMap k v))
+data HashMapTable k v = HashMapTable (Codec v) (TVar (HM.HashMap k ByteString))
 
 instance (Hashable k, Eq k) => ReadableTable (HashMapTable k v) k v where
-    tableLookup (HashMapTable var) k  = HM.lookup k <$!> readTVarIO var
-    tableMember (HashMapTable var) k  = 
+    tableLookup (HashMapTable c var) k  = fmap (either throw id . _codecDecode c) . HM.lookup k <$!> readTVarIO var
+    tableMember (HashMapTable _ var) k  =
         HM.member k <$> readTVarIO var
 
 instance (Hashable k, Eq k) => Table (HashMapTable k v) k v where
-    tableInsert (HashMapTable var) k v =
-        atomically $ modifyTVar' var (HM.insert k v)
-    tableDelete (HashMapTable var) k =
+    tableInsert (HashMapTable c var) k v =
+        atomically $ modifyTVar' var (HM.insert k (_codecEncode c v))
+    tableDelete (HashMapTable _ var) k =
         atomically $ modifyTVar' var (HM.delete k)
 
 -- | Create new empty CAS
 --
-emptyTable :: (Hashable k, Eq k) => IO (HashMapTable k v)
-emptyTable = HashMapTable <$> newTVarIO mempty
+emptyTable :: (Hashable k, Eq k) => Codec v -> IO (HashMapTable k v)
+emptyTable c = HashMapTable c <$> newTVarIO mempty
 
 -- | Return all entries of CAS as List
 --
 toList :: HashMapTable k v -> IO [v]
-toList (HashMapTable var) = HM.elems <$!> readTVarIO var
+toList (HashMapTable c var) = fmap (either throw id . _codecDecode c) . HM.elems <$!> readTVarIO var
 
 -- | The number of items in the CAS
 --
 size :: HashMapTable k v -> IO Int
-size (HashMapTable var) = HM.size <$!> readTVarIO var
-
+size (HashMapTable _ var) = HM.size <$!> readTVarIO var
