@@ -142,7 +142,7 @@ withTestCutDb rdb conf n providers logger = do
     webDb <- liftIO $ initWebBlockHeaderDb rocksDb
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
     headerStore <- withLocalWebBlockHeaderStore mgr webDb
-    cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logger headerStore providers cutHashesDb
+    Right cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logger headerStore providers cutHashesDb
     liftIO $ synchronizeProviders webDb genesisCut
 
     liftIO $ logFunctionText logger Debug "GOING TO MINE AT THE START"
@@ -299,7 +299,7 @@ startTestPayload rdb logger n = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
     let disabledPayloadProviders = onAllChains DisabledPayloadProvider
-    cutDb <- startCutDb (defaultCutDbParams cutFetchTimeout) logger hstore disabledPayloadProviders cutHashesDb
+    Right cutDb <- startCutDb (defaultCutDbParams cutFetchTimeout) logger hstore disabledPayloadProviders cutHashesDb
     foldM_ (\c _ -> view _1 <$> mine logger cutDb c) genesisCut [0..n]
     return (hserver, cutDb)
 

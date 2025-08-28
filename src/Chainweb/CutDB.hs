@@ -407,11 +407,11 @@ withCutDb
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
-    -> ResourceT IO CutDb
+    -> ResourceT IO (Either Cut CutDb)
 withCutDb config logger headerStore providers cutHashesStore
     = snd <$> allocate
         (startCutDb config logger headerStore providers cutHashesStore)
-        stopCutDb
+        (traverse_ stopCutDb)
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
@@ -430,7 +430,7 @@ startCutDb
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
-    -> IO CutDb
+    -> IO (Either Cut CutDb)
 startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
     initialCut <- readInitialCut
@@ -440,26 +440,31 @@ startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
             (unCasify cutHashesStore)
             -- intentionally don't delete up to recovery cut, the initial cut could be useful later
             (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
-    cutVar <- newTVarIO recoveryCut
-    -- use the recovery cut for the pruning state, so that we write cuts more quickly after recovering
-    cutPruningStateVar <- newTVarIO $ initialCutPruningState recoveryCut
-    c <- readTVarIO cutVar
-    logg Info $ T.unlines $
-        "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
-    queue <- newEmptyPQueue
-    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar cutPruningStateVar
-    return CutDb
-        { _cutDbCut = cutVar
-        , _cutDbQueue = queue
-        , _cutDbAsync = cutAsync
-        , _cutDbLogFunction = logFunction logger
-        , _cutDbHeaderStore = headerStore
-        , _cutDbPayloadProviders = providers
-        , _cutDbQueueSize = _cutDbParamsBufferSize config
-        , _cutDbCutStore = cutHashesStore
-        , _cutDbReadOnly = _cutDbParamsReadOnly config
-        , _cutDbFastForwardHeightLimit = _cutDbParamsFastForwardHeightLimit config
-        }
+    if isNothing (_cutDbParamsInitialHeightLimit config)
+        && isNothing (_cutDbParamsInitialCutFile config)
+    then do
+        cutVar <- newTVarIO recoveryCut
+        -- use the recovery cut for the pruning state, so that we write cuts more quickly after recovering
+        cutPruningStateVar <- newTVarIO $ initialCutPruningState recoveryCut
+        c <- readTVarIO cutVar
+        logg Info $ T.unlines $
+            "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
+        queue <- newEmptyPQueue
+        cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar cutPruningStateVar
+        return $ Right CutDb
+            { _cutDbCut = cutVar
+            , _cutDbQueue = queue
+            , _cutDbAsync = cutAsync
+            , _cutDbLogFunction = logFunction logger
+            , _cutDbHeaderStore = headerStore
+            , _cutDbPayloadProviders = providers
+            , _cutDbQueueSize = _cutDbParamsBufferSize config
+            , _cutDbCutStore = cutHashesStore
+            , _cutDbReadOnly = _cutDbParamsReadOnly config
+            , _cutDbFastForwardHeightLimit = _cutDbParamsFastForwardHeightLimit config
+            }
+    else
+        return (Left recoveryCut)
   where
     logg = logFunctionText logger
     wbhdb = _webBlockHeaderStoreCas headerStore
