@@ -32,6 +32,7 @@ module Chainweb.Chainweb.CutResources
 ) where
 
 import Control.Lens
+import Control.Monad (forM)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 
@@ -41,6 +42,7 @@ import qualified Network.HTTP.Client as HTTP
 
 -- internal modules
 
+import Chainweb.Cut (Cut)
 import Chainweb.CutDB
 import qualified Chainweb.CutDB.Sync as C
 import Chainweb.Logger
@@ -86,7 +88,7 @@ withCutResources
     -> WebBlockHeaderDb
     -> ChainMap ConfiguredPayloadProvider
     -> HTTP.Manager
-    -> ResourceT IO CutResources
+    -> ResourceT IO (Either Cut CutResources)
 withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain providers mgr = do
 
     -- initialize blockheader store
@@ -95,17 +97,18 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
 
-    cutDb <- withCutDb cutDbParams logger headerStore providers cutHashesStore
-    cutP2pNode <- liftIO $ mkP2pNode True "cut" $
-        C.syncSession myInfo cutDb
-    headerP2pNode <- liftIO $ mkP2pNode False "header" $
-        session 10 (_webBlockHeaderStoreQueue headerStore)
-    return CutResources
-        { _cutResPeerDb = peerDb
-        , _cutResCutDb = cutDb
-        , _cutResCutP2pNode = cutP2pNode
-        , _cutResHeaderP2pNode = headerP2pNode
-        }
+    initialCutOrCutDb <- withCutDb cutDbParams logger headerStore providers cutHashesStore
+    forM initialCutOrCutDb $ \cutDb -> do
+        cutP2pNode <- liftIO $ mkP2pNode True "cut" $
+            C.syncSession myInfo cutDb
+        headerP2pNode <- liftIO $ mkP2pNode False "header" $
+            session 10 (_webBlockHeaderStoreQueue headerStore)
+        return CutResources
+            { _cutResPeerDb = peerDb
+            , _cutResCutDb = cutDb
+            , _cutResCutP2pNode = cutP2pNode
+            , _cutResHeaderP2pNode = headerP2pNode
+            }
   where
     syncLogger = addLabel ("sub-component", "sync") logger
 

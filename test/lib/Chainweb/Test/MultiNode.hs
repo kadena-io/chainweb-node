@@ -221,7 +221,7 @@ harvestConsensusState
     -> StartedChainweb logger
     -> RocksDb
     -> IO ()
-harvestConsensusState _ _ _ (Replayed _ _) _ =
+harvestConsensusState _ _ _ (RewoundToCut _) _ =
     error "harvestConsensusState: doesn't work when replaying, replays don't do consensus"
 harvestConsensusState logger stateVar nid (StartedChainweb cw) rdb = do
     runChainweb cw (\_ -> return ()) `finally` do
@@ -253,7 +253,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
                     StartedChainweb cw' ->
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
                             $ view (chainwebPeer . peerResPeer . peerInfo) cw'
-                    Replayed _ _ -> return ()
+                    RewoundToCut _ -> return ()
                 inner nid cw namespacedNodeRocksDb
   where
     logger :: GenericLogger
@@ -584,53 +584,24 @@ replayTest loglevel n rdb pactDbDir step = do
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar emptyConsensusState
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         tastylog $ sshow stats1
-        tastylog $ "phase 2... resetting"
-        runNodesForSeconds loglevel logFun (multiConfig n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
-        state2 <- swapMVar stateVar emptyConsensusState
-        let stats2 = fromJuste $ consensusStateSummary state2
-        tastylog $ sshow stats2
-        assertGe "block count after reset" (Actual $ _statBlockCount stats2) (Expected $ _statBlockCount stats1)
         tastylog $ "phase 3... replaying"
         let replayInitialHeight = 5
         firstReplayCompleteRef <- newIORef False
         runNodesForSeconds loglevel logFun
             (multiConfig n
-                & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
-                & set configOnlySync True)
-            n (Seconds 20) rdb pactDbDir $ \nid cw _ -> case cw of
-                Replayed l (Just u) -> do
-                    writeIORef firstReplayCompleteRef True
-                    _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
-                        assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
-                    -- TODO: this is flaky, presumably because a node's cutdb
-                    -- is not being cancelled synchronously enough
-                    assertEqual "upper cut" (snd $ _stateCutMap state2 HM.! nid) u
-                    _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
-                        assertGe ("upper chain " <> sshow cid) (Actual $ view blockHeight bh) (Expected replayInitialHeight)
-                    return ()
-                Replayed _ Nothing -> error "replayTest: no replay upper bound"
-                _ -> error "replayTest: not a replay"
-        assertEqual "first replay completion" True =<< readIORef firstReplayCompleteRef
-        let fastForwardHeight = 10
-        tastylog $ "phase 4... replaying with fast-forward limit"
-        secondReplayCompleteRef <- newIORef False
-        runNodesForSeconds loglevel logFun
-            (multiConfig n
-                & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
-                & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
-                & set configOnlySync True)
+                & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight))
             n (Seconds 20) rdb pactDbDir $ \_ cw _ -> case cw of
-                Replayed l (Just u) -> do
-                    writeIORef secondReplayCompleteRef True
-                    _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
+                RewoundToCut rewoundToCut -> do
+                    writeIORef firstReplayCompleteRef True
+                    _ <- flip HM.traverseWithKey (_cutMap rewoundToCut) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
-                    _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
-                        assertEqual ("upper chain " <> sshow cid) fastForwardHeight (view blockHeight bh)
                     return ()
-                Replayed _ Nothing -> do
-                    error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
-        assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
+        assertEqual "replay completion" True =<< readIORef firstReplayCompleteRef
+        runNodesForSeconds loglevel logFun (multiConfig n) n 60 rdb pactDbDir ct
+        Just stats2 <- consensusStateSummary <$> swapMVar stateVar emptyConsensusState
+        assertGe "maximum cut height after reset" (Actual $ _statMaxHeight stats2) (Expected $ _statMaxHeight stats1)
+        assertLe "maximum cut height after reset" (Actual $ _statMaxHeight stats2) (Expected $ round @Double (int (_statMaxHeight stats1) * 2))
         tastylog "done."
 
 -- -------------------------------------------------------------------------- --

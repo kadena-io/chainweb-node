@@ -40,7 +40,6 @@ module Chainweb.Chainweb.Configuration
 , CutConfig(..)
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
-, cutFastForwardBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -68,7 +67,6 @@ module Chainweb.Chainweb.Configuration
 , configReorgLimit
 , configBackup
 , configServiceApi
-, configOnlySync
 , configReadOnlyReplay
 , configSyncChains
 , configPayloadProviders
@@ -341,7 +339,6 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
 data CutConfig = CutConfig
     { _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
-    , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
     , _cutInitialCutFile :: !(Maybe FilePath)
     } deriving (Eq, Show)
 
@@ -351,7 +348,6 @@ instance ToJSON CutConfig where
     toJSON o = object
         [ "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
-        , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
         , "initialCutFile" .= _cutInitialCutFile o
         ]
 
@@ -359,14 +355,12 @@ instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
         <$< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
-        <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
         <*< cutInitialCutFile ..: "initialCutFile" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
-    , _cutFastForwardBlockHeightLimit = Nothing
     , _cutInitialCutFile = Nothing
     }
 
@@ -378,10 +372,6 @@ pCutConfig = id
     <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "initial-block-height-limit"
         <> help "Reset initial cut to this block height."
-        <> metavar "INT"
-    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
-        % long "fast-forward-block-height-limit"
-        <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
         <> metavar "INT"
     <*< cutInitialCutFile .:: fmap Just . textOption
         % long "initial-cut-file"
@@ -535,8 +525,6 @@ data ChainwebConfiguration = ChainwebConfiguration
 
     , _configReadOnlyReplay :: !Bool
         -- ^ do a read-only replay using the cut db params for the block heights
-    , _configOnlySync :: !Bool
-        -- ^ exit after synchronizing pact dbs to the latest cut
     , _configSyncChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
@@ -586,7 +574,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configReorgLimit = defaultReorgLimit
     , _configServiceApi = defaultServiceApiConfig
-    , _configOnlySync = False
     , _configReadOnlyReplay = False
     , _configSyncChains = Nothing
     , _configBackup = defaultBackupConfig
@@ -602,7 +589,6 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "reorgLimit" .= _configReorgLimit o
         , "serviceApi" .= _configServiceApi o
-        , "onlySync" .= _configOnlySync o
         , "readOnlyReplay" .= _configReadOnlyReplay o
         , "syncChains" .= _configSyncChains o
         , "backup" .= _configBackup o
@@ -622,7 +608,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configServiceApi %.: "serviceApi" % o
-        <*< configOnlySync ..: "onlySync" % o
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
         <*< configSyncChains ..: "syncChains" % o
         <*< configBackup %.: "backup" % o
@@ -640,9 +625,6 @@ pChainwebConfiguration = id
     <*< parserOptionGroup "Cut Processing" (configCuts %:: pCutConfig)
     <*< parserOptionGroup "Service API" (configServiceApi %:: pServiceApiConfig)
     <*< parserOptionGroup "Mining Coordination" (configMining %:: pMiningConfig)
-    <*< configOnlySync .:: boolOption_
-        % long "only-sync"
-        <> help "Terminate after synchronizing the pact databases to the latest cut"
     <*< configReadOnlyReplay .:: boolOption_
         % long "read-only-replay"
         <> help "Replay the block history non-destructively"

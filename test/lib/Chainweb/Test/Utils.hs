@@ -1015,7 +1015,7 @@ node rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
                 logFunctionText logger Info "write sample data"
                 logFunctionText logger Info "shutdown node"
             return ()
-        Replayed _ _ -> error "node: should not be a replay"
+        RewoundToCut _ -> error "node: should not be a replay"
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
