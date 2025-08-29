@@ -21,6 +21,8 @@ import Control.Lens
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 import Data.HashSet(HashSet)
 import Data.String
 import qualified Data.Text as T
@@ -40,6 +42,7 @@ import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
 import Chainweb.Utils
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version (HasVersion)
 
 data BackupOptions = BackupOptions
     { _backupIdentifier :: !FilePath
@@ -47,12 +50,12 @@ data BackupOptions = BackupOptions
     }
 
 data BackupEnv logger = BackupEnv
-  { _backupRocksDb :: !RocksDb
-  , _backupDir :: !FilePath
-  , _backupPactDbDir :: !FilePath
-  , _backupChainIds :: !(HashSet ChainId)
-  , _backupLogger :: !logger
-  }
+    { _backupRocksDb :: !RocksDb
+    , _backupDir :: !FilePath
+    , _backupPactDbDir :: !FilePath
+    , _backupChainIds :: !(HashSet ChainId)
+    , _backupLogger :: !logger
+    }
 
 data BackupStatus
     = BackupDone | BackupInProgress | BackupFailed
@@ -74,7 +77,7 @@ instance MimeRender PlainText BackupStatus where
 instance MimeUnrender PlainText BackupStatus where
     mimeUnrender = const (over _Left show . fromText . TL.toStrict . TL.decodeUtf8)
 
-makeBackup :: Logger logger => BackupEnv logger -> BackupOptions -> IO ()
+makeBackup :: (Logger logger, HasVersion) => BackupEnv logger -> BackupOptions -> IO ()
 makeBackup env options = do
     logCr Info ("making backup to " <> T.pack thisBackup)
     createDirectoryIfMissing True (thisBackup </> "0" </> "sqlite")
@@ -97,12 +100,12 @@ makeBackup env options = do
         logCr Info "rocksdb checkpoint made"
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
-            forConcurrently_ (_backupChainIds env) $ \cid -> do
-                withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry db
-                        ("VACUUM main INTO ?")
-                        [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
-                        []
+            forConcurrently_ (_backupChainIds env) $ \cid -> runResourceT $ do
+                db <- withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False
+                liftIO $ void $ qry db
+                    ("VACUUM main INTO ?")
+                    [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
+                    []
             logCr Info $ "pact databases backed up"
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)

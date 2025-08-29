@@ -1,0 +1,27 @@
+# .git
+**.hi
+**.o
+*.eventlog
+*.eventlog
+*.hp
+*.prof
+*.ps
+*.tags
+.DS_Store
+.ghc.environment*
+.stack-work
+Dockerfile
+Tmp*
+chainweb-node
+chainweb-node*
+chainweb-node-prof*
+chainweb-tests*
+ci-logs
+ci-logs*
+dist
+dist-newstyle
+hie.log
+out*
+prof-data
+tags
+tmp*

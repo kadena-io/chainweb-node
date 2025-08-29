@@ -28,7 +28,10 @@ import Servant
 
 -- internal modules
 import Chainweb.Chainweb.Configuration
-import Chainweb.Miner.Config
+import Chainweb.PayloadProvider.EVM
+import Chainweb.PayloadProvider.Minimal (mpcRedeemAccount)
+import Chainweb.PayloadProvider.Minimal.Payload (invalidAccount)
+import Chainweb.PayloadProvider.Pact.Configuration (pactConfigMiner)
 import Chainweb.RestAPI.Utils
 
 import P2P.Node.Configuration
@@ -54,12 +57,13 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
     $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
 
     -- Miner Info
-    $ set (configMining . miningCoordination . coordinationMiners) mempty
-    $ set (configMining . miningInNode . nodeMiner) invalidMiner
+    $ set (configPayloadProviders . payloadProviderConfigMinimal . mpcRedeemAccount) invalidAccount
+    $ set (configPayloadProviders . payloadProviderConfigPact . traversed . pactConfigMiner) Nothing
+    $ set (configPayloadProviders . payloadProviderConfigEvm . traversed . evmConfMinerAddress) Nothing
+    $ set (configPayloadProviders . payloadProviderConfigEvm . traversed . evmConfEngineJwtSecret) (_evmConfEngineJwtSecret defaultEvmProviderConfig)
 
     -- Service API port
     $ set (configServiceApi . serviceApiConfigPort) 0
     $ set (configServiceApi . serviceApiConfigInterface) "invalid"
     $ set configBackup defaultBackupConfig
     config
-

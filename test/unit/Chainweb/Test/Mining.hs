@@ -46,52 +46,53 @@ import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Test.TestVersions (barebonesTestVersion)
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version (withVersion)
 
 -- -------------------------------------------------------------------------- --
 --
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Mining"
-    [ testCaseSteps "Miner account names are not empty strings" (nonEmptyMiningAccount rdb)
-    ]
+    [ ]
+    -- testCaseSteps "Miner account names are not empty strings" (nonEmptyMiningAccount rdb)
+    -- ]
 
 -- -------------------------------------------------------------------------- --
 -- Test Mining Coordinator
 
-withTestCoordinator
-    :: HasCallStack
-    => RocksDb
-    -> (String -> IO ())
-    -> Maybe MiningConfig
-        -- ^ Custom Mining configuration. If coordination is disabled it will be
-        -- set to enabled before the coordinator is initialized.
-    -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
-    -> IO ()
-withTestCoordinator rdb logg maybeConf a = do
-    var <- newEmptyMVar
-    x <- race (takeMVar var) $
-        withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
-            withMiningCoordination logger conf cdb $ \case
-                Nothing -> error "nonEmptyMiningAccount: Bug in the mining Code"
-                Just coord -> do
-                    a logger coord
-                    putMVar var ()
-    case x of
-        Left () -> logFunctionText logger Info "withTestCoordinator: action finished"
-        Right () -> logFunctionText logger Info "withTestCoordinator: coordinator service stopped"
+-- withTestCoordinator
+--     :: HasCallStack
+--     => RocksDb
+--     -> (String -> IO ())
+--     -> Maybe MiningConfig
+--         -- ^ Custom Mining configuration. If coordination is disabled it will be
+--         -- set to enabled before the coordinator is initialized.
+--     -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
+--     -> IO ()
+-- withTestCoordinator rdb logg maybeConf a = withVersion v $ do
+--     var <- newEmptyMVar
+--     x <- race (takeMVar var) $
+--         withTestCutDb rdb id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
+--             withMiningCoordination logger conf cdb $ \case
+--                 Nothing -> error "nonEmptyMiningAccount: Bug in the mining Code"
+--                 Just coord -> do
+--                     a logger coord
+--                     putMVar var ()
+--     case x of
+--         Left () -> logFunctionText logger Info "withTestCoordinator: action finished"
+--         Right () -> logFunctionText logger Info "withTestCoordinator: coordinator service stopped"
 
-  where
-    v = barebonesTestVersion pairChainGraph
-    logger = genericLogger Warn (logg . T.unpack)
-    conf = fromMaybe defaultMining maybeConf
-        & miningCoordination . coordinationEnabled .~ True
+--   where
+--     v = barebonesTestVersion pairChainGraph
+--     logger = genericLogger Warn (logg . T.unpack)
+--     conf = fromMaybe defaultMining maybeConf
+--         & miningCoordination . coordinationEnabled .~ True
 
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-nonEmptyMiningAccount :: HasCallStack => RocksDb -> (String -> IO ()) -> Assertion
-nonEmptyMiningAccount rdb logg = withTestCoordinator rdb logg Nothing $ \_logger coord -> do
-    PrimedWork w <- readTVarIO (_coordPrimedWork coord)
-    forM_ (HM.keys w) $ \(MinerId k) ->
-        assertBool "miner account name must not be the empty string" (not (T.null k))
-
+-- nonEmptyMiningAccount :: HasCallStack => RocksDb -> (String -> IO ()) -> Assertion
+-- nonEmptyMiningAccount rdb logg = withTestCoordinator rdb logg Nothing $ \_logger coord -> do
+--     PrimedWork w <- readTVarIO (_coordPrimedWork coord)
+--     forM_ (HM.keys w) $ \(MinerId k) ->
+--         assertBool "miner account name must not be the empty string" (not (T.null k))

@@ -49,8 +49,7 @@ import P2P.Session
 -- Client Env
 
 data CutClientEnv = CutClientEnv
-    { _envChainwebVersion :: !ChainwebVersion
-    , _envClientEnv :: !ClientEnv
+    { _envClientEnv :: !ClientEnv
     }
     deriving (Generic)
 
@@ -58,16 +57,18 @@ runClientThrowM :: ClientM a -> ClientEnv -> IO a
 runClientThrowM req = fromEitherM <=< runClientM req
 
 putCut
-    :: CutClientEnv
+    :: HasVersion
+    => CutClientEnv
     -> CutHashes
     -> IO ()
-putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
+putCut (CutClientEnv env) = void . flip runClientThrowM env . cutPutClient
 
 getCut
-    :: CutClientEnv
+    :: HasVersion
+    => CutClientEnv
     -> CutHeight
     -> IO CutHashes
-getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
+getCut (CutClientEnv env) h = runClientThrowM (cutGetClientLimit (int h)) env
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session
@@ -84,11 +85,11 @@ catchupStepSize :: CutHeight
 catchupStepSize = 100
 
 syncSession
-    :: ChainwebVersion
-    -> PeerInfo
-    -> CutDb tbl
+    :: HasVersion
+    => PeerInfo
+    -> CutDb
     -> P2pSession
-syncSession v p db logg env pinf = do
+syncSession p db logg env pinf = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
         (forever $ receive >> approximateThreadDelay 2000000 {- 2 seconds -})
@@ -102,7 +103,7 @@ syncSession v p db logg env pinf = do
     logg @T.Text Error "unexpectedly exited cut sync session"
     return False
   where
-    cenv = CutClientEnv v env
+    cenv = CutClientEnv env
 
     send c = do
         putCut cenv c

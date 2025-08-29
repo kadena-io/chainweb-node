@@ -1,4 +1,6 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -11,162 +13,47 @@
 -- Verification of Merkle proofs in the Chainweb Merkle tree.
 --
 module Chainweb.SPV.VerifyProof
-(
--- * Transaction Proofs
-  runTransactionProof
-, verifyTransactionProof
-, verifyTransactionProofAt
-, verifyTransactionProofAt_
-
--- * Transaction Output Proofs
-, runTransactionOutputProof
-, verifyTransactionOutputProof
-, verifyTransactionOutputProofAt
-, verifyTransactionOutputProofAt_
+( runTransactionOutputProof
+, checkProofAndExtractOutput
 ) where
 
 import Control.Monad.Catch
+import Control.Monad.Except
+import Control.Monad.IO.Class
+import Data.Text (Text)
 
-import Crypto.Hash.Algorithms
-
-import Data.MerkleLog
-
-import Prelude hiding (lookup)
+import Data.MerkleLog.V1 qualified as V1
 
 -- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeaderDB
-import Chainweb.Crypto.MerkleLog
+import Chainweb.Crypto.MerkleLog (proofSubject)
 import Chainweb.CutDB
 import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.SPV
-import Chainweb.TreeDB
-import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Pact.Backend.Types (HeaderOracle (..))
+import Chainweb.Parent
+import Chainweb.Utils (unlessM)
 
 -- -------------------------------------------------------------------------- --
--- Transaction Proofs
 
 -- | Runs a transaction Proof. Returns the block hash on the target chain for
 -- which inclusion is proven.
 --
-runTransactionProof :: TransactionProof SHA512t_256 -> BlockHash
-runTransactionProof (TransactionProof _ p)
-    = BlockHash $ MerkleLogHash $ runMerkleProof p
-
--- | Verifies the proof against the current state of consensus. The result
--- confirms that the subject of the proof occurs in the history of the winning
--- fork of the target chain.
---
-verifyTransactionProof
-    :: CutDb tbl
-    -> TransactionProof SHA512t_256
-    -> IO Transaction
-verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
-    unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
-    proofSubject p
-  where
-    h = runTransactionProof proof
-
--- | Verifies the proof for the given block hash. The result confirms that the
--- subject of the proof occurs in the history of the target chain before the
--- given block hash.
---
--- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
--- chain.
---
-verifyTransactionProofAt
-    :: CutDb tbl
-    -> TransactionProof SHA512t_256
-    -> BlockHash
-    -> IO Transaction
-verifyTransactionProofAt cutDb proof@(TransactionProof cid p) ctx = do
-    unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
-    proofSubject p
-  where
-    h = runTransactionProof proof
-
--- | Verifies the proof for the given block hash. The result confirms that the
--- subject of the proof occurs in the history of the target chain before the
--- given block hash.
---
--- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
--- then chain or when the given BlockHeaderDb is not for the target chain.
---
-verifyTransactionProofAt_
-    :: BlockHeaderDb
-    -> TransactionProof SHA512t_256
-    -> BlockHash
-    -> IO Transaction
-verifyTransactionProofAt_ bdb proof@(TransactionProof _cid p) ctx = do
-    unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
-    proofSubject p
-  where
-    h = runTransactionProof proof
-
--- -------------------------------------------------------------------------- --
--- Output Proofs
-
--- | Runs a transaction Proof. Returns the block hash on the target chain for
--- which inclusion is proven.
---
-runTransactionOutputProof :: TransactionOutputProof SHA512t_256 -> BlockHash
+runTransactionOutputProof
+    :: MonadThrow m
+    => TransactionOutputProof ChainwebMerkleHashAlgorithm
+    -> m BlockHash
 runTransactionOutputProof (TransactionOutputProof _ p)
-    = BlockHash $ MerkleLogHash $ runMerkleProof p
+    = BlockHash . MerkleLogHash <$> V1.runMerkleProof p
 
--- | Verifies the proof against the current state of consensus. The result
--- confirms that the subject of the proof occurs in the history of the winning
--- fork of the target chain.
---
-verifyTransactionOutputProof
-    :: CutDb tbl
-    -> TransactionOutputProof SHA512t_256
-    -> IO TransactionOutput
-verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
-    unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+checkProofAndExtractOutput :: HeaderOracle -> TransactionOutputProof ChainwebMerkleHashAlgorithm -> ExceptT Text IO TransactionOutput
+checkProofAndExtractOutput oracle proof@(TransactionOutputProof _cid p) = do
+    h <- runTransactionOutputProof proof
+    unlessM (liftIO $ oracle.consult (Parent h)) $ throwError
+        "spv verification failed: target header is not in the chain"
     proofSubject p
-  where
-    h = runTransactionOutputProof proof
-
--- | Verifies the proof for the given block hash. The result confirms that the
--- subject of the proof occurs in the history of the target chain before the
--- given block hash.
---
--- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
--- chain.
---
-verifyTransactionOutputProofAt
-    :: CutDb tbl
-    -> TransactionOutputProof SHA512t_256
-    -> BlockHash
-    -> IO TransactionOutput
-verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = do
-    unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
-    proofSubject p
-  where
-    h = runTransactionOutputProof proof
-
--- | Verifies the proof for the given block hash. The result confirms that the
--- subject of the proof occurs in the history of the target chain before the
--- given block hash.
---
--- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
--- the chain or when the given BlockHeaderDb is not for the target chain.
---
-verifyTransactionOutputProofAt_
-    :: BlockHeaderDb
-    -> TransactionOutputProof SHA512t_256
-    -> BlockHash
-    -> IO TransactionOutput
-verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) ctx = do
-    unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
-    proofSubject p
-  where
-    h = runTransactionOutputProof proof

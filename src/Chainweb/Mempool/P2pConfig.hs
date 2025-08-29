@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Mempool.P2pConfig
@@ -35,6 +36,7 @@ import Numeric.Natural
 
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.ChainId
 
 data MempoolP2pConfig = MempoolP2pConfig
     { _mempoolP2pConfigMaxSessionCount :: !Natural
@@ -73,14 +75,15 @@ instance FromJSON MempoolP2pConfig where
         <*> o .: "sessionTimeout"
         <*> o .: "pollInterval"
 
-pMempoolP2pConfig :: MParser MempoolP2pConfig
-pMempoolP2pConfig = id
+pMempoolP2pConfig :: ChainId -> MParser MempoolP2pConfig
+pMempoolP2pConfig cid = id
     <$< mempoolP2pConfigMaxSessionCount .:: option auto
-        % long "mempool-p2p-max-session-count"
-        <> help "maximum number of sessions that are active at any time"
+        % prefixLongCid cid "mempool-p2p-max-session-count"
+        <> helpCid cid "maximum number of sessions that are active at any time"
     <*< mempoolP2pConfigSessionTimeout .:: textOption
-        % long "mempool-p2p-session-timeout"
-        <> help "timeout for sessions in seconds"
+        % prefixLongCid cid "mempool-p2p-session-timeout"
+        <> helpCid cid "timeout for sessions in seconds"
     <*< mempoolP2pConfigPollInterval .:: textOption
-        % long "mempool-p2p-poll-interval"
-        <> help "poll interval for synchronizing mempools in seconds"
+        % prefixLongCid cid "mempool-p2p-poll-interval"
+        <> helpCid cid "poll interval for synchronizing mempools in seconds"
+

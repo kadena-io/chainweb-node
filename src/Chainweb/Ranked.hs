@@ -1,6 +1,16 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -- |
 -- Module: Chainweb.Ranked
@@ -17,19 +27,30 @@
 --
 module Chainweb.Ranked
 ( Ranked(..)
+, rankedHeight
+, ranked
 , encodeRanked
 , decodeRanked
+, JsonRanked(..)
+
+-- * IsRanked Class
+, IsRanked(..)
 ) where
 
 import Chainweb.BlockHeight
+import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Control.DeepSeq
+import Control.Lens hiding ((.=))
 import Control.Monad
 
+import Data.Aeson
 import Data.Hashable
+import Data.Typeable (Proxy(..), Typeable, typeRep)
 
-import GHC.Generics
+import GHC.Generics (Generic)
+import GHC.TypeLits
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeight Ranked Data
@@ -46,8 +67,10 @@ data Ranked a = Ranked
     { _rankedHeight :: !BlockHeight
     , _ranked :: !a
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving stock (Functor, Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
+makeLenses ''Ranked
+
 
 encodeRanked :: (a -> Put) -> Ranked a -> Put
 encodeRanked putA (Ranked r a) = do
@@ -61,3 +84,50 @@ decodeRanked decodeA = Ranked
     <*> decodeA
 {-# INLINE decodeRanked #-}
 
+-- -------------------------------------------------------------------------- --
+-- Has Rank Class
+
+-- | Class of Ranked Types.
+--
+-- All instances of this class must have an 'Ord' instance that sorts by height
+-- and a encoding functions that perserve this ordering on the lexicographic
+-- order of the encoded values.
+--
+-- This class is used because for some types the rank can be derived from the
+-- value itself. In those cases the use of the 'Ranked' data type is wastefull
+-- and a simple 'newtype' wrapper is better suited. This class is used to
+-- abstract about both cases and to avoid cluttering the namespace.
+--
+class Ord r => IsRanked r where
+    rank :: r -> BlockHeight
+
+instance Ord a => IsRanked (Ranked a) where
+    rank = _rankedHeight
+
+
+-- -------------------------------------------------------------------------- --
+
+-- | JSON Encoding for Ranked Types.
+--
+-- The first type parameter is the JSON key for the value.
+--
+newtype JsonRanked (s :: Symbol) a = JsonRanked { _jsonRanked :: Ranked a }
+
+instance (ToJSON a, KnownSymbol s) => ToJSON (JsonRanked s a) where
+    toJSON (JsonRanked r) = object
+        [ "height" .= _rankedHeight r
+        , symbolText @s .= _ranked r
+        ]
+    toEncoding (JsonRanked r) = pairs $ mconcat
+        [ "height" .= _rankedHeight r
+        , symbolText @s .= _ranked r
+        ]
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance (KnownSymbol s, Typeable a, FromJSON a) => FromJSON (JsonRanked s a) where
+    parseJSON = withObject ("Ranked " <> show (typeRep (Proxy @a))) $ \o ->
+        fmap JsonRanked $ Ranked
+            <$> o .: "height"
+            <*> o .: symbolText @s
+    {-# INLINE parseJSON  #-}

@@ -12,6 +12,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 ------------------------------------------------------------------------------
 -- | Mempool
@@ -74,7 +75,7 @@ module Chainweb.Mempool.Mempool
   , bfTxHashes
   , bfCount
 
-  , pact4TransactionConfig
+  , pactTransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
@@ -86,8 +87,7 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   , GasLimit(..)
   , GasPrice(..)
-  , pact4RequestKeyToTransactionHash
-  , pact5RequestKeyToTransactionHash
+  , pactRequestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
 
@@ -121,7 +121,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 
-import GHC.Generics
+import GHC.Generics hiding (to)
 
 import Prelude hiding (log)
 
@@ -130,23 +130,24 @@ import System.LogLevel
 -- internal modules
 
 import qualified Pact.JSON.Encode as J
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
-import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
-import Pact.Types.Command
-import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import qualified Pact.Types.Hash as Pact4
+
+import Pact.Core.Command.Types qualified as Pact
+import Pact.Core.Hash qualified as Pact
+import Pact.Core.Gas
+import Pact.Core.ChainData
+import Pact.Core.ChainData qualified as Pact
+
+import Data.LogMessage (LogFunctionText)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
-import qualified Chainweb.Time as Time
-import qualified Chainweb.Pact4.Transaction as Pact4
+import Chainweb.Time qualified as Time
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Data.LogMessage (LogFunctionText)
-import qualified Pact.Types.Command as Pact4
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Hash as Pact5
+
+import Chainweb.PayloadProvider (EvaluationCtx(..))
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -187,7 +188,7 @@ instance Traversable LookupResult where
                      Pending x -> Pending <$> f x
 
 ------------------------------------------------------------------------------
-type MempoolPreBlockCheck ti to = BlockHeight -> BlockHash -> Vector ti -> IO (Vector (Either InsertError to))
+type MempoolPreBlockCheck ti to = EvaluationCtx () -> Vector ti -> IO (Vector (Either InsertError to))
 
 ------------------------------------------------------------------------------
 -- | Mempool operates over a transaction type @t@. Mempool needs several
@@ -236,9 +237,10 @@ data InsertError
   | InsertErrorTransactionsDisabled
   | InsertErrorBuyGas Text
   | InsertErrorCompilationFailed Text
-  | InsertErrorOther Text
+  | InsertErrorBadGasPrice GasPrice
   | InsertErrorInvalidHash
   | InsertErrorInvalidSigs Text
+  | InsertErrorTooManySigs
   | InsertErrorTimedOut
   | InsertErrorPactParseError Text
   | InsertErrorWrongChain Text Text
@@ -254,14 +256,20 @@ instance Show InsertError where
       InsertErrorBadlisted -> "Transaction is badlisted because it previously failed to validate."
       InsertErrorMetadataMismatch -> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint"
       InsertErrorTransactionsDisabled -> "Transactions are disabled until 2019 Dec 5"
-      InsertErrorBuyGas msg -> "Attempt to buy gas failed with: " <> T.unpack msg
+      InsertErrorBuyGas msg -> T.unpack msg
       InsertErrorCompilationFailed msg -> "Transaction compilation failed: " <> T.unpack msg
-      InsertErrorOther m -> "insert error: " <> T.unpack m
       InsertErrorInvalidHash -> "Invalid transaction hash"
       InsertErrorInvalidSigs msg -> "Invalid transaction sigs: " <> T.unpack msg
       InsertErrorTimedOut -> "Transaction validation timed out"
       InsertErrorPactParseError msg -> "Pact parse error: " <> T.unpack msg
       InsertErrorWrongChain expected actual -> "Wrong chain, expected: " <> T.unpack expected <> ", actual: " <> T.unpack actual
+      InsertErrorBadGasPrice (GasPrice d) -> concat
+        [ "This transaction's gas price ("
+        , sshow d
+        , ") is not correctly rounded. "
+        , "It should be rounded to at most 12 decimal places."
+        ]
+      InsertErrorTooManySigs -> "Too many signatures"
 
 instance Exception InsertError
 
@@ -315,7 +323,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: forall to. BlockFill -> MempoolPreBlockCheck t to -> BlockHeight -> BlockHash -> IO (Vector to)
+      :: forall to. BlockFill -> MempoolPreBlockCheck t to -> EvaluationCtx () -> IO (Vector to)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -335,7 +343,7 @@ data MempoolBackend t = MempoolBackend {
 }
 
 noopMempoolPreBlockCheck :: MempoolPreBlockCheck t t
-noopMempoolPreBlockCheck _ _ v = return $! V.map Right v
+noopMempoolPreBlockCheck _ v = return $! V.map Right v
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
@@ -359,8 +367,8 @@ noopMempool = do
     noopCodec = Codec (const "") (const $ Left "unimplemented")
     noopHasher = const $ chainwebTestHasher "noopMempool"
     noopHashMeta = chainwebTestHashMeta
-    noopGasPrice = const 0
-    noopSize = const 1
+    noopGasPrice = const (GasPrice 0)
+    noopSize = const (GasLimit $ Gas 1)
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta
@@ -373,31 +381,29 @@ noopMempool = do
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
-    noopGetBlock _ _ _ _ = return V.empty
+    noopGetBlock _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
 
 ------------------------------------------------------------------------------
 
-pact4TransactionConfig
-    :: TransactionConfig Pact4.UnparsedTransaction
-pact4TransactionConfig = TransactionConfig
-    { txCodec = Pact4.rawCommandCodec
+pactTransactionConfig
+    :: TransactionConfig Pact.Transaction
+pactTransactionConfig = TransactionConfig
+    { txCodec = Pact.commandCodec
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
-    , txGasPrice = getGasPrice
-    , txGasLimit = getGasLimit
+    , txGasPrice = view (Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasPrice)
+    , txGasLimit = view (Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmGasLimit)
     , txMetadata = txmeta
     }
 
 
   where
-    getGasPrice = view Pact4.cmdGasPrice . fmap Pact4.payloadObj
-    getGasLimit = view Pact4.cmdGasLimit . fmap Pact4.payloadObj
-    getTimeToLive = view Pact4.cmdTimeToLive . fmap Pact4.payloadObj
-    getCreationTime = view Pact4.cmdCreationTime . fmap Pact4.payloadObj
-    commandHash c = let (Pact4.Hash !h) = Pact4.toUntypedHash $ _cmdHash c
+    getTimeToLive = view (Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmTTL)
+    getCreationTime = view (Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmCreationTime)
+    commandHash c = let Pact.Hash h = Pact._cmdHash c
                     in TransactionHash h
     txmeta t =
         TransactionMetadata
@@ -619,11 +625,8 @@ instance HasTextRepresentation TransactionHash where
   {-# INLINE toText #-}
   {-# INLINE fromText #-}
 
-pact4RequestKeyToTransactionHash :: Pact4.RequestKey -> TransactionHash
-pact4RequestKeyToTransactionHash = TransactionHash . Pact4.unHash . Pact4.unRequestKey
-
-pact5RequestKeyToTransactionHash :: Pact5.RequestKey -> TransactionHash
-pact5RequestKeyToTransactionHash = TransactionHash . Pact5.unHash . Pact5.unRequestKey
+pactRequestKeyToTransactionHash :: Pact.RequestKey -> TransactionHash
+pactRequestKeyToTransactionHash = TransactionHash . Pact.unHash . Pact.unRequestKey
 
 ------------------------------------------------------------------------------
 --
@@ -718,8 +721,8 @@ data MockTx = MockTx {
 instance J.Encode MockTx where
     build o = J.object
         [ "mockNonce" J..= J.Aeson (mockNonce o)
-        , "mockGasPrice" J..= mockGasPrice o
-        , "mockGasLimit" J..= mockGasLimit o
+        , "mockGasPrice" J..= J.string (show (view _GasPrice (mockGasPrice o)))
+        , "mockGasLimit" J..= J.number (fromIntegral $ view (_GasLimit . to _gas) (mockGasLimit o))
         , "mockMeta" J..= mockMeta o
         ]
     {-# INLINE build #-}
@@ -732,13 +735,13 @@ instance ToJSON MockTx where
 instance FromJSON MockTx where
     parseJSON = withObject "MockTx" $ \o -> MockTx
         <$> o .: "mockNonce"
-        <*> o .: "mockGasPrice"
-        <*> o .: "mockGasLimit"
+        <*> fmap (GasPrice . read @Decimal) (o .: "mockGasPrice")
+        <*> fmap (GasLimit . Gas . fromIntegral @Int @SatWord) (o .: "mockGasLimit")
         <*> o .: "mockMeta"
     {-# INLINE parseJSON #-}
 
 mockBlockGasLimit :: GasLimit
-mockBlockGasLimit = 100_000_000
+mockBlockGasLimit = GasLimit $ Gas 100_000_000
 
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
@@ -746,7 +749,7 @@ mockCodec = Codec mockEncode mockDecode
 
 
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
+mockEncode (MockTx nonce (GasPrice price) (GasLimit (Gas limit)) meta) =
   B64.encode $
   runPutS $ do
     putWord64le $ fromIntegral nonce
@@ -793,8 +796,8 @@ mockDecode s = do
     s' <- B64.decode s
     runGetEitherS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
-    getPrice = GasPrice . ParsedDecimal <$> getDecimal
-    getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
+    getPrice = GasPrice <$> getDecimal
+    getGL = GasLimit . Gas . fromIntegral <$> getWord64le
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
 

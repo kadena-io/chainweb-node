@@ -59,6 +59,11 @@ type PendingMap = HashMap TransactionHash PendingEntry
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
+--
+-- TODO: The type contains parameters that should be configurable as well as
+-- parameters that are determined by the chainweb version or the chainweb
+-- protocol. These should be separated in to two different types.
+--
 data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit

@@ -73,24 +73,27 @@ import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.KeySet as P
 import qualified Pact.Parse as P
 import Chainweb.Pact4.Types
-import Chainweb.Utils (ebool_)
+import Chainweb.Utils (ebool_, int)
+import Chainweb.Parent
+import qualified Pact.Core.Gas.Types as Pact5
 
 
 -- | Check whether a local Api request has valid metadata
 --
 assertPreflightMetadata
-    :: P.Command (P.Payload P.PublicMeta c)
-    -> TxContext
+    :: HasVersion
+    => P.Command (P.Payload P.PublicMeta c)
+    -> BlockCtx
     -> Maybe LocalSignatureVerification
-    -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
-    v <- view psVersion
-    cid <- view chainId
-    bgl <- view psBlockGasLimit
+    -> ServiceEnv tbl
+    -> IO (Either (NonEmpty Text) ())
+assertPreflightMetadata cmd@(P.Command pay sigs hsh) bctx sigVerify serviceEnv = do
+    let cid = view chainId serviceEnv
+    let bgl = view psNewBlockGasLimit serviceEnv
 
-    let bh = ctxCurrentBlockHeight txCtx
-    let validSchemes = validPPKSchemes v cid bh
-    let webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
+    let bh = _bctxCurrentBlockHeight bctx
+    let validSchemes = validPPKSchemes cid bh
+    let webAuthnPrefixLegal = isWebAuthnPrefixLegal cid bh
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -102,7 +105,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           -- TODO
           , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
-          , eUnless "Network id mismatch" $ assertNetworkId v nid
+          , eUnless "Network id mismatch" $ assertNetworkId nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
           , eUnless "Invalid transaction signatures" $ sigValidate validSchemes webAuthnPrefixLegal signers
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
@@ -116,11 +119,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       | Just NoVerify <- sigVerify = True
       | otherwise = isRight $ assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
 
-    pct = ParentCreationTime
-      . view blockCreationTime
-      . _parentHeader
-      . _tcParentHeader
-      $ txCtx
+    pct = view bctxParentCreationTime bctx
 
     eUnless t assertion
       | assertion = Nothing
@@ -129,7 +128,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
 -- | Check whether a particular Pact chain id is parseable
 --
 assertParseChainId :: P.ChainId -> Bool
-assertParseChainId = isJust . fromPactChainId
+assertParseChainId (P.ChainId cid) = isJust $ chainIdFromText cid
 
 -- | Check whether the chain id defined in the metadata of a Pact/Chainweb
 -- command payload matches a given chain id.
@@ -149,14 +148,14 @@ assertGasPrice (P.GasPrice (P.ParsedDecimal gp)) = decimalPlaces gp <= defaultMa
 -- | Check and assert that the 'GasLimit' of a transaction is less than or eqaul to
 -- the block gas limit
 --
-assertBlockGasLimit :: P.GasLimit -> P.GasLimit -> Bool
-assertBlockGasLimit bgl tgl = bgl >= tgl
+assertBlockGasLimit :: Pact5.GasLimit -> P.GasLimit -> Bool
+assertBlockGasLimit (Pact5.GasLimit (Pact5.Gas bgl)) tgl = P.GasLimit (int bgl) >= tgl
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
 --
-assertNetworkId :: ChainwebVersion -> Maybe P.NetworkId -> Bool
-assertNetworkId _ Nothing = False
-assertNetworkId v (Just (P.NetworkId nid)) = ChainwebVersionName nid == _versionName v
+assertNetworkId :: HasVersion => Maybe P.NetworkId -> Bool
+assertNetworkId Nothing = False
+assertNetworkId (Just (P.NetworkId nid)) = ChainwebVersionName nid == _versionName implicitVersion
 
 -- | Check and assert that the number of signatures in a 'Command' is
 -- at most 100.
@@ -209,10 +208,10 @@ assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = do
 -- skipped when replaying old blocks.
 --
 assertTxTimeRelativeToParent
-    :: ParentCreationTime
+    :: Parent BlockCreationTime
     -> P.Command (P.Payload P.PublicMeta c)
     -> Bool
-assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxTimeRelativeToParent (Parent (BlockCreationTime txValidationTime)) tx =
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
@@ -226,10 +225,10 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 -- | Check that the tx's creation time is not too far in the future relative
 -- to the block creation time
 assertTxNotInFuture
-    :: ParentCreationTime
+    :: Parent BlockCreationTime
     -> P.Command (P.Payload P.PublicMeta c)
     -> Bool
-assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxNotInFuture (Parent (BlockCreationTime txValidationTime)) tx =
     timeFromSeconds txOriginationTime <= lenientTxValidationTime
   where
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral

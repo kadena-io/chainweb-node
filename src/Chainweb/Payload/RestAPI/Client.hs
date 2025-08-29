@@ -49,13 +49,13 @@ payloadClient_
 payloadClient_ = client (payloadGetApi @v @c)
 
 payloadClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BlockPayloadHash
     -> Maybe BlockHeight
     -> ClientM PayloadData
-payloadClient v c k h = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+payloadClient c k h = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ payloadClient_ @v @c k h
 
@@ -74,12 +74,12 @@ payloadBatchClient_ = client (payloadPostApi @v @c)
 -- data. Results are returned in any order.
 --
 payloadBatchClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BatchBody
     -> ClientM PayloadDataList
-payloadBatchClient v c k = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+payloadBatchClient c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ payloadBatchClient_ @v @c k
 
@@ -96,13 +96,13 @@ outputsClient_
 outputsClient_ = client (outputsGetApi @v @c)
 
 outputsClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BlockPayloadHash
     -> Maybe BlockHeight
     -> ClientM PayloadWithOutputs
-outputsClient v c k h = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+outputsClient c k h = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ outputsClient_ @v @c k h
 
@@ -118,11 +118,11 @@ outputsBatchClient_
 outputsBatchClient_ = client (outputsPostApi @v @c)
 
 outputsBatchClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BatchBody
     -> ClientM PayloadWithOutputsList
-outputsBatchClient v c k = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+outputsBatchClient c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ outputsBatchClient_ @v @c k

@@ -42,12 +42,13 @@ import Test.Tasty.HUnit
 
 import Chainweb.Test.Utils
 import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Utils (withSQLiteConnection)
 
 -- -------------------------------------------------------------------------- --
 -- Tests
 
 tests :: TestTree
-tests = withResourceT withInMemSQLiteResource $ \dbIO ->
+tests = withResourceT (withSQLiteConnection ":memory:" []) $ \dbIO ->
     withResource' (dbIO >>= newMVar) $ \dbVarIO ->
         let run = runMsgTest dbVarIO []
             runMonte = runMonteTest dbVarIO []

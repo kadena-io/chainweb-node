@@ -17,6 +17,7 @@
 --
 module Chainweb.Pact.Backend.DbCache
 ( DbCacheLimitBytes(..)
+, defaultModuleCacheLimit
 , DbCache
 , checkDbCache
 , emptyDbCache
@@ -58,7 +59,7 @@ import Pact.Types.Persistence
 
 -- internal modules
 
-import Chainweb.Utils (ix')
+import Chainweb.Utils (ix', mebi)
 
 
 -- -------------------------------------------------------------------------- --
@@ -66,6 +67,9 @@ import Chainweb.Utils (ix')
 
 newtype DbCacheLimitBytes = DbCacheLimitBytes Natural
     deriving (Show, Read, Eq, Ord, ToJSON, FromJSON)
+
+defaultModuleCacheLimit :: DbCacheLimitBytes
+defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 
 -- -------------------------------------------------------------------------- --
 -- CacheAddress

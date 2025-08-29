@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -20,20 +21,23 @@
 --
 module Chainweb.Chainweb.Configuration
 (
+-- * Payload Provider Config
+  PayloadProviderConfig(..)
+, payloadProviderConfigMinimal
+, payloadProviderConfigPact
+, payloadProviderConfigEvm
+, defaultPayloadProviderConfig
+, validatePayloadProviderConfig
+
 -- * Throttling Configuration
-  ThrottlingConfig(..)
+, ThrottlingConfig(..)
 , throttlingRate
 , throttlingPeerRate
 , throttlingMempoolRate
 , defaultThrottlingConfig
 
 -- * Cut Configuration
-, ChainDatabaseGcConfig(..)
-, chainDatabaseGcToText
-, chainDatabaseGcFromText
-
 , CutConfig(..)
-, cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
 , cutFastForwardBlockHeightLimit
@@ -44,6 +48,7 @@ module Chainweb.Chainweb.Configuration
 , ServiceApiConfig(..)
 , serviceApiConfigPort
 , serviceApiConfigInterface
+, serviceApiConfigHeaderStream
 , defaultServiceApiConfig
 , pServiceApiConfig
 
@@ -58,72 +63,241 @@ module Chainweb.Chainweb.Configuration
 , configChainwebVersion
 , configCuts
 , configMining
-, configHeaderStream
-, configReintroTxs
 , configP2p
-, configBlockGasLimit
-, configMinGasPrice
 , configThrottling
 , configReorgLimit
-, configFullHistoricPactState
 , configBackup
 , configServiceApi
-, configOnlySyncPact
-, configSyncPactChains
-, configEnableLocalTimeout
+, configOnlySync
+, configReadOnlyReplay
+, configSyncChains
+, configPayloadProviders
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
 
 ) where
 
-import Configuration.Utils hiding (Error, Lens', disabled)
-
-import Control.Lens hiding ((.=), (<.>))
-import Control.Monad
-import Control.Monad.Catch (MonadThrow, throwM)
-import Control.Monad.Except
-import Control.Monad.Writer
-
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.Maybe
-import qualified Data.Text as T
-
-import GHC.Generics hiding (from)
-
-import Network.Wai.Handler.Warp hiding (Port)
-
-import Numeric.Natural (Natural)
-
-import qualified Pact.JSON.Encode as J
-
-import Prelude hiding (log)
-
-import System.Directory
-
--- internal modules
-
 import Chainweb.BlockHeight
 import Chainweb.Difficulty
 import Chainweb.HostAddress
-import qualified Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
-import Chainweb.Pact.Types (RewindLimit(..))
+import Chainweb.Pact.Types (RewindLimit)
+import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
+import Chainweb.PayloadProvider.EVM (EvmProviderConfig, pEvmProviderConfig, defaultEvmProviderConfig, validateEvmProviderConfig)
+import Chainweb.PayloadProvider.Minimal (MinimalProviderConfig, defaultMinimalProviderConfig, pMinimalProviderConfig)
+import Chainweb.PayloadProvider.Pact.Configuration
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.RecapDevelopment
+import Chainweb.Version.EvmDevelopment
+import Chainweb.Version.EvmDevelopmentSingleton
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Registry
-import Chainweb.Time
-
+import Chainweb.Version.RecapDevelopment
+import Chainweb.Version.Registry (findKnownVersion, knownVersions)
+import Configuration.Utils hiding (Error, Lens', disabled)
+import Control.Lens hiding ((.=), (<.>))
+import Control.Monad
+import Control.Monad.Except
+import Control.Monad.Writer
+import Data.Aeson.Key qualified as K
+import Data.Aeson.KeyMap qualified as KM
+import Data.Foldable
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.List qualified as L
+import Data.Maybe
+import Data.Text qualified as T
+import Data.Text.Read qualified as T
+import GHC.Generics hiding (from, to)
+import Network.Wai.Handler.Warp hiding (Port)
 import P2P.Node.Configuration
-import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
+import Prelude hiding (log)
+import System.Directory
+
+-- -------------------------------------------------------------------------- --
+-- Payload Provider Configuration
+
+-- | Payload Provider Configurations
+--
+-- There is only a single Default Minimal Payload Provider Configuration.
+-- Minimal payload provider cannot be disabled.
+--
+-- The default configuration for the pact and evm payload providers is to be
+-- disabled.
+--
+-- When a payload provider is enabled for a chain it must match the payload
+-- provider type for the respective chain.
+--
+data PayloadProviderConfig = PayloadProviderConfig
+    { _payloadProviderConfigMinimal :: !MinimalProviderConfig
+    , _payloadProviderConfigPact :: !(ChainMap PactProviderConfig)
+    , _payloadProviderConfigEvm :: !(ChainMap EvmProviderConfig)
+    }
+    deriving (Show, Eq, Generic)
+
+makeLenses ''PayloadProviderConfig
+
+-- | By default only the minimal payload provider is enabled. For the pact and
+-- evm chains the payload providers are disabled by default.
+--
+defaultPayloadProviderConfig :: PayloadProviderConfig
+defaultPayloadProviderConfig = PayloadProviderConfig
+    { _payloadProviderConfigMinimal = defaultMinimalProviderConfig
+    , _payloadProviderConfigPact = mempty
+    , _payloadProviderConfigEvm = mempty
+    }
+
+validatePayloadProviderConfig :: HasVersion => ConfigValidation PayloadProviderConfig []
+validatePayloadProviderConfig conf = do
+    void $ itraverse checkPactProvider $ _payloadProviderConfigPact conf
+    void $ itraverse checkEvmProvider $ _payloadProviderConfigEvm conf
+  where
+    checkPactProvider cid _conf = case payloadProviderTypeForChain cid of
+        PactProvider -> return () -- FIXME implement validation
+        e -> do
+            tell [ "Pact provider configured for chain " <> sshow cid <> ": " <> sshow conf ]
+            throwError $ mconcat $
+                [ "Wrong payload provider type configuration for chain " <> sshow cid
+                , ". Expected " <> sshow e <> " but found Pact"
+                ]
+
+    checkEvmProvider cid _conf = case payloadProviderTypeForChain cid of
+        EvmProvider _ -> validateEvmProviderConfig cid _conf
+        e -> do
+            tell [ "EVM provider configured for chain " <> sshow cid <> ": " <> sshow conf ]
+            throwError $ mconcat $
+                [ "Wrong payload provider type configuration for chain " <> sshow cid
+                , ". Expected " <> sshow e <> " but found EVM"
+                ]
+
+
+instance ToJSON PayloadProviderConfig where
+    toJSON o = object
+        $ ("default" .= _payloadProviderConfigMinimal o)
+        : others
+      where
+        pacts =
+            [ key c .= tag "pact" v
+            | (c, v) <- itoList (_payloadProviderConfigPact o)
+            ]
+        evms =
+            [ key c .= tag "evm" v
+            | (c, v) <- itoList (_payloadProviderConfigEvm o)
+            ]
+        others = L.sort $ pacts <> evms
+
+        tag :: ToJSON v => T.Text -> v -> Value
+        tag t v = case toJSON v of
+            Object l -> Object $ KM.insert "type" (toJSON t) l
+            x -> x
+
+        key :: ChainId -> Key
+        key cid = K.fromText $ "chain-" <> toText cid
+
+-- | Configuration parser for the payload provider configuration.
+--
+-- * if the value for a chain is Null, then the provider is disabled
+-- * if the value is an object, then
+--   * the provider is enabled
+--   * the value updates a given value or the default value if no
+--     previous value is present
+--
+instance FromJSON (PayloadProviderConfig -> PayloadProviderConfig) where
+    parseJSON = withObject "PayloadProviderConfig" $ \o -> do
+        updateMinimal <- payloadProviderConfigMinimal %.: "default" % o
+        ifoldlM go updateMinimal (KM.toMapText o)
+      where
+        parseKey k = case T.stripPrefix "chain-" k of
+            Nothing -> fail $ "failed to parse chain key: " <> sshow k
+            Just x -> case T.decimal x of
+                Left e -> fail $ "failed to parse chain value: " <> e
+                Right (n, "") -> return $ unsafeChainId n
+                Right _ -> fail $ "trailng garabage when parsing chain value: " <> sshow x
+
+        go "default" c _ = return c
+        go k c v = do
+            cid <- parseKey k
+            go2 cid c v
+
+        -- disable provider:
+        go2 cid c Null = return $ (payloadProviderConfigPact . at cid .~ Nothing) . c
+
+        -- enabled provider:
+        go2 cid c v = flip (withObject ("ProviderConfig for chain " <> sshow cid)) v $ \o -> do
+            (o .: "type") >>= \case
+                "pact" ->  do
+                    x <- parseJSON (Object o)
+                    let f Nothing = Just (x defaultPactProviderConfig)
+                        f (Just y) = Just (x y)
+                    return $ (payloadProviderConfigPact . at cid %~ f) . c
+                "evm" -> do
+                    x <- parseJSON (Object o)
+                    let f Nothing = Just (x defaultEvmProviderConfig)
+                        f (Just y) = Just (x y)
+                    return $ (payloadProviderConfigEvm . at cid %~ f) . c
+                (x :: T.Text) -> fail $ "unknown payload provider type: " <> sshow x
+
+-- | Command line option parser for the payload provider configuration.
+--
+-- * if --disable-chain-X is set: disable provider
+-- * otherwise parse update function and return a with function
+--   f Nothing = Just (x defaultValue), if --enable-chain-X is set
+--   f Nothing = Nothing, if --enable-chain-X is not set
+--   f (Just y) = Just (x y), i.e. if the payload provider is already enabled
+--
+-- Note, that --disable-chain-X takes precendence over --enable-chain-X.
+--
+pPayloadProviderConfig :: MParser PayloadProviderConfig
+pPayloadProviderConfig = id
+    <$< parserOptionGroup "Minimal Payload Provider"
+        (payloadProviderConfigMinimal %:: pMinimalProviderConfig)
+    <*< pevm
+  where
+    cids = [ unsafeChainId i | i <- [0..100]]
+        -- FIXME this is is ugly. At least use the largest know graph. Ideally,
+        -- we would use the chainweb version -- but we don't know it yet.
+        -- For the help message we just display options for chain 0.
+    pevm = foldr (\a b -> a . b) id <$> traverse go cids
+    go cid
+        = parserOptionGroup "EVM [only options for chain 0 are shown]" evmChains
+        <|> parserOptionGroup "Pact [only for chain 0 are shown]" pactChains
+      where
+        evmChains = (payloadProviderConfigEvm . at cid %~)
+            <$> providerOpt "evm" cid defaultEvmProviderConfig pEvmProviderConfig
+        pactChains = (payloadProviderConfigPact . at cid %~)
+            <$> providerOpt "pact" cid defaultPactProviderConfig pPactProviderConfig
+
+-- | Utility for parsing payload provider options:
+--
+providerOpt
+    :: forall a
+    . String
+        -- ^ name of provider
+    -> ChainId
+    -> a
+        -- default value
+    -> (ChainId -> MParser a)
+        -- option parser for the payload provider
+    -> MParser (Maybe a)
+providerOpt prov cid a p = f <$> dis <*> ena <*> p cid
+  where
+    f :: Bool -> Bool -> (a -> a) -> Maybe a -> Maybe a
+    f True _ _ _ = Nothing
+    f False False _ Nothing = Nothing
+    f False True update Nothing = Just (update a)
+    f False _ update (Just y) = Just (update y)
+
+    ena = switch
+        % long ("enable-chain-" <> T.unpack (toText cid) <> "-" <> prov)
+        <> help ("enable the payload provider for this chain")
+        <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
+
+    dis = switch
+        % long ("disable-chain-" <> T.unpack (toText cid) <> "-" <> prov)
+        <> help ("disabled the payload provider for this chain")
+        <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -164,87 +338,41 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
 -- -------------------------------------------------------------------------- --
 -- Cut Configuration
 
-data ChainDatabaseGcConfig
-    = GcNone
-    | GcHeaders
-    | GcHeadersChecked
-    | GcFull
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
-
-chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
-chainDatabaseGcToText GcNone = "none"
-chainDatabaseGcToText GcHeaders = "headers"
-chainDatabaseGcToText GcHeadersChecked = "headers-checked"
-chainDatabaseGcToText GcFull = "full"
-
-chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
-chainDatabaseGcFromText t = case T.toCaseFold t of
-    "none" -> return GcNone
-    "headers" -> return GcHeaders
-    "headers-checked" -> return GcHeadersChecked
-    "full" -> return GcFull
-    x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
-
-instance HasTextRepresentation ChainDatabaseGcConfig where
-    toText = chainDatabaseGcToText
-    fromText = chainDatabaseGcFromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
-
-instance ToJSON ChainDatabaseGcConfig where
-    toJSON = toJSON . chainDatabaseGcToText
-    {-# INLINE toJSON #-}
-
-instance FromJSON ChainDatabaseGcConfig where
-    parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
-      where
-        legacy = withBool "ChainDatabaseGcConfig" $ \case
-            True -> return GcHeaders
-            False -> return GcNone
-    {-# INLINE parseJSON #-}
-
 data CutConfig = CutConfig
-    { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
-    , _cutFetchTimeout :: !Int
+    { _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
     , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
+    , _cutInitialCutFile :: !(Maybe FilePath)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
 
 instance ToJSON CutConfig where
     toJSON o = object
-        [ "pruneChainDatabase" .= _cutPruneChainDatabase o
-        , "fetchTimeout" .= _cutFetchTimeout o
+        [ "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
         , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
+        , "initialCutFile" .= _cutInitialCutFile o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
-        <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
-        <*< cutFetchTimeout ..: "fetchTimeout" % o
+        <$< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
         <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
+        <*< cutInitialCutFile ..: "initialCutFile" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
-    { _cutPruneChainDatabase = GcNone
-    , _cutFetchTimeout = 3_000_000
+    { _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
     , _cutFastForwardBlockHeightLimit = Nothing
+    , _cutInitialCutFile = Nothing
     }
 
 pCutConfig :: MParser CutConfig
 pCutConfig = id
-    <$< cutPruneChainDatabase .:: textOption
-        % long "prune-chain-database"
-        <> help
-            ( "How to prune the chain database on startup."
-            <> " This can take several hours."
-            )
-        <> metavar "none|headers|headers-checked|full"
-    <*< cutFetchTimeout .:: option auto
+    <$< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
     <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
@@ -255,6 +383,9 @@ pCutConfig = id
         % long "fast-forward-block-height-limit"
         <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
         <> metavar "INT"
+    <*< cutInitialCutFile .:: fmap Just . textOption
+        % long "initial-cut-file"
+        <> help "When --initial-cut-file is given, use the cut in the given file as the initial cut. Note that this will not contact the P2P network."
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -276,6 +407,8 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
         -- ^ maximum size for payload batches on the service API. Default is
         -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
+    , _serviceApiConfigHeaderStream :: !Bool
+        -- ^ whether to serve a header update stream endpoint.
     }
     deriving (Show, Eq, Generic)
 
@@ -287,6 +420,7 @@ defaultServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface = "*"
     , _serviceApiConfigValidateSpec = False
     , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
+    , _serviceApiConfigHeaderStream = False
     }
 
 instance ToJSON ServiceApiConfig where
@@ -295,6 +429,7 @@ instance ToJSON ServiceApiConfig where
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
         , "validateSpec" .= _serviceApiConfigValidateSpec o
         , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
+        , "headerStream" .= _serviceApiConfigHeaderStream o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
@@ -303,6 +438,7 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
         <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
         <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
+        <*< serviceApiConfigHeaderStream ..: "headerStream" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -317,6 +453,10 @@ pServiceApiConfig = id
     <*< serviceApiConfigValidateSpec .:: enableDisableFlag
         % prefixLong service "validate-spec"
         <> internal -- hidden option, for expert use
+    <*< serviceApiConfigHeaderStream .:: boolOption_
+        % prefixLong service "header-stream"
+        <> help "whether to enable an endpoint for streaming block updates"
+
   where
     service = Just "service"
 
@@ -382,46 +522,38 @@ data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
-    , _configHeaderStream :: !Bool
-    , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configThrottling :: !ThrottlingConfig
-    , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
-    , _configBlockGasLimit :: !Mempool.GasLimit
-    , _configLogGas :: !Bool
-    , _configMinGasPrice :: !Mempool.GasPrice
-    , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !RewindLimit
-    , _configPreInsertCheckTimeout :: !Micros
-    , _configAllowReadsInLocal :: !Bool
-    , _configFullHistoricPactState :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
+    , _configPayloadProviders :: PayloadProviderConfig
+
+    -- The following properties are deprecated: history replay should not be
+    -- part of normal operation mode. It should probably use a completely
+    -- separate configuration.
+
     , _configReadOnlyReplay :: !Bool
         -- ^ do a read-only replay using the cut db params for the block heights
-    , _configOnlySyncPact :: !Bool
+    , _configOnlySync :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
-    , _configSyncPactChains :: !(Maybe [ChainId])
+    , _configSyncChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
-    , _configModuleCacheLimit :: !DbCacheLimitBytes
-        -- ^ module cache size limit in bytes
-    , _configEnableLocalTimeout :: !Bool
+
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
 
-instance HasChainwebVersion ChainwebConfiguration where
-    _chainwebVersion = _configChainwebVersion
-    {-# INLINE _chainwebVersion #-}
-
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
-    validateMinerConfig (_configChainwebVersion c) (_configMining c)
-    validateBackupConfig (_configBackup c)
-    unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
-        validateP2pConfiguration (_configP2p c)
     validateChainwebVersion (_configChainwebVersion c)
+    withVersion (_configChainwebVersion c) $ do
+        validateMinerConfig (_configMining c)
+        validateBackupConfig (_configBackup c)
+        unless (c ^. configChainwebVersion . versionDefaults . disablePeerValidation) $
+            validateP2pConfiguration (_configP2p c)
+        validatePayloadProviderConfig (_configPayloadProviders c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = do
@@ -432,7 +564,10 @@ validateChainwebVersion v = do
             , sshow (_versionName v)
             ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
+    isDevelopment = _versionCode v `elem`
+        [_versionCode dv | dv <-
+            [recapDevnet, devnet, evmDevnet, evmDevnetSingleton, evmDevnetPair]
+        ]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -447,26 +582,15 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
-    , _configHeaderStream = False
-    , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configThrottling = defaultThrottlingConfig
-    , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 150_000
-    , _configLogGas = False
-    , _configMinGasPrice = 1e-8
-    , _configPactQueueSize = 2000
     , _configReorgLimit = defaultReorgLimit
-    , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
-    , _configAllowReadsInLocal = False
-    , _configFullHistoricPactState = True
     , _configServiceApi = defaultServiceApiConfig
-    , _configOnlySyncPact = False
+    , _configOnlySync = False
     , _configReadOnlyReplay = False
-    , _configSyncPactChains = Nothing
+    , _configSyncChains = Nothing
     , _configBackup = defaultBackupConfig
-    , _configModuleCacheLimit = defaultModuleCacheLimit
-    , _configEnableLocalTimeout = False
+    , _configPayloadProviders = defaultPayloadProviderConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -474,26 +598,15 @@ instance ToJSON ChainwebConfiguration where
         [ "chainwebVersion" .= _versionName (_configChainwebVersion o)
         , "cuts" .= _configCuts o
         , "mining" .= _configMining o
-        , "headerStream" .= _configHeaderStream o
-        , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "throttling" .= _configThrottling o
-        , "mempoolP2p" .= _configMempoolP2p o
-        , "gasLimitOfBlock" .= J.toJsonViaEncode (_configBlockGasLimit o)
-        , "logGas" .= _configLogGas o
-        , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
-        , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
-        , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
-        , "allowReadsInLocal" .= _configAllowReadsInLocal o
-        , "fullHistoricPactState" .= _configFullHistoricPactState o
         , "serviceApi" .= _configServiceApi o
-        , "onlySyncPact" .= _configOnlySyncPact o
+        , "onlySync" .= _configOnlySync o
         , "readOnlyReplay" .= _configReadOnlyReplay o
-        , "syncPactChains" .= _configSyncPactChains o
+        , "syncChains" .= _configSyncChains o
         , "backup" .= _configBackup o
-        , "moduleCacheLimit" .= _configModuleCacheLimit o
-        , "enableLocalTimeout" .= _configEnableLocalTimeout o
+        , "payloadProviders" .= _configPayloadProviders o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -505,86 +618,42 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
             (findKnownVersion <=< parseJSON) o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
-        <*< configHeaderStream ..: "headerStream" % o
-        <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configThrottling %.: "throttling" % o
-        <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
-        <*< configLogGas ..: "logGas" % o
-        <*< configMinGasPrice ..: "minGasPrice" % o
-        <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
-        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-        <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
-        <*< configFullHistoricPactState ..: "fullHistoricPactState" % o
         <*< configServiceApi %.: "serviceApi" % o
-        <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configOnlySync ..: "onlySync" % o
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
-        <*< configSyncPactChains ..: "syncPactChains" % o
+        <*< configSyncChains ..: "syncChains" % o
         <*< configBackup %.: "backup" % o
-        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
-        <*< configEnableLocalTimeout ..: "enableLocalTimeout" % o
+        <*< configPayloadProviders %.: "payloadProviders" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
     <$< configChainwebVersion %:: parseVersion
-    <*< configHeaderStream .:: boolOption_
-        % long "header-stream"
-        <> help "whether to enable an endpoint for streaming block updates"
-    <*< configReintroTxs .:: enableDisableFlag
-        % long "tx-reintro"
-        <> help "whether to enable transaction reintroduction from losing forks"
-    <*< configP2p %:: pP2pConfiguration
-    <*< configMempoolP2p %::
-        pEnableConfig "mempool-p2p" pMempoolP2pConfig
-    <*< configBlockGasLimit .:: jsonOption
-        % long "block-gas-limit"
-        <> help "the sum of all transaction gas fees in a block must not exceed this number"
-    <*< configLogGas .:: boolOption_
-        % long "log-gas"
-        <> help "log gas consumed by Pact commands"
-    <*< configMinGasPrice .:: jsonOption
-        % long "min-gas-price"
-        <> help "the gas price of an individual transaction in a block must not be beneath this number"
-    <*< configPactQueueSize .:: jsonOption
-        % long "pact-queue-size"
-        <> help "max size of pact internal queue"
+    <*< parserOptionGroup "P2P" (configP2p %:: pP2pConfiguration)
     <*< configReorgLimit .:: jsonOption
         % long "reorg-limit"
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-    <*< configPreInsertCheckTimeout .:: jsonOption
-        % long "pre-insert-check-timeout"
-        <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
-    <*< configAllowReadsInLocal .:: boolOption_
-        % long "allowReadsInLocal"
-        <> help "Enable direct database reads of smart contract tables in local queries."
-    <*< configFullHistoricPactState .:: boolOption_
-        % long "full-historic-pact-state"
-        <> help "Write full historic Pact state; only enable for custodial or archival nodes."
-    <*< configCuts %:: pCutConfig
-    <*< configServiceApi %:: pServiceApiConfig
-    <*< configMining %:: pMiningConfig
-    <*< configOnlySyncPact .:: boolOption_
-        % long "only-sync-pact"
+    <*< parserOptionGroup "Cut Processing" (configCuts %:: pCutConfig)
+    <*< parserOptionGroup "Service API" (configServiceApi %:: pServiceApiConfig)
+    <*< parserOptionGroup "Mining Coordination" (configMining %:: pMiningConfig)
+    <*< configOnlySync .:: boolOption_
+        % long "only-sync"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
     <*< configReadOnlyReplay .:: boolOption_
         % long "read-only-replay"
         <> help "Replay the block history non-destructively"
-    <*< configSyncPactChains .:: fmap Just % jsonOption
-        % long "sync-pact-chains"
+    <*< configSyncChains .:: fmap Just % jsonOption
+        % long "sync-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
-    <*< configBackup %:: pBackupConfig
-    <*< configModuleCacheLimit .:: option auto
-        % long "module-cache-limit"
-        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
-        <> metavar "INT"
-    <*< configEnableLocalTimeout .:: option auto
-        % long "enable-local-timeout"
-        <> help "Enable timeout support on /local endpoints"
+    <*< parserOptionGroup "Backup" (configBackup %:: pBackupConfig)
+
+    -- FIXME support payload providers
+    <*< configPayloadProviders %:: pPayloadProviderConfig
 
 parseVersion :: MParser ChainwebVersion
 parseVersion = constructVersion
@@ -593,6 +662,8 @@ parseVersion = constructVersion
             % long "chainweb-version"
             <> short 'v'
             <> help "the chainweb version that this node is using"
+            <> metavar (T.unpack $
+                "[" <> T.intercalate "," (getChainwebVersionName . _versionName <$> knownVersions) <> "]")
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
     <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
@@ -603,14 +674,14 @@ parseVersion = constructVersion
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->
-                OnChains $ HM.mapWithKey
+                ChainMap $ HM.mapWithKey
                     (\cid _ ->
                         case winningVersion ^?! versionForks . at fub' . _Just . atChain cid of
                             ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
                             ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . atChain cid)
                             ForkAtGenesis -> winningVersion ^?! versionUpgrades . atChain cid
                     )
-                    (HS.toMap (chainIds winningVersion))
+                    (HS.toMap (withVersion winningVersion chainIds))
             ) fub
         & versionCheats . disablePow .~ disablePow'
         where

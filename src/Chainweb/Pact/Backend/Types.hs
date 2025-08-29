@@ -18,64 +18,81 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 
 module Chainweb.Pact.Backend.Types
-    ( Checkpointer(..)
-    , SQLiteEnv
-    , IntraBlockPersistence(..)
+    ( SQLiteEnv
     , BlockHandle(..)
     , blockHandleTxId
     , blockHandlePending
-    , emptyPact4BlockHandle
-    , emptyPact5BlockHandle
     , SQLitePendingData(..)
+    , emptyBlockHandle
     , emptySQLitePendingData
     , pendingWrites
     , pendingSuccessfulTxs
     , pendingTableCreation
-    , pendingTxLogMap
     , SQLiteRowDelta(..)
     , Historical(..)
+    , throwIfNoHistory
     , _Historical
     , _NoHistory
-    , PactDbFor
-    , PendingWrites
+    , ChainwebPactDb(..)
+    , HeaderOracle(..)
     ) where
 
+import Control.Exception.Safe (MonadThrow)
 import Control.Lens
-import Chainweb.Pact.Backend.DbCache
 import Chainweb.Version
 import Database.SQLite3.Direct (Database)
-import Control.Concurrent.MVar
 import Data.ByteString (ByteString)
 import Data.Text (Text)
-import Data.DList (DList)
-import Data.Map (Map)
 import Data.HashSet (HashSet)
-import Data.HashMap.Strict (HashMap)
-import Data.List.NonEmpty (NonEmpty)
 import Control.DeepSeq (NFData)
 import GHC.Generics
+import GHC.Stack
 
+import Chainweb.BlockHash
+import Pact.Core.Command.Types
+import qualified Pact.Core.Persistence as Pact
+import qualified Pact.Core.Builtin as Pact
+import qualified Pact.Core.Evaluate as Pact
+import Data.Vector (Vector)
+import Data.HashMap.Strict (HashMap)
+import qualified Pact.Core.SPV as Pact
+
+import Chainweb.BlockHeight
 import qualified Chainweb.Pact.Backend.InMemDb as InMemDb
+import Chainweb.Parent
+import Chainweb.Utils
+import Chainweb.BlockPayloadHash
+import Control.Monad.State.Strict
 
-import qualified Pact.Types.Persistence as Pact4
-import qualified Pact.Types.Names as Pact4
+data HeaderOracle = HeaderOracle
+    -- this hash must always have a child
+    { consult :: !(Parent BlockHash -> IO Bool)
+    , chain :: !ChainId
+    }
 
--- | Whether we write rows to the database that were already overwritten
--- in the same block.
-data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
-    deriving (Eq, Ord, Show)
+instance HasChainId HeaderOracle where
+    _chainId oracle = oracle.chain
 
-data Checkpointer logger
-    = Checkpointer
-    { cpLogger :: logger
-    , cpCwVersion :: ChainwebVersion
-    , cpChainId :: ChainId
-    , cpSql :: SQLiteEnv
-    , cpIntraBlockPersistence :: IntraBlockPersistence
-    , cpModuleCacheVar :: MVar (DbCache Pact4.PersistModuleData)
+-- | The Pact database as it's provided by the checkpointer.
+data ChainwebPactDb = ChainwebPactDb
+    { doChainwebPactDbTransaction
+        :: forall a
+        . Maybe RequestKey
+        -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> Pact.SPVSupport -> IO a)
+        -> StateT BlockHandle IO a
+        -- ^ Give this function a BlockHandle representing the state of a pending
+        -- block and it will pass you a PactDb which contains the Pact state as of
+        -- that point in the block. After you're done, it passes you back a
+        -- BlockHandle representing the state of the block extended with any writes
+        -- you made to the PactDb.
+        -- Note also that this function handles registering
+        -- transactions as completed, if you pass it a RequestKey.
+    , lookupPactTransactions :: Vector RequestKey -> IO (HashMap RequestKey (T3 BlockHeight BlockPayloadHash BlockHash))
+        -- ^ Used to implement transaction polling.
     }
 
 type SQLiteEnv = Database
@@ -87,7 +104,7 @@ type SQLiteEnv = Database
 --
 data SQLiteRowDelta = SQLiteRowDelta
     { _deltaTableName :: !Text
-    , _deltaTxId :: {-# UNPACK #-} !Pact4.TxId
+    , _deltaTxId :: {-# UNPACK #-} !Pact.TxId
     , _deltaRowKey :: !ByteString
     , _deltaData :: !ByteString
     } deriving (Show, Generic, Eq)
@@ -99,10 +116,6 @@ instance Ord SQLiteRowDelta where
         bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
     {-# INLINE compare #-}
 
--- | A map from table name to a list of 'TxLog' entries. This is maintained in
--- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map Pact4.TableName (DList Pact4.TxLogJson)
-
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
 -- can be performed upon block save).
@@ -111,55 +124,28 @@ type SQLitePendingTableCreations = HashSet Text
 -- | Pact transaction hashes resolved during this block.
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
--- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
--- Structured as a map from table name to a map from rowkey to inserted row delta.
-type SQLitePendingWrites = HashMap Text (HashMap ByteString (NonEmpty SQLiteRowDelta))
-
--- Note [TxLogs in SQLitePendingData]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- We should really not store TxLogs in SQLitePendingData,
--- because this data structure is specifically for things that
--- can exist both for the whole block and for specific transactions,
--- and txlogs only exist on the transaction level.
--- We don't do this in Pact 5 at all.
-
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-data SQLitePendingData w = SQLitePendingData
+data SQLitePendingData = SQLitePendingData
     { _pendingTableCreation :: !SQLitePendingTableCreations
-    , _pendingWrites :: !w
-    -- See Note [TxLogs in SQLitePendingData]
-    , _pendingTxLogMap :: !TxLogMap
+    , _pendingWrites :: !InMemDb.Store
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
     deriving (Eq, Show)
 
-makeLenses ''SQLitePendingData
+emptySQLitePendingData :: SQLitePendingData
+emptySQLitePendingData = SQLitePendingData mempty InMemDb.empty mempty
 
-type family PendingWrites (pv :: PactVersion) = w | w -> pv where
-    PendingWrites Pact4 = SQLitePendingWrites
-    PendingWrites Pact5 = InMemDb.Store
-
-emptySQLitePendingData :: w -> SQLitePendingData w
-emptySQLitePendingData w = SQLitePendingData mempty w mempty mempty
-
-data BlockHandle (pv :: PactVersion) = BlockHandle
-    { _blockHandleTxId :: !Pact4.TxId
-    , _blockHandlePending :: !(SQLitePendingData (PendingWrites pv))
+data BlockHandle = BlockHandle
+    { _blockHandleTxId :: !Pact.TxId
+    , _blockHandlePending :: !SQLitePendingData
     }
-deriving instance Eq (BlockHandle Pact4)
-deriving instance Eq (BlockHandle Pact5)
-deriving instance Show (BlockHandle Pact4)
-deriving instance Show (BlockHandle Pact5)
-makeLenses ''BlockHandle
+    deriving (Eq, Show)
 
-emptyPact4BlockHandle :: Pact4.TxId -> BlockHandle Pact4
-emptyPact4BlockHandle txid = BlockHandle txid (emptySQLitePendingData mempty)
-
-emptyPact5BlockHandle :: Pact4.TxId -> BlockHandle Pact5
-emptyPact5BlockHandle txid = BlockHandle txid (emptySQLitePendingData InMemDb.empty)
+emptyBlockHandle :: Pact.TxId -> BlockHandle
+emptyBlockHandle txid = BlockHandle txid emptySQLitePendingData
 
 -- | The result of a historical lookup which might fail to even find the
 -- header the history is being queried for.
@@ -169,6 +155,10 @@ data Historical a
     deriving stock (Eq, Foldable, Functor, Generic, Traversable, Show)
     deriving anyclass NFData
 
-makePrisms ''Historical
+throwIfNoHistory :: (HasCallStack, MonadThrow m) => Historical a -> m a
+throwIfNoHistory NoHistory = error "missing history"
+throwIfNoHistory (Historical a) = return a
 
-type family PactDbFor logger (pv :: PactVersion)
+makePrisms ''Historical
+makeLenses ''BlockHandle
+makeLenses ''SQLitePendingData
