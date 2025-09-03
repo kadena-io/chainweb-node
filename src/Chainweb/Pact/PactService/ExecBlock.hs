@@ -24,13 +24,13 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool(BlockFill (..), pactRequestKeyToTransactionHash, InsertError (..))
+import Chainweb.Pact.Mempool.Mempool(BlockFill (..), pactRequestKeyToTransactionHash, InsertError (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction
 import Chainweb.Pact.TransactionExec
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -78,7 +78,7 @@ import qualified Data.List.NonEmpty as NEL
 import qualified Pact.Core.Errors as Pact
 import qualified Pact.Core.Evaluate as Pact
 import qualified Pact.Core.ChainData as Pact
-import qualified Chainweb.Payload as Chainweb
+import qualified Chainweb.Pact.Payload as Chainweb
 import qualified Chainweb.Pact.Types as Pact
 
 runCoinbase

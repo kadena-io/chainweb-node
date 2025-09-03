@@ -19,7 +19,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
--- Module: Chainweb.Payload
+-- Module: Chainweb.Pact.Payload
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -31,7 +31,7 @@
 -- depend on any Pact data structure. The reason for this is to allow changes to
 -- Pact without breaking the Merkle tree.
 --
-module Chainweb.Payload
+module Chainweb.Pact.Payload
 (
 -- * Block Chain Data
 

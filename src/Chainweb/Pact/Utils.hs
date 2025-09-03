@@ -45,7 +45,7 @@ import qualified Pact.JSON.Encode as J
 
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Time
 import qualified Pact.Core.ChainData as P
 import qualified Pact.Core.Guards as P

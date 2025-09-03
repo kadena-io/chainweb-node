@@ -13,7 +13,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Chainweb.Mempool.RestAPI
+module Chainweb.Pact.Mempool.RestAPI
   ( Mempool_(..)
   , SomeMempool(..)
   , someMempoolVal
@@ -43,7 +43,7 @@ import Servant
 
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 

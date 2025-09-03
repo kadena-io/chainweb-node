@@ -22,7 +22,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.PayloadProvider.EVM.Genesis qualified as EVM
 import Chainweb.PayloadProvider.EVM.Header qualified as EVM
 import Chainweb.PayloadProvider.EVM.Receipt qualified as EVM

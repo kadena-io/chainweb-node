@@ -30,16 +30,16 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import qualified Data.HashMap.Strict as HM
 
-import Chainweb.Block
+import Chainweb.Pact.Block
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Test.Utils
 import Chainweb.Test.Cut (GenBlockTime, testMine', MineFailure(BadAdjacents))
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB

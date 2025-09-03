@@ -65,7 +65,6 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Data.Foldable
-import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.PQueue (PQueue)
 import Data.Singletons
@@ -86,13 +85,16 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.Configuration
     -- FIXME this module should not depend on the global configuration
 import Chainweb.Logger
-import Chainweb.Mempool.InMem qualified as Mempool
-import Chainweb.Mempool.InMem.ValidatingConfig qualified as Mempool
+import Chainweb.Pact.Mempool.InMem qualified as Mempool
+import Chainweb.Pact.Mempool.InMem.ValidatingConfig qualified as Mempool
 import Chainweb.Pact.PactService qualified as Pact
-import Chainweb.Pact.RestAPI qualified as Pact
-import Chainweb.Pact.RestAPI.Server qualified as Pact
+import Chainweb.Pact.RestAPI qualified as Pact.RestAPI
+import Chainweb.Pact.RestAPI.Server qualified as Pact.RestAPI.Server
 import Chainweb.Pact.Types
-import Chainweb.Payload.PayloadStore.RocksDB
+import qualified Chainweb.Pact.Payload.PayloadStore as Pact.Payload.PayloadStore
+import qualified Chainweb.Pact.Payload.PayloadStore.RocksDB as Pact.Payload.PayloadStore.RocksDB
+import qualified Chainweb.Pact.Payload.RestAPI.Server as Pact.Payload.RestAPI.Server
+import qualified Chainweb.Pact.Payload.RestAPI as Pact.Payload.RestAPI
 import Chainweb.PayloadProvider
 import Chainweb.PayloadProvider.EVM
 import Chainweb.PayloadProvider.Minimal
@@ -112,9 +114,6 @@ import Chainweb.Version
 import Chainweb.Version.Guards (maxBlockGasLimit)
 import Pact.Core.Gas qualified as Pact
 import Control.Monad (forM)
-import Chainweb.Payload.PayloadStore (CanReadablePayloadCas)
-import qualified Chainweb.Payload.RestAPI as PactPayload.RestAPI
-import qualified Chainweb.Payload.RestAPI.Server as PactPayload.RestAPI.Server
 
 -- -------------------------------------------------------------------------- --
 -- Payload P2P Network Resources
@@ -134,8 +133,6 @@ data PayloadP2pResources = PayloadP2pResources
         --
         -- The network doesn't restrict the API network endpoints that are used
         -- in the client sessions.
-    , _payloadResP2pApi :: !SomeApi
-        -- ^ API endpoints that are included in the node P2P API
     , _payloadResP2pServer :: !SomeServer
         -- ^ API endpoints that are are served by the node P2P API
     }
@@ -164,7 +161,6 @@ payloadP2pResources logger p2pConfig myInfo peerDb tbl queue mgr = do
     return $ PayloadP2pResources
         { _payloadResPeerDb = peerDb
         , _payloadResP2pNode = p2pNode
-        , _payloadResP2pApi = SomeApi (payloadApi @v @c @p)
         , _payloadResP2pServer = somePayloadServer @_ @v @c @p (PayloadBatchLimit 20) tbl
         }
   where
@@ -183,6 +179,54 @@ payloadP2pResources logger p2pConfig myInfo peerDb tbl queue mgr = do
         , _p2pNodeParamsLogFunction = logFunction (addLabel ("session", label) p2pLogger)
         , _p2pNodeParamsNetworkId = CutNetwork
         }
+
+-- Pact is still using the old payload client/API. So, for now, we need to serve both.
+pactPayloadP2pResources
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) logger tbl
+    . Logger logger
+    => HasVersion
+    => Pact.Payload.PayloadStore.CanReadablePayloadCas tbl
+    => KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => logger
+    -> P2pConfiguration
+    -> PeerInfo
+    -> PeerDb
+    -> Pact.Payload.PayloadStore.PayloadDb tbl
+        -- Payload Table
+    -> PQueue (Task ClientEnv (PayloadType 'PactProvider))
+        -- ^ task queue for scheduling tasks with the task server
+    -> HTTP.Manager
+    -> IO PayloadP2pResources
+pactPayloadP2pResources logger p2pConfig myInfo peerDb tbl queue mgr = do
+    p2pNode <- mkP2pNode False "payload" (session 10 queue)
+    -- FIXME add a node for regularly synchronizing peers
+    return $ PayloadP2pResources
+        { _payloadResPeerDb = peerDb
+        , _payloadResP2pNode = p2pNode
+        , _payloadResP2pServer =
+            somePayloadServer @_ @v @c @'PactProvider (PayloadBatchLimit 20) tbl
+            <> Pact.Payload.RestAPI.Server.somePayloadServer
+                (Pact.Payload.RestAPI.PayloadBatchLimit 20)
+                (Pact.Payload.RestAPI.SomePayloadDb (Pact.Payload.RestAPI.PayloadDb' @_ @v @c tbl))
+        }
+  where
+    p2pLogger = addLabel ("sub-component", "p2p") logger
+
+    mkP2pNode :: Bool -> T.Text -> P2pSession -> IO P2pNode
+    mkP2pNode doPeerSync label s = p2pCreateNode $ P2pNodeParameters
+        { _p2pNodeParamsMyPeerInfo = myInfo
+        , _p2pNodeParamsSession = s
+        , _p2pNodeParamsSessionTimeout = _p2pConfigSessionTimeout p2pConfig
+        , _p2pNodeParamsMaxSessionCount = _p2pConfigMaxSessionCount p2pConfig
+        , _p2pNodeParamsIsPrivate = _p2pConfigPrivate p2pConfig
+        , _p2pNodeParamsDoPeerSync = doPeerSync
+        , _p2pNodeParamsManager = mgr
+        , _p2pNodeParamsPeerDb = peerDb
+        , _p2pNodeParamsLogFunction = logFunction (addLabel ("session", label) p2pLogger)
+        , _p2pNodeParamsNetworkId = CutNetwork
+        }
+
 
 -- | IO actions for running Payload P2p Nodes
 --
@@ -212,15 +256,21 @@ payloadServiceApiResources config pdb = PayloadServiceApiResources
     where
     batchLimit = int $ _serviceApiPayloadBatchLimit config
 
+-- we keep around the old payload server too for Pact to avoid breaking consumers.
 pactPayloadServiceApiResources
-    :: forall tbl
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) tbl
     . HasVersion
-    => CanReadablePayloadCas tbl
+    => KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Pact.Payload.PayloadStore.CanReadablePayloadCas tbl
     => ServiceApiConfig
-    -> PactPayload.RestAPI.SomePayloadDb tbl
+    -> Pact.Payload.PayloadStore.PayloadDb tbl
     -> PayloadServiceApiResources
 pactPayloadServiceApiResources config pdb = PayloadServiceApiResources
-    { _payloadResServiceServer = PactPayload.RestAPI.Server.somePayloadServer @_ batchLimit pdb
+    { _payloadResServiceServer =
+        Pact.Payload.RestAPI.Server.somePayloadServer @_ batchLimit
+            (Pact.Payload.RestAPI.SomePayloadDb (Pact.Payload.RestAPI.PayloadDb' @_ @v @c pdb))
+        <> somePayloadServer @_ @v @c @'PactProvider (int batchLimit) pdb
     }
     where
     batchLimit = int $ _serviceApiPayloadBatchLimit config
@@ -317,7 +367,7 @@ withPayloadProviderResources logger cid serviceApiConfig peerStuff rdb rewindLim
                         , _pactBlockRefreshInterval = Micros 5_000_000
                         }
 
-                let pdb = newPayloadDb rdb
+                let pdb = Pact.Payload.PayloadStore.RocksDB.newPayloadDb rdb
                 let pactDbDir = case _pactConfigDatabaseDirectory conf of
                         Just x -> x
                         Nothing -> defaultPactDbDir
@@ -346,20 +396,20 @@ withPayloadProviderResources logger cid serviceApiConfig peerStuff rdb rewindLim
                     mempool <- Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolConfig
                 let queue = _payloadStoreQueue $ _psPdb $ pactPayloadProviderServiceEnv pp
                 p2pRes <- liftIO $ forM peerStuff $ \(p2pConfig, myPeerInfo, peerDb, mgr) ->
-                    payloadP2pResources @v' @c' @'PactProvider
-                        logger p2pConfig myPeerInfo peerDb pdb queue mgr
-                let serviceApiPayloadServer = pactPayloadServiceApiResources serviceApiConfig
-                        (PactPayload.RestAPI.SomePayloadDb $ PactPayload.RestAPI.PayloadDb' @_ @v' @c' pdb)
-                let pactServerData = Pact.PactServerData
-                        { Pact._pactServerDataLogger =
+                    pactPayloadP2pResources @v' @c' logger p2pConfig myPeerInfo peerDb pdb queue mgr
+                let serviceApiPayloadServer =
+                        pactPayloadServiceApiResources @v' @c' serviceApiConfig pdb
+                let pactServerData = Pact.RestAPI.Server.PactServerData
+                        { Pact.RestAPI.Server._pactServerDataLogger =
                             pactPayloadProviderLogger pp
-                        , Pact._pactServerDataMempool =
+                        , Pact.RestAPI.Server._pactServerDataMempool =
                             mempool
-                        , Pact._pactServerDataPact =
+                        , Pact.RestAPI.Server._pactServerDataPact =
                             pactPayloadProviderServiceEnv pp
                         }
-                -- this is a bit of a misnomer, as it's not a payload API
-                let pactServer = PayloadServiceApiResources $ Pact.somePactServer (Pact.somePactServerData cid pactServerData)
+                -- this is a bit of a misnomer, as it's not a payload API.
+                let pactServer = PayloadServiceApiResources $
+                        Pact.RestAPI.Server.somePactServer (Pact.RestAPI.Server.somePactServerData cid pactServerData)
                 return ProviderResources
                     { _providerResPayloadProvider = ConfiguredPayloadProvider pp
                     , _providerResServiceApi = Just $ pactServer <> serviceApiPayloadServer

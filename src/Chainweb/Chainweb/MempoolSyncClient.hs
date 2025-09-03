@@ -37,9 +37,9 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Logger
-import qualified Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Mempool.P2pConfig
-import qualified Chainweb.Mempool.RestAPI.Client as MPC
+import qualified Chainweb.Pact.Mempool.Mempool as Mempool
+import Chainweb.Pact.Mempool.P2pConfig
+import qualified Chainweb.Pact.Mempool.RestAPI.Client as MPC
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version

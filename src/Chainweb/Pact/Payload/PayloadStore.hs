@@ -17,13 +17,13 @@
 {-# LANGUAGE InstanceSigs #-}
 
 -- |
--- Module: Chainweb.Payload.PayloadStore
+-- Module: Chainweb.Pact.Payload.PayloadStore
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
-module Chainweb.Payload.PayloadStore
+module Chainweb.Pact.Payload.PayloadStore
 (
 -- * Exceptions
   PayloadNotFoundException
@@ -88,7 +88,7 @@ import GHC.Generics
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Version
 
 import Chainweb.Storage.Table

@@ -47,7 +47,7 @@ import Chainweb.ChainId
 import Chainweb.Core.Brief
 import Chainweb.Counter
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Pact.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact
@@ -64,8 +64,8 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Validations qualified as Pact
 import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact4
 import Chainweb.Parent
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.PayloadProvider
 import Chainweb.PayloadProvider.P2P
 import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
@@ -117,7 +117,7 @@ import Prelude hiding (lookup)
 import System.LogLevel
 import Chainweb.Version.Guards (pact5)
 import Control.Concurrent.MVar (newMVar)
-import Chainweb.Payload.RestAPI.Client (payloadClient)
+import Chainweb.Pact.Payload.RestAPI.Client (payloadClient)
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)

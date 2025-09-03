@@ -49,11 +49,11 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend)
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut
 import Chainweb.Test.CutDB

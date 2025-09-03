@@ -40,7 +40,7 @@ import Test.QuickCheck
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Chainweb.Configuration
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Utils.Paging

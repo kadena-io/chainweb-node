@@ -32,9 +32,9 @@ import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Logger
 import Chainweb.Miner.Pact
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import Chainweb.TreeDB hiding (key)

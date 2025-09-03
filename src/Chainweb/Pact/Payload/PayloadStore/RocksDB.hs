@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Payload.PayloadStore.RocksDB
+-- Module: Chainweb.Pact.Payload.PayloadStore.RocksDB
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -10,7 +10,7 @@
 --
 -- Content addressable block payload store that uses RocksDB as storage backend.
 --
-module Chainweb.Payload.PayloadStore.RocksDB
+module Chainweb.Pact.Payload.PayloadStore.RocksDB
 ( newTransactionDb
 , newPayloadDb
 ) where
@@ -18,8 +18,8 @@ module Chainweb.Payload.PayloadStore.RocksDB
 -- internal modules
 
 import Chainweb.BlockHeight
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Serialization
 

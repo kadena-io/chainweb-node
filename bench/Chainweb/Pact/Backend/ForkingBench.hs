@@ -28,7 +28,7 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -38,9 +38,9 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.HashMap hiding (toList)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)

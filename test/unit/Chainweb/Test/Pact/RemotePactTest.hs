@@ -105,11 +105,11 @@ import Pact.Core.SPV
 import Chainweb.ChainId
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
 import Chainweb.Graph (petersenChainGraph, singletonChainGraph, twentyChainGraph)
-import Chainweb.Mempool.Mempool (TransactionHash (..))
+import Chainweb.Pact.Mempool.Mempool (TransactionHash (..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Types
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.RestAPI.Utils (someServerApplication)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact.CmdBuilder

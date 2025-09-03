@@ -190,8 +190,8 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Types
 import Chainweb.Pact4.Types
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils

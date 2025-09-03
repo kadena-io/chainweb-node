@@ -10,7 +10,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
 -- |
--- Module: Chainweb.Payload.RestAPI.Server
+-- Module: Chainweb.Pact.Payload.RestAPI.Server
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>

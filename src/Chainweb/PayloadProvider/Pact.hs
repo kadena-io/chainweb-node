@@ -30,15 +30,15 @@ import qualified Data.Vector as V
 import Chainweb.ChainId
 import Chainweb.Counter
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.MerkleUniverse
 import qualified Chainweb.MinerReward as MinerReward
 import Chainweb.Pact.Backend.Utils
 import qualified Chainweb.Pact.PactService as PactService
 import qualified Chainweb.Pact.Transaction as Pact
 import Chainweb.Pact.Types
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.PayloadProvider
 import Chainweb.Utils
 import Chainweb.Version

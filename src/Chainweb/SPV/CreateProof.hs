@@ -44,8 +44,8 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Parent
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils

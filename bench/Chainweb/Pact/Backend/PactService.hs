@@ -27,9 +27,9 @@ import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Cut
 import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Mempool.Consensus
-import Chainweb.Mempool.InMem
-import Chainweb.Mempool.Mempool (InsertType (..), MempoolBackend (..))
+import Chainweb.Pact.Mempool.Consensus
+import Chainweb.Pact.Mempool.InMem
+import Chainweb.Pact.Mempool.Mempool (InsertType (..), MempoolBackend (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
@@ -40,7 +40,7 @@ import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb(..), addTestBlockDb, getCutTestBlockDb, setCutTestBlockDb, getParentTestBlockDb, mkTestBlockDbIO)
 import Chainweb.Test.Pact.CmdBuilder

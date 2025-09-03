@@ -171,14 +171,14 @@ import Chainweb.BlockHeader
 import Chainweb.BlockPayloadHash
 import Chainweb.Counter
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Miner.Pact (Miner, toMinerData, noMiner)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact4.ModuleCache
-import Chainweb.Payload qualified as Chainweb
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload qualified as Chainweb
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.PayloadProvider.P2P
 import Chainweb.Storage.Table.Map
 import Chainweb.Time

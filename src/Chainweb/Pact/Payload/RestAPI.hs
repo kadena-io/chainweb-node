@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- |
--- Module: Chainweb.Payload.RestAPI
+-- Module: Chainweb.Pact.Payload.RestAPI
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -17,7 +17,7 @@
 --
 -- The Block Payload REST API
 --
-module Chainweb.Payload.RestAPI
+module Chainweb.Pact.Payload.RestAPI
 (
 -- * Batch size limits
   PayloadBatchLimit(..)
@@ -69,8 +69,8 @@ import Servant.API
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version

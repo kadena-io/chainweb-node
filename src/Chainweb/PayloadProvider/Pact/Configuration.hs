@@ -30,11 +30,11 @@ module Chainweb.PayloadProvider.Pact.Configuration
 , invalidMiner
 ) where
 
-import Chainweb.Mempool.Mempool qualified as Mempool
-import Chainweb.Mempool.P2pConfig
+import Chainweb.Pact.Mempool.Mempool qualified as Mempool
+import Chainweb.Pact.Mempool.P2pConfig
 import Chainweb.Miner.Pact (Miner(..), MinerGuard(..), MinerId(..))
 import Chainweb.Pact.Types (defaultPreInsertCheckTimeout)
-import Chainweb.Payload (PayloadWithOutputs)
+import Chainweb.Pact.Payload(PayloadWithOutputs)
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
 import Chainweb.Version

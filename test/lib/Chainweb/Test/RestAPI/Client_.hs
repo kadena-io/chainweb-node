@@ -49,8 +49,8 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI
-import Chainweb.Payload
-import Chainweb.Payload.RestAPI
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.RestAPI
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version

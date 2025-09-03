@@ -63,10 +63,10 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut hiding (join)
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MockTx)
+import Chainweb.Pact.Mempool.Mempool (MockTx)
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.CreateProof
 import Chainweb.SPV.OutputProof

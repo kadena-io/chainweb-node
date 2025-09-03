@@ -75,8 +75,8 @@ import Chainweb.Pact.Backend.ChainwebPactDb ()
 import Chainweb.Pact.Backend.PactState
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Payload.PayloadStore (addNewPayload, lookupPayloadWithHeight)
-import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
+import Chainweb.Pact.Payload.PayloadStore (addNewPayload, lookupPayloadWithHeight)
+import Chainweb.Pact.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, HasVersion(..), withVersion, ChainwebVersion(..), chainIdToText)
 import Chainweb.Version.Registry (findKnownVersion)
