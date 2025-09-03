@@ -17,7 +17,7 @@ import Chainweb.Version.EvmDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Testnet04
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Control.Lens
 import Data.HashMap.Strict qualified as HM
 import GHC.Stack

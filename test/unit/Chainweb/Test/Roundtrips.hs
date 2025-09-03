@@ -52,15 +52,15 @@ import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.HostAddress
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeVersion
 import Chainweb.Pact.Types
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
@@ -336,7 +336,7 @@ jsonTestCases f =
         , testProperty "MockTx" $ f @MockTx
         ]
 
-    -- Chainweb.Payload
+    -- Chainweb.Pact.Payload
     , testGroup "Payload types"
         [ testProperty "Transaction" $ f @Transaction
         , testProperty "MinerData" $ f @MinerData

@@ -45,7 +45,7 @@ import Chainweb.BlockPayloadHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.PayloadProvider.EVM.Header ({- IsMerkleLogEntry instances -})
 import Chainweb.PayloadProvider.EVM.Receipt qualified as EVM
 import Control.Exception
@@ -583,7 +583,7 @@ validateTrieProof p = case E.validateProof p of
 -- import Chainweb.Utils
 -- import Chainweb.Crypto.MerkleLog
 -- import Chainweb.MerkleUniverse
--- import Chainweb.Payload
+-- import Chainweb.Pact.Payload
 -- import Chainweb.BlockHeader
 -- import Data.MerkleLog qualified as ML
 -- import Control.Lens

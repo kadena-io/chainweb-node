@@ -71,9 +71,9 @@ import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Parent
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.PayloadProvider
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()

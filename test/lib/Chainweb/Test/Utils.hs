@@ -208,7 +208,7 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.Types(SQLiteEnv)

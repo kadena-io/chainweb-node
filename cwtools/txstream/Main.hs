@@ -33,8 +33,8 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Payload
-import Chainweb.Payload.RestAPI.Client
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.RestAPI.Client
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version

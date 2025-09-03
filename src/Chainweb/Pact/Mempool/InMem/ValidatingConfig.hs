@@ -4,20 +4,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module: Chainweb.Mempool.InMem.ValidatingConfig
+-- Module: Chainweb.Pact.Mempool.InMem.ValidatingConfig
 -- Copyright: Copyright © 2025 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
-module Chainweb.Mempool.InMem.ValidatingConfig
+module Chainweb.Pact.Mempool.InMem.ValidatingConfig
 ( validatingMempoolConfig
 ) where
 
 import Control.Lens
 import Chainweb.ChainId
-import Chainweb.Mempool.InMemTypes
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.InMemTypes
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Validations
 import Chainweb.Utils

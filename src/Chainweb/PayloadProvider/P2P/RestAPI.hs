@@ -55,7 +55,7 @@ import Chainweb.BlockHeaderDB.RestAPI ()
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.ChainId
-import Chainweb.Payload qualified as Pact
+import Chainweb.Pact.Payload qualified as Pact
 import Chainweb.PayloadProvider.EVM.ExecutionPayload qualified as EVM
 import Chainweb.PayloadProvider.Minimal.Payload qualified as Minimal
 import Chainweb.Ranked

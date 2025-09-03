@@ -49,7 +49,7 @@ import Text.Read (readEither)
 
 -- internal modules
 
-import Chainweb.Block
+import Chainweb.Pact.Block
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -57,9 +57,9 @@ import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend, MockTx)
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.RestAPI.Utils (isFailureResponse, clientErrorStatusCode)

@@ -78,7 +78,7 @@ import qualified Pact.Types.SPV as Pact4
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Pact.Mempool.Mempool as Mempool
 import Chainweb.MinerReward
 import Chainweb.Miner.Pact
 
@@ -88,8 +88,8 @@ import Chainweb.Pact4.NoCoinbase
 import qualified Chainweb.Pact4.Transaction as Pact4
 import qualified Chainweb.Pact4.TransactionExec as Pact4
 import qualified Chainweb.Pact4.Validations as Pact4
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version

@@ -28,7 +28,7 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.Types
 import Chainweb.Parent
-import Chainweb.Payload (TransactionOutput(..))
+import Chainweb.Pact.Payload(TransactionOutput(..))
 import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
 import Chainweb.SPV.VerifyProof (runTransactionOutputProof, checkProofAndExtractOutput)
 import Chainweb.Utils (decodeB64UrlNoPaddingText, unlessM)

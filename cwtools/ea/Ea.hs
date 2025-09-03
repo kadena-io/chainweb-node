@@ -37,8 +37,8 @@ import Chainweb.Pact.Types (defaultPactServiceConfig, GenesisConfig(..))
 import Chainweb.Pact.Utils (toTxCreationTime, emptyPayload)
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import Chainweb.Utils

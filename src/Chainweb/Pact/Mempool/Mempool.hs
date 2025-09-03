@@ -55,7 +55,7 @@
 --
 -- The mempool API is defined as a record-of-functions in 'MempoolBackend'.
 
-module Chainweb.Mempool.Mempool
+module Chainweb.Pact.Mempool.Mempool
   ( MempoolBackend(..)
   , MempoolPreBlockCheck
   , TransactionConfig(..)

@@ -112,7 +112,7 @@ import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.BlockWeight (BlockWeight)
 import Chainweb.Version (ChainwebVersionCode)
 import Chainweb.Parent
-import Chainweb.Payload (BlockPayloadHash)
+import Chainweb.Pact.Payload(BlockPayloadHash)
 import Chainweb.Difficulty (HashTarget)
 
 import Control.Lens (Getter)

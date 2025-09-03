@@ -13,7 +13,7 @@ module Chainweb.PayloadProvider.Initialization
 
 import Chainweb.ChainId
 import Chainweb.Version
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Pact.Types (MemPoolAccess)
 import Data.Text qualified as T
 

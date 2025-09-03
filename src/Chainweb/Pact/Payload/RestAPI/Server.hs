@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.Payload.RestAPI.Server
+-- Module: Chainweb.Pact.Payload.RestAPI.Server
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -17,7 +17,7 @@
 --
 -- Server implementation of the block payload REST API
 --
-module Chainweb.Payload.RestAPI.Server
+module Chainweb.Pact.Payload.RestAPI.Server
 (
   somePayloadServer
 , somePayloadServers
@@ -46,9 +46,9 @@ import Servant
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.RestAPI
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils (int)

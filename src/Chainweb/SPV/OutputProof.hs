@@ -57,8 +57,8 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.TreeDB

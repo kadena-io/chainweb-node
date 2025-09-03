@@ -13,7 +13,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
-module Chainweb.Mempool.InMem
+module Chainweb.Pact.Mempool.InMem
   (
    -- * Initialization functions
     startInMemoryMempoolTest
@@ -72,9 +72,9 @@ import System.Random
 -- internal imports
 
 import Chainweb.Logger
-import Chainweb.Mempool.CurrentTxs
-import Chainweb.Mempool.InMemTypes
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.CurrentTxs
+import Chainweb.Pact.Mempool.InMemTypes
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Pact.Validations (defaultMaxTTLSeconds, defaultMaxCoinDecimalPlaces)
 import Chainweb.Time
 import Chainweb.Utils
@@ -173,7 +173,7 @@ withInMemoryMempool l cfg = do
     monitor m = do
         let lf = logFunction l
         logFunctionText l Debug "Initialized Mempool Monitor"
-        runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool.monitor" 10 (10 * mega) $ do
+        runForeverThrottled lf "Chainweb.Pact.Mempool.InMem.withInMemoryMempool.monitor" 10 (10 * mega) $ do
             stats <- getMempoolStats m
             logFunctionJson l Info stats
             approximateThreadDelay 60_000_000 {- 1 minute -}

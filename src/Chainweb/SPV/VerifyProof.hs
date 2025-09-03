@@ -32,7 +32,7 @@ import Chainweb.Crypto.MerkleLog (proofSubject)
 import Chainweb.CutDB
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.SPV
 import Chainweb.Version
 import Chainweb.Pact.Backend.Types (HeaderOracle (..))

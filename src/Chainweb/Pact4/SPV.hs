@@ -67,8 +67,8 @@ import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types (HeaderOracle)
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Pact4.Types(internalError)
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB

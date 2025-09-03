@@ -41,7 +41,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainValue
 import Chainweb.Parent
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version

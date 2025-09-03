@@ -100,7 +100,7 @@ import Chainweb.Parent
 import System.LogLevel
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Chainweb.Payload (PayloadWithOutputs, newBlockOutputs, blockPayload, payloadData, payloadWithOutputs, newBlockTransactions, Transaction (..), TransactionOutput (..), CoinbaseOutput (..))
+import Chainweb.Pact.Payload(PayloadWithOutputs, newBlockOutputs, blockPayload, payloadData, payloadWithOutputs, newBlockTransactions, Transaction (..), TransactionOutput (..), CoinbaseOutput (..))
 import Chainweb.Pact.Types (Transactions(..), BlockCtx, guardCtx)
 import qualified Data.ByteString.Short as SB
 

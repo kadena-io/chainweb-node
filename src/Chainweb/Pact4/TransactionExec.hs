@@ -144,7 +144,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import qualified Chainweb.ChainId as Chainweb
-import Chainweb.Mempool.Mempool (pactRequestKeyToTransactionHash)
+import Chainweb.Pact.Mempool.Mempool (pactRequestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact4.Templates
 import Chainweb.Pact4.Types

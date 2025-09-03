@@ -51,7 +51,7 @@ import Pact.Parse (ParsedDecimal(..))
 import Pact.Core.Gas.Types
 
 import Chainweb.BlockHash
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Test.Utils
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (T2(..))

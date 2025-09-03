@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.Mempool.P2pConfig
+-- Module: Chainweb.Pact.Mempool.P2pConfig
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -15,7 +15,7 @@
 --
 -- P2p Configuration for the Mempool.
 --
-module Chainweb.Mempool.P2pConfig
+module Chainweb.Pact.Mempool.P2pConfig
 ( MempoolP2pConfig(..)
 , mempoolP2pConfigMaxSessionCount
 , mempoolP2pConfigSessionTimeout
@@ -86,4 +86,3 @@ pMempoolP2pConfig cid = id
     <*< mempoolP2pConfigPollInterval .:: textOption
         % prefixLongCid cid "mempool-p2p-poll-interval"
         <> helpCid cid "poll interval for synchronizing mempools in seconds"
-

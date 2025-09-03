@@ -45,7 +45,7 @@ import Data.Text (Text)
 
 -- internal modules
 
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Utils
 
 import qualified Pact.JSON.Encode as J

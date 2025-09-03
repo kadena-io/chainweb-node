@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Mempool.CurrentTxs
+-- Module: Chainweb.Pact.Mempool.CurrentTxs
 -- Copyright: Copyright © 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -24,7 +24,7 @@
 -- pact service during new block validation once it has been included in another
 -- block.
 --
-module Chainweb.Mempool.CurrentTxs
+module Chainweb.Pact.Mempool.CurrentTxs
 ( CurrentTxs(..)
 , newCurrentTxs
 , currentTxsSize
@@ -49,8 +49,8 @@ import System.Random
 
 -- internal imports
 
--- import Chainweb.Mempool.InMemTypes
-import Chainweb.Mempool.Mempool
+-- import Chainweb.Pact.Mempool.InMemTypes
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
 

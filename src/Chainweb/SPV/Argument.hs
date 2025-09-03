@@ -37,7 +37,7 @@ import Chainweb.BlockPayloadHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.PayloadProvider.EVM.Header ({- IsMerkleLogEntry instances -})
 import Chainweb.PayloadProvider.EVM.Receipt qualified as EVM
 import Control.Exception
