@@ -56,6 +56,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
 
+import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time
