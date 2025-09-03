@@ -502,7 +502,7 @@ synchronizeProviders logger wbh providers c = do
         -- try to recover from the fork automatically by removing ~`diameter`
         -- blocks from the cut
         let recoveryHeight =
-                _cutMinHeight c - max (_cutMinHeight c) (int (diameter (chainGraphAt maxBound)))
+                max (int (diameter (chainGraphAt maxBound))) (_cutMinHeight c) - int (diameter (chainGraphAt maxBound))
         recoveryCut <- limitCut wbh recoveryHeight c
         let recoveryHeaders = HM.unionWith
                 (\recoveryHeader _genesisHeader -> recoveryHeader)
