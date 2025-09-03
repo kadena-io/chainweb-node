@@ -1459,6 +1459,15 @@ instance Field3 (T3 a b c) (T3 a b x) c x where
 data T4 a b c d = T4 !a !b !c !d
     deriving (Show, Eq, Ord, Generic, NFData, Functor)
 
+instance Field1 (T4 a b c d) (T4 x b c d) a x where
+    _1 = lens (\(T4 a _b _c _d) -> a) (\(T4 _a b c d) x -> T4 x b c d)
+instance Field2 (T4 a b c d) (T4 a x c d) b x where
+    _2 = lens (\(T4 _a b _c _d) -> b) (\(T4 a _b c d) x -> T4 a x c d)
+instance Field3 (T4 a b c d) (T4 a b x d) c x where
+    _3 = lens (\(T4 _a _b c _d) -> c) (\(T4 a b _c d) x -> T4 a b x d)
+instance Field4 (T4 a b c d) (T4 a b c x) d x where
+    _4 = lens (\(T4 _a _b _c d) -> d) (\(T4 a b c _d) x -> T4 a b c x)
+
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
 {-# INLINE sfst #-}
