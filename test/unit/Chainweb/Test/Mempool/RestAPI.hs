@@ -21,10 +21,10 @@ import Test.Tasty
 
 import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
-import qualified Chainweb.Mempool.InMem as InMem
-import Chainweb.Mempool.InMemTypes (InMemConfig(..))
-import Chainweb.Mempool.Mempool
-import qualified Chainweb.Mempool.RestAPI.Client as MClient
+import qualified Chainweb.Pact.Mempool.InMem as InMem
+import Chainweb.Pact.Mempool.InMemTypes (InMemConfig(..))
+import Chainweb.Pact.Mempool.Mempool
+import qualified Chainweb.Pact.Mempool.RestAPI.Client as MClient
 import Chainweb.RestAPI
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
@@ -42,7 +42,7 @@ import Control.Monad
 ------------------------------------------------------------------------------
 tests :: TestTree
 tests = withResource newPool Pool.destroyAllResources $
-        \poolIO -> testGroup "Chainweb.Mempool.RestAPI"
+        \poolIO -> testGroup "Chainweb.Pact.Mempool.RestAPI"
             $ Chainweb.Test.Mempool.remoteTests
             $ MempoolWithFunc
             $ withRemoteMempool poolIO

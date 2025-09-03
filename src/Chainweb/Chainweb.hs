@@ -144,8 +144,8 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.InMem.ValidatingConfig
-import Chainweb.Mempool.Mempool qualified as Mempool
+import Chainweb.Pact.Mempool.InMem.ValidatingConfig
+import Chainweb.Pact.Mempool.Mempool qualified as Mempool
 import Chainweb.Miner.Config
 import Chainweb.OpenAPIValidation qualified as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))

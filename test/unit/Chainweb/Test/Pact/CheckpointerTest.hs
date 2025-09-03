@@ -61,7 +61,7 @@ import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.MinerReward
 import Control.Monad.State.Strict
-import qualified Chainweb.Payload as Chainweb
+import qualified Chainweb.Pact.Payload as Chainweb
 import Chainweb.Pact.Utils (emptyPayload)
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.

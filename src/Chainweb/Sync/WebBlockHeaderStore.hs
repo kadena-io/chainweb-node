@@ -52,8 +52,8 @@ import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Difficulty (WindowWidth(..))
 import Chainweb.MinerReward (blockMinerReward)
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.PayloadProvider
 import Chainweb.Ranked
 import Chainweb.Storage.Table

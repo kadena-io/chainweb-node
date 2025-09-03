@@ -16,7 +16,7 @@ module Chainweb.Test.Misc
   ( tests
   ) where
 
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Test.Orphans.Internal ()
 
 import Control.Concurrent (threadDelay)

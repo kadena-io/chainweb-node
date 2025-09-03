@@ -84,7 +84,7 @@ import Chainweb.HostAddress
 import Chainweb.Miner.Config
 import Chainweb.Pact.Types (RewindLimit)
 import Chainweb.Pact.Types (defaultReorgLimit)
-import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
+import Chainweb.Pact.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.PayloadProvider.EVM (EvmProviderConfig, pEvmProviderConfig, defaultEvmProviderConfig, validateEvmProviderConfig)
 import Chainweb.PayloadProvider.Minimal (MinimalProviderConfig, defaultMinimalProviderConfig, pMinimalProviderConfig)
 import Chainweb.PayloadProvider.Pact.Configuration
@@ -406,7 +406,7 @@ data ServiceApiConfig = ServiceApiConfig
 
     , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
         -- ^ maximum size for payload batches on the service API. Default is
-        -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
+        -- 'Chainweb.Pact.Payload.RestAPI.defaultServicePayloadBatchLimit'.
     , _serviceApiConfigHeaderStream :: !Bool
         -- ^ whether to serve a header update stream endpoint.
     }

@@ -24,14 +24,14 @@ module Chainweb.Test.Pact.SPVTest
     ) where
 
 import Data.ByteString.Base16 qualified as Base16
-import Chainweb.Block (Block (_blockPayloadWithOutputs))
+import Chainweb.Pact.Block (Block (_blockPayloadWithOutputs))
 import System.Environment (lookupEnv, setEnv)
 import Control.Applicative ((<|>))
 import Data.List qualified as List
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.Mempool.Consensus
+import Chainweb.Pact.Mempool.Consensus
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.BlockCreationTime
@@ -41,9 +41,9 @@ import Chainweb.Chainweb
 import Chainweb.Cut
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
-import Chainweb.Mempool.Consensus
-import Chainweb.Mempool.InMem
-import Chainweb.Mempool.Mempool (InsertType (..), LookupResult(..), MempoolBackend (..), TransactionHash(..))
+import Chainweb.Pact.Mempool.Consensus
+import Chainweb.Pact.Mempool.InMem
+import Chainweb.Pact.Mempool.Mempool (InsertType (..), LookupResult(..), MempoolBackend (..), TransactionHash(..))
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
@@ -71,9 +71,9 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.TransactionExec qualified
 import Chainweb.Pact.TransactionExec qualified as Pact5
 import Chainweb.Pact.Types
-import Chainweb.Payload
-import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload(PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, defaultPactServiceConfig, withBlockHeaderDb)

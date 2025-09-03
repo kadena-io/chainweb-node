@@ -23,7 +23,7 @@ import Database.SQLite3.Direct (Database(..))
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
 import Chainweb.Pact.Types (ServiceEnv)
 import Control.DeepSeq (NFData(..))
-import Chainweb.Mempool.Mempool (MempoolBackend)
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend)
 import Control.Monad.IO.Class (liftIO)
 import Data.Text.IO qualified as Text
 

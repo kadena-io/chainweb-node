@@ -7,9 +7,9 @@ import Control.Concurrent.MVar
 import qualified Data.Vector as V
 import Test.Tasty
 ------------------------------------------------------------------------------
-import qualified Chainweb.Mempool.InMem as InMem
-import Chainweb.Mempool.InMemTypes (InMemConfig(..))
-import Chainweb.Mempool.Mempool
+import qualified Chainweb.Pact.Mempool.InMem as InMem
+import Chainweb.Pact.Mempool.InMemTypes (InMemConfig(..))
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))

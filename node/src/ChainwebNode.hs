@@ -87,7 +87,7 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
-import Chainweb.Mempool.InMemTypes (MempoolStats(..))
+import Chainweb.Pact.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Pact.Types

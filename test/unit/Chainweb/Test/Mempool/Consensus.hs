@@ -44,10 +44,10 @@ import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
--- import Chainweb.Mempool.Consensus
-import Chainweb.Mempool.Mempool
+-- import Chainweb.Pact.Mempool.Consensus
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader

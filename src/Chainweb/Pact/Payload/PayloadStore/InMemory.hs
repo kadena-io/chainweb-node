@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Payload.PayloadStore.InMemory
+-- Module: Chainweb.Pact.Payload.PayloadStore.InMemory
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -10,7 +10,7 @@
 -- An in-memory block payload store.
 --
 -- TODO: move to tests
-module Chainweb.Payload.PayloadStore.InMemory
+module Chainweb.Pact.Payload.PayloadStore.InMemory
 ( newTransactionDb
 , newPayloadDb
 ) where
@@ -18,8 +18,8 @@ module Chainweb.Payload.PayloadStore.InMemory
 -- internal modules
 
 import Chainweb.BlockHeight
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.HashMap(HashMapTable)
 import qualified Chainweb.Storage.Table.HashMap as HashMapTable

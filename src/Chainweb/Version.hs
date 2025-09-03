@@ -183,7 +183,7 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Rule

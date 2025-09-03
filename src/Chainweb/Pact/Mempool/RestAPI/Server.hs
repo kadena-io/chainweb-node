@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Chainweb.Mempool.RestAPI.Server
+module Chainweb.Pact.Mempool.RestAPI.Server
   ( mempoolServer
   , someMempoolServer
   , someMempoolServers
@@ -25,8 +25,8 @@ import Servant
 
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils

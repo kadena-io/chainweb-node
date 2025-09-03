@@ -10,7 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Mempool.RestAPI.Client
+module Chainweb.Pact.Mempool.RestAPI.Client
   ( insertClient
   , getPendingClient
   , memberClient
@@ -36,8 +36,8 @@ import Servant.Client
 ------------------------------------------------------------------------------
 
 import Chainweb.ChainId
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.Utils
 import Chainweb.Version
 

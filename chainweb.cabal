@@ -123,7 +123,7 @@ library
     cc-options: -DSQLITE_CORE
     exposed-modules:
         , Chainweb.Backup
-        , Chainweb.Block
+        , Chainweb.Pact.Block
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
@@ -195,15 +195,15 @@ library
         , Chainweb.Logger
         , Chainweb.Logging.Config
         , Chainweb.Logging.Miner
-        , Chainweb.Mempool.CurrentTxs
-        , Chainweb.Mempool.InMem
-        , Chainweb.Mempool.InMem.ValidatingConfig
-        , Chainweb.Mempool.InMemTypes
-        , Chainweb.Mempool.Mempool
-        , Chainweb.Mempool.P2pConfig
-        , Chainweb.Mempool.RestAPI
-        , Chainweb.Mempool.RestAPI.Client
-        , Chainweb.Mempool.RestAPI.Server
+        , Chainweb.Pact.Mempool.CurrentTxs
+        , Chainweb.Pact.Mempool.InMem
+        , Chainweb.Pact.Mempool.InMem.ValidatingConfig
+        , Chainweb.Pact.Mempool.InMemTypes
+        , Chainweb.Pact.Mempool.Mempool
+        , Chainweb.Pact.Mempool.P2pConfig
+        , Chainweb.Pact.Mempool.RestAPI
+        , Chainweb.Pact.Mempool.RestAPI.Client
+        , Chainweb.Pact.Mempool.RestAPI.Server
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
@@ -219,13 +219,13 @@ library
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
         , Chainweb.Parent
-        , Chainweb.Payload
-        , Chainweb.Payload.PayloadStore
-        , Chainweb.Payload.PayloadStore.InMemory
-        , Chainweb.Payload.PayloadStore.RocksDB
-        , Chainweb.Payload.RestAPI
-        , Chainweb.Payload.RestAPI.Server
-        , Chainweb.Payload.RestAPI.Client
+        , Chainweb.Pact.Payload
+        , Chainweb.Pact.Payload.PayloadStore
+        , Chainweb.Pact.Payload.PayloadStore.InMemory
+        , Chainweb.Pact.Payload.PayloadStore.RocksDB
+        , Chainweb.Pact.Payload.RestAPI
+        , Chainweb.Pact.Payload.RestAPI.Server
+        , Chainweb.Pact.Payload.RestAPI.Client
         , Chainweb.PayloadProvider
         , Chainweb.PayloadProvider.EVM
         , Chainweb.PayloadProvider.EVM.EngineAPI

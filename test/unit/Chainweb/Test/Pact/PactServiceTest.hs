@@ -26,11 +26,11 @@ import Chainweb.Chainweb
 import Chainweb.Cut
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
-import Chainweb.Mempool.InMem qualified as Mempool
-import Chainweb.Mempool.Mempool qualified as Mempool
+import Chainweb.Pact.Mempool.InMem qualified as Mempool
+import Chainweb.Pact.Mempool.Mempool qualified as Mempool
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact.CmdBuilder

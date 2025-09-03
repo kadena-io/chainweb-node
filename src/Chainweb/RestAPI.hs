@@ -81,12 +81,12 @@ import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
-import Chainweb.Mempool.Mempool (MempoolBackend)
-import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend)
+import qualified Chainweb.Pact.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI.Server as Mining
 -- import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import qualified Chainweb.Pact.Transaction as Pact
-import Chainweb.Payload.RestAPI
+import Chainweb.Pact.Payload.RestAPI
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health

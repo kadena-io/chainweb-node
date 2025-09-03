@@ -60,8 +60,8 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.Mempool qualified as Mempool
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool qualified as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core

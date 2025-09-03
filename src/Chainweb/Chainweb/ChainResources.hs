@@ -86,13 +86,13 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.Configuration
     -- FIXME this module should not depend on the global configuration
 import Chainweb.Logger
-import Chainweb.Mempool.InMem qualified as Mempool
-import Chainweb.Mempool.InMem.ValidatingConfig qualified as Mempool
+import Chainweb.Pact.Mempool.InMem qualified as Mempool
+import Chainweb.Pact.Mempool.InMem.ValidatingConfig qualified as Mempool
 import Chainweb.Pact.PactService qualified as Pact
 import Chainweb.Pact.RestAPI qualified as Pact
 import Chainweb.Pact.RestAPI.Server qualified as Pact
 import Chainweb.Pact.Types
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.PayloadProvider
 import Chainweb.PayloadProvider.EVM
 import Chainweb.PayloadProvider.Minimal
@@ -112,9 +112,9 @@ import Chainweb.Version
 import Chainweb.Version.Guards (maxBlockGasLimit)
 import Pact.Core.Gas qualified as Pact
 import Control.Monad (forM)
-import Chainweb.Payload.PayloadStore (CanReadablePayloadCas)
-import qualified Chainweb.Payload.RestAPI as PactPayload.RestAPI
-import qualified Chainweb.Payload.RestAPI.Server as PactPayload.RestAPI.Server
+import Chainweb.Pact.Payload.PayloadStore (CanReadablePayloadCas)
+import qualified Chainweb.Pact.Payload.RestAPI as PactPayload.RestAPI
+import qualified Chainweb.Pact.Payload.RestAPI.Server as PactPayload.RestAPI.Server
 
 -- -------------------------------------------------------------------------- --
 -- Payload P2P Network Resources

@@ -16,9 +16,9 @@ import PropertyMatchers ((?))
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Mempool.Mempool qualified as Mempool
-import Chainweb.Mempool.InMem qualified as InMem
-import Chainweb.Mempool.InMemTypes qualified as InMem
+import Chainweb.Pact.Mempool.Mempool qualified as Mempool
+import Chainweb.Pact.Mempool.InMem qualified as InMem
+import Chainweb.Pact.Mempool.InMemTypes qualified as InMem
 import Chainweb.Pact.Transaction
 import Chainweb.Test.TestVersions
 import Chainweb.Utils

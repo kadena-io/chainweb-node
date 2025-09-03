@@ -32,16 +32,16 @@ module Chainweb.Test.Pact.Utils
 import Chainweb.Chainweb (validatingMempoolConfig)
 import Chainweb.ChainId
 import Chainweb.Logger
-import Chainweb.Mempool.InMem
-import Chainweb.Mempool.Mempool (MempoolBackend (..))
+import Chainweb.Pact.Mempool.InMem
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend (..))
 --import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.Storage.Table.RocksDB
 -- import Chainweb.Utils
 import Chainweb.Version

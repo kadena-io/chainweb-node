@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- | An in-memory mempool backend that does not persist to disk.
-module Chainweb.Mempool.InMemTypes
+module Chainweb.Pact.Mempool.InMemTypes
   ( InMemConfig(..)
   , InMemoryMempool(..)
   , InMemoryMempoolData(..)
@@ -39,8 +39,8 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.Mempool.CurrentTxs
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.CurrentTxs
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 import Chainweb.Utils (T2)
 

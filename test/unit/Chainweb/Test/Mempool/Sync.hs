@@ -20,9 +20,9 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.Mempool.InMem
-import Chainweb.Mempool.InMemTypes
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.InMem
+import Chainweb.Pact.Mempool.InMemTypes
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
@@ -30,7 +30,7 @@ import Chainweb.Utils (Codec(..))
 
 
 tests :: TestTree
-tests = testGroup "Chainweb.Mempool.sync"
+tests = testGroup "Chainweb.Pact.Mempool.sync"
     [ mempoolProperty "Mempool.syncMempools" gen propSync $ MempoolWithFunc wf
     ]
   where

@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.Payload.RestAPI.Client
+-- Module: Chainweb.Pact.Payload.RestAPI.Client
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -13,7 +13,7 @@
 --
 -- Client implementation of the block payload REST API
 --
-module Chainweb.Payload.RestAPI.Client
+module Chainweb.Pact.Payload.RestAPI.Client
 ( payloadClient
 , payloadBatchClient
 , outputsClient
@@ -30,8 +30,8 @@ import Servant.Client
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Payload
-import Chainweb.Payload.RestAPI
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Version
 import Chainweb.BlockHeight (BlockHeight)

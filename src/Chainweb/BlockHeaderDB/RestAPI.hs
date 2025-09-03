@@ -97,12 +97,12 @@ import Network.HTTP.Media ((//), (/:))
 import Servant.API
 
 -- internal modules
-import Chainweb.Block
+import Chainweb.Pact.Block
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB

@@ -100,7 +100,7 @@ import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Graph
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Parent
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils.BlockHeader
