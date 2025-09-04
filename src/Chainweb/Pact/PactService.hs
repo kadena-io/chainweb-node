@@ -117,7 +117,6 @@ import Prelude hiding (lookup)
 import System.LogLevel
 import Chainweb.Version.Guards (pact5)
 import Control.Concurrent.MVar (newMVar)
-import Chainweb.Pact.Payload.RestAPI.Client (payloadClient)
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -134,7 +133,10 @@ withPactService
     -> GenesisConfig
     -> ResourceT IO (ServiceEnv tbl)
 withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config pactGenesis = do
-    payloadStore <- liftIO $ newPayloadStore http (logFunction chainwebLogger) pdb (\rph -> payloadClient cid (_ranked rph) (Just $ rank rph))
+    SomeChainwebVersionT @v _ <- pure someChainwebVersionVal
+    SomeChainIdT @c _ <- pure $ someChainIdVal cid
+    let payloadClient = Rest.payloadClient @v @c @'PactProvider
+    payloadStore <- liftIO $ newPayloadStore http (logFunction chainwebLogger) pdb payloadClient
     (_, miningPayloadVar) <- allocate newEmptyTMVarIO
         (\v -> do
             refresherThread <- fmap (view _1) <$> atomically (tryReadTMVar v)
