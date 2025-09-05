@@ -184,6 +184,7 @@ module Chainweb.Utils
 , reverseStream
 , foldChunksM
 , foldChunksM_
+, mergeN
 , progress
 
 -- * Type Level
@@ -1077,14 +1078,14 @@ tryAllSynchronous = trySynchronous
 --
 -- An info-level message is logged when processing starts and stops.
 --
-runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
+runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO a
 runForever logfun name a = mask $ \umask -> do
     logfun Debug $ "start " <> name
     let go = do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Debug (name <> " stopped")
+    go `finally` logfun Debug (name <> " stopped")
 
 -- | Repeatedly run a computation 'forever' at the given rate until it is
 -- stopped by receiving 'SomeAsyncException'.
@@ -1103,7 +1104,7 @@ runForeverThrottled
     -> Word64
         -- ^ rate limit (usec / call)
     -> IO ()
-    -> IO ()
+    -> IO a
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     tokenBucket <- newTokenBucket
     logfun Debug $ "start " <> name
@@ -1112,7 +1113,7 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Debug (name <> " stopped")
+    go `finally` logfun Debug (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
@@ -1293,6 +1294,19 @@ foldChunksM_
     -> m t
 foldChunksM_ f seed = fmap (fst . S.lazily) . foldChunksM f seed
 {-# INLINE foldChunksM_ #-}
+
+-- | Left-biased k-way merge of streams, using a binary tree of merges. O(n log k) where k
+-- is the number of streams and n is the total elements.
+mergeN :: forall m k a. (Monad m, Ord k) => (a -> k) -> [S.Stream (S.Of a) m ()] -> S.Stream (S.Of a) m ()
+mergeN f = go
+    where
+    go [strm] = strm
+    go strms = go (mergePairs strms)
+        where
+        mergePairs (a:b:xs) =
+            let !x = () <$ S.mergeOn f a b
+            in x : mergePairs xs
+        mergePairs xs = xs
 
 -- | Progress reporting for long-running streams. I calls an action
 -- every @n@ streams items.

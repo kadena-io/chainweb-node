@@ -79,6 +79,7 @@ import System.Mem
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.PruneForks (PruneStats(..))
 import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
@@ -409,6 +410,8 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ mkTelemetryLogger @P2pNodeStats mgr teleLogConfig
     topLevelStatusBackend <- managed
         $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
+    pruneStatsBackend <- managed
+        $ mkTelemetryLogger @PruneStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logCfg) $ logHandles
@@ -433,6 +436,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
                     , logHandler dbStatsBackend
                     , logHandler p2pNodeStatsBackend
                     , logHandler topLevelStatusBackend
+                    , logHandler pruneStatsBackend
                     ]
             ]) baseBackend
 

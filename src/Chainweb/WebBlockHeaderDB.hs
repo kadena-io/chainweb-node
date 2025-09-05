@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -19,7 +20,7 @@
 -- Collect the 'BlockHeaderDB's for all chains in a single data structure.
 --
 module Chainweb.WebBlockHeaderDB
-( WebBlockHeaderDb
+( WebBlockHeaderDb(..)
 , mkWebBlockHeaderDb
 , initWebBlockHeaderDb
 , getWebBlockHeaderDb
@@ -71,6 +72,7 @@ import Chainweb.Version
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Ranked(Ranked(..))
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- Web Chain Database
@@ -87,20 +89,21 @@ import Chainweb.Ranked(Ranked(..))
 --
 data WebBlockHeaderDb = WebBlockHeaderDb
     { _webBlockHeaderDb :: !(ChainMap BlockHeaderDb)
+    , _webCurrentPruneJob :: !(RocksDbTable () (BlockHeight, BlockHeight))
+    , _webHighestPruned :: !(RocksDbTable () BlockHeight)
     }
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (ChainMap BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
 
--- | Returns all blocks in all block header databases.
---
-webEntries :: HasVersion => WebBlockHeaderDb -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
-webEntries db f = go (view (webBlockHeaderDb . to toList) db) mempty
+-- | Returns all blocks in all block header databases, ordered ascending by
+-- (block height, chain ID).
+webEntries :: HasVersion => WebBlockHeaderDb -> Maybe MinRank -> Maybe MaxRank -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
+webEntries db mir mar f = go (view (webBlockHeaderDb . to toList) db) mempty
   where
-    go [] s = f s
-    go (h:t) s = entries h Nothing Nothing Nothing Nothing $ \x ->
-        go t (() <$ S.mergeOn (view blockCreationTime) s x)
-            -- FIXME: should we include the rank in the order?
+    go [] s = f (mergeN (\bh -> (view blockHeight bh, view chainId bh)) s)
+    go (h:t) s = entries h Nothing Nothing mir mar $ \x ->
+        go t (void x : s)
 
 type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb
@@ -119,7 +122,7 @@ initWebBlockHeaderDb
     :: HasVersion
     => RocksDb
     -> IO WebBlockHeaderDb
-initWebBlockHeaderDb db = WebBlockHeaderDb
+initWebBlockHeaderDb db = mkWebBlockHeaderDb db
     <$!> tabulateChainsM (\cid -> initBlockHeaderDb (conf cid db))
   where
     conf cid = Configuration (genesisBlockHeader cid)
@@ -127,9 +130,24 @@ initWebBlockHeaderDb db = WebBlockHeaderDb
 -- | FIXME: this needs some consistency checks
 --
 mkWebBlockHeaderDb
-    :: ChainMap BlockHeaderDb
+    :: RocksDb
+    -> ChainMap BlockHeaderDb
     -> WebBlockHeaderDb
-mkWebBlockHeaderDb m = WebBlockHeaderDb m
+mkWebBlockHeaderDb db m =
+    WebBlockHeaderDb m pruneJobTable highestPrunedTable
+  where
+    pruneJobTable = newTable
+        db
+        (Chainweb.Storage.Table.RocksDB.Codec (\(l, u) -> runPutS $ encodeBlockHeight l >> encodeBlockHeight u)
+            (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockHeight))
+        (Chainweb.Storage.Table.RocksDB.Codec (\_ -> mempty) (runGetS (pure ())))
+        ["BlockHeader", "prune-job"]
+
+    highestPrunedTable = newTable
+        db
+        (Chainweb.Storage.Table.RocksDB.Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
+        (Chainweb.Storage.Table.RocksDB.Codec (\_ -> mempty) (runGetS (pure ())))
+        ["BlockHeader", "highest-pruned"]
 
 getWebBlockHeaderDb
     :: (MonadThrow m, HasVersion)
