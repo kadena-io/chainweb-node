@@ -82,16 +82,20 @@ import Data.Void (Void)
 safeDepth :: BlockHeight
 safeDepth = 10000
 
+data DoPrune = DoPrune | ReDoPrune | DoNotPrune
+    deriving (Show, Eq, Ord)
+
 pruneForksJob
     :: HasVersion
     => Logger logger
     => logger
     -> CutDb
+    -> DoPrune
     -> Natural
     -> IO Void
-pruneForksJob logger cdb depth = do
+pruneForksJob logger cdb doPrune depth = do
     runForeverThrottled (logFunction logger) "prune_forks" 1 (1_000_000 * 60 * 60) $
-        void $ pruneForks logger cdb depth
+        void $ pruneForks logger cdb doPrune depth
 
 -- | Prunes most block headers from forks that are older than the given number
 -- of blocks.
@@ -107,6 +111,7 @@ pruneForks
     => Logger logger
     => logger
     -> CutDb
+    -> DoPrune
     -> Natural
         -- ^ The depth at which pruning starts. Block at this depth are used as
         -- pivots and actual deletion starts at (depth - 1).
@@ -116,17 +121,17 @@ pruneForks
         -- all forks are resolved.
 
     -> IO Int
-pruneForks logger cdb depth = do
+pruneForks logger cdb doPrune depth = do
     startCut <- _cut cdb
     let highestSafePruneTarget = _cutMinHeight startCut - int depth
     (resumingFrom, startedFrom) <- tableLookup (_webCurrentPruneJob wbhdb) () >>= \case
-        Nothing -> return (0, highestSafePruneTarget)
-        Just j -> return j
+        Just j | doPrune /= ReDoPrune -> return j
+        _ -> return (0, highestSafePruneTarget)
     -- the lower bound is different from the job start point because some
     -- heights have already been pruned
     highestPruned <- tableLookup (_webHighestPruned wbhdb) () >>= \case
-        Nothing -> return 0
-        Just highestPruned -> return highestPruned
+        Just highestPruned | doPrune /= ReDoPrune -> return highestPruned
+        _ -> return 0
 
     if
         | int (_cutMinHeight startCut) <= depth -> do
@@ -136,7 +141,7 @@ pruneForks logger cdb depth = do
                 <> sshow depth
             return 0
         | otherwise -> do
-            numPruned <- pruneForks_ logger wbhdb (PruneJob resumingFrom startedFrom highestPruned)
+            numPruned <- pruneForks_ logger wbhdb doPrune (PruneJob resumingFrom startedFrom highestPruned)
             tableInsert (_webHighestPruned wbhdb) () highestPruned
             tableDelete (_webCurrentPruneJob wbhdb) ()
             return numPruned
@@ -181,11 +186,12 @@ pruneForks_
     => Logger logger
     => logger
     -> WebBlockHeaderDb
+    -> DoPrune
     -> PruneJob
     -> IO Int
 -- pruneForks_ logger _ (PruneJob (Max mar)) _
 --     | mar <= 1 = 0 <$ logFunctionText logger Warn ("Skipping database pruning for max bound of " <> sshow mar)
-pruneForks_ logger wbhdb pruneJob = do
+pruneForks_ logger wbhdb doPrune pruneJob = do
     logFunctionText logger Debug $ "Pruning block header database job "
         <> sshow pruneJob
 
@@ -215,8 +221,11 @@ pruneForks_ logger wbhdb pruneJob = do
     executePendingDeletes prevHeight pendingDeletes = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
             let cdb = _webBlockHeaderDb wbhdb ^?! atChain cid
-            tableDeleteBatch (_chainDbCas cdb) pendingDeletesForCid
-            tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
+            case doPrune of
+                DoNotPrune -> return ()
+                _ -> do
+                    tableDeleteBatch (_chainDbCas cdb) pendingDeletesForCid
+                    tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
         logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
         tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight, startedFrom pruneJob)
 
