@@ -24,6 +24,7 @@ import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.BlockHeader.Genesis qualified (tests)
 import Chainweb.Test.BlockHeader.Validation qualified (tests)
 import Chainweb.Test.BlockHeaderDB qualified (tests)
+import Chainweb.Test.BlockHeaderDB.PruneForks qualified (tests)
 import Chainweb.Test.Chainweb.Utils.Paging qualified (properties)
 import Chainweb.Test.Cut qualified (properties)
 import Chainweb.Test.CutDB qualified (tests)
@@ -96,7 +97,7 @@ suite rdb =
         , testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
-            -- , Chainweb.Test.BlockHeaderDB.PruneForks.tests
+            , Chainweb.Test.BlockHeaderDB.PruneForks.tests rdb
             , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
             ]
         , Chainweb.Test.CutDB.tests rdb

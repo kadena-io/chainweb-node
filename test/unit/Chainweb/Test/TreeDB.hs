@@ -321,7 +321,7 @@ prop_forkEntry f i j = do
         e <- forkEntry db (head $ reverse (g : a)) (head $ reverse $ (g : b))
         return $ e === g
   where
-    g = view (from isoBH) $ toyGenesis toyChainId
+    g = view (from isoBH) $ genesisBlockHeader toyChainId
     t = Node g []
     a = take (int i) $ branch (Nonce 0) g
     b = take (int j) $ branch (Nonce 1) g
