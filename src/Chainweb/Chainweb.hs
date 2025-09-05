@@ -361,7 +361,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
         :: ChainMap (ChainResources logger)
         -> IO ()
     global cs = runResourceT $ do
-        let !webchain = mkWebBlockHeaderDb (fmap _chainResBlockHeaderDb cs)
+        let !webchain = mkWebBlockHeaderDb rocksDb (fmap _chainResBlockHeaderDb cs)
             -- !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             !providers = payloadProvidersForAllChains cs
             !cutLogger = setComponent "cut" logger
