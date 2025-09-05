@@ -154,6 +154,8 @@ data BlockHeaderDb = BlockHeaderDb
     , _chainDbRankTable :: !(RocksDbTable BlockHash BlockHeight)
         -- ^ This index supports lookup of a block hash for which the height
         -- isn't known
+    , _chainDbCurrentPruneJob :: !(RocksDbTable () (BlockHeight, BlockHeight))
+    , _chainDbHighestPruned :: !(RocksDbTable () BlockHeight)
     }
 
 instance HasChainId BlockHeaderDb where
@@ -230,10 +232,25 @@ initBlockHeaderDb config = do
         (Codec (runPutS . encodeBlockHash) (runGetS decodeBlockHash))
         ["BlockHeader", cidNs, "rank"]
 
+    pruneJobTable = newTable
+        (_configRocksDb config)
+        (Codec (\(l, u) -> runPutS $ encodeBlockHeight l >> encodeBlockHeight u)
+            (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockHeight))
+        (Codec (\_ -> mempty) (runGetS (pure ())))
+        ["BlockHeader", cidNs, "prune-job"]
+
+    highestPrunedTable = newTable
+        (_configRocksDb config)
+        (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
+        (Codec (\_ -> mempty) (runGetS (pure ())))
+        ["BlockHeader", cidNs, "highest-pruned"]
+
     !db = BlockHeaderDb cid
         implicitVersion
         headerTable
         rankTable
+        pruneJobTable
+        highestPrunedTable
 
 -- | Close a database handle and release all resources
 --
