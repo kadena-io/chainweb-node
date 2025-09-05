@@ -61,6 +61,8 @@ import Chainweb.PayloadProvider
 import qualified Data.Text as T
 import P2P.Session (P2pSession)
 import P2P.Node.PeerDB (PeerDb)
+import Chainweb.Utils
+import Chainweb.BlockHeaderDB.PruneForks
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -103,6 +105,7 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
             C.syncSession myInfo cutDb
         headerP2pNode <- liftIO $ mkP2pNode False "header" $
             session 10 (_webBlockHeaderStoreQueue headerStore)
+        _ <- withAsyncR (pruneForksJob logger cutDb (int safeDepth))
         return CutResources
             { _cutResPeerDb = peerDb
             , _cutResCutDb = cutDb

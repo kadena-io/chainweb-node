@@ -1103,7 +1103,7 @@ runForeverThrottled
     -> Word64
         -- ^ rate limit (usec / call)
     -> IO ()
-    -> IO ()
+    -> IO a
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     tokenBucket <- newTokenBucket
     logfun Debug $ "start " <> name
@@ -1112,7 +1112,7 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Debug (name <> " stopped")
+    go `finally` logfun Debug (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components

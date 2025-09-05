@@ -11,6 +11,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.PruneForks
@@ -24,11 +25,13 @@
 module Chainweb.BlockHeaderDB.PruneForks
 ( pruneForks
 , pruneForks_
+, safeDepth
+, pruneForksJob
 ) where
 
 import Control.DeepSeq
 import Control.Exception (evaluate)
-import Control.Lens (view)
+import Control.Lens (view, (^?!), iforM_, (%~))
 import Control.Monad
 import Control.Monad.Catch
 
@@ -65,12 +68,30 @@ import Chainweb.Version
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
+import Chainweb.WebBlockHeaderDB
+import Chainweb.Cut
+import Chainweb.CutDB
+import Control.Monad.Cont
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
+import Data.Void (Void)
 
 -- -------------------------------------------------------------------------- --
 -- Chain Database Pruning
 
 safeDepth :: BlockHeight
 safeDepth = 10000
+
+pruneForksJob
+    :: HasVersion
+    => Logger logger
+    => logger
+    -> CutDb
+    -> Natural
+    -> IO Void
+pruneForksJob logger cdb depth = do
+    runForeverThrottled (logFunction logger) "prune_forks" 1 (1_000_000 * 60 * 60) $
+        void $ pruneForks logger cdb depth
 
 -- | Prunes most block headers from forks that are older than the given number
 -- of blocks.
@@ -85,7 +106,7 @@ pruneForks
     :: HasVersion
     => Logger logger
     => logger
-    -> BlockHeaderDb
+    -> CutDb
     -> Natural
         -- ^ The depth at which pruning starts. Block at this depth are used as
         -- pivots and actual deletion starts at (depth - 1).
@@ -96,36 +117,31 @@ pruneForks
 
     -> IO Int
 pruneForks logger cdb depth = do
-    hdr <- maxEntry cdb
-    let highestSafePruneTarget = view blockHeight hdr - int depth
-    (resumingFrom, startedFrom) <- tableLookup (_chainDbCurrentPruneJob cdb) () >>= \case
-        Nothing -> return (genesisHeight cid, highestSafePruneTarget)
+    startCut <- _cut cdb
+    let highestSafePruneTarget = _cutMinHeight startCut - int depth
+    (resumingFrom, startedFrom) <- tableLookup (_webCurrentPruneJob wbhdb) () >>= \case
+        Nothing -> return (0, highestSafePruneTarget)
         Just j -> return j
     -- the lower bound is different from the job start point because some
     -- heights have already been pruned
-    highestPruned <- tableLookup (_chainDbHighestPruned cdb) () >>= \case
-        Nothing -> return (genesisHeight cid)
+    highestPruned <- tableLookup (_webHighestPruned wbhdb) () >>= \case
+        Nothing -> return 0
         Just highestPruned -> return highestPruned
 
     if
-        | int (view blockHeight hdr) <= depth -> do
+        | int (_cutMinHeight startCut) <= depth -> do
             logFunctionText logger Info
                 $ "Skipping database pruning because the maximum block height "
-                <> sshow (view blockHeight hdr) <> " is not larger than then requested depth "
+                <> sshow (_cutMinHeight startCut) <> " is not larger than then requested depth "
                 <> sshow depth
             return 0
-        | int (view blockHeight hdr) <= int genHeight + depth -> do
-            logFunctionText logger Info $ "Skipping database pruning because there are not yet"
-                <> " enough block headers on the chain"
-            return 0
         | otherwise -> do
-            numPruned <- pruneForks_ logger cdb (PruneJob resumingFrom startedFrom highestPruned)
-            tableInsert (_chainDbHighestPruned cdb) () highestPruned
-            tableDelete (_chainDbCurrentPruneJob cdb) ()
+            numPruned <- pruneForks_ logger wbhdb (PruneJob resumingFrom startedFrom highestPruned)
+            tableInsert (_webHighestPruned wbhdb) () highestPruned
+            tableDelete (_webCurrentPruneJob wbhdb) ()
             return numPruned
   where
-    cid = _chainId cdb
-    genHeight = genesisHeight cid
+    wbhdb = view cutDbWebBlockHeaderDb cdb
 
 data PruneForksException
     = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
@@ -134,10 +150,10 @@ data PruneForksException
 instance Exception PruneForksException
 
 data PruneState = PruneState
-    { pivots :: [BlockHash]
+    { pivots :: HashSet BlockHash
     , prevHeight :: BlockHeight
     , numPruned :: Int
-    , pendingDeletes :: [RankedBlockHash]
+    , pendingDeletes :: ChainMap [RankedBlockHash]
     , pendingDeleteCount :: Int
     }
 
@@ -164,19 +180,19 @@ pruneForks_
     :: (HasCallStack, HasVersion)
     => Logger logger
     => logger
-    -> BlockHeaderDb
+    -> WebBlockHeaderDb
     -> PruneJob
     -> IO Int
 -- pruneForks_ logger _ (PruneJob (Max mar)) _
 --     | mar <= 1 = 0 <$ logFunctionText logger Warn ("Skipping database pruning for max bound of " <> sshow mar)
-pruneForks_ logger cdb pruneJob = do
-    logFunctionText logger Debug $ "Pruning block header database for chain " <> sshow (_chainId cdb)
-        <> " pruning job " <> sshow pruneJob
+pruneForks_ logger wbhdb pruneJob = do
+    logFunctionText logger Debug $ "Pruning block header database job "
+        <> sshow pruneJob
 
     -- parent hashes of all blocks at height max rank @mar@.
     --
-    !pivots <- entries cdb Nothing Nothing (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
-        $ fmap (force . L.nub) . S.toList_ . S.map (unwrapParent . view blockParent)
+    !pivots <- webEntries_ wbhdb (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
+        $ S.foldMap_ HashSet.singleton . S.map (unwrapParent . view blockParent)
             -- the set of pivots is expected to be very small. In fact it is
             -- almost always a singleton set.
 
@@ -187,9 +203,9 @@ pruneForks_ logger cdb pruneJob = do
         return 0
     else do
         r <- fmap numPruned
-            $ withReverseHeaderStream cdb (mar - 1) mir
+            $ withWebReverseHeaderStream wbhdb (mar - 1) mir
             $ pruneBlocks pivots
-        tableDelete (_chainDbCurrentPruneJob cdb) ()
+        tableDelete (_webCurrentPruneJob wbhdb) ()
         return r
 
   where
@@ -197,10 +213,12 @@ pruneForks_ logger cdb pruneJob = do
     mar = MaxRank $ int $ resumptionPoint pruneJob
 
     executePendingDeletes prevHeight pendingDeletes = do
-        tableDeleteBatch (_chainDbCas cdb) pendingDeletes
-        tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletes)
+        iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
+            let cdb = _webBlockHeaderDb wbhdb ^?! atChain cid
+            tableDeleteBatch (_chainDbCas cdb) pendingDeletesForCid
+            tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
         logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
-        tableInsert (_chainDbCurrentPruneJob cdb) () (prevHeight, startedFrom pruneJob)
+        tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight, startedFrom pruneJob)
 
     pruneBlocks pivots =
         go initialState
@@ -209,7 +227,7 @@ pruneForks_ logger cdb pruneJob = do
             { pivots
             , prevHeight = BlockHeight $ int (_getMaxRank mar)
             , numPruned = 0
-            , pendingDeletes = []
+            , pendingDeletes = onAllChains []
             , pendingDeleteCount = 0
             }
         go state strm = S.uncons strm >>= \case
@@ -218,12 +236,12 @@ pruneForks_ logger cdb pruneJob = do
                 pruneBlock state block >>= \case
                     (False, state') -> do
                         executePendingDeletes (prevHeight state) (pendingDeletes state')
-                        return state' { pendingDeletes = [], pendingDeleteCount = 0 }
+                        return state' { pendingDeletes = onAllChains [], pendingDeleteCount = 0 }
                     (True, state') -> do
                         go state' strm'
 
     pruneBlock :: PruneState -> BlockHeader -> IO (Bool, PruneState)
-    pruneBlock PruneState {pivots = [], prevHeight} _ =
+    pruneBlock PruneState {pivots, prevHeight} _ | HashSet.null pivots =
         throwM $ InternalInvariantViolation
             $ "PruneForks.pruneForks_: no pivots left at height " <> sshow prevHeight
     pruneBlock pruneState@PruneState{..} cur
@@ -243,8 +261,7 @@ pruneForks_ logger cdb pruneJob = do
         -- the current block is a pivot, thus we've seen its child block(s)
         -- and must keep it in the database
         | curHash `elem` pivots = do
-            let !pivots' = force $
-                    L.nub $ view (blockParent . _Parent) cur : L.delete curHash pivots
+            let !pivots' = HashSet.insert (view (blockParent . _Parent) cur) $ HashSet.delete curHash pivots
             return (True, PruneState
                 { pivots = pivots'
                 , prevHeight = curHeight
@@ -254,13 +271,14 @@ pruneForks_ logger cdb pruneJob = do
                 })
         -- the current block is not a pivot, so we haven't seen its child and can safely delete it
         | otherwise = do
+            let newDelete = onChain cid [view rankedBlockHash cur]
             !(pendingDeletes', !pendingDeleteCount') <-
-                if pendingDeleteCount > 100
+                if pendingDeleteCount > 1000
                 then do
                     executePendingDeletes prevHeight pendingDeletes
-                    return ([view rankedBlockHash cur], 1)
+                    return (newDelete, 1)
                 else
-                    return (view rankedBlockHash cur : pendingDeletes, pendingDeleteCount + 1)
+                    return (chainZip (++) newDelete pendingDeletes, pendingDeleteCount + 1)
             return (True, PruneState
                 { pivots
                 , prevHeight = curHeight
@@ -269,6 +287,7 @@ pruneForks_ logger cdb pruneJob = do
                 , pendingDeleteCount = pendingDeleteCount'
                 })
         where
+        !cid = view chainId cur
         !curHeight = view blockHeight cur
         !curHash = view blockHash cur
 
@@ -291,5 +310,15 @@ withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> 
         & S.takeWhile (\a -> int (view blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
+
+withWebReverseHeaderStream
+    :: WebBlockHeaderDb
+    -> MaxRank
+    -> MinRank
+    -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
+    -> IO a
+withWebReverseHeaderStream wbhdb mar mir inner = do
+    runContT (forM (_webBlockHeaderDb wbhdb) (\db -> ContT $ withReverseHeaderStream db mar mir)) $ \streamPerChain ->
+        inner $ foldr1 (\x t -> () <$ S.mergeOn (view blockHeight) x t) streamPerChain
 
 {-# INLINE withReverseHeaderStream #-}
