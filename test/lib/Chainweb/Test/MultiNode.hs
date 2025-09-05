@@ -689,7 +689,7 @@ sampleConsensusState
     -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb ct s = do
     numStoredCuts <- withTableIterator ct $ \i -> iterToEntryStream i & S.length_
-    !hashes' <- webEntries bhdb
+    !hashes' <- webEntries bhdb Nothing Nothing
         $ S.fold_ (flip HS.insert) (_stateBlockHashes s) id
         . S.map (view blockHash)
     !c <- _cut cutdb

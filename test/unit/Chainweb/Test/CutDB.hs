@@ -402,7 +402,7 @@ randomBlockHeader
     -> IO BlockHeader
 randomBlockHeader cutDb = do
     curCut <- _cut cutDb
-    allBlockHeaders <- webEntries (view cutDbWebBlockHeaderDb cutDb) $ \s -> s
+    allBlockHeaders <- webEntries (view cutDbWebBlockHeaderDb cutDb) Nothing Nothing $ \s -> s
         & S.filter (checkHeight curCut)
         & S.toList_
     generate $ elements allBlockHeaders
