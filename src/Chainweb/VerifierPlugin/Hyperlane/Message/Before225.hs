@@ -46,7 +46,7 @@ base64DecodeGasCost = 5
 runPlugin :: forall s
         . PactValue
         -> Set.Set SigCapability
-        -> STRef s Gas
+        -> STRef s MilliGas
         -> ExceptT VerifierError (ST s) ()
 runPlugin proof caps gasRef = do
   -- extract capability values
