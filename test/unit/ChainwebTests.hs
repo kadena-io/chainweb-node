@@ -43,7 +43,7 @@ import Chainweb.Test.Utils
 import qualified Chainweb.Test.BlockHeader.Genesis (tests)
 import qualified Chainweb.Test.BlockHeader.Validation (tests)
 import qualified Chainweb.Test.BlockHeaderDB (tests)
--- import qualified Chainweb.Test.BlockHeaderDB.PruneForks (tests)
+import qualified Chainweb.Test.BlockHeaderDB.PruneForks (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import qualified Chainweb.Test.Cut (properties)
 import qualified Chainweb.Test.CutDB (tests)
@@ -113,7 +113,7 @@ suite rdb =
         , testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
-            -- , Chainweb.Test.BlockHeaderDB.PruneForks.tests
+            , Chainweb.Test.BlockHeaderDB.PruneForks.tests rdb
             , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
             ]
         , Chainweb.Test.CutDB.tests rdb
