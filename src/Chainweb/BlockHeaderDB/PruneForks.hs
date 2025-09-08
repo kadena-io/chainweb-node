@@ -197,6 +197,8 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         <> sshow pruneJob
 
     -- parent hashes of all blocks at height max rank @mar@.
+    -- it's fine if we miss some chains here, because we never remove chains
+    -- from the chain graph.
     --
     !pivots <- webEntries_ wbhdb (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
         $ S.foldMap_ HashSet.singleton . S.map (unwrapParent . view blockParent)
