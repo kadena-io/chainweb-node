@@ -8,6 +8,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Chainweb.CutResources
@@ -38,13 +39,13 @@ import Control.Monad.Trans.Resource
 
 import Prelude hiding (log)
 
-import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Client qualified as HTTP
 
 -- internal modules
 
 import Chainweb.Cut (Cut)
 import Chainweb.CutDB
-import qualified Chainweb.CutDB.Sync as C
+import Chainweb.CutDB.Sync qualified as C
 import Chainweb.Logger
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Sync.WebBlockHeaderStore
@@ -58,11 +59,11 @@ import P2P.Node.Configuration
 import P2P.Peer
 import P2P.TaskQueue
 import Chainweb.PayloadProvider
-import qualified Data.Text as T
+import Data.Text qualified as T
 import P2P.Session (P2pSession)
 import P2P.Node.PeerDB (PeerDb)
 import Chainweb.Utils
-import Chainweb.BlockHeaderDB.PruneForks
+import Chainweb.BlockHeaderDB.PruneForks qualified as PruneForks
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -105,7 +106,7 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
             C.syncSession myInfo cutDb
         headerP2pNode <- liftIO $ mkP2pNode False "header" $
             session 10 (_webBlockHeaderStoreQueue headerStore)
-        _ <- withAsyncR (pruneForksJob logger cutDb (int safeDepth))
+        _ <- withAsyncR (PruneForks.pruneForksJob logger cutDb PruneForks.DoPrune (int PruneForks.safeDepth))
         return CutResources
             { _cutResPeerDb = peerDb
             , _cutResCutDb = cutDb
