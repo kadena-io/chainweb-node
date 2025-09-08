@@ -273,7 +273,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         -- the current block is a pivot, thus we've seen its child block(s)
         -- and must keep it in the database
         | curHash `elem` pivots = do
-            let !pivots' = HashSet.insert (view (blockParent . _Parent) cur) $ HashSet.delete curHash pivots
+            let !pivots' =
+                    HashSet.insert (view (blockParent . _Parent) cur) $
+                    HashSet.delete curHash pivots
             return (True, PruneState
                 { pivots = pivots'
                 , prevHeight = curHeight
