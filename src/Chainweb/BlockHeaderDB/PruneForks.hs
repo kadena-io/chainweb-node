@@ -27,6 +27,7 @@ module Chainweb.BlockHeaderDB.PruneForks
 , pruneForks_
 , safeDepth
 , pruneForksJob
+, DoPrune(..)
 ) where
 
 import Control.DeepSeq
