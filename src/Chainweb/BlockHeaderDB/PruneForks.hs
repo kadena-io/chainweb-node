@@ -123,7 +123,7 @@ pruneForks
     -> IO Int
 pruneForks logger cdb doPrune depth = do
     startCut <- _cut cdb
-    let highestSafePruneTarget = _cutMinHeight startCut - int depth
+    let highestSafePruneTarget = _cutMinHeight startCut - min (int depth) (_cutMinHeight startCut)
     (resumingFrom, startedFrom) <- tableLookup (_webCurrentPruneJob wbhdb) () >>= \case
         Just j | doPrune /= ReDoPrune -> return j
         _ -> return (0, highestSafePruneTarget)
