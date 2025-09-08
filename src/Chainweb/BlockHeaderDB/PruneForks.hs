@@ -212,7 +212,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         return 0
     else do
         r <- fmap numPruned
-            $ withWebReverseHeaderStream wbhdb (mar - 1) mir
+            $ withWebReverseHeaderStream wbhdb (max 1 mar - 1)
             $ pruneBlocks pivots
         tableDelete (_webCurrentPruneJob wbhdb) ()
         return r
@@ -311,26 +311,23 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
 withReverseHeaderStream
     :: BlockHeaderDb
     -> MaxRank
-    -> MinRank
     -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
     -> IO a
-withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> do
+withReverseHeaderStream db mar inner = withTableIterator headerTbl $ \it -> do
     iterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
     iterPrev it
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
-        & S.takeWhile (\a -> int (view blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
 
 withWebReverseHeaderStream
     :: WebBlockHeaderDb
     -> MaxRank
-    -> MinRank
     -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
     -> IO a
-withWebReverseHeaderStream wbhdb mar mir inner = do
-    runContT (forM (_webBlockHeaderDb wbhdb) (\db -> ContT $ withReverseHeaderStream db mar mir)) $ \streamPerChain ->
+withWebReverseHeaderStream wbhdb mar inner = do
+    runContT (forM (_webBlockHeaderDb wbhdb) (\db -> ContT $ withReverseHeaderStream db mar)) $ \streamPerChain ->
         inner $ foldr1 (\x t -> () <$ S.mergeOn (view blockHeight) x t) streamPerChain
 
 {-# INLINE withReverseHeaderStream #-}
