@@ -264,6 +264,7 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
         , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
+        , Chainweb.VerifierPlugin.SignedList
         , Chainweb.Version
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
@@ -654,6 +655,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact5.CheckpointerTest
         Chainweb.Test.Pact5.CutFixture
         Chainweb.Test.Pact5.HyperlanePluginTests
+        Chainweb.Test.Pact5.SignedListPluginTests
         Chainweb.Test.Pact5.PactServiceTest
         Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest

@@ -123,7 +123,7 @@ recapDevnet = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $
-        (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
+        (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow", "signed_list"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing

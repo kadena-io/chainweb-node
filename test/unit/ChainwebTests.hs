@@ -74,6 +74,7 @@ import qualified Chainweb.Test.Pact4.TransactionTests (tests)
 import qualified Chainweb.Test.Pact4.VerifierPluginTest (tests)
 import qualified Chainweb.Test.Pact5.CheckpointerTest
 import qualified Chainweb.Test.Pact5.HyperlanePluginTests
+import qualified Chainweb.Test.Pact5.SignedListPluginTests
 import qualified Chainweb.Test.Pact5.PactServiceTest
 import qualified Chainweb.Test.Pact5.RemotePactTest
 import qualified Chainweb.Test.Pact5.SPVTest
@@ -163,6 +164,7 @@ suite rdb =
         , Chainweb.Test.Pact5.SPVTest.tests rdb
         , Chainweb.Test.Pact5.RemotePactTest.tests rdb
         , Chainweb.Test.Pact5.HyperlanePluginTests.tests rdb
+        , Chainweb.Test.Pact5.SignedListPluginTests.tests rdb
         , Chainweb.Test.Pact5.TransactionTests.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb

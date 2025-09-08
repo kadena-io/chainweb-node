@@ -68,6 +68,7 @@ import Chainweb.VerifierPlugin
 import qualified Chainweb.VerifierPlugin.Allow
 import qualified Chainweb.VerifierPlugin.Hyperlane.Announcement
 import qualified Chainweb.VerifierPlugin.Hyperlane.Message
+import qualified Chainweb.VerifierPlugin.SignedList
 
 import Control.Lens
 import Data.Foldable
@@ -478,4 +479,5 @@ allVerifierPlugins = M.fromList $ map (over _1 VerifierName)
 
     , ("hyperlane_v3_announcement", Chainweb.VerifierPlugin.Hyperlane.Announcement.plugin)
     , ("hyperlane_v3_message", Chainweb.VerifierPlugin.Hyperlane.Message.plugin)
+    , ("signed_list", Chainweb.VerifierPlugin.SignedList.plugin)
     ]
