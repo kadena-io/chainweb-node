@@ -78,6 +78,7 @@ import Data.HashSet (HashSet)
 import Data.Void (Void)
 import Data.Functor ((<&>))
 import Data.Ord
+import Control.Concurrent
 
 -- -------------------------------------------------------------------------- --
 -- Chain Database Pruning
@@ -97,7 +98,8 @@ pruneForksJob
     -> Natural
     -> IO Void
 pruneForksJob logger cdb doPrune depth = do
-    runForeverThrottled (logFunction logger) "prune_forks" 1 (1_000_000 * 60 * 60) $
+    runForever (logFunction logger) "prune_forks" $ do
+        threadDelay (1_000_000 * 60 * 60)
         void $ pruneForks logger cdb doPrune depth
 
 -- | Prunes most block headers from forks that are older than the given number
