@@ -76,6 +76,7 @@ import Control.Monad.Cont
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
 import Data.Void (Void)
+import Data.Foldable (toList)
 import Data.Functor ((<&>))
 import Data.Ord
 import Control.Concurrent
@@ -355,6 +356,4 @@ withWebReverseHeaderStream
     -> IO a
 withWebReverseHeaderStream wbhdb mar inner = do
     runContT (forM (_webBlockHeaderDb wbhdb) (\db -> ContT $ withReverseHeaderStream db mar)) $ \streamPerChain ->
-        inner $ foldr1 (\x t -> () <$ S.mergeOn (Down . view blockHeight) x t) streamPerChain
-
-{-# INLINE withReverseHeaderStream #-}
+        inner $ mergeN (Down . view rankedBlockHash) $ toList streamPerChain

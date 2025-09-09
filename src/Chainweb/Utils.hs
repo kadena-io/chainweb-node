@@ -184,6 +184,7 @@ module Chainweb.Utils
 , reverseStream
 , foldChunksM
 , foldChunksM_
+, mergeN
 , progress
 
 -- * Type Level
@@ -1293,6 +1294,19 @@ foldChunksM_
     -> m t
 foldChunksM_ f seed = fmap (fst . S.lazily) . foldChunksM f seed
 {-# INLINE foldChunksM_ #-}
+
+-- | Left-biased k-way merge of streams, using a binary tree of merges. O(n log k) where k
+-- is the number of streams and n is the total elements.
+mergeN :: forall m k a. (Monad m, Ord k) => (a -> k) -> [S.Stream (S.Of a) m ()] -> S.Stream (S.Of a) m ()
+mergeN f = go
+    where
+    go [strm] = strm
+    go strms = mergeN f (mergePairs strms)
+        where
+        mergePairs (a:b:xs) =
+            let !x = () <$ S.mergeOn f a b
+            in x : mergePairs xs
+        mergePairs xs       = xs
 
 -- | Progress reporting for long-running streams. I calls an action
 -- every @n@ streams items.
