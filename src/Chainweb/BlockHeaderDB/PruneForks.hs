@@ -77,6 +77,7 @@ import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
 import Data.Void (Void)
 import Data.Functor ((<&>))
+import Data.Ord
 
 -- -------------------------------------------------------------------------- --
 -- Chain Database Pruning
@@ -345,6 +346,6 @@ withWebReverseHeaderStream
     -> IO a
 withWebReverseHeaderStream wbhdb mar inner = do
     runContT (forM (_webBlockHeaderDb wbhdb) (\db -> ContT $ withReverseHeaderStream db mar)) $ \streamPerChain ->
-        inner $ foldr1 (\x t -> () <$ S.mergeOn (view blockHeight) x t) streamPerChain
+        inner $ foldr1 (\x t -> () <$ S.mergeOn (Down . view blockHeight) x t) streamPerChain
 
 {-# INLINE withReverseHeaderStream #-}
