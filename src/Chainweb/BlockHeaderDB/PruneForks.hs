@@ -151,6 +151,11 @@ pruneForks logger cdb doPrune depth = do
                 }
             tableInsert (_webHighestPruned wbhdb) () startedFrom
             tableDelete (_webCurrentPruneJob wbhdb) ()
+            logFunctionText logger Info
+                $ "Pruned "
+                <> sshow numPruned
+                <> " blocks, now pruned up to "
+                <> sshow startedFrom
             return numPruned
   where
     wbhdb = view cutDbWebBlockHeaderDb cdb
