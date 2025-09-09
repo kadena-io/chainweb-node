@@ -271,7 +271,8 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         | curHeight <= int (_getMinRank mir) && length pivots == 1 = do
             return (False, pruneState)
         -- the current block is a pivot, thus we've seen its child block(s)
-        -- and must keep it in the database
+        -- and must keep it in the database.
+        -- its parent takes its place as a pivot.
         | curHash `elem` pivots = do
             let !pivots' =
                     HashSet.insert (view (blockParent . _Parent) cur) $
