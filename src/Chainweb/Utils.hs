@@ -1077,14 +1077,14 @@ tryAllSynchronous = trySynchronous
 --
 -- An info-level message is logged when processing starts and stops.
 --
-runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
+runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO a
 runForever logfun name a = mask $ \umask -> do
     logfun Debug $ "start " <> name
     let go = do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Debug (name <> " stopped")
+    go `finally` logfun Debug (name <> " stopped")
 
 -- | Repeatedly run a computation 'forever' at the given rate until it is
 -- stopped by receiving 'SomeAsyncException'.
