@@ -128,7 +128,7 @@ pruneForks logger cdb doPrune depth = do
     let highestSafePruneTarget = _cutMinHeight startCut - min (int depth) (_cutMinHeight startCut)
     (resumingFrom, startedFrom) <- tableLookup (_webCurrentPruneJob wbhdb) () >>= \case
         Just j | doPrune /= ReDoPrune -> return j
-        _ -> return (0, highestSafePruneTarget)
+        _ -> return (highestSafePruneTarget, highestSafePruneTarget)
     -- the lower bound is different from the job start point because some
     -- heights have already been pruned
     highestPruned <- tableLookup (_webHighestPruned wbhdb) () >>= \case
