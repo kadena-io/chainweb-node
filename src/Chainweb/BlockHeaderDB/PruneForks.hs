@@ -99,8 +99,8 @@ pruneForksJob
     -> IO Void
 pruneForksJob logger cdb doPrune depth = do
     runForever (logFunction logger) "prune_forks" $ do
-        threadDelay (1_000_000 * 60 * 60)
         void $ pruneForks logger cdb doPrune depth
+        threadDelay (1_000_000 * 60 * 60)
 
 -- | Prunes most block headers from forks that are older than the given number
 -- of blocks.
