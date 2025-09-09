@@ -104,7 +104,7 @@ webEntries db f = go (view (webBlockHeaderDb . to toList) db) mempty
   where
     go [] s = f s
     go (h:t) s = entries h Nothing Nothing Nothing Nothing $ \x ->
-        go t (() <$ S.mergeOn (view blockCreationTime) s x)
+        go t (() <$ S.mergeOn ((,) <$> view blockCreationTime <*> view blockHash) s x)
 
 -- | Returns all blocks in all block header databases.
 webEntries_ :: HasVersion => WebBlockHeaderDb -> Maybe MinRank -> Maybe MaxRank -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
@@ -112,7 +112,7 @@ webEntries_ db mir mar f = go (view (webBlockHeaderDb . to toList) db) mempty
   where
     go [] s = f s
     go (h:t) s = entries h Nothing Nothing mir mar $ \x ->
-        go t (() <$ S.mergeOn (view blockHeight) s x)
+        go t (() <$ S.mergeOn (view rankedBlockHash) s x)
 
 type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb
