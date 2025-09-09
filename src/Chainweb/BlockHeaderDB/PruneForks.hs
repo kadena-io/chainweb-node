@@ -145,7 +145,7 @@ pruneForks logger cdb doPrune depth = do
             return 0
         | otherwise -> do
             numPruned <- pruneForks_ logger wbhdb doPrune (PruneJob resumingFrom startedFrom highestPruned)
-            tableInsert (_webHighestPruned wbhdb) () highestPruned
+            tableInsert (_webHighestPruned wbhdb) () startedFrom
             tableDelete (_webCurrentPruneJob wbhdb) ()
             return numPruned
   where
