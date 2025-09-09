@@ -294,10 +294,11 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                     return (newDelete, 1)
                 else
                     return (chainZip (++) newDelete pendingDeletes, pendingDeleteCount + 1)
+            let !numPruned' = numPruned + 1
             return (True, PruneState
                 { pivots
                 , prevHeight = curHeight
-                , numPruned = numPruned + 1
+                , numPruned = numPruned'
                 , pendingDeletes = pendingDeletes'
                 , pendingDeleteCount = pendingDeleteCount'
                 })
