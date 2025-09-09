@@ -31,8 +31,8 @@ module Chainweb.BlockHeaderDB.PruneForks
 ) where
 
 import Control.DeepSeq
-import Control.Exception (evaluate)
-import Control.Lens (view, (^?!), iforM_, (%~))
+import Control.Exception (evaluate, throw)
+import Control.Lens (ix, view, (^?!), iforM_, (%~))
 import Control.Monad
 import Control.Monad.Catch
 
@@ -76,6 +76,7 @@ import Control.Monad.Cont
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
 import Data.Void (Void)
+import Data.Functor ((<&>))
 
 -- -------------------------------------------------------------------------- --
 -- Chain Database Pruning
@@ -115,7 +116,7 @@ pruneForks
     -> DoPrune
     -> Natural
         -- ^ The depth at which pruning starts. Block at this depth are used as
-        -- pivots and actual deletion starts at (depth - 1).
+        -- initial live set and actual deletion starts at (depth - 1).
         --
         -- Note, that the max rank isn't necessarly included in the current best
         -- cut. So one, should choose a depth for which one is confident that
@@ -156,7 +157,8 @@ data PruneForksException
 instance Exception PruneForksException
 
 data PruneState = PruneState
-    { pivots :: HashSet BlockHash
+    { liveSet :: HashSet BlockHash
+    , pendingForkTips :: HashSet BlockHash
     , prevHeight :: BlockHeight
     , numPruned :: Int
     , pendingDeletes :: ChainMap [RankedBlockHash]
@@ -200,24 +202,23 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     -- it's fine if we miss some chains here, because we never remove chains
     -- from the chain graph.
     --
-    !pivots <- webEntries_ wbhdb (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
+    !initialLiveSet <- webEntries_ wbhdb (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
         $ S.foldMap_ HashSet.singleton . S.map (unwrapParent . view blockParent)
-            -- the set of pivots is expected to be very small. In fact it is
-            -- almost always a singleton set.
+            -- the initial live set is expected to be very small. In fact it is
+            -- almost always a singleton set on each chain.
 
-    if null pivots
+    if null initialLiveSet
     then do
         logFunctionText logger Warn
             $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
         return 0
     else do
         r <- withWebReverseHeaderStream wbhdb (max 1 mar - 1)
-            $ pruneBlocks pivots
+            $ pruneBlocks initialLiveSet
         tableDelete (_webCurrentPruneJob wbhdb) ()
         return r
 
   where
-    mir = MinRank $ int $ lowerBound pruneJob
     mar = MaxRank $ int $ resumptionPoint pruneJob
 
     executePendingDeletes prevHeight pendingDeletes = do
@@ -231,12 +232,13 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
         tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight, startedFrom pruneJob)
 
-    pruneBlocks initialPivots =
+    pruneBlocks initialLiveSet =
         go initialState
         where
         !noDeletes = onAllChains []
         initialState = PruneState
-            { pivots = initialPivots
+            { liveSet = initialLiveSet
+            , pendingForkTips = HashSet.empty
             , prevHeight = resumptionPoint pruneJob
             , numPruned = 0
             , pendingDeletes = noDeletes
@@ -254,9 +256,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         pruneBlock state block strm'
 
         pruneBlock :: PruneState -> BlockHeader -> S.Stream (S.Of BlockHeader) IO () -> IO Int
-        pruneBlock PruneState {pivots, prevHeight} _ _ | HashSet.null pivots =
+        pruneBlock PruneState {liveSet, prevHeight} _ _ | HashSet.null liveSet =
             throw $ InternalInvariantViolation
-                $ "PruneForks.pruneForks_: no pivots left at height " <> sshow prevHeight
+                $ "PruneForks.pruneForks_: no live blocks left at height " <> sshow prevHeight
         pruneBlock PruneState{..} cur strm
             -- This checks some structural consistency. It's not a comprehensive
             -- check. Comprehensive checks on various levels are available through
@@ -264,24 +266,29 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
                 throw $ InternalInvariantViolation
                     $ "PruneForks.pruneForks_: detected a corrupted database. Some block headers are missing"
-                    <> ". Current pivots: " <> encodeToText pivots
+                    <> ". Current live set: " <> encodeToText liveSet
                     <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                     <> ". Previous height: " <> sshow prevHeight
-            -- if we have only one pivots and are at or beyond the lower bound,
+            -- if we are at or beyond the lower bound,
             -- then we have no more pending fork tips to delete in the range
-            | curHeight <= int (_getMinRank mir) && length pivots == 1 = do
+            | curHeight <= lowerBound pruneJob
+            , curHeight < prevHeight
+            , HashSet.null pendingForkTips = do
                 executePendingDeletes prevHeight pendingDeletes
                 return numPruned
             -- the current block is a pivot, thus we've seen its child block(s)
             -- and must keep it in the database.
-            -- its parent takes its place as a pivot.
-            | curHash `elem` pivots = do
-                let !pivots' =
-                        HashSet.insert (view (blockParent . _Parent) cur) $
-                        HashSet.delete curHash pivots
+            -- its parent takes its place as a live block.
+            | curHash `elem` liveSet = do
+                let !liveSet' =
+                        HashSet.insert curParent $
+                        HashSet.delete curHash liveSet
+                let !pendingForkTips' =
+                        HashSet.delete curParent pendingForkTips
                 go
                     PruneState
-                        { pivots = pivots'
+                        { liveSet = liveSet'
+                        , pendingForkTips = pendingForkTips'
                         , prevHeight = curHeight
                         , numPruned
                         , pendingDeletes
@@ -294,15 +301,21 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         (pendingDeletes & ix cid %~ (newDelete :)
                         , pendingDeleteCount + 1)
                 let !numPruned' = numPruned + 1
+                let pendingForkTips' = HashSet.delete curHash $
+                        if HashSet.member curParent liveSet
+                        then pendingForkTips
+                        else HashSet.insert curParent pendingForkTips
                 go
                     PruneState
-                        { pivots
+                        { liveSet
+                        , pendingForkTips = pendingForkTips'
                         , prevHeight = curHeight
                         , numPruned = numPruned'
                         , pendingDeletes = pendingDeletes'
                         , pendingDeleteCount = pendingDeleteCount'
                         } strm
             where
+            curParent = view (blockParent . _Parent) cur
             !cid = view chainId cur
             !curHeight = view blockHeight cur
             !curHash = view blockHash cur
