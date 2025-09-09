@@ -211,8 +211,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
         return 0
     else do
-        r <- fmap numPruned
-            $ withWebReverseHeaderStream wbhdb (max 1 mar - 1)
+        r <- withWebReverseHeaderStream wbhdb (max 1 mar - 1)
             $ pruneBlocks pivots
         tableDelete (_webCurrentPruneJob wbhdb) ()
         return r
@@ -232,80 +231,81 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
         tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight, startedFrom pruneJob)
 
-    pruneBlocks pivots =
+    pruneBlocks initialPivots =
         go initialState
         where
+        !noDeletes = onAllChains []
         initialState = PruneState
-            { pivots
-            , prevHeight = BlockHeight $ int (_getMaxRank mar)
+            { pivots = initialPivots
+            , prevHeight = resumptionPoint pruneJob
             , numPruned = 0
-            , pendingDeletes = onAllChains []
+            , pendingDeletes = noDeletes
             , pendingDeleteCount = 0
             }
-        go state strm = S.uncons strm >>= \case
-            Nothing -> return state
-            Just (block, strm') -> do
-                pruneBlock state block >>= \case
-                    (False, state') -> do
-                        executePendingDeletes (prevHeight state) (pendingDeletes state')
-                        return state' { pendingDeletes = onAllChains [], pendingDeleteCount = 0 }
-                    (True, state') -> do
-                        go state' strm'
+        go state strm =
+            if pendingDeleteCount state > 1000
+            then do
+                executePendingDeletes (prevHeight state) (pendingDeletes state)
+                go state { pendingDeletes = noDeletes, pendingDeleteCount = 0 } strm
+            else do
+                S.uncons strm >>= \case
+                    Nothing -> return $! numPruned state
+                    Just (block, strm') -> do
+                        pruneBlock state block strm'
 
-    pruneBlock :: PruneState -> BlockHeader -> IO (Bool, PruneState)
-    pruneBlock PruneState {pivots, prevHeight} _ | HashSet.null pivots =
-        throwM $ InternalInvariantViolation
-            $ "PruneForks.pruneForks_: no pivots left at height " <> sshow prevHeight
-    pruneBlock pruneState@PruneState{..} cur
-        -- This checks some structural consistency. It's not a comprehensive
-        -- check. Comprehensive checks on various levels are available through
-        -- callbacks that are offered in the module "Chainweb.Chainweb.PruneChainDatabase"
-        | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
-            throwM $ InternalInvariantViolation
-                $ "PruneForks.pruneForks_: detected a corrupted database. Some block headers are missing"
-                <> ". Current pivots: " <> encodeToText pivots
-                <> ". Current header: " <> encodeToText (ObjectEncoded cur)
-                <> ". Previous height: " <> sshow prevHeight
-        -- if we have only one pivots and are at or beyond the lower bound,
-        -- then we have no more pending fork tips to delete in the range
-        | curHeight <= int (_getMinRank mir) && length pivots == 1 = do
-            return (False, pruneState)
-        -- the current block is a pivot, thus we've seen its child block(s)
-        -- and must keep it in the database.
-        -- its parent takes its place as a pivot.
-        | curHash `elem` pivots = do
-            let !pivots' =
-                    HashSet.insert (view (blockParent . _Parent) cur) $
-                    HashSet.delete curHash pivots
-            return (True, PruneState
-                { pivots = pivots'
-                , prevHeight = curHeight
-                , numPruned
-                , pendingDeletes
-                , pendingDeleteCount
-                })
-        -- the current block is not a pivot, so we haven't seen its child and can safely delete it
-        | otherwise = do
-            let newDelete = onChain cid [view rankedBlockHash cur]
-            !(pendingDeletes', !pendingDeleteCount') <-
-                if pendingDeleteCount > 1000
-                then do
-                    executePendingDeletes prevHeight pendingDeletes
-                    return (newDelete, 1)
-                else
-                    return (chainZip (++) newDelete pendingDeletes, pendingDeleteCount + 1)
-            let !numPruned' = numPruned + 1
-            return (True, PruneState
-                { pivots
-                , prevHeight = curHeight
-                , numPruned = numPruned'
-                , pendingDeletes = pendingDeletes'
-                , pendingDeleteCount = pendingDeleteCount'
-                })
-        where
-        !cid = view chainId cur
-        !curHeight = view blockHeight cur
-        !curHash = view blockHash cur
+        pruneBlock :: PruneState -> BlockHeader -> S.Stream (S.Of BlockHeader) IO () -> IO Int
+        pruneBlock PruneState {pivots, prevHeight} _ _ | HashSet.null pivots =
+            throw $ InternalInvariantViolation
+                $ "PruneForks.pruneForks_: no pivots left at height " <> sshow prevHeight
+        pruneBlock PruneState{..} cur strm
+            -- This checks some structural consistency. It's not a comprehensive
+            -- check. Comprehensive checks on various levels are available through
+            -- callbacks that are offered in the module "Chainweb.Chainweb.PruneChainDatabase"
+            | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
+                throw $ InternalInvariantViolation
+                    $ "PruneForks.pruneForks_: detected a corrupted database. Some block headers are missing"
+                    <> ". Current pivots: " <> encodeToText pivots
+                    <> ". Current header: " <> encodeToText (ObjectEncoded cur)
+                    <> ". Previous height: " <> sshow prevHeight
+            -- if we have only one pivots and are at or beyond the lower bound,
+            -- then we have no more pending fork tips to delete in the range
+            | curHeight <= int (_getMinRank mir) && length pivots == 1 = do
+                executePendingDeletes prevHeight pendingDeletes
+                return numPruned
+            -- the current block is a pivot, thus we've seen its child block(s)
+            -- and must keep it in the database.
+            -- its parent takes its place as a pivot.
+            | curHash `elem` pivots = do
+                let !pivots' =
+                        HashSet.insert (view (blockParent . _Parent) cur) $
+                        HashSet.delete curHash pivots
+                go
+                    PruneState
+                        { pivots = pivots'
+                        , prevHeight = curHeight
+                        , numPruned
+                        , pendingDeletes
+                        , pendingDeleteCount
+                        } strm
+            -- the current block is not a pivot, so we haven't seen its child and can safely delete it
+            | otherwise = do
+                let !newDelete = view rankedBlockHash cur
+                let !(!pendingDeletes', !pendingDeleteCount') =
+                        (pendingDeletes & ix cid %~ (newDelete :)
+                        , pendingDeleteCount + 1)
+                let !numPruned' = numPruned + 1
+                go
+                    PruneState
+                        { pivots
+                        , prevHeight = curHeight
+                        , numPruned = numPruned'
+                        , pendingDeletes = pendingDeletes'
+                        , pendingDeleteCount = pendingDeleteCount'
+                        } strm
+            where
+            !cid = view chainId cur
+            !curHeight = view blockHeight cur
+            !curHash = view blockHash cur
 
 -- -------------------------------------------------------------------------- --
 -- Utils
