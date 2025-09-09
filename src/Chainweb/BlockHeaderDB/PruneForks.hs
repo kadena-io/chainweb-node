@@ -197,8 +197,6 @@ pruneForks_
     -> DoPrune
     -> PruneJob
     -> IO Int
--- pruneForks_ logger _ (PruneJob (Max mar)) _
---     | mar <= 1 = 0 <$ logFunctionText logger Warn ("Skipping database pruning for max bound of " <> sshow mar)
 pruneForks_ logger wbhdb doPrune pruneJob = do
     logFunctionText logger Debug $ "Pruning block header database job "
         <> sshow pruneJob
