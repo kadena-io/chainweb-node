@@ -295,7 +295,8 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             | curHeight <= lowerBound pruneJob
             , curHeight < prevHeight
             , HashSet.null pendingForkTips = do
-                executePendingDeletes prevHeight pendingDeletes
+                when (pendingDeleteCount > 0) $
+                    executePendingDeletes prevHeight pendingDeletes pendingDeleteCount
                 return numPruned
             -- the current block is a pivot, thus we've seen its child block(s)
             -- and must keep it in the database.
