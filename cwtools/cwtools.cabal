@@ -87,6 +87,28 @@ executable b64
         , optparse-applicative
         , text
 
+executable standalone-pruner
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+    hs-source-dirs: standalone-pruner
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb-storage
+
+        -- external
+        , base >= 4.12 && < 5
+        , lens
+        , lens-aeson
+        , loglevel
+        , optparse-applicative
+        , resourcet
+        , text
+        , time
+
 executable calculate-release
     import: warning-flags, debugging-flags
     default-language: Haskell2010
