@@ -140,7 +140,7 @@ pruneForks logger initialCut wbhdb doPrune depth = do
     lowerBound <- tableLookup (_webHighestPruned wbhdb) () >>= \case
         Just highestPruned | doPrune /= ForcePrune -> return highestPruned
         _ -> return 0
-
+    tableInsert (_webHighestPruned wbhdb) () lowerBound
     if
         | int (_cutMinHeight initialCut) <= depth -> do
             logFunctionText logger Info
