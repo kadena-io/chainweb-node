@@ -206,7 +206,7 @@ pruneForks_
     -> PruneJob
     -> IO Int
 pruneForks_ logger wbhdb doPrune pruneJob = do
-    logFunctionText logger Debug $ "Pruning block header database job "
+    logFunctionText logger Info $ "Pruning block header database job "
         <> sshow pruneJob
 
     -- parent hashes of all blocks at height max rank @mar@.
@@ -240,6 +240,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                 _ -> do
                     tableDeleteBatch (_chainDbCas cdb) pendingDeletesForCid
                     tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
+        logFunctionText logger Info $ "pruned " <> sshow pendingDeleteCount <> " block headers at height " <> sshow prevHeight
         logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
         tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight, startedFrom pruneJob)
 
