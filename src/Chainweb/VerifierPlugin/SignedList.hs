@@ -64,18 +64,18 @@ import Control.Monad.ST
 -- Gas Charging Parameters
 --------------------------------------------------------------------------------
 data GasParams = GasParams
-  { baseGas             :: MilliGas  -- Initial validation gas cost
-  , perItemGas          :: MilliGas  -- Gas per message part / decoded chunk
-  , hashedByteGas       :: MilliGas  -- Gas per byte hashed
-  , sigVerificationGas  :: MilliGas  -- Fixed cost for signature verification
+  { hashedHundredByteGasUtf       :: MilliGas  -- Gas per string byte hashed
+  , hashedHundredByteGasB16       :: MilliGas  -- Gas per B16 string byte hashed
+  , sigVerificationGas            :: MilliGas  -- Fixed cost for signature verification
+  , baseGas                       :: MilliGas
   }
 
 gasParams :: GasParams
 gasParams = GasParams
-  { baseGas             = MilliGas 0
-  , perItemGas          = MilliGas 0
-  , hashedByteGas       = MilliGas 0
-  , sigVerificationGas  = MilliGas 0
+  { hashedHundredByteGasUtf    = MilliGas 1
+  , hashedHundredByteGasB16    = MilliGas 1
+  , sigVerificationGas         = MilliGas 0
+  , baseGas                    = MilliGas 0
   }
 
 --------------------------------------------------------------------------------
@@ -136,22 +136,21 @@ foldHashList gp gasRef = \case
   HLList nodes -> do
     (chunks, strippedNodes) <- unzip <$> traverse foldNode nodes
     let concatenated = BS.concat chunks
-    -- charge by hashed bytes
-    chargeMilliGas gasRef ((BS.length concatenated) `stimes` (hashedByteGas gp))
     pure (hashSHA3 concatenated, PList (V.catMaybes $ V.fromList strippedNodes))
 
   where
     foldNode :: HashListNode -> ExceptT VerifierError (ST s) (BS.ByteString, Maybe PactValue)
     foldNode (HLNString t) = do
       -- UTF-8 encoding under gas
-      chargeMilliGas gasRef (perItemGas gp)
+      
       let bs = TextEnc.encodeUtf8 t
+      chargeMilliGas gasRef ((BS.length bs) `stimes` (hashedHundredByteGasUtf gp))
       pure (bs, Just (PLiteral (LString t)))
 
     foldNode (HLNDecimal d) = do
       -- Decimal rendered then UTF-8 encoded under gas
-      chargeMilliGas gasRef (perItemGas gp)
       let bs = TextEnc.encodeUtf8 (Text.pack (show d))
+      chargeMilliGas gasRef ((BS.length bs) `stimes` (hashedHundredByteGasUtf gp))
       pure (bs, Just (PLiteral (LDecimal d)))
 
     foldNode (HLNHashHex hexTxt) = do
@@ -171,9 +170,10 @@ decodeHexCharged
   :: STRef s MilliGas -> GasParams -> Text
   -> ExceptT VerifierError (ST s) BS.ByteString
 decodeHexCharged gasRef gp hexTxt = do
-  chargeMilliGas gasRef (perItemGas gp)
   case hexToBS (TextEnc.encodeUtf8 hexTxt) of
-    Just bs -> pure bs
+    Just bs -> do
+      chargeMilliGas gasRef ((BS.length bs) `stimes` (hashedHundredByteGasB16 gp))
+      pure bs
     Nothing -> throwError $ VerifierError $ "Malformed hex encoding: " <> hexTxt
 
 --------------------------------------------------------------------------------
