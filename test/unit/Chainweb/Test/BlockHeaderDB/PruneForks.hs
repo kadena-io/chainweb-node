@@ -175,7 +175,7 @@ singleForkTest rdb step d expect msg = runResourceT $ do
         atomically $ do
             curCut <- _cutStm cdb
             guard (cutToCutHashes Nothing curCut == f0Cut)
-        n <- pruneForks logg cdb DoPrune d
+        n <- pruneForks logg cdb Prune d
         assertHeaders db f0
         when (expect > 0) $ assertPrunedHeaders db f1
         assertEqual msg expect n
@@ -223,7 +223,7 @@ failTest rio n step = withVersion toyVersion $ runResourceT $ do
         let h = toyGenesis cid
         (f0, _) <- createForks db h
         delHdr db $ f0 !! (int n)
-        try (pruneForks logg cdb DoPrune 2) >>= \case
+        try (pruneForks logg cdb Prune 2) >>= \case
             Left (InternalInvariantViolation{}) -> return ()
             Right x -> assertFailure
                 $ "missing expected InternalInvariantViolation"
