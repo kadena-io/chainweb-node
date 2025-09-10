@@ -94,13 +94,15 @@ pruneForksJob
     :: HasVersion
     => Logger logger
     => logger
-    -> CutDb
+    -> IO Cut
+    -> WebBlockHeaderDb
     -> DoPrune
     -> Natural
     -> IO Void
-pruneForksJob logger cdb doPrune depth = do
+pruneForksJob logger getCut wbhdb doPrune depth = do
     runForever (logFunction logger) "prune_forks" $ do
-        void $ pruneForks logger cdb doPrune depth
+        initialCut <- getCut
+        void $ pruneForks logger initialCut wbhdb doPrune depth
         threadDelay (1_000_000 * 60 * 60)
 
 -- | Prunes most block headers from forks that are older than the given number
@@ -116,7 +118,8 @@ pruneForks
     :: HasVersion
     => Logger logger
     => logger
-    -> CutDb
+    -> Cut
+    -> WebBlockHeaderDb
     -> DoPrune
     -> Natural
         -- ^ The depth at which pruning starts. Block at this depth are used as
@@ -127,9 +130,8 @@ pruneForks
         -- all forks are resolved.
 
     -> IO Int
-pruneForks logger cdb doPrune depth = do
-    startCut <- _cut cdb
-    let highestSafePruneTarget = _cutMinHeight startCut - min (int depth) (_cutMinHeight startCut)
+pruneForks logger initialCut wbhdb doPrune depth = do
+    let highestSafePruneTarget = _cutMinHeight initialCut - min (int depth) (_cutMinHeight initialCut)
     (resumptionPoint, startedFrom) <- tableLookup (_webCurrentPruneJob wbhdb) () >>= \case
         Just j | doPrune /= ForcePrune -> return j
         _ -> return (highestSafePruneTarget, highestSafePruneTarget)
@@ -140,10 +142,10 @@ pruneForks logger cdb doPrune depth = do
         _ -> return 0
 
     if
-        | int (_cutMinHeight startCut) <= depth -> do
+        | int (_cutMinHeight initialCut) <= depth -> do
             logFunctionText logger Info
                 $ "Skipping database pruning because the maximum block height "
-                <> sshow (_cutMinHeight startCut) <> " is not larger than then requested depth "
+                <> sshow (_cutMinHeight initialCut) <> " is not larger than then requested depth "
                 <> sshow depth
             return 0
         | otherwise -> do
@@ -160,8 +162,6 @@ pruneForks logger cdb doPrune depth = do
                 <> " blocks, now pruned up to "
                 <> sshow startedFrom
             return numPruned
-  where
-    wbhdb = view cutDbWebBlockHeaderDb cdb
 
 data PruneForksException
     = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
