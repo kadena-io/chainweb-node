@@ -173,6 +173,7 @@ data PruneState = PruneState
     { liveSet :: HashSet BlockHash
     , pendingForkTips :: HashSet BlockHash
     , prevHeight :: BlockHeight
+    , prevRecordedHeight :: BlockHeight
     , numPruned :: Int
     , pendingDeletes :: ChainMap [RankedBlockHash]
     , pendingDeleteCount :: Int
@@ -232,7 +233,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
   where
     mar = MaxRank $ int $ resumptionPoint pruneJob
 
-    executePendingDeletes prevHeight pendingDeletes = do
+    executePendingDeletes prevHeight pendingDeletes pendingDeleteCount = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
             let cdb = _webBlockHeaderDb wbhdb ^?! atChain cid
             case doPrune of
@@ -242,7 +243,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                     tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
         logFunctionText logger Info $ "pruned " <> sshow pendingDeleteCount <> " block headers at height " <> sshow prevHeight
         logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
-        tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight, startedFrom pruneJob)
+
+    deleteBatchSize = 1000
+    checkpointSize = 200
 
     pruneBlocks initialLiveSet =
         go initialState
@@ -252,15 +255,21 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             { liveSet = initialLiveSet
             , pendingForkTips = HashSet.empty
             , prevHeight = resumptionPoint pruneJob
+            , prevRecordedHeight = resumptionPoint pruneJob
             , numPruned = 0
             , pendingDeletes = noDeletes
             , pendingDeleteCount = 0
             }
         go state strm =
-            if pendingDeleteCount state > 1000
+            if pendingDeleteCount state >= deleteBatchSize
             then do
-                executePendingDeletes (prevHeight state) (pendingDeletes state)
-                go state { pendingDeletes = noDeletes, pendingDeleteCount = 0 } strm
+                executePendingDeletes (prevHeight state) (pendingDeletes state) (pendingDeleteCount state)
+                tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight state, startedFrom pruneJob)
+                go state { prevRecordedHeight = prevHeight state, pendingDeletes = noDeletes, pendingDeleteCount = 0 } strm
+            else if prevRecordedHeight state - prevHeight state > checkpointSize
+            then do
+                tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight state, startedFrom pruneJob)
+                go state { prevRecordedHeight = prevHeight state } strm
             else do
                 S.uncons strm >>= \case
                     Nothing -> return $! numPruned state
@@ -302,6 +311,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         { liveSet = liveSet'
                         , pendingForkTips = pendingForkTips'
                         , prevHeight = curHeight
+                        , prevRecordedHeight
                         , numPruned
                         , pendingDeletes
                         , pendingDeleteCount
@@ -322,6 +332,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         { liveSet
                         , pendingForkTips = pendingForkTips'
                         , prevHeight = curHeight
+                        , prevRecordedHeight
                         , numPruned = numPruned'
                         , pendingDeletes = pendingDeletes'
                         , pendingDeleteCount = pendingDeleteCount'
