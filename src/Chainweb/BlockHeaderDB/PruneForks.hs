@@ -87,7 +87,7 @@ import Control.Concurrent
 safeDepth :: BlockHeight
 safeDepth = 10000
 
-data DoPrune = DoPrune | ReDoPrune | DoNotPrune
+data DoPrune = Prune | ForcePrune | PruneDryRun
     deriving (Show, Eq, Ord)
 
 pruneForksJob
@@ -131,12 +131,12 @@ pruneForks logger cdb doPrune depth = do
     startCut <- _cut cdb
     let highestSafePruneTarget = _cutMinHeight startCut - min (int depth) (_cutMinHeight startCut)
     (resumptionPoint, startedFrom) <- tableLookup (_webCurrentPruneJob wbhdb) () >>= \case
-        Just j | doPrune /= ReDoPrune -> return j
+        Just j | doPrune /= ForcePrune -> return j
         _ -> return (highestSafePruneTarget, highestSafePruneTarget)
     -- the lower bound is different from the job start point because some
     -- heights have already been pruned
     lowerBound <- tableLookup (_webHighestPruned wbhdb) () >>= \case
-        Just highestPruned | doPrune /= ReDoPrune -> return highestPruned
+        Just highestPruned | doPrune /= ForcePrune -> return highestPruned
         _ -> return 0
 
     if
@@ -236,7 +236,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
             let cdb = _webBlockHeaderDb wbhdb ^?! atChain cid
             case doPrune of
-                DoNotPrune -> return ()
+                PruneDryRun -> return ()
                 _ -> do
                     tableDeleteBatch (_chainDbCas cdb) pendingDeletesForCid
                     tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
