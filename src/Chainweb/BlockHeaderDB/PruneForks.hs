@@ -64,6 +64,131 @@ import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
+--
+-- # DB Maintainance Job
+--
+-- A job run processes all blocks below a certain depth. It is configured with
+-- an action that is called on each block along with a boolean that indicates
+-- whether the block is canonical or not:
+--
+-- ```
+-- blockHook :: Bool -> BlockHeader -> IO ()
+-- ```
+--
+-- A Job starts with a new current mark and is devided in transactional chunks
+-- that advance the resume mark until it reaches the hight water mark.
+-- Any persistent state changes must be made at the end of a chunk in a
+-- transactional way along with the resume mark update. The following hook is
+-- offered for this:
+--
+-- ```
+-- chunkHook :: BlockHeight -> IO ()
+-- ```
+--
+-- If a job is scheduled it first checks whether there exists a current mark
+-- and/or resume mark. If so it continues from the last resume mark (or current
+-- mark if there is no resume mark).
+--
+-- High warter mark: all blocks height below have been processed.
+-- current mark: current job start, becomes high water mark after job is done,
+--     i.e. when resume mark reaches current hight water mark.
+-- resume mark: all block heights between resume mark and current mark have been
+--     processed
+--
+--
+-- ```
+-- * current chain head
+-- |
+-- |                     (unprocessed)
+-- |
+-- * current mark
+-- |
+-- |                     (processed)
+-- |
+-- * resume mark
+-- |
+-- |                   (to be processed)
+-- |
+-- * high water mark
+-- |
+-- |                    (processed)
+-- |
+-- * genesis block
+-- ```
+--
+--
+-- The Job picks all blocks at the start height as pivots. All blocks that are
+-- ancestors of a pivot are considered canonical. Blocks that are not ancestors
+-- of any pivot are considered non-canonical.
+--
+--
+--```
+-- * * *        <- initial pivots at chunk start
+-- | | |
+-- \| |  *
+--  |/   |
+--  |    |      <- chunk end
+--  *    ?      <- resume mark
+--  |   /
+-- ```
+--
+-- At the resume mark there may also be blocks that are not ancestors of any
+-- pivot. Those blocks must not be chosen as pivots for the next chunk.
+--
+--  1.  Solution: at the chunk end continue until there is only a single pivot
+--      left (per chain).
+--
+--      This solution does not guarantee progress, in a *theoretical* worst
+--      case, where a node repeatedly restarts before finishing processing of a
+--      large chunk. (This is the case for pruning.)
+--
+--      The block hook is called more than once for some blocks. For that
+--      the hook must be idempotent. Moreover, non-canonical blocks will
+--      be processed as canonical on in the next chunk (This is the case for
+--      pruning.)
+--
+--      The number of blockHook calls in a single tx is only bounded by the
+--      length of the longest fork. (In case of deleteds, can rocksdb handle
+--      this?)
+--
+--  2.  Solution: store the current pivots in the resume mark. Processing
+--      of a chunk is bounded by the size of the chunk in block heights. This
+--      guarantees progress.
+--      This can be optimized by storing only storing the pivots for a chain
+--      if there exists a non-canonical block on that chain at the resume mark
+--      height. It is expected that this is a rare case.
+--
+--  I propose to implement the optimized version of 2.
+--
+-- Overall the signatures for a Job configuration is:
+--
+-- ```
+-- maintananceJob
+--  :: HasVersion
+--  => Logger logger
+--  => logger
+--  -> BlockHeaderDb
+--  -> Maybe Micros
+--      -- ^ Nothing if this is a one-off job, otherwise the delay between
+--      -- runs.
+--  -> String
+--      -- ^ Job name for tagging the marks in the db and for logging
+--  -> BlockHeight
+--      -- ^ The depth at which the job starts.
+--  -> (Bool -> BlockHeader -> IO ())
+--      -- ^ Block hook, called for each block in the processed range. The
+--      boolean indicates whether the block is canonical (i.e. an ancestor
+--      of a pivot) or not.
+--  -> (BlockHeight -> IO ())
+--      -- ^ Chunk hook, called at the end of each chunk. The parameter is the
+--      -- new resume mark height.
+--  -> (BlockHeight -> IO ())
+--      -- ^ Job Hook, called at the end of a full job run. The parameter is the
+--      -- new high water mark height.
+--  -> IO ()
+-- ```
+
+-- -------------------------------------------------------------------------- --
 -- Chain Database Pruning
 
 pruneForksLogg
@@ -187,7 +312,7 @@ pruneForks_ logg cdb mar mir callback = do
         return 0
       else
         withReverseHeaderStream cdb (mar - 1) mir
-            $ S.foldM_ go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
+            $ shortCircuitFoldM go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
             . progress 200000 reportProgress
 
   where
@@ -196,10 +321,19 @@ pruneForks_ logg cdb mar mir callback = do
         <> " block headers. Current height "
         <> sshow (view blockHeight a)
 
-    go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
+    -- FoldM with with short-circuiting
+    shortCircuitFoldM :: (a -> b -> IO (Maybe a)) -> a -> S.Stream (S.Of b) IO r -> IO a
+    shortCircuitFoldM f a s = S.uncons s >>= \case
+        Nothing -> return ()
+        Just (n, s') -> f a n >>= \case
+            Nothing -> return ()
+            Just a' -> run f a' s'
+
+    go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO (Maybe ([BlockHash], BlockHeight, Int))
     go ([], _, _) cur = throwM $ InternalInvariantViolation
         $ "PruneForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
     go (!pivots, !prevHeight, !n) !cur
+        | curHeight <= mir && length pivots == 1 = return Nothing
 
         -- This checks some structural consistency. It's not a comprehensive
         -- check. Comprehensive checks on various levels are availabe through
@@ -213,11 +347,11 @@ pruneForks_ logg cdb mar mir callback = do
         | view blockHash cur `elem` pivots = do
             callback False cur
             let !pivots' = force $ L.nub $ unwrapParent (view blockParent cur) : L.delete (view blockHash cur) pivots
-            return (pivots', curHeight, n)
+            return Just (pivots', curHeight, n)
         | otherwise = do
             deleteHdr cur
             callback True cur
-            return (pivots, curHeight, n+1)
+            return Just (pivots, curHeight, n+1)
       where
         curHeight = view blockHeight cur
 
@@ -238,15 +372,13 @@ pruneForks_ logg cdb mar mir callback = do
 withReverseHeaderStream
     :: BlockHeaderDb
     -> MaxRank
-    -> MinRank
     -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
     -> IO a
-withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> do
+withReverseHeaderStream db mar inner = withTableIterator headerTbl $ \it -> do
     iterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
     iterPrev it
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
-        & S.takeWhile (\a -> int (view blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
 
