@@ -106,7 +106,12 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
             C.syncSession myInfo cutDb
         headerP2pNode <- liftIO $ mkP2pNode False "header" $
             session 10 (_webBlockHeaderStoreQueue headerStore)
-        _ <- withAsyncR (PruneForks.pruneForksJob logger cutDb PruneForks.DoPrune (int PruneForks.safeDepth))
+        _ <- withAsyncR $ PruneForks.pruneForksJob
+            logger
+            (_cut cutDb)
+            (view cutDbWebBlockHeaderDb cutDb)
+            PruneForks.Prune
+            (int PruneForks.safeDepth)
         return CutResources
             { _cutResPeerDb = peerDb
             , _cutResCutDb = cutDb
