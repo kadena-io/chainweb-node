@@ -110,7 +110,7 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
             logger
             (_cut cutDb)
             (view cutDbWebBlockHeaderDb cutDb)
-            PruneForks.Prune
+            PruneForks.PruneDryRun
             (int PruneForks.safeDepth)
         return CutResources
             { _cutResPeerDb = peerDb
