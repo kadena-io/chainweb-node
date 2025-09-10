@@ -369,6 +369,7 @@ jobs:
           exe:ea \
           exe:genconf \
           exe:known-graphs \
+          exe:standalone-pruner \
           exe:pact-diff \
           test:chainweb-tests \
           test:multi-node-network-tests \
@@ -417,6 +418,7 @@ jobs:
         cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
         cp $(cabal list-bin pact-diff) artifacts/chainweb
         cp $(cabal list-bin remote-tests) artifacts/chainweb
+        cp $(cabal list-bin standalone-pruner) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
