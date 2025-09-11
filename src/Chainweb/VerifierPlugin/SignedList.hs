@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE NumericUnderscores #-}
 
 --
 -- The plugin expects the proof value to be structured as follows:
@@ -64,17 +64,17 @@ import Control.Monad.ST
 -- Gas Charging Parameters
 --------------------------------------------------------------------------------
 data GasParams = GasParams
-  { hashedHundredByteGasUtf       :: MilliGas  -- Gas per string byte hashed
-  , hashedHundredByteGasB16       :: MilliGas  -- Gas per B16 string byte hashed
+  { hashed128ByteGasUtf       :: MilliGas  -- Gas per string byte hashed
+  , hashed128ByteGasB16       :: MilliGas  -- Gas per B16 string byte hashed
   , sigVerificationGas            :: MilliGas  -- Fixed cost for signature verification
   , baseGas                       :: MilliGas
   }
 
 gasParams :: GasParams
 gasParams = GasParams
-  { hashedHundredByteGasUtf    = MilliGas 1
-  , hashedHundredByteGasB16    = MilliGas 1
-  , sigVerificationGas         = MilliGas 0
+  { hashed128ByteGasUtf    = MilliGas 1
+  , hashed128ByteGasB16    = MilliGas 1
+  , sigVerificationGas         = MilliGas 650_000
   , baseGas                    = MilliGas 0
   }
 
@@ -144,13 +144,13 @@ foldHashList gp gasRef = \case
       -- UTF-8 encoding under gas
       
       let bs = TextEnc.encodeUtf8 t
-      chargeMilliGas gasRef ((BS.length bs) `stimes` (hashedHundredByteGasUtf gp))
+      chargeMilliGas gasRef (((BS.length bs `div` 128) + 1) `stimes` (hashed128ByteGasUtf gp))
       pure (bs, Just (PLiteral (LString t)))
 
     foldNode (HLNDecimal d) = do
       -- Decimal rendered then UTF-8 encoded under gas
       let bs = TextEnc.encodeUtf8 (Text.pack (show d))
-      chargeMilliGas gasRef ((BS.length bs) `stimes` (hashedHundredByteGasUtf gp))
+      chargeMilliGas gasRef (((BS.length bs `div` 128) + 1) `stimes` (hashed128ByteGasUtf gp))
       pure (bs, Just (PLiteral (LDecimal d)))
 
     foldNode (HLNHashHex hexTxt) = do
@@ -172,7 +172,7 @@ decodeHexCharged
 decodeHexCharged gasRef gp hexTxt = do
   case hexToBS (TextEnc.encodeUtf8 hexTxt) of
     Just bs -> do
-      chargeMilliGas gasRef ((BS.length bs) `stimes` (hashedHundredByteGasB16 gp))
+      chargeMilliGas gasRef (((BS.length bs `div` 128) + 1) `stimes` (hashed128ByteGasB16 gp))
       pure bs
     Nothing -> throwError $ VerifierError $ "Malformed hex encoding: " <> hexTxt
 
