@@ -232,6 +232,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
 
   where
     mar = MaxRank $ int $ resumptionPoint pruneJob
+    !action = case doPrune of
+        PruneDryRun -> "would have pruned "
+        _ -> "pruned "
 
     executePendingDeletes prevHeight pendingDeletes pendingDeleteCount = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
@@ -241,8 +244,10 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                 _ -> do
                     tableDeleteBatch (_chainDbCas cdb) pendingDeletesForCid
                     tableDeleteBatch (_chainDbRankTable cdb) (_ranked <$> pendingDeletesForCid)
-        logFunctionText logger Info $ "pruned " <> sshow pendingDeleteCount <> " block headers at height " <> sshow prevHeight
-        logFunctionText logger Debug $ "pruned block headers " <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
+        logFunctionText logger Info $
+            action <> sshow pendingDeleteCount <> " block headers at height " <> sshow prevHeight
+        logFunctionText logger Debug $
+            action <> sshow pendingDeletes <> ", at height " <> sshow prevHeight
 
     deleteBatchSize = 1000
     checkpointSize = 200
