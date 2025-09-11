@@ -665,6 +665,7 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Version
         Test.Chainweb.SPV.Argument
+        Chainweb.Test.PayloadProvider.StartupTest
 
         -- Data
         Data.Test.PQueue
