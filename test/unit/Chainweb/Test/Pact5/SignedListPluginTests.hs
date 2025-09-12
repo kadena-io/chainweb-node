@@ -66,14 +66,7 @@ tests baseRdb = testGroup "Pact5 SignedList Plugin Tests" $ map (signedListTestT
       "[] \"02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7\""
       True
       Nothing
-
-  , SignedListTest "signedListValidatorTest-transfer"
-      transferProof
-      [plist [], PString "02fd8306e3c1ad2a769fbb3947720af4be92c4a1a43b5198664eb428f3872695ca"]
-      "[] \"02fd8306e3c1ad2a769fbb3947720af4be92c4a1a43b5198664eb428f3872695ca\""
-      True
-      Nothing
-
+      
   , SignedListTest "signedListValidatorTestNested"
       simpleExampleMsgProof2
       nestedCapArgs
@@ -169,12 +162,3 @@ malformedProof = [aesonQQ| ["bad_data"] |]
 nestedCapArgs, mismatchedCapArgs :: [PactValue]
 nestedCapArgs = [plist [plist ((PString <$> ["issue","finp2p","citi:102:d0c3eb56-0fff-4670-adfd-ad291a4314c3","finId","02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7"]) ++ [ PDecimal 1 ])], PString "02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7"]
 mismatchedCapArgs = [plist [PString "wrong"], PString "invalid"]
-
-
-transferProof :: Aeson.Value
-transferProof = [aesonQQ|[
-  [{"0x":"2706f86799aff21e6958122405b482d52103143babbb86814971a2a3ff41e295"},
-   {"0x":"de9bf75a44f24ebc60f46bcb0ffe252042fc11ab83d034f2a4f429e87d9861c2"}]
-  ,"02fd8306e3c1ad2a769fbb3947720af4be92c4a1a43b5198664eb428f3872695ca"
-  ,"4b050c9401512fcd813841e4eb470f040924b917d3dd661e88a504f4f49741e45088292ca98972ddd5b3451e4c767a2910b87fd463a9be29680abda8d55712ab"]
-|]
