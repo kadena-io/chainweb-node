@@ -103,6 +103,7 @@ import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson (ToJSON, decodeStrict')
 import Data.Foldable
+import Data.Either (partitionEithers)
 import Data.Function
 import Data.Functor.Of
 import Data.HashMap.Strict qualified as HM
@@ -963,18 +964,17 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
         -- for better error messages on validation failure
         let localPayload = _cutHashesLocalPayload hs
 
-        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-            & S.mapM (\(cid, bh) -> tryGetBlockHeader hdrs plds localPayload $ (cid, bh))
-            & S.partitionEithers
-            & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-            & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+        (missing, headers) <- fmap partitionEithers
+            $ forConcurrently (HM.toList (_cutHashes hs))
+            $ tryGetBlockHeader hdrs plds localPayload
         if null missing
-        then return $! Right headers
-        else do
+          then
+            return $ Right $! HM.fromList headers
+          else do
             when (isJust $ _cutHashesLocalPayload hs) $
                 logfun @Text Error
                     "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
-            return $! Left missing
+            return $ Left $! HM.fromList missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
