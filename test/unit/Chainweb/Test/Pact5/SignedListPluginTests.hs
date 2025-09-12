@@ -73,20 +73,26 @@ tests baseRdb = testGroup "Pact5 SignedList Plugin Tests" $ map (signedListTestT
       "[[\"issue\",\"finp2p\",\"citi:102:d0c3eb56-0fff-4670-adfd-ad291a4314c3\",\"finId\",\"02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7\",1.0]] \"02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7\""
       True
       Nothing
-
   , SignedListTest "signedListValidatorTestMalformedProof"
       malformedProof
       []
       "[]"
       False
       (Just "Malformed inputs for signature verification")
-
+  
   , SignedListTest "signedListValidatorTestMismatchedCap"
       simpleExampleMsgProof
       mismatchedCapArgs
       "[]"
       False
       (Just "Capability arguments do not match proof data")
+  , SignedListTest "signedListValidatorTest - bad signature"
+      simpleExampleMsgBadProof
+      [plist [], PString "02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7"]
+      "[] \"02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7\""
+      False
+      (Just "Capability arguments do not match proof data")
+      
   ]
 
 plist :: [PactValue] -> PactValue
@@ -115,7 +121,7 @@ signedListTestTemplate baseRdb SignedListTest{..} = testCaseSteps sltName $ \ste
               [ if sltExpectSuccess then successfulTx
                 else case sltExpectedErrMsg of
                   Just _ -> P.succeed
-                  Nothing -> P.fail "should have thrown error..."
+                  Nothing -> P.fail "should have suceed..."
               ]] result
   where
     deployContract :: Fixture -> Step -> IO ()
@@ -138,13 +144,22 @@ signedListTestTemplate baseRdb SignedListTest{..} = testCaseSteps sltName $ \ste
 
 -- -- | Test data
 
-simpleExampleMsgProof, simpleExampleMsgProof2, malformedProof :: Aeson.Value
+simpleExampleMsgProof, simpleExampleMsgBadProof, simpleExampleMsgProof2, malformedProof :: Aeson.Value
 simpleExampleMsgProof = [aesonQQ|
 [
   [{"0x":"faf3fd67e908cd840298a6f3523631716d4c8df06d69c9a32415f59eaa56825d"},
    {"0x":"e8a6bc590ed71a70e2507ad842a237cf55bbb751abb38fca61c0c83c4b07bd5f"}],
   "02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7",
   "db96110667579fd876c6b74d8fd848d29d0fb22f114c912202661010a27ef5087b3c9e33fc9af83e1f025e7d180612c7fc0c5f847a61e348dd35309855b29a44"
+]
+|]
+
+simpleExampleMsgBadProof = [aesonQQ|
+[
+  [{"0x":"faf3fd67e908cd840298a6f3523631716d4c8df06d69c9a32415f59eaa56825d"},
+   {"0x":"e8a6bc590ed71a70e2507ad842a237cf55bbb751abb38fca61c0c83c4b07bd5f"}],
+  "02fd7923740a775c95ce17e9bb7239ff9096689f70db9263a7efb9a9ad08e9fed7",
+  "db96110667579fd876c6b74d8fd848d29d0fb22f114c912202661010a27ef5087b3c9e33fc9af83e1f025e7d180612c7fc0c5f847a61e348dd35309855b29a45"
 ]
 |]
 
