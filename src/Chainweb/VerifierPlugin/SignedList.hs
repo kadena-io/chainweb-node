@@ -30,7 +30,6 @@ import Control.Monad.Except
 import Data.Function ((&))
 
 import qualified Data.Set as Set
-import Data.Semigroup (stimes)
 import Data.Decimal (Decimal)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -54,7 +53,7 @@ import Pact.Types.Capability (SigCapability(..))
 import Pact.Types.Exp (Literal(..))
 import Pact.Types.Term (objectMapToListWith,MilliGas(..))
 
-import Chainweb.VerifierPlugin (VerifierPlugin(..), chargeMilliGas)
+import Chainweb.VerifierPlugin (VerifierPlugin(..), chargeGas)
 
 import Data.STRef
 import Control.Monad.ST
@@ -64,18 +63,12 @@ import Control.Monad.ST
 -- Gas Charging Parameters
 --------------------------------------------------------------------------------
 data GasParams = GasParams
-  { hashed128ByteGasUtf       :: MilliGas  -- Gas per string byte hashed
-  , hashed128ByteGasB16       :: MilliGas  -- Gas per B16 string byte hashed
-  , sigVerificationGas            :: MilliGas  -- Fixed cost for signature verification
-  , baseGas                       :: MilliGas
+  { sigVerificationGas            :: Gas  -- Fixed cost for signature verification
   }
 
 gasParams :: GasParams
 gasParams = GasParams
-  { hashed128ByteGasUtf    = MilliGas 1
-  , hashed128ByteGasB16    = MilliGas 1
-  , sigVerificationGas         = MilliGas 650_000
-  , baseGas                    = MilliGas 0
+  { sigVerificationGas         = Gas 650
   }
 
 --------------------------------------------------------------------------------
@@ -126,10 +119,9 @@ foldHashList
   -> ExceptT VerifierError (ST s) (BS.ByteString, PactValue)
 foldHashList gp gasRef = \case
   -- Top-level precomputed digest provided as hex.
-  -- We only decode it (charged) and pass it through; no extra hashing or byte-metering here,
-  -- matching previous semantics.
+  
   HLHashHex hexTxt -> do
-    bs <- decodeHexCharged gasRef gp hexTxt
+    bs <- decodeHex hexTxt
     pure (bs, PList V.empty)
 
   -- Structural message that needs concatenation + hashing
@@ -144,18 +136,16 @@ foldHashList gp gasRef = \case
       -- UTF-8 encoding under gas
       
       let bs = TextEnc.encodeUtf8 t
-      chargeMilliGas gasRef (((BS.length bs `div` 128) + 1) `stimes` (hashed128ByteGasUtf gp))
       pure (bs, Just (PLiteral (LString t)))
 
     foldNode (HLNDecimal d) = do
       -- Decimal rendered then UTF-8 encoded under gas
       let bs = TextEnc.encodeUtf8 (Text.pack (show d))
-      chargeMilliGas gasRef (((BS.length bs `div` 128) + 1) `stimes` (hashed128ByteGasUtf gp))
       pure (bs, Just (PLiteral (LDecimal d)))
 
     foldNode (HLNHashHex hexTxt) = do
       -- Hex decoding under gas; excluded from stripped cap args
-      bs <- decodeHexCharged gasRef gp hexTxt
+      bs <- decodeHex hexTxt
       pure (bs, Nothing)
 
     foldNode (HLNList ns) = do
@@ -165,15 +155,13 @@ foldHashList gp gasRef = \case
     hashSHA3 :: BS.ByteString -> BS.ByteString
     hashSHA3 = convert . hashWith SHA3_256
 
--- Hex decode helper that charges per item (we already charge by bytes when hashing)
-decodeHexCharged
-  :: STRef s MilliGas -> GasParams -> Text
+
+decodeHex
+  :: Text
   -> ExceptT VerifierError (ST s) BS.ByteString
-decodeHexCharged gasRef gp hexTxt = do
+decodeHex hexTxt = do
   case hexToBS (TextEnc.encodeUtf8 hexTxt) of
-    Just bs -> do
-      chargeMilliGas gasRef (((BS.length bs `div` 128) + 1) `stimes` (hashed128ByteGasB16 gp))
-      pure bs
+    Just bs -> pure bs
     Nothing -> throwError $ VerifierError $ "Malformed hex encoding: " <> hexTxt
 
 --------------------------------------------------------------------------------
@@ -182,9 +170,6 @@ decodeHexCharged gasRef gp hexTxt = do
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \_ proof caps gasRef -> do
   let gp = gasParams
-
-  -- Base gas cost
-  chargeMilliGas gasRef (baseGas gp)
 
   -- Extract and validate capability arguments
   (capArgs :: [PactValue]) <- case Set.toList caps of
@@ -210,7 +195,7 @@ plugin = VerifierPlugin $ \_ proof caps gasRef -> do
   unless (strippedMsgParts == capMsgParts && pubKeyTxt == capPubKeyTxt) $
      throwError $ VerifierError $ "Capability arguments do not match proof data"
    -- Signature verification
-  chargeMilliGas gasRef (sigVerificationGas gp)
+  chargeGas gasRef (sigVerificationGas gp)
 
   let sigHexBS = TextEnc.encodeUtf8 sigTxt
       pkHexBS  = TextEnc.encodeUtf8 pubKeyTxt
