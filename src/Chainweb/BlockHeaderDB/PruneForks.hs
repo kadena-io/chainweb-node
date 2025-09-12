@@ -215,7 +215,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     -- from the chain graph.
     --
     !initialLiveSet <- webEntries_ wbhdb (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
-        $ S.foldMap_ HashSet.singleton . S.map (unwrapParent . view blockParent)
+        $ S.foldMap_ (HashSet.singleton . unwrapParent . view blockParent)
             -- the initial live set is expected to be very small. In fact it is
             -- almost always a singleton set on each chain.
 
