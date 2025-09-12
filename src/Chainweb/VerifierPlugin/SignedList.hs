@@ -51,7 +51,7 @@ import Pact.Core.Errors (VerifierError(..))
 import Pact.Types.PactValue
 import Pact.Types.Capability (SigCapability(..))
 import Pact.Types.Exp (Literal(..))
-import Pact.Types.Term (objectMapToListWith,MilliGas(..))
+import Pact.Types.Term (objectMapToListWith,Gas(..))
 
 import Chainweb.VerifierPlugin (VerifierPlugin(..), chargeGas)
 
@@ -114,7 +114,7 @@ parseHashListNode = \case
 --------------------------------------------------------------------------------
 foldHashList
   :: forall s. GasParams
-  -> STRef s MilliGas
+  -> STRef s Gas
   -> HashList
   -> ExceptT VerifierError (ST s) (BS.ByteString, PactValue)
 foldHashList gp gasRef = \case
