@@ -374,4 +374,4 @@ withWebReverseHeaderStream
     -> IO a
 withWebReverseHeaderStream wbhdb mar inner = do
     runContT (forM (_webBlockHeaderDb wbhdb) (\db -> ContT $ withReverseHeaderStream db mar)) $ \streamPerChain ->
-        inner $ mergeN (Down . view rankedBlockHash) $ toList streamPerChain
+        inner $ mergeN (Down . view blockHeight) $ toList streamPerChain

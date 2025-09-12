@@ -110,9 +110,9 @@ webEntries db f = go (view (webBlockHeaderDb . to toList) db) mempty
 webEntries_ :: HasVersion => WebBlockHeaderDb -> Maybe MinRank -> Maybe MaxRank -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
 webEntries_ db mir mar f = go (view (webBlockHeaderDb . to toList) db) mempty
   where
-    go [] s = f s
+    go [] s = f (mergeN (view blockHeight) s)
     go (h:t) s = entries h Nothing Nothing mir mar $ \x ->
-        go t (() <$ S.mergeOn (view blockHeight) s x)
+        go t (void x : s)
 
 type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb
