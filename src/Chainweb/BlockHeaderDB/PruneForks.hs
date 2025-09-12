@@ -149,7 +149,7 @@ pruneForks logger initialCut wbhdb doPrune depth = do
                 <> sshow depth
             return 0
         | otherwise -> do
-            numPruned <- pruneForks_ logger wbhdb doPrune PruneJob
+            pruned <- pruneForks_ logger wbhdb doPrune PruneJob
                 { resumptionPoint
                 , startedFrom
                 , lowerBound
@@ -158,10 +158,10 @@ pruneForks logger initialCut wbhdb doPrune depth = do
             tableDelete (_webCurrentPruneJob wbhdb) ()
             logFunctionText logger Info
                 $ "Pruned "
-                <> sshow numPruned
+                <> sshow pruned
                 <> " blocks, now pruned up to "
                 <> sshow startedFrom
-            return numPruned
+            return pruned
 
 data PruneForksException
     = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
@@ -177,7 +177,7 @@ data PruneState = PruneState
     , numPruned :: Int
     , pendingDeletes :: ChainMap [RankedBlockHash]
     , pendingDeleteCount :: Int
-    }
+    } deriving Show
 
 data PruneJob = PruneJob
     { resumptionPoint :: BlockHeight
@@ -218,6 +218,15 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         $ S.foldMap_ (HashSet.singleton . unwrapParent . view blockParent)
             -- the initial live set is expected to be very small. In fact it is
             -- almost always a singleton set on each chain.
+    let initialPruneState = PruneState
+            { liveSet = initialLiveSet
+            , pendingForkTips = HashSet.empty
+            , prevHeight = resumptionPoint pruneJob
+            , prevRecordedHeight = resumptionPoint pruneJob
+            , numPruned = 0
+            , pendingDeletes = noDeletes
+            , pendingDeleteCount = 0
+            }
 
     if null initialLiveSet
     then do
@@ -226,11 +235,12 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         return 0
     else do
         r <- withWebReverseHeaderStream wbhdb (max 1 mar - 1)
-            $ pruneBlocks initialLiveSet
+            $ pruneBlocks initialPruneState
         tableDelete (_webCurrentPruneJob wbhdb) ()
         return r
 
   where
+    !noDeletes = onAllChains []
     mar = MaxRank $ int $ resumptionPoint pruneJob
     !action = case doPrune of
         PruneDryRun -> "would have pruned "
@@ -252,19 +262,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     deleteBatchSize = 1000
     checkpointSize = 200
 
-    pruneBlocks initialLiveSet =
+    pruneBlocks initialState =
         go initialState
         where
-        !noDeletes = onAllChains []
-        initialState = PruneState
-            { liveSet = initialLiveSet
-            , pendingForkTips = HashSet.empty
-            , prevHeight = resumptionPoint pruneJob
-            , prevRecordedHeight = resumptionPoint pruneJob
-            , numPruned = 0
-            , pendingDeletes = noDeletes
-            , pendingDeleteCount = 0
-            }
         go state strm =
             if pendingDeleteCount state >= deleteBatchSize
             then do
@@ -277,7 +277,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                 go state { prevRecordedHeight = prevHeight state } strm
             else do
                 S.uncons strm >>= \case
-                    Nothing -> return $! numPruned state
+                    Nothing -> do
+                        executePendingDeletes (prevHeight state) (pendingDeletes state) (pendingDeleteCount state)
+                        return $! numPruned state
                     Just (block, strm') -> do
                         pruneBlock state block strm'
 
