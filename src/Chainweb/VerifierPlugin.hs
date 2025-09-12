@@ -15,7 +15,6 @@ module Chainweb.VerifierPlugin
     ( VerifierPlugin(..)
     , runVerifierPlugins
     , chargeGas
-    , chargeMilliGas
     ) where
 
 import Control.DeepSeq
@@ -46,8 +45,6 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Utils
 import Pact.Core.Errors (VerifierError(..))
-import Pact.Types.Term (MilliGas(..),milliGasToGas,gasToMilliGas)
-
 
 newtype VerifierPlugin
     = VerifierPlugin
@@ -56,28 +53,21 @@ newtype VerifierPlugin
         . (ChainwebVersion, ChainId, BlockHeight)
         -> PactValue
         -> Set SigCapability
-        -> STRef s MilliGas
+        -> STRef s Gas
         -> ExceptT VerifierError (ST s) ()
     }
 instance NFData VerifierPlugin where
     rnf !_ = ()
 
-chargeGas :: STRef s MilliGas -> Gas -> ExceptT VerifierError (ST s) ()
-chargeGas r = chargeMilliGas r . gasToMilliGas
-
-chargeMilliGas :: STRef s MilliGas -> MilliGas -> ExceptT VerifierError (ST s) ()
-chargeMilliGas r g = do
-    milliGasRemaining <- lift $ readSTRef r
-    when (g < MilliGas 0) $ throwError $ VerifierError $
-        "verifier attempted to charge negative milligas amount: " <> sshow (case g of MilliGas g' -> g')
-    when (g > milliGasRemaining) $ throwError $ VerifierError $
-        "gas exhausted in verifier. attempted to charge " <> sshow (case g of MilliGas g' -> g') <>
-        " with only " <> sshow (case milliGasRemaining of MilliGas milliGasRemaining' -> milliGasRemaining')
-          <> " remaining."
-    lift $ writeSTRef r (let MilliGas a = milliGasRemaining
-                             MilliGas b = g
-                         in MilliGas (a - b))
-
+chargeGas :: STRef s Gas -> Gas -> ExceptT VerifierError (ST s) ()
+chargeGas r g = do
+    gasRemaining <- lift $ readSTRef r
+    when (g < 0) $ throwError $ VerifierError $
+        "verifier attempted to charge negative gas amount: " <> sshow g
+    when (g > gasRemaining) $ throwError $ VerifierError $
+        "gas exhausted in verifier. attempted to charge " <> sshow (case g of Gas g' -> g') <>
+        " with only " <> sshow (case gasRemaining of Gas gasRemaining' -> gasRemaining') <> " remaining."
+    lift $ writeSTRef r (gasRemaining - g)
 
 runVerifierPlugins
     :: Logger logger
@@ -89,7 +79,7 @@ runVerifierPlugins
     -> IO (Either VerifierError Gas)
 runVerifierPlugins chainContext logger allVerifiers gasRemaining txVerifiers =
     handleAny (\_ -> return $ Left $ VerifierError "unknown exception") $ do
-        gasRef <- stToIO $ newSTRef $ gasToMilliGas gasRemaining
+        gasRef <- stToIO $ newSTRef gasRemaining
         maybeErr <- runExceptT $ Merge.mergeA
             -- verifier in command does not exist in list of all valid verifiers
             (Merge.traverseMissing $ \(VerifierName vn) _ ->
@@ -113,7 +103,7 @@ runVerifierPlugins chainContext logger allVerifiers gasRemaining txVerifiers =
                 )
             verifiersInCommand
             allVerifiers
-        gasRemaining' <- milliGasToGas <$> (stToIO $ readSTRef gasRef)
+        gasRemaining' <- stToIO $ readSTRef gasRef
         return (gasRemaining' <$ maybeErr)
     where
     verifiersInCommand :: Map VerifierName [(ParsedVerifierProof, Set SigCapability)]
