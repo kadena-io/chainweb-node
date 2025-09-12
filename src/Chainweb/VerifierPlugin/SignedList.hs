@@ -206,23 +206,23 @@ plugin = VerifierPlugin $ \_ proof caps gasRef -> do
     Left _ -> throwError $ VerifierError $ "Parsing hash list failed"
 
   (msgHashBS, strippedMsgParts) <- foldHashList gp gasRef parsedMsgParts
-  if True then (pure ()) else do
-   unless (strippedMsgParts == capMsgParts && pubKeyTxt == capPubKeyTxt) $
+
+  unless (strippedMsgParts == capMsgParts && pubKeyTxt == capPubKeyTxt) $
      throwError $ VerifierError $ "Capability arguments do not match proof data"
    -- Signature verification
-   chargeMilliGas gasRef (sigVerificationGas gp)
+  chargeMilliGas gasRef (sigVerificationGas gp)
 
-   let sigHexBS = TextEnc.encodeUtf8 sigTxt
-       pkHexBS  = TextEnc.encodeUtf8 pubKeyTxt
+  let sigHexBS = TextEnc.encodeUtf8 sigTxt
+      pkHexBS  = TextEnc.encodeUtf8 pubKeyTxt
 
-   isValid <- case verifySecp256k1Signature msgHashBS sigHexBS pkHexBS of
-     Just v  -> pure v
-     Nothing -> throwError $ VerifierError "Malformed signature verification inputs"
+  isValid <- case verifySecp256k1Signature msgHashBS sigHexBS pkHexBS of
+    Just v  -> pure v
+    Nothing -> throwError $ VerifierError "Malformed signature verification inputs"
 
-   unless isValid $
+  unless isValid $
      throwError $ VerifierError "Signature verification failed"
 
-   pure ()
+  pure ()
 
 --------------------------------------------------------------------------------
 -- Helpers
