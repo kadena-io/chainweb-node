@@ -330,9 +330,11 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         , pendingDeleteCount + 1)
                 let !numPruned' = numPruned + 1
                 let pendingForkTips' = HashSet.delete curHash $
-                        if HashSet.member curParent liveSet
-                        then pendingForkTips
-                        else HashSet.insert curParent pendingForkTips
+                        -- don't add a *new* pending fork tip if we're below the lower bound already
+                        if not (HashSet.member curParent liveSet) &&
+                            (curHeight > lowerBound pruneJob || HashSet.member curHash pendingForkTips)
+                        then HashSet.insert curParent pendingForkTips
+                        else pendingForkTips
                 go
                     PruneState
                         { liveSet
