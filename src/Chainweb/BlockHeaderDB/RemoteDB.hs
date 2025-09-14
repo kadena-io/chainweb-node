@@ -62,8 +62,7 @@ instance HasVersion => TreeDb RemoteDb where
     maxEntry = error "Chainweb.TreeDB.RemoteDB.RemoteDb.maxEntry: not implemented"
 
     -- If other default functions rely on this, it could be quite inefficient.
-    lookup (RemoteDb env alog cid) k = do
-      over _Left (\e -> "client error: " <> sshow e) <$> runClientM client env
+    lookup (RemoteDb env alog cid) k = either (const Nothing) Just <$> runClientM client env
       where
         client = logServantError alog "failed to query tree db entry"
             $ headerClient cid k

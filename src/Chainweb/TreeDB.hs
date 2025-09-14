@@ -1,7 +1,10 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -9,6 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -172,10 +176,12 @@ _getMaxRank (MaxRank (Max r)) = r
 newtype LowerBound k = LowerBound { _getLowerBound :: k }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
+    deriving (Functor, Foldable, Traversable)
 
 newtype UpperBound k = UpperBound { _getUpperBound :: k }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
+    deriving (Functor, Foldable, Traversable)
 
 data BranchBounds db = BranchBounds
     { _branchBoundsLower :: !(HS.HashSet (LowerBound (DbKey db)))
@@ -235,6 +241,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
     -- | Lookup a single entry by its key.
     --
+    -- A missing key is reported by returning 'Nothing'. Database errors are
+    -- reported as exceptions.
+    --
     -- Implementations are expected to provide \(\mathcal{O}(1)\) performance.
     --
     -- prop> lookup db k == S.head_ (entries db k 1 Nothing Nothing)
@@ -242,19 +251,22 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     lookup
         :: db
         -> DbKey db
-        -> IO (Either T.Text (DbEntry db))
+        -> IO (Maybe (DbEntry db))
 
     -- | Lookup a single entry by its key and rank. For some instances of
     -- the lookup can be implemented more efficiently when the rank is know.
     -- Otherwise the default implementation just ignores the rank parameter
     -- falls back to 'lookup'.
     --
+    -- A missing key is reported by returning 'Nothing'. Database errors are
+    -- reported as exceptions.
+    --
     lookupRanked
         :: db
         -> Natural
         -> DbKey db
-        -> IO (Either T.Text (DbEntry db))
-    lookupRanked db _ = lookup db
+        -> IO (Maybe (DbEntry db))
+    lookupRanked db _ k = lookup db k
     {-# INLINEABLE lookupRanked #-}
 
     -- ---------------------------------------------------------------------- --
@@ -505,8 +517,8 @@ chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
     defaultBranchEntries db k l mir mar lower upper' f
   where
     start (UpperBound u) = lookup db u >>= \case
-        Left{} -> return mempty
-        Right e -> seekAncestor db e m >>= \case
+        Nothing -> return mempty
+        Just e -> seekAncestor db e m >>= \case
             Nothing -> return mempty
             Just x -> return $ HS.singleton (UpperBound $! key x)
 {-# INLINEABLE chainBranchEntries #-}
@@ -642,8 +654,8 @@ lookupM
     -> DbKey db
     -> IO (DbEntry db)
 lookupM db k = lookup db k >>= \case
-    Left e -> throwM $ TreeDbKeyNotFound @db k $ "lookupM: " <> e
-    Right !x -> return x
+    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupM: " <> sshow k
+    Just !x -> return x
 {-# INLINEABLE lookupM #-}
 
 lookupRankedM
@@ -654,8 +666,8 @@ lookupRankedM
     -> DbKey db
     -> IO (DbEntry db)
 lookupRankedM db r k = lookupRanked db r k >>= \case
-    Left e -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM (" <> sshow r <> "): " <> e
-    Right !x -> return x
+    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM (" <> sshow r <> "): " <> sshow k
+    Just !x -> return x
 {-# INLINEABLE lookupRankedM #-}
 
 -- | Lookup all entries in a stream of database keys and return the stream
@@ -676,7 +688,7 @@ lookupStream
     => db
     -> S.Stream (Of (DbKey db)) IO r
     -> S.Stream (Of (DbEntry db)) IO r
-lookupStream db = S.catMaybes . S.mapM (fmap (either (\_ -> Nothing) Just) . lookup db)
+lookupStream db = S.catMaybes . S.mapM (lookup db)
 
 data GenesisParent
     = GenesisParentThrow
@@ -702,8 +714,8 @@ lookupParentM g db e = case parent e of
         _ -> throwM
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
-        Left m -> throwM $ TreeDbParentMissing @db e ("lookupParentM: " <> m)
-        Right !x -> return x
+        Nothing -> throwM $ TreeDbParentMissing @db e ("lookupParentM: " <> sshow p)
+        Just !x -> return x
 
 -- | Replace all entries in the stream by their parent entries.
 -- If the genesis block is part of the stream it is replaced by itself.
@@ -722,8 +734,8 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         GenesisParentThrow -> throwM
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block. Most likely this means that the genesis headers haven't been generated correctly. If you are using a development or testing chainweb version consider resetting the databases."
     Just p -> lookup db p >>= \case
-        Left m -> throwM $ TreeDbParentMissing @db e $ "lookupParentStreamM: " <> m
-        Right !x -> return (Just x)
+        Nothing -> throwM $ TreeDbParentMissing @db e $ "lookupParentStreamM: " <> sshow p
+        Just !x -> return (Just x)
 
 -- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
 -- used only for debugging purposes.
@@ -1043,10 +1055,10 @@ ancestorOfEntry
         -- ^ the context, i.e. the branch of the chain that contains the member
     -> IO Bool
 ancestorOfEntry db h ctx = lookup db h >>= \case
-    Left{} -> return False
-    Right lh -> seekAncestor db ctx (rank lh) >>= \case
+    Nothing -> return False
+    Just !lh -> seekAncestor db ctx (rank lh) >>= \case
         Nothing -> return False
-        Just x -> return $ key x == h
+        Just !x -> return $ key x == h
 
 -- | @ancestorOfEntry db h ctx@ returns @True@ if @h@ is an ancestor of @ctx@
 -- in @db@.

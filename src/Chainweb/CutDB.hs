@@ -1017,8 +1017,8 @@ memberOfHeader
     -> IO Bool
 memberOfHeader db cid h ctx = do
     lookup chainDb h >>= \case
-        Left{} -> return False
-        Right lh -> seekAncestor chainDb ctx (int $ view blockHeight lh) >>= \case
+        Nothing -> return False
+        Just !lh -> seekAncestor chainDb ctx (int $ view blockHeight lh) >>= \case
             Nothing -> return False
             Just x -> return $ view blockHash x == h
   where

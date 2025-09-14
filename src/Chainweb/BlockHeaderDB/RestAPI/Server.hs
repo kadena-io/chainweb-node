@@ -86,12 +86,11 @@ checkKey
     -> DbKey db
     -> m (DbKey db)
 checkKey !db !k = liftIO (lookup db k) >>= \case
-    Left m -> throwError $ err404Msg $ object $ concat
+    Nothing -> throwError $ err404Msg $ object $ concat
         [ ["reason" .= ("key not found" :: String)]
-        , ("details" .= m) <$ guard (not (Text.null m))
         , ["key" .= k]
         ]
-    Right _ -> pure k
+    Just !_ -> pure k
 
 err404Msg :: ToJSON msg => msg -> ServerError
 err404Msg msg = setErrJSON msg err404
@@ -263,12 +262,11 @@ headerHandler
     -> DbKey db
     -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= \case
-    Left m -> throwError $ err404Msg $ object $ concat
+    Nothing -> throwError $ err404Msg $ object $ concat
         [ ["reason" .= ("key not found" :: String)]
-        , ("details" .= m) <$ guard (not (Text.null m))
         , ["key" .= k]
         ]
-    Right e -> pure e
+    Just !e -> pure e
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
