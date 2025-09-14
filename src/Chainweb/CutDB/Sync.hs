@@ -48,9 +48,7 @@ import P2P.Session
 -- -------------------------------------------------------------------------- --
 -- Client Env
 
-data CutClientEnv = CutClientEnv
-    { _envClientEnv :: !ClientEnv
-    }
+newtype CutClientEnv = CutClientEnv { _envClientEnv :: ClientEnv }
     deriving (Generic)
 
 runClientThrowM :: ClientM a -> ClientEnv -> IO a
