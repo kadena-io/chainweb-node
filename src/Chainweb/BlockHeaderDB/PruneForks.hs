@@ -305,16 +305,16 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                     <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                     <> ". Previous height: " <> sshow prevHeight
             -- if we are at or beyond the lower bound,
-            -- then we have no more pending fork tips to delete in the range
+            -- and we have no more pending fork tips to prune,
+            -- we're done early.
             | curHeight <= lowerBound pruneJob
             , curHeight < prevHeight
             , HashSet.null pendingForkTips = do
                 when (pendingDeleteCount > 0) $
                     executePendingDeletes prevHeight pendingDeletes pendingDeleteCount
                 return numPruned
-            -- the current block is a pivot, thus we've seen its child block(s)
-            -- and must keep it in the database.
-            -- its parent takes its place as a live block.
+            -- the current block is live.
+            -- its parents take its place as live blocks.
             | curHash `elem` liveSet = do
                 let !liveSet' =
                         flip (foldl' (flip HashSet.insert)) curAdjs $
@@ -332,7 +332,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         , pendingDeletes
                         , pendingDeleteCount
                         } strm
-            -- the current block is not a pivot, so we haven't seen its child and can safely delete it
+            -- the current block is not live, delete it.
             | otherwise = do
                 let !newDelete = view rankedBlockHash cur
                 let !(!pendingDeletes', !pendingDeleteCount') =
