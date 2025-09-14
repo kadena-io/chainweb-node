@@ -14,6 +14,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.Pact4.ExecBlock
@@ -36,80 +37,62 @@ module Chainweb.Pact.PactService.Pact4.ExecBlock
     , checkParse
     ) where
 
-import Chronos qualified
+import Chainweb.BlockCreationTime
+import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.Logger
+import Chainweb.Miner.Pact
+import Chainweb.MinerReward
+import Chainweb.Pact.Mempool.Mempool as Mempool
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Types (ServiceEnv(..), Transactions (..), bctxParentCreationTime, bctxParentHeight, _bctxIsGenesis, _bctxCurrentBlockHeight, BlockCtx, BlockInvalidError (..), TxInvalidError (..))
+import Chainweb.Pact4.Backend.ChainwebPactDb
+import Chainweb.Pact4.ModuleCache
+import Chainweb.Pact4.NoCoinbase
+import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact4.TransactionExec qualified as Pact4
+import Chainweb.Pact4.Types
+import Chainweb.Pact4.Validations qualified as Pact4
+import Chainweb.Parent
+import Chainweb.Utils hiding (check)
+import Chainweb.Version
+import Chainweb.Version.Guards
 import Control.Concurrent.MVar
-import Control.DeepSeq
 import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
-import System.LogLevel (LogLevel(..))
-import qualified Data.ByteString.Short as SB
-import Data.List qualified as List
+import Data.ByteString.Short qualified as SB
+import Data.Coerce
 import Data.Either
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map as Map
+import Data.HashMap.Strict qualified as HashMap
+import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
+import Data.Map qualified as M
+import Data.Map qualified as Map
 import Data.Maybe
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Vector (Vector)
-import qualified Data.Vector as V
-
-import System.IO
-import System.Timeout
-
-import Prelude hiding (lookup)
-
+import Data.Vector qualified as V
 import Pact.Compile (compileExps)
-import Pact.Interpreter(PactDbEnv(..))
-import qualified Pact.JSON.Encode as J
-import qualified Pact.Parse as Pact4 hiding (parsePact)
-import qualified Pact.Types.Command as Pact4
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Hash qualified as Pact5
+import Pact.JSON.Encode qualified as J
+import Pact.Parse qualified as Pact4 hiding (parsePact)
+import Pact.Types.Command qualified as Pact4
 import Pact.Types.ExpParser (mkTextInfo, ParseEnv(..))
-import qualified Pact.Types.Hash as Pact4
+import Pact.Types.Hash qualified as Pact4
 import Pact.Types.RPC
-import qualified Pact.Types.Runtime as Pact4
-import qualified Pact.Types.SPV as Pact4
-
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.Logger
-import Chainweb.Pact.Mempool.Mempool as Mempool
-import Chainweb.MinerReward
-import Chainweb.Miner.Pact
-
--- import Chainweb.Pact.Types
-import Chainweb.Pact4.SPV qualified as Pact4
-import Chainweb.Pact4.NoCoinbase
-import qualified Chainweb.Pact4.Transaction as Pact4
-import qualified Chainweb.Pact4.TransactionExec as Pact4
-import qualified Chainweb.Pact4.Validations as Pact4
-import Chainweb.Pact.Payload
-import Chainweb.Pact.Payload.PayloadStore
-import Chainweb.Time
-import Chainweb.Utils hiding (check)
-import Chainweb.Version
-import Chainweb.Version.Guards
-import Chainweb.Pact4.Backend.ChainwebPactDb
-import Data.Coerce
-import Data.Word
-import Control.Monad.Primitive
-import qualified Data.Set as S
-import Chainweb.Pact4.Types
-import Chainweb.Pact4.ModuleCache
-import Control.Monad.Except
-import qualified Data.List.NonEmpty as NE
-import Chainweb.Pact.Backend.Types (BlockHandle(..))
-import Chainweb.Parent
-import Chainweb.BlockCreationTime
-import qualified Data.Map as M
-import Chainweb.Pact.Types (ServiceEnv(..), Transactions (..), transactionPairs, bctxParentCreationTime, bctxParentHeight, _bctxIsGenesis, _bctxCurrentBlockHeight, BlockCtx, BlockInvalidError (..), TxInvalidError (..))
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Hash as Pact5
+import Pact.Types.Runtime qualified as Pact4
+import Pact.Types.SPV qualified as Pact4
+import Prelude hiding (lookup)
+import System.LogLevel (LogLevel(..))
 
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.

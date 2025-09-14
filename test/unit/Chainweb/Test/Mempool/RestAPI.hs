@@ -1,45 +1,36 @@
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+
 module Chainweb.Test.Mempool.RestAPI (tests) where
 
 import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
-
-import qualified Data.Pool as Pool
-import qualified Data.Vector as V
-
-import qualified Network.HTTP.Client as HTTP
+import Data.Pool qualified as Pool
+import Data.Vector qualified as V
+import Network.HTTP.Client qualified as HTTP
 import Network.Wai (Application)
-
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
-
 import Test.Tasty
-
--- internal modules
-
 import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
-import qualified Chainweb.Pact.Mempool.InMem as InMem
+import Chainweb.Pact.Mempool.InMem qualified as InMem
 import Chainweb.Pact.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Pact.Mempool.Mempool
-import qualified Chainweb.Pact.Mempool.RestAPI.Client as MClient
+import Chainweb.Pact.Mempool.RestAPI.Client qualified as MClient
 import Chainweb.RestAPI
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
-import qualified Chainweb.Test.Mempool
-import Chainweb.Test.Utils (withTestAppServer)
+import Chainweb.Test.Mempool qualified
 import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils (withTestAppServer)
 import Chainweb.Utils (Codec(..), withAsyncR, resourceToBracket)
 import Chainweb.Version
 import Chainweb.Version.Utils
-
-import Chainweb.Storage.Table.RocksDB
-
-import Network.X509.SelfSigned
 import Control.Monad
+import Network.X509.SelfSigned
 
 ------------------------------------------------------------------------------
+
 tests :: TestTree
 tests = withResource newPool Pool.destroyAllResources $
         \poolIO -> testGroup "Chainweb.Pact.Mempool.RestAPI"

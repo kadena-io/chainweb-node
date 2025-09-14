@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,17 +25,9 @@ import Control.Applicative
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-
-import qualified Data.List.NonEmpty as N
+import Data.List.NonEmpty qualified as N
 import Data.MerkleLog.Common
-import qualified Data.MerkleLog.V1 as V1
-
-import GHC.Stack
-
-import Prelude hiding (lookup)
-
--- internal modules
-
+import Data.MerkleLog.V1 qualified as V1
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -44,14 +37,14 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Parent
-import Chainweb.Pact.Payload
-import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.PayloadProvider
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-import Chainweb.PayloadProvider
+import GHC.Stack
+import Prelude hiding (lookup)
 
 -- -------------------------------------------------------------------------- --
 -- FIXME

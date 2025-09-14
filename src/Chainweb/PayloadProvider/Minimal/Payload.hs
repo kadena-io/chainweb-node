@@ -53,7 +53,6 @@ import Chainweb.Storage.Table
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.Registry
 import Control.Lens (Getter)
 import Control.Lens.Getter (to)
 import Control.Monad

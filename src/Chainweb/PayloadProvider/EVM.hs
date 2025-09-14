@@ -67,9 +67,9 @@ import Chainweb.PayloadProvider.EVM.EngineAPI
 import Chainweb.PayloadProvider.EVM.EthRpcAPI
 import Chainweb.PayloadProvider.EVM.ExecutionPayload
 import Chainweb.PayloadProvider.EVM.Header qualified as EVM
-import Chainweb.PayloadProvider.EVM.PayloadDB qualified as EvmDB
 import Chainweb.PayloadProvider.EVM.JsonRPC (JsonRpcHttpCtx, callMethodHttp)
 import Chainweb.PayloadProvider.EVM.JsonRPC qualified as RPC
+import Chainweb.PayloadProvider.EVM.PayloadDB qualified as EvmDB
 import Chainweb.PayloadProvider.EVM.SPV
 import Chainweb.PayloadProvider.EVM.Utils (decodeRlpM)
 import Chainweb.PayloadProvider.EVM.Utils qualified as EVM
@@ -92,7 +92,6 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Trans.Resource hiding (throwM)
 import Control.Monad.Writer
-import Data.Aeson qualified as Aeson
 import Data.ByteString.Short qualified as BS
 import Data.List qualified as L
 import Data.LogMessage

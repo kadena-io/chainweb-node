@@ -33,21 +33,16 @@ module Chainweb.Pact.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Control.Monad.Trans.Except (ExceptT, runExceptT, except)
 
 import Data.Aeson as Aeson hiding (Success)
 import Data.Bifunctor (second)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.Either (partitionEithers, isRight)
 import Data.Foldable
@@ -58,7 +53,6 @@ import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
-import Data.Singletons
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -66,23 +60,12 @@ import Data.Validation
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import Ethereum.Block
-import Ethereum.Header hiding (blockHash)
-import Ethereum.Misc (bytes)
-import Ethereum.Receipt
-import Ethereum.Receipt.ReceiptProof
-import Ethereum.RLP (putRlpByteString)
-
 import GHC.Generics
 import GHC.Stack
-
-import Numeric.Natural
 
 import Prelude hiding (init, lookup)
 
 import Servant
-
-import qualified Streaming.Prelude as S
 
 import System.LogLevel
 
@@ -90,56 +73,36 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Crypto.MerkleLog
-import Chainweb.Cut
-import qualified Chainweb.CutDB as CutDB
-import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Pact.Mempool.Mempool
     (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), pactRequestKeyToTransactionHash)
 import Chainweb.Pact.RestAPI
-import Chainweb.Pact.RestAPI.EthSpv
-import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
-import Chainweb.Pact.SPV qualified as SPV
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.SPV (SpvException(..))
-import Chainweb.SPV.CreateProof
-import Chainweb.SPV.EventProof
-import Chainweb.SPV.OutputProof
-import Chainweb.SPV.PayloadProof
-import Chainweb.Pact.Transaction qualified as Pact hiding (parsePact)
-import Chainweb.TreeDB qualified as TreeDB
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Pact.Validations qualified as Pact
-import Chainweb.Version.Guards (validPPKSchemes)
 
 import qualified Pact.JSON.Encode as J
 
 import qualified Pact.Core.Command.Types as Pact
 import qualified Pact.Core.Pretty as Pact
-import qualified Chainweb.Pact.Transaction as Pact
 import qualified Chainweb.Pact.Types as Pact
-import qualified Chainweb.Pact.Validations as Pact
 import Data.Coerce
 import qualified Pact.Core.Command.Server as Pact
 import qualified Pact.Core.Errors as Pact
 import qualified Pact.Core.Hash as Pact
 import qualified Pact.Core.Gas as Pact
 import qualified Pact.Core.Command.Client as Pact
-import qualified Pact.Core.ChainData as Pact
-import Chainweb.PayloadProvider.Pact (PactPayloadProvider (..))
 import Chainweb.PayloadProvider.P2P
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.Types (Historical(..), throwIfNoHistory)
-import qualified Pact.Core.StableEncoding as Pact
 import qualified Pact.Core.Info as Pact
 import Control.Concurrent (threadDelay)
 

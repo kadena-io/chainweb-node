@@ -11,36 +11,34 @@ module Chainweb.PayloadProvider.Pact.Genesis
 ( genesisPayload
 ) where
 
+import Chainweb.BlockHeader.Genesis.Development0Payload qualified as DN0
+import Chainweb.BlockHeader.Genesis.Development1to19Payload qualified as DNN
+import Chainweb.BlockHeader.Genesis.Mainnet0Payload qualified as MN0
+import Chainweb.BlockHeader.Genesis.Mainnet10to19Payload qualified as MNKAD
+import Chainweb.BlockHeader.Genesis.Mainnet1Payload qualified as MN1
+import Chainweb.BlockHeader.Genesis.Mainnet2Payload qualified as MN2
+import Chainweb.BlockHeader.Genesis.Mainnet3Payload qualified as MN3
+import Chainweb.BlockHeader.Genesis.Mainnet4Payload qualified as MN4
+import Chainweb.BlockHeader.Genesis.Mainnet5Payload qualified as MN5
+import Chainweb.BlockHeader.Genesis.Mainnet6Payload qualified as MN6
+import Chainweb.BlockHeader.Genesis.Mainnet7Payload qualified as MN7
+import Chainweb.BlockHeader.Genesis.Mainnet8Payload qualified as MN8
+import Chainweb.BlockHeader.Genesis.Mainnet9Payload qualified as MN9
+import Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload qualified as RDN0
+import Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload qualified as RDNKAD
+import Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload qualified as RDNN
+import Chainweb.BlockHeader.Genesis.Testnet040Payload qualified as T04N0
+import Chainweb.BlockHeader.Genesis.Testnet041to19Payload qualified as T04NN
+import Chainweb.Pact.Payload
 import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.EvmDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Testnet04
-import Chainweb.Pact.Payload
 import Control.Lens
 import Data.HashMap.Strict qualified as HM
 import GHC.Stack
-
-import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
-import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
-import qualified Chainweb.BlockHeader.Genesis.Mainnet2Payload as MN2
-import qualified Chainweb.BlockHeader.Genesis.Mainnet3Payload as MN3
-import qualified Chainweb.BlockHeader.Genesis.Mainnet4Payload as MN4
-import qualified Chainweb.BlockHeader.Genesis.Mainnet5Payload as MN5
-import qualified Chainweb.BlockHeader.Genesis.Mainnet6Payload as MN6
-import qualified Chainweb.BlockHeader.Genesis.Mainnet7Payload as MN7
-import qualified Chainweb.BlockHeader.Genesis.Mainnet8Payload as MN8
-import qualified Chainweb.BlockHeader.Genesis.Mainnet9Payload as MN9
-import qualified Chainweb.BlockHeader.Genesis.Mainnet10to19Payload as MNKAD
-import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
-import qualified Chainweb.BlockHeader.Genesis.Development1to19Payload as DNN
-import qualified Chainweb.BlockHeader.Genesis.Testnet040Payload as T04N0
-import qualified Chainweb.BlockHeader.Genesis.Testnet041to19Payload as T04NN
-import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload as RDN0
-import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDNN
-import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
-import Chainweb.Utils
 
 genesisPayload
     :: (HasCallStack, HasVersion)

@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -134,47 +135,41 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (finally, bracket)
+import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Control.Retry
-
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as BL
 import Data.Coerce (coerce)
 import Data.Foldable
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
 import Data.Pool (Pool)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Data.Tree
-import qualified Data.Tree.Lens as LT
+import Data.Tree.Lens qualified as LT
 import Data.Word
-
-import qualified Network.Connection as HTTP
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.TLS as HTTP
-import qualified Network.HTTP.Types as HTTP
+import Network.Connection qualified as HTTP
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTP
+import Network.HTTP.Types qualified as HTTP
 import Network.Socket (close)
-import qualified Network.TLS as HTTP
-import qualified Network.Wai as W
-import qualified Network.Wai.Handler.Warp as W
+import Network.TLS qualified as HTTP
+import Network.Wai qualified as W
+import Network.Wai.Handler.Warp qualified as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
-
 import Numeric.Natural
-
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
-
 import System.Directory (removeDirectoryRecursive, removeFile)
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp qualified as Temp
 import System.LogLevel
 import System.Random (randomIO)
-
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Property (Property, (===))
@@ -183,13 +178,8 @@ import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (property, discard, (.&&.))
-
 import Text.Printf (printf)
-
 import UnliftIO.Async
-
--- internal modules
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -208,7 +198,7 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Pact.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
+import Chainweb.Pact.Mempool.Mempool (TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.Types(SQLiteEnv)
@@ -218,8 +208,7 @@ import Chainweb.PayloadProvider.Pact.Configuration
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Pact.Utils (getTestLogLevel, getTestLogger)
-import Chainweb.Test.P2P.Peer.BootstrapConfig
-    (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
+import Chainweb.Test.P2P.Peer.BootstrapConfig (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
@@ -228,24 +217,19 @@ import Chainweb.Utils.Serialization
 import Chainweb.Test.TestVersions
 import Chainweb.Version
 import Chainweb.Version.Utils
-
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
-
-import qualified Database.RocksDB.Internal as R
-
+import Database.RocksDB.Internal qualified as R
 import Network.X509.SelfSigned
-
 import P2P.Node.Configuration
-import qualified P2P.Node.PeerDB as P2P
+import P2P.Node.PeerDB qualified as P2P
 import P2P.Peer
-
 import Chainweb.Test.Utils.APIValidation
 import Data.Semigroup
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Errors as Pact5
-import qualified Pact.Core.Hash as Pact5
-import qualified Pact.Core.Gas as Pact
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Errors qualified as Pact5
+import Pact.Core.Hash qualified as Pact5
+import Pact.Core.Gas qualified as Pact
 import Chainweb.Ranked (Ranked(_rankedHeight))
 
 -- -------------------------------------------------------------------------- --

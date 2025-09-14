@@ -1,22 +1,23 @@
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Chainweb.PayloadProvider.Pact
-    ( PactPayloadProvider(..)
-    , withPactPayloadProvider
-    , pactMemPoolAccess
-    , decodeNewPayload
-    ) where
+( PactPayloadProvider(..)
+, withPactPayloadProvider
+, pactMemPoolAccess
+, decodeNewPayload
+) where
 
 import Control.Concurrent.STM
 import Control.Exception.Safe
@@ -24,27 +25,25 @@ import Data.LogMessage
 import Data.Vector (Vector)
 import System.LogLevel
 import Control.Lens
-import qualified Network.HTTP.Client as HTTP
-import qualified Data.Vector as V
-
+import Network.HTTP.Client qualified as HTTP
+import Data.Vector qualified as V
 import Chainweb.ChainId
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.Pact.Mempool.Mempool
 import Chainweb.MerkleUniverse
-import qualified Chainweb.MinerReward as MinerReward
+import Chainweb.MinerReward qualified as MinerReward
 import Chainweb.Pact.Backend.Utils
-import qualified Chainweb.Pact.PactService as PactService
-import qualified Chainweb.Pact.Transaction as Pact
-import Chainweb.Pact.Types
+import Chainweb.Pact.PactService qualified as PactService
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Core.Brief
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Types
 import Chainweb.PayloadProvider
 import Chainweb.Utils
 import Chainweb.Version
-import qualified Data.Pool as Pool
-import Control.Monad.Trans.Resource (ResourceT, allocate)
-import Chainweb.Core.Brief
+import Control.Monad.Trans.Resource (ResourceT)
 
 data PactPayloadProvider logger tbl = PactPayloadProvider
     { pactPayloadProviderLogger :: logger

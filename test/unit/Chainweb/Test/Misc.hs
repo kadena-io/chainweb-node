@@ -1,5 +1,5 @@
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -13,35 +13,25 @@
 -- Miscellaneous tests.
 --
 module Chainweb.Test.Misc
-  ( tests
-  ) where
+( tests
+) where
 
 import Chainweb.Pact.Payload
+import Chainweb.BlockHash
+import Chainweb.ChainId
+import Chainweb.MerkleUniverse
+import Chainweb.Parent
 import Chainweb.Test.Orphans.Internal ()
-
+import Chainweb.Utils (HasTextRepresentation(..))
+import Chainweb.Utils.Serialization
 import Control.Concurrent (threadDelay)
+import Control.Lens
 import Control.Scheduler (Comp(..), scheduleWork, terminateWith, withScheduler)
-
+import Data.HashMap.Strict qualified as HM
+import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
-import Chainweb.BlockHash
-import Data.HashMap.Strict qualified as HM
-import Chainweb.ChainId
-
-import PropertyMatchers ((?))
-import PropertyMatchers qualified as P
--- import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
-import Data.Function ((&))
--- import qualified Data.ByteString as BS
-import Chainweb.Utils (HasTextRepresentation(..))
-import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
-import qualified Data.ByteString as BS
-import Control.Lens
-import Control.Monad
-import Chainweb.Parent
-import Chainweb.Utils.Serialization
-import Chainweb.MerkleUniverse
 
 ---
 

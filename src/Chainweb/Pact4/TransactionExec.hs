@@ -1,18 +1,20 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module      :  Chainweb.Pact4.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -85,6 +87,29 @@ module Chainweb.Pact4.TransactionExec
 
 ) where
 
+import Chainweb.BlockCreationTime
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.ChainId qualified as Chainweb
+import Chainweb.Logger
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact5
+import Chainweb.Pact.Types (BlockCtx, guardCtx, _bctxCurrentBlockHeight, bctxParentCreationTime, bctxParentHash, bctxParentHeight)
+import Chainweb.Pact4.Backend.ChainwebPactDb
+import Chainweb.Pact4.ModuleCache
+import Chainweb.Pact4.Templates
+import Chainweb.Pact4.Transaction
+import Chainweb.Pact4.Types
+import Chainweb.Parent
+import Chainweb.Ranked
+import Chainweb.Time hiding (second)
+import Chainweb.Utils
+import Chainweb.VerifierPlugin
+import Chainweb.Version as V
+import Chainweb.Version.Guards as V
+import Chainweb.Version.Utils as V
+import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad
@@ -93,30 +118,28 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 import Control.Parallel.Strategies(using, rseq)
-
 import Data.Aeson hiding ((.=), Error)
-import qualified Data.Aeson as A
+import Data.Aeson qualified as A
 import Data.Bifunctor
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Short as SB
+import Data.ByteString qualified as B
+import Data.ByteString.Short qualified as SB
 import Data.Decimal (Decimal, roundTo)
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, for_)
 import Data.IORef
-import qualified Data.List as List
-import qualified Data.Map.Strict as M
+import Data.Int (Int64)
+import Data.List qualified as List
+import Data.Map.Strict qualified as M
 import Data.Maybe
-import qualified Data.Set as S
+import Data.Set (Set)
+import Data.Set qualified as S
 import Data.Text (Text)
-import qualified Data.Text as T
-import System.LogLevel
-
--- internal Pact modules
-
-import Chainweb.Counter
+import Data.Text qualified as T
+import Pact.Core.Errors (VerifierError(..))
+import Pact.Core.Gas qualified as Pact5
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
-import qualified Pact.JSON.Encode as J
+import Pact.JSON.Encode (toJsonViaEncode)
 import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
 import Pact.Native.Internal (appToCap)
@@ -125,53 +148,19 @@ import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
 import Pact.Types.Command
+import Pact.Types.Gas qualified as Pact
 import Pact.Types.Hash as Pact
 import Pact.Types.KeySet
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
 import Pact.Types.Runtime hiding (Info, catchesPactError)
-import Pact.Types.Server
 import Pact.Types.SPV
-import Pact.Types.Verifier
-
+import Pact.Types.Server
 import Pact.Types.Util as PU
-import qualified Pact.Utils.StableHashMap as SHM
-
--- internal Chainweb modules
-
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.Logger
-import qualified Chainweb.ChainId as Chainweb
-import Chainweb.Pact.Mempool.Mempool (pactRequestKeyToTransactionHash)
-import Chainweb.Miner.Pact
-import Chainweb.Pact4.Templates
-import Chainweb.Pact4.Types
-import Chainweb.Pact4.Transaction
-import Chainweb.Utils
-import Chainweb.VerifierPlugin
-import Chainweb.Version as V
-import Chainweb.Version.Guards as V
-import Chainweb.Version.Utils as V
-import Pact.JSON.Encode (toJsonViaEncode)
-import Data.Set (Set)
-import Chainweb.Pact4.ModuleCache
-import Chainweb.Pact4.Backend.ChainwebPactDb
-
-import Pact.Core.Errors (VerifierError(..))
-import Chainweb.Parent
-import Chainweb.Pact.Types (ServiceEnv, BlockCtx (_bctxParentHeight), guardCtx, _bctxCurrentBlockHeight, bctxParentCreationTime, bctxParentHash, bctxParentHeight)
+import Pact.Types.Verifier
+import Pact.Utils.StableHashMap qualified as SHM
 import System.LogLevel
-import qualified Pact.Core.Gas as Pact5
-import qualified Pact.Types.Gas as Pact
-import Data.Int (Int64)
-import Chainweb.BlockCreationTime
-import Chainweb.Time hiding (second)
-import Chainweb.BlockHash
-import Chainweb.Ranked
-import Control.Concurrent.MVar
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as Pact5
 
 -- | Convert context to datatype for Pact environment.
 --

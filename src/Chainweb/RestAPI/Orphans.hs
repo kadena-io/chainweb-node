@@ -32,7 +32,6 @@ module Chainweb.RestAPI.Orphans () where
 
 import Control.Monad
 
-import Data.Bool
 import Data.Bifunctor
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))

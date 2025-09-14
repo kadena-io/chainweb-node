@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -29,13 +30,13 @@ import Control.Monad.Trans.Except
 import Data.Bifunctor (bimap)
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Function (on)
-import qualified Data.HashSet as HashSet
+import Data.HashSet qualified as HashSet
 import Data.IORef
 import Data.List (sort, sortBy)
-import qualified Data.List.Ordered as OL
+import Data.List.Ordered qualified as OL
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Stack
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
@@ -44,22 +45,17 @@ import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
-
--- internal modules
-
-import Pact.Parse (ParsedDecimal(..))
 import Pact.Core.Gas.Types
-
 import Chainweb.BlockHash
 import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Test.Utils
-import qualified Chainweb.Time as Time
-import Chainweb.Utils (T2(..))
-import Chainweb.PayloadProvider
+import Chainweb.Time qualified as Time
+import Chainweb.BlockCreationTime
 import Chainweb.MinerReward
 import Chainweb.Parent
-import Chainweb.BlockCreationTime
-import Control.Lens (from, view)
+import Chainweb.PayloadProvider
+import Chainweb.Utils (T2(..))
+import Control.Lens (view)
 
 ------------------------------------------------------------------------------
 -- | Several operations (reintroduce, validate, confirm) can only be performed

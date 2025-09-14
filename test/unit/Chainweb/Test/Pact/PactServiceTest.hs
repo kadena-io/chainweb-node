@@ -1,63 +1,77 @@
-{-# language
-    DataKinds
-    , FlexibleContexts
-    , ImpredicativeTypes
-    , ImportQualifiedPost
-    , LambdaCase
-    , NumericUnderscores
-    , OverloadedStrings
-    , PackageImports
-    , ScopedTypeVariables
-    , TypeApplications
-    , TemplateHaskell
-    , RecordWildCards
-    , TupleSections
-#-}
-
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Test.Pact.PactServiceTest
-    ( tests
-    ) where
+( tests
+) where
 
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload qualified as IN0
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload qualified as INN
+import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Core.Brief
 import Chainweb.Cut
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
+import Chainweb.Pact.Backend.Types (throwIfNoHistory, Historical)
 import Chainweb.Pact.Mempool.InMem qualified as Mempool
 import Chainweb.Pact.Mempool.Mempool qualified as Mempool
-import Chainweb.Pact.Types
-import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.PactService qualified as PactService
+import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
+import Chainweb.Pact.PactService.ExecBlock qualified as PactService
 import Chainweb.Pact.Payload
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.Types
+import Chainweb.Parent
+import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.Pact (pactMemPoolAccess)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact.CmdBuilder
-import Chainweb.Test.Pact.Utils hiding (withTempSQLiteResource)
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-
 import Control.Concurrent.Async (forConcurrently)
 import Control.Lens hiding (only)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
-
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Short qualified as SB
 import Data.Decimal
+import Data.Foldable (toList)
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
+import Data.List qualified as List
+import Data.Pool qualified as Pool
 import Data.Text qualified as T
 import Data.Text.IO qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-
 import Pact.Core.Capabilities
+import Pact.Core.ChainData (TxCreationTime (..))
 import Pact.Core.Command.Types
 import Pact.Core.Gas.Types
+import Pact.Core.Hash qualified as Pact
 import Pact.Core.Names
 import Pact.Core.PactValue
 import PropertyMatchers ((?))
@@ -65,26 +79,6 @@ import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf (printf)
-import qualified Data.Pool as Pool
-import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
-import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
-import Chainweb.PayloadProvider.Pact (pactMemPoolAccess)
-import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
-import Chainweb.Pact.Backend.Types (throwIfNoHistory, Historical)
-import qualified Chainweb.Pact.PactService as PactService
-import qualified Chainweb.Pact.PactService.ExecBlock as PactService
-import Chainweb.Parent
-import Chainweb.PayloadProvider
-import Chainweb.Core.Brief
-import Data.Foldable (toList)
-import Pact.Core.ChainData (TxCreationTime (..))
-import Pact.Core.Hash qualified as Pact
-import qualified Data.List as List
-import Data.HashMap.Strict (HashMap)
-import qualified Data.ByteString.Short as SB
-import Chainweb.BlockHash (BlockHash)
-import Chainweb.BlockHeight (BlockHeight)
-import qualified Data.HashMap.Strict as HashMap
 
 data Fixture = Fixture
     { _fixtureBlockDb :: TestBlockDb

@@ -56,10 +56,8 @@ import Data.Word (Word8)
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Pact4.Transaction
 import Chainweb.Version
@@ -72,7 +70,6 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.KeySet as P
 import qualified Pact.Parse as P
-import Chainweb.Pact4.Types
 import Chainweb.Utils (ebool_, int)
 import Chainweb.Parent
 import qualified Pact.Core.Gas.Types as Pact5

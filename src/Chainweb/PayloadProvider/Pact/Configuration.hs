@@ -44,7 +44,6 @@ import Control.Monad
 import Data.Maybe
 import Data.Set qualified as Set
 import GHC.Generics hiding (from, to)
-import Numeric.Natural (Natural)
 import Pact.Core.Gas qualified as Pact
 import Pact.Core.Guards qualified as Pact
 import Pact.Core.StableEncoding

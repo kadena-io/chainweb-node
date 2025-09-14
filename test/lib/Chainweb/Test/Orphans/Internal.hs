@@ -6,6 +6,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -14,7 +16,6 @@
 {-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.Test.Orphans.Internal
@@ -43,71 +44,11 @@ module Chainweb.Test.Orphans.Internal
 , arbitraryMerkleHeaderProof
 , arbitraryMerkleBodyProof
 
--- -- ** Output Proofs
--- , arbitraryOutputMerkleProof
--- , arbitraryOutputProof
--- , mkTestOutputProof
--- , arbitraryOutputEvents
--- -- , arbitraryPayloadWithStructuredOutputs
-
--- ** Events Proofs
--- , mkTestEventsProof
--- , arbitraryEventsProof
--- , EventPactValue(..)
--- , ProofPactEvent(..)
-
 -- ** Misc
 , arbitraryPage
 ) where
 
 import Control.Applicative
-import Control.Lens (view)
-import Control.Monad
-import Control.Monad.Catch
-
-import Data.Aeson hiding (Error)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Short as BS
-import Data.Foldable
-import Data.Function
-import Data.Functor ((<&>))
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.Hash.Keccak
-import Data.Kind
-import qualified Data.List as L
-import Data.MerkleLog.V1
-import Data.Streaming.Network.Internal
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import Data.Type.Equality
-import qualified Data.Vector as V
-
-import GHC.Stack
-
-import Numeric.Natural
-
-import qualified Pact.JSON.Encode as J
-import Pact.Core.Command.Types
-import Pact.Core.Capabilities
-import Pact.Core.PactValue
-import Pact.Core.Literal
-
-import Prelude hiding (Applicative(..))
-
-import System.IO.Unsafe
-
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Exception (discard)
-import Test.QuickCheck.Gen
-import Test.QuickCheck.Modifiers
-
-import Unsafe.Coerce
-
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
-
--- internal modules
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -122,24 +63,23 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
-import Chainweb.Pact.Mempool.Mempool
-import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeVersion
-import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Types
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.Pact.Payload
+import Chainweb.Pact.RestAPI.SPV
+import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.PowHash
+import Chainweb.Ranked
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
-import Chainweb.SPV
 import Chainweb.SPV.EventProof
-import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.TestVersions
@@ -149,30 +89,52 @@ import Chainweb.Utils.Paging
 import Chainweb.Utils.Rule (ruleElems)
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 import Chainweb.Version.Testnet04
 import Chainweb.Version.Utils
-
+import Control.Lens (view)
+import Control.Monad
+import Control.Monad.Catch
+import Data.Aeson hiding (Error)
+import Data.ByteString qualified as B
+import Data.ByteString.Short qualified as BS
+import Data.Foldable
+import Data.Function
+import Data.Functor ((<&>))
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.Kind
+import Data.MerkleLog.V1
 import Data.Singletons
-
+import Data.Streaming.Network.Internal
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Type.Equality
+import GHC.Stack
 import Network.X509.SelfSigned
-
+import Numeric.Natural
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Peer
 import P2P.Test.Orphans ()
-
-import System.Logger.Types
-
-import Utils.Logging
+import Pact.Core.Capabilities
+import Pact.Core.Command.Types
+import Pact.Core.Literal
+import Pact.Core.PactValue
 import Pact.Core.StableEncoding
-import Pact.Core.Errors (pactErrorToOnChainError)
-import Pact.Core.Info (spanInfoToLineInfo)
-import Chainweb.PayloadProvider
-import Chainweb.Parent
-import Chainweb.Ranked
+import Pact.JSON.Encode qualified as J
+import Prelude hiding (Applicative(..))
+import System.IO.Unsafe
+import System.Logger.Types
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Exception (discard)
+import Test.QuickCheck.Gen
+import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
+import Test.QuickCheck.Modifiers
+import Unsafe.Coerce
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Utils

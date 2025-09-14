@@ -1,48 +1,67 @@
-{-# language
-    ConstraintKinds
-    , DataKinds
-    , DeriveAnyClass
-    , DerivingStrategies
-    , FlexibleContexts
-    , FlexibleInstances
-    , ImplicitParams
-    , ImportQualifiedPost
-    , ImpredicativeTypes
-    , LambdaCase
-    , MultiParamTypeClasses
-    , NamedFieldPuns
-    , NumericUnderscores
-    , OverloadedStrings
-    , PackageImports
-    , PartialTypeSignatures
-    , PatternSynonyms
-    , RecordWildCards
-    , ScopedTypeVariables
-    , TemplateHaskell
-    , TupleSections
-    , TypeApplications
-    , UndecidableInstances
-    , ViewPatterns
-#-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- temporary
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Chainweb.Test.Pact.RemotePactTest
-    ( tests
-    , mkFixture
-    , Fixture(..)
-    , HasFixture(..)
-    , poll
-    , pollWithDepth
-    , PollException(..)
-    , ClientException(..)
-    , _FailureResponse
-    , send
-    , local
-    , textContains
-    ) where
+( tests
+, mkFixture
+, Fixture(..)
+, HasFixture(..)
+, poll
+, pollWithDepth
+, PollException(..)
+, ClientException(..)
+, _FailureResponse
+, send
+, local
+, textContains
+) where
 
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload qualified as IN0
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload qualified as INN
+import Chainweb.ChainId
+import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
+import Chainweb.Graph (petersenChainGraph, singletonChainGraph, twentyChainGraph)
+import Chainweb.Pact.Mempool.Mempool (TransactionHash (..))
+import Chainweb.Pact.Payload
+import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.RestAPI.Server
+import Chainweb.Pact.Types
+import Chainweb.RestAPI.Utils (someServerApplication)
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.CutFixture (advanceAllChains, advanceAllChains_, advanceToForkHeight)
+import Chainweb.Test.Pact.CutFixture qualified as CutFixture
+import Chainweb.Test.Pact.Utils
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Mainnet (mainnet)
 import Control.Concurrent.Async hiding (poll)
 import Control.Exception (evaluate)
 import Control.Exception.Safe
@@ -51,8 +70,8 @@ import Control.Monad (replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Resource (ResourceT, allocate, runResourceT)
 import Data.Aeson qualified as A
-import Data.Aeson.Lens qualified as A
 import Data.Aeson.KeyMap qualified as A.KeyMap
+import Data.Aeson.Lens qualified as A
 import Data.ByteString.Base16 qualified as B16
 import Data.Foldable (forM_, traverse_)
 import Data.HashMap.Strict qualified as HashMap
@@ -63,8 +82,8 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
 import Data.Text.Encoding qualified as T
+import Data.Text.IO qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
 import Data.Vector qualified as V
@@ -78,14 +97,6 @@ import Network.TLS qualified as TLS
 import Network.Wai.Handler.Warp qualified as W
 import Network.Wai.Handler.WarpTLS qualified as W
 import Network.X509.SelfSigned
-import Prettyprinter qualified as PP
-import PropertyMatchers ((?))
-import PropertyMatchers qualified as P
-import Servant.Client
-import System.IO.Unsafe (unsafePerformIO)
-import Test.Tasty
-import Test.Tasty.HUnit (testCaseSteps, testCase, assertFailure)
-
 import Pact.Core.Capabilities
 import Pact.Core.ChainData qualified as Pact
 import Pact.Core.Command.Client (SubmitBatch(..))
@@ -101,29 +112,13 @@ import Pact.Core.Hash
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.SPV
-
-import Chainweb.ChainId
-import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
-import Chainweb.Graph (petersenChainGraph, singletonChainGraph, twentyChainGraph)
-import Chainweb.Pact.Mempool.Mempool (TransactionHash (..))
-import Chainweb.Pact.RestAPI.Client
-import Chainweb.Pact.RestAPI.Server
-import Chainweb.Pact.Types
-import Chainweb.Pact.Payload
-import Chainweb.RestAPI.Utils (someServerApplication)
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Pact.CmdBuilder
-import Chainweb.Test.Pact.CutFixture (advanceAllChains, advanceAllChains_, advanceToForkHeight)
-import Chainweb.Test.Pact.CutFixture qualified as CutFixture
-import Chainweb.Test.Pact.Utils
-import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils
-import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.Version.Mainnet (mainnet)
-
-import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
-import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
+import Prettyprinter qualified as PP
+import PropertyMatchers ((?))
+import PropertyMatchers qualified as P
+import Servant.Client
+import System.IO.Unsafe (unsafePerformIO)
+import Test.Tasty
+import Test.Tasty.HUnit (testCaseSteps, testCase)
 
 
 -- generating this cert and making an HTTP manager take quite a while relative

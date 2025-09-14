@@ -17,16 +17,23 @@
 module Chainweb.Test.Pact.TransactionExecTest (tests) where
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload qualified as PIN0
 import Chainweb.Graph (petersenChainGraph)
+import Chainweb.Logger
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerGuard(..), noMiner)
+import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, mkFakeParentCreationTime)
-import Chainweb.Pact.Types
+import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
 import Chainweb.Pact.Transaction
 import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.Types
+import Chainweb.Parent
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb), mkTestBlockDb)
 import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Version
@@ -34,6 +41,7 @@ import Control.Lens hiding (only)
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Resource
 import Data.Decimal
 import Data.HashMap.Strict qualified as HashMap
@@ -44,7 +52,6 @@ import Data.String (fromString)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
-import Chainweb.Test.Pact.Utils hiding (withTempSQLiteResource)
 import GHC.Stack
 import Pact.Core.Capabilities
 import Pact.Core.Command.Types
@@ -53,6 +60,7 @@ import Pact.Core.Errors
 import Pact.Core.Evaluate
 import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
+import Pact.Core.Guards qualified as Pact
 import Pact.Core.Hash
 import Pact.Core.Names
 import Pact.Core.PactValue
@@ -60,20 +68,12 @@ import Pact.Core.Persistence hiding (pactDb)
 import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Signer
 import Pact.Core.Verifiers
-import Pact.Core.Guards qualified as Pact
 import Pact.JSON.Encode qualified as J
 import PropertyMatchers ((?), pattern (:=>))
 import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, testCase)
 import Text.Printf
-import Chainweb.Logger
-import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
-import Chainweb.Pact.Backend.Types
-import Control.Monad.State.Strict
-import Chainweb.Parent
-import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as PIN0
-import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"

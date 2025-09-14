@@ -19,36 +19,19 @@ module Chainweb.Chainweb.MempoolSyncClient
 
 import Chainweb.Time
 
-import Control.Lens hiding ((.=), (<.>))
-import Control.Monad
-import Control.Monad.Catch
-
-import qualified Data.Text as T
-
 import qualified Network.HTTP.Client as HTTP
 
 import Prelude hiding (log)
 
-import System.LogLevel
-
 -- internal modules
 
-import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Logger
-import qualified Chainweb.Pact.Mempool.Mempool as Mempool
 import Chainweb.Pact.Mempool.P2pConfig
-import qualified Chainweb.Pact.Mempool.RestAPI.Client as MPC
-import Chainweb.RestAPI.NetworkID
-import Chainweb.Utils
 import Chainweb.Version
 
-import P2P.Node.Configuration
 import P2P.Session
-import P2P.Node
-
-import qualified Servant.Client as Sv
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

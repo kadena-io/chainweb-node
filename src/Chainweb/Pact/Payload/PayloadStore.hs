@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
@@ -14,7 +15,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE InstanceSigs #-}
 
 -- |
 -- Module: Chainweb.Pact.Payload.PayloadStore
@@ -72,31 +72,20 @@ module Chainweb.Pact.Payload.PayloadStore
 ) where
 
 import Control.Applicative
+import Chainweb.BlockHeight
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
+import Chainweb.Pact.Payload
+import Chainweb.Ranked
+import Chainweb.Storage.Table
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
-
 import Data.Hashable
-import Data.Foldable
-
-import GHC.Generics
-
--- internal modules
-
-import Chainweb.ChainId
-import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
-import Chainweb.Pact.Payload
-import Chainweb.Version
-
-import Chainweb.Storage.Table
-import Chainweb.BlockHeight
-import Chainweb.PayloadProvider.Pact.Genesis
-import Chainweb.BlockPayloadHash (RankedBlockPayloadHash)
-import Chainweb.Ranked
 import Data.Maybe (isJust)
+import GHC.Generics
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

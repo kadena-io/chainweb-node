@@ -17,36 +17,8 @@ module Chainweb.Test.Mining
 ( tests
 ) where
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Concurrent.STM.TVar
-import Control.Lens
-
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import Data.Maybe
-import qualified Data.Text as T
-
-import GHC.Stack
-
-import System.LogLevel
-
-import Test.Tasty
-import Test.Tasty.HUnit
-
--- internal modules
-
-import Chainweb.Chainweb.MinerResources
-import Chainweb.Graph
-import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.Coordinator
-import Chainweb.Miner.Pact
-import Chainweb.Test.CutDB hiding (tests)
-import Chainweb.Test.TestVersions (barebonesTestVersion)
-
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Version (withVersion)
+import Test.Tasty
 
 -- -------------------------------------------------------------------------- --
 --

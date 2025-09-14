@@ -85,25 +85,6 @@ module Chainweb.PayloadProvider.Minimal
 ) where
 
 import Configuration.Utils
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import Control.Lens hiding ((.=))
-import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.Except (throwError)
-import Data.ByteString qualified as B
-import Data.HashSet qualified as HS
-import Data.LogMessage (LogFunction, LogFunctionText)
-import Data.PQueue (PQueue)
-import Data.Text qualified as T
-import GHC.Generics (Generic)
-import Network.HTTP.Client qualified as HTTP
-import Numeric.Natural
-import P2P.TaskQueue
-import Servant.Client
-import System.LogLevel
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
@@ -123,6 +104,23 @@ import Chainweb.Storage.Table.RocksDB
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Control.Concurrent.Async
+import Control.Concurrent.STM
+import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.Except (throwError)
+import Data.ByteString qualified as B
+import Data.HashSet qualified as HS
+import Data.LogMessage (LogFunction, LogFunctionText)
+import Data.PQueue (PQueue)
+import Data.Text qualified as T
+import GHC.Generics (Generic)
+import Network.HTTP.Client qualified as HTTP
+import Numeric.Natural
+import P2P.TaskQueue
+import Servant.Client
+import System.LogLevel
 
 -- -------------------------------------------------------------------------- --
 
