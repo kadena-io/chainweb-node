@@ -1,13 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -25,6 +29,19 @@
 -- Internal BlockHeader DB implementation. This module must be imported only by
 -- modules within the @Chainweb.BlockHeader@ namespace.
 --
+-- Whenever possible prefer 'RankedBlockHeaderDb' over 'BlockHeaderDb' as it is
+-- more efficient.
+--
+-- TODO:
+-- Consider renaming RankedBlockHeaderDb to BlockHeaderDb and BlockHeaderDb to
+-- UnrankedBlockHeaderDb. Or remove the unranked version alltogether.
+--
+-- Ideally, we would just inlcude the rank as the first 4 bytes in the block
+-- hash, but that ship has probably sailed. (4 bytes are sufficient for about
+-- 4G of blocks or 4000 years of block history at 2 blocks per minute.
+-- Even when producint 1 block per ms, e.g. during tests, this would still
+-- be sufficient for about 49 days.)
+--
 module Chainweb.BlockHeaderDB.Internal
 (
 -- * Internal Types
@@ -34,6 +51,7 @@ module Chainweb.BlockHeaderDB.Internal
 -- * Chain Database Handle
 , Configuration(..)
 , BlockHeaderDb(..)
+, RankedBlockHeaderDb(..)
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
@@ -41,22 +59,27 @@ module Chainweb.BlockHeaderDB.Internal
 -- * Insertion
 , insertBlockHeaderDb
 , unsafeInsertBlockHeaderDb
+
+-- * Misc
+, type RankedBlockHeaderCas
 ) where
 
 import Control.Arrow
-import Control.Exception.Safe
 import Control.DeepSeq
+import Control.Exception.Safe
 import Control.Lens hiding (children)
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson
 import Data.Function
 import Data.Hashable
+import Data.HashSet qualified as HS
 import Data.Maybe
 import qualified Data.Text.Encoding as T
 
-import GHC.Generics
+import GHC.Generics (Generic)
 
 import Prelude hiding (lookup)
 
@@ -69,6 +92,8 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Parent
+import Chainweb.Ranked qualified as R
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
@@ -79,8 +104,6 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
-import Control.Monad.Except
-import Control.Monad.IO.Class
 
 -- -------------------------------------------------------------------------- --
 -- | Configuration of the chain DB.
@@ -93,10 +116,15 @@ data Configuration = Configuration
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Header
 
-newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHeader }
+newtype RankedBlockHeader = RankedBlockHeader
+    { _getRankedBlockHeader :: BlockHeader }
     deriving (Show, Generic)
     deriving anyclass (NFData)
     deriving newtype (Hashable, Eq, ToJSON, FromJSON)
+
+instance R.IsRanked RankedBlockHeader where
+    rank = view blockHeight . _getRankedBlockHeader
+    {-# INLINE rank #-}
 
 instance HasChainId RankedBlockHeader where
     _chainId = _chainId . _getRankedBlockHeader
@@ -115,6 +143,20 @@ instance IsCasValue RankedBlockHeader where
     casKey (RankedBlockHeader bh)
         = RankedBlockHash (view blockHeight bh) (view blockHash bh)
     {-# INLINE casKey #-}
+
+type RankedBlockHeaderCas tbl = Cas tbl RankedBlockHeader
+
+instance HasVersion => TreeDbEntry RankedBlockHeader where
+    type Key RankedBlockHeader = RankedBlockHash
+    key = _rankedBlockHash . _getRankedBlockHeader
+    {-# INLINE key #-}
+    rank = int . view blockHeight . _getRankedBlockHeader
+    {-# INLINE rank #-}
+    parent e
+        | isGenesisBlockHeader (_getRankedBlockHeader e) = Nothing
+        | otherwise = Just $ RankedBlockHash
+            (pred $ view blockHeight $ _getRankedBlockHeader e)
+            (unwrapParent $ view blockParent $ _getRankedBlockHeader e)
 
 -- -------------------------------------------------------------------------- --
 -- BlockRank
@@ -160,7 +202,30 @@ instance HasChainId BlockHeaderDb where
     {-# INLINE _chainId #-}
 
 instance (k ~ CasKeyType BlockHeader, HasVersion) => ReadableTable BlockHeaderDb k BlockHeader where
-    tableLookup db k = either (\_ -> Nothing) Just <$> lookup db k
+    tableLookup = lookup
+    {-# INLINE tableLookup #-}
+
+-- -------------------------------------------------------------------------- --
+-- RankedBlockHeaderDb
+
+-- | A rangked block header db uses the same underlying storage as a
+-- 'BlockHeaderDb' but always includes the header rank in the key, which
+-- results in more efficient queries, because it bypasses a lookup in the rank
+-- table.
+--
+newtype RankedBlockHeaderDb = RankedBlockHeaderDb
+    { _rankedBlockHeaderDb :: BlockHeaderDb }
+    deriving (Generic)
+
+instance HasChainId RankedBlockHeaderDb where
+    _chainId = _chainId . _rankedBlockHeaderDb
+    {-# INLINE _chainId #-}
+
+instance
+    (k ~ CasKeyType RankedBlockHeader, HasVersion)
+    => ReadableTable RankedBlockHeaderDb k RankedBlockHeader
+  where
+    tableLookup = lookup
     {-# INLINE tableLookup #-}
 
 -- -------------------------------------------------------------------------- --
@@ -260,47 +325,100 @@ withBlockHeaderDb db cid = snd <$> allocate start closeBlockHeaderDb
 instance HasVersion => TreeDb BlockHeaderDb where
     type DbEntry BlockHeaderDb = BlockHeader
 
-    lookup db h = runExceptT $ do
-        -- lookup rank
-        r <- liftIO (tableLookup (_chainDbRankTable db) h) >>= \case
-            Nothing -> throwError ""
-            Just v -> return v
-        ExceptT $ lookupRanked db (int r) h
+    lookup db h = do
+        liftIO (tableLookup (_chainDbRankTable db) h) >>= \case
+            Nothing -> return Nothing
+            Just v -> fmap _getRankedBlockHeader
+                <$> lookup (RankedBlockHeaderDb db) (RankedBlockHash (int v) h)
     {-# INLINEABLE lookup #-}
 
-    lookupRanked db r h = runExceptT $ do
-        rh <- liftIO (tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)) >>= \case
-            Nothing -> throwError ""
-            Just v -> return v
-        return $! _getRankedBlockHeader rh
+    lookupRanked db r h = fmap _getRankedBlockHeader
+        <$> lookupRanked (RankedBlockHeaderDb db) r (RankedBlockHash (int r) h)
     {-# INLINEABLE lookupRanked #-}
 
-    entries db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
+    entries db k l mir mar f = do
+        rk <- mapM (mapM (getRankedKey db)) k
+        entries (RankedBlockHeaderDb db) rk l mir mar
+            $ f . S.map _getRankedBlockHeader
+    {-# INLINEABLE entries #-}
+
+    branchEntries db k l mir mar lower upper f = do
+        -- we use the ranked implementation as it is more efficient
+        -- TODO run these queries in parallel or batch them; usually it is a
+        -- relatively small number.
+        let mapSetM a = fmap HS.fromList . mapM a . HS.toList
+        rk <- mapM (mapM (getRankedKey db)) k
+        rlow <- mapSetM (mapM (getRankedKey db)) lower
+        rup <- mapSetM (mapM (getRankedKey db)) upper
+        chainBranchEntries (RankedBlockHeaderDb db) rk l mir mar rlow rup
+            $ f . S.map _getRankedBlockHeader
+    {-# INLINEABLE branchEntries #-}
+
+    keys db k l mir mar f = do
+        rk <- mapM (mapM (getRankedKey db)) k
+        keys (RankedBlockHeaderDb db) rk l mir mar
+            $ f . S.map _rankedBlockHashHash
+    {-# INLINEABLE keys #-}
+
+    maxEntry db = _getRankedBlockHeader <$> maxEntry (RankedBlockHeaderDb db)
+    {-# INLINEABLE maxEntry #-}
+
+    maxRank db = maxRank (RankedBlockHeaderDb db)
+    {-# INLINEABLE maxRank #-}
+
+getRankedKey
+    :: HasVersion
+    => BlockHeaderDb
+    -> BlockHash
+    -> IO RankedBlockHash
+getRankedKey db h = do
+    liftIO (tableLookup (_chainDbRankTable db) h) >>= \case
+        Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h "getRankedKey.lookup"
+        Just v -> return $ RankedBlockHash (int v) h
+{-# INLINE getRankedKey #-}
+
+-- -------------------------------------------------------------------------- --
+-- TreeDB instance for RankedBlockHeaderDb
+
+instance HasVersion => TreeDb RankedBlockHeaderDb where
+    type DbEntry RankedBlockHeaderDb = RankedBlockHeader
+
+    lookup db h = tableLookup (_chainDbCas $ _rankedBlockHeaderDb db) h
+    {-# INLINEABLE lookup #-}
+
+    -- If the rank is inconsistent with the height in the key 'Nothing' is
+    -- returned. This is consistent with the behavior of the unraked
+    -- BlockHeaderDb instance.
+    --
+    lookupRanked db r h
+        | int r /= R._rankedHeight h = return Nothing
+        | otherwise = lookup db h
+    {-# INLINEABLE lookupRanked #-}
+
+    entries db k l mir mar f = withSeekRanked db k mir $ \it -> f $ do
         iterToValueStream it
-            & S.map _getRankedBlockHeader
-            & maybe id (\x -> S.takeWhile (\a -> int (view blockHeight a) <= x)) mar
+            & maybe id (\x -> S.takeWhile (\a -> int (rank a) <= x)) mar
             & limitStream l
     {-# INLINEABLE entries #-}
 
     branchEntries = chainBranchEntries
     {-# INLINEABLE branchEntries #-}
 
-    keys db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
+    keys db k l mir mar f = withSeekRanked db k mir $ \it -> f $ do
         iterToKeyStream it
             & maybe id (\x -> S.takeWhile (\a -> int (_rankedBlockHashHeight a) <= x)) mar
-            & S.map _rankedBlockHashHash
             & limitStream l
     {-# INLINEABLE keys #-}
 
-    maxEntry db = withTableIterator (_chainDbCas db) $ \it -> do
+    maxEntry db = withTableIterator (_chainDbCas $ _rankedBlockHeaderDb db) $ \it -> do
         iterLast it
         iterValue it >>= \case
-            Just (RankedBlockHeader !r) -> return r
+            Just !r -> return r
             Nothing -> throwM
                 $ InternalInvariantViolation "BlockHeaderDb.maxEntry: empty block header db"
     {-# INLINEABLE maxEntry #-}
 
-    maxRank db = withTableIterator (_chainDbCas db) $ \it -> do
+    maxRank db = withTableIterator (_chainDbCas $ _rankedBlockHeaderDb db) $ \it -> do
         iterLast it
         iterKey it >>= \case
             Just (RankedBlockHash !r _) -> return $! int r
@@ -308,15 +426,19 @@ instance HasVersion => TreeDb BlockHeaderDb where
                 $ InternalInvariantViolation "BlockHeaderDb.maxRank: empty block header db"
     {-# INLINEABLE maxRank #-}
 
-withSeekTreeDb
-    :: BlockHeaderDb
-    -> Maybe (NextItem BlockHash)
+-- -------------------------------------------------------------------------- --
+
+withSeekRanked
+    :: RankedBlockHeaderDb
+    -> Maybe (NextItem RankedBlockHash)
     -> Maybe MinRank
     -> (RocksDbTableIter RankedBlockHash RankedBlockHeader -> IO a)
     -> IO a
-withSeekTreeDb db k mir kont =
-    withTableIterator (_chainDbCas db) (\it -> seekTreeDb db k mir it >> kont it)
-{-# INLINE withSeekTreeDb #-}
+withSeekRanked db k mir kont =
+    withTableIterator (_chainDbCas $ _rankedBlockHeaderDb db) $ \it -> do
+        seekRanked k mir it
+        kont it
+{-# INLINE withSeekRanked #-}
 
 -- | If @k@ is not 'Nothing', @seekTreeDb d k mir@ seeks key @k@ in @db@. If the
 -- key doesn't exist it throws @TreeDbKeyNotFound@. Otherwise if @k@ was
@@ -330,13 +452,12 @@ withSeekTreeDb db k mir kont =
 -- If both @k@ and @minr@ are 'Nothing' it returns an iterator that points to
 -- the first entry in @d@.
 --
-seekTreeDb
-    :: BlockHeaderDb
-    -> Maybe (NextItem BlockHash)
+seekRanked
+    :: Maybe (NextItem RankedBlockHash)
     -> Maybe MinRank
     -> RocksDbTableIter RankedBlockHash RankedBlockHeader
     -> IO ()
-seekTreeDb db k mir it = do
+seekRanked k mir it = do
     case k of
         Nothing -> case mir of
             Nothing -> return ()
@@ -344,18 +465,14 @@ seekTreeDb db k mir it = do
                 $ RankedBlockHash (BlockHeight $ int $ _getMinRank r) nullBlockHash
 
         Just a -> do
-
             -- Seek to cursor
             let x = _getNextItem a
-            r <- tableLookup (_chainDbRankTable db) x >>= \case
-                Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x "seekTreeDb.lookup"
-                (Just !b) -> return b
-            iterSeek it (RankedBlockHash r x)
+            iterSeek it x
 
             -- if we don't find the cursor, throw exception
             iterKey it >>= \case
-                Just (RankedBlockHash _ b) | b == x -> return ()
-                _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x "seekTreeDb.iterKey"
+                Just b | b == x -> return ()
+                _ -> throwM $ TreeDbKeyNotFound @RankedBlockHeaderDb x "seekTreeDb.iterKey"
 
             -- If the cursor is exclusive, then advance the iterator
             when (isExclusive a) $ iterNext it

@@ -526,7 +526,7 @@ getBlockHeaderInternal
     logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
     return bh
 
-    where
+  where
 
     mgr = _webBlockHeaderStoreMgr headerStore
     cas = WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore
@@ -596,11 +596,11 @@ getBlockHeaderInternal
         !r <- trace logfun (traceLabel "pullOrigin") k 0
             $ TDB.lookup (rDb cid originEnv) k
         case r of
-            Left err -> do
+            Nothing -> do
                 logg Warn $ taskMsg k
-                    $ "failed to pull from origin " <> sshow origin <> " with " <> err
+                    $ "failed to pull from origin " <> sshow origin <> " key " <> sshow k
                 return Nothing
-            Right v -> do
+            Just !v -> do
                 logg Debug $ taskMsg ck "received from origin"
                 return $ Just v
 
