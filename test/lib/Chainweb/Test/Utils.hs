@@ -46,7 +46,6 @@ module Chainweb.Test.Utils
 -- * Data Generation
 , toyBlockHeaderDb
 , toyChainId
-, toyGenesis
 , toyVersion
 , genesisBlockHeaderForChain
 , withToyDB
@@ -347,23 +346,20 @@ toyVersion = barebonesTestVersion singletonChainGraph
 toyChainId :: ChainId
 toyChainId = withVersion toyVersion someChainId
 
-toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = withVersion toyVersion genesisBlockHeader cid
-
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
 -- Borrowed from TrivialSync.hs
 --
-toyBlockHeaderDb :: RocksDb -> ChainId -> IO (BlockHeader, BlockHeaderDb)
-toyBlockHeaderDb db cid = withVersion toyVersion $ (g,) <$> testBlockHeaderDb db g
+toyBlockHeaderDb :: HasVersion => RocksDb -> ChainId -> IO (BlockHeader, BlockHeaderDb)
+toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
   where
-    g = toyGenesis cid
+    g = genesisBlockHeader cid
 
 -- | Given a function that accepts a Genesis Block and
 -- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withToyDB :: RocksDb -> ChainId -> ResourceT IO (BlockHeader, BlockHeaderDb)
+withToyDB :: HasVersion => RocksDb -> ChainId -> ResourceT IO (BlockHeader, BlockHeaderDb)
 withToyDB db cid
     = snd <$> allocate (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd)
 

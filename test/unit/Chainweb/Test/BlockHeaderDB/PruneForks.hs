@@ -120,12 +120,24 @@ delHdr cdb k = do
 tests :: RocksDb -> TestTree
 tests rdb =
     testGroup "Chainweb.BlockHeaderDb.PruneForks"
-        [ testCaseSteps "simple 1" (test0 rdb)
-        , testCaseSteps "simple 2" (test1 rdb)
-        , testCaseSteps "simple 3" (test2 rdb)
-        , testCaseSteps "simple 5" (test3 rdb)
-        , testCaseSteps "Skippping: max bound 1" $ test4 rdb
-        , testCaseSteps "Skippping: depth 10" $ test5 rdb
+        [ testCaseSteps "simple 1"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 1 5
+        , testCaseSteps "simple 2"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 2 5
+        , testCaseSteps "simple 3"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 4 5
+        , testCaseSteps "simple 4"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 5 0
+        , testCaseSteps "skipping: max bound 1"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 9 0
+        , testCaseSteps "skipping: depth == max block height"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 10 0
         , testCaseSteps "fail on missing header 5" $ failTest rdb 5
         , testCaseSteps "fail on missing header 6" $ failTest rdb 6
             -- failTest <= 4: succeeds because of second branch
@@ -159,16 +171,15 @@ tests rdb =
 singleForkTest
     :: HasVersion
     => RocksDb
-    -> (String -> IO ())
     -> Natural
     -> Int
-    -> String
+    -> (String -> IO ())
     -> IO ()
-singleForkTest rdb step d expect msg = runResourceT $ do
+singleForkTest rdb d expect step = runResourceT $ do
     cdb <- withDbs rdb
     liftIO $ do
         let db = cdb ^?! cutDbBlockHeaderDb cid
-        let h = toyGenesis cid
+        let h = genesisBlockHeader cid
         (f0, f1) <- createForks db h
         let f0Cut = cutToCutHashes Nothing $ unsafeMkCut (HM.singleton cid (last f0))
         addCutHashes cdb f0Cut
@@ -180,7 +191,7 @@ singleForkTest rdb step d expect msg = runResourceT $ do
         n <- pruneForks logg initialCut wbhdb Prune d
         assertHeaders db f0
         when (expect > 0) $ assertPrunedHeaders db f1
-        assertEqual msg expect n
+        assertEqual "" expect n
   where
     logg = genericLogger testLogLevel (step . T.unpack)
 
@@ -198,31 +209,12 @@ assertPrunedHeaders db f =
 -- -------------------------------------------------------------------------- --
 -- Header Pruning Tests
 
-test0 :: RocksDb -> (String -> IO ()) -> IO ()
-test0 rdb step = withVersion toyVersion $ singleForkTest rdb step 1 5 "5 block headers pruned"
-
-test1 :: RocksDb -> (String -> IO ()) -> IO ()
-test1 rdb step = withVersion toyVersion $ singleForkTest rdb step 2 5 "5 block headers pruned"
-
-test2 :: RocksDb -> (String -> IO ()) -> IO ()
-test2 rdb step = withVersion toyVersion $ singleForkTest rdb step 4 5 "5 block headers pruned"
-
-test3 :: RocksDb -> (String -> IO ()) -> IO ()
-test3 rdb step = withVersion toyVersion $ singleForkTest rdb step 5 0 "0 block headers pruned"
-
-test4 :: RocksDb -> (String -> IO ()) -> IO ()
-test4 rdb step = withVersion toyVersion $ singleForkTest rdb step 9 0 "Skipping: max bound 1"
-
-test5 :: RocksDb -> (String -> IO ()) -> IO ()
-test5 rdb step = withVersion toyVersion $ singleForkTest rdb step 10 0
-    "Skipping: depth == max block height"
-
 failTest :: RocksDb -> Natural -> (String -> IO ()) -> IO ()
-failTest rio n step = withVersion toyVersion $ runResourceT $ do
+failTest rio n step = withVersion (barebonesTestVersion singletonChainGraph) $ runResourceT $ do
     cdb <- withDbs rio
     liftIO $ do
         let db = cdb ^?! cutDbBlockHeaderDb cid
-        let h = toyGenesis cid
+        let h = genesisBlockHeader cid
         (f0, _) <- createForks db h
         delHdr db $ f0 !! (int n)
         initialCut <- _cut cdb
@@ -241,26 +233,26 @@ failTest rio n step = withVersion toyVersion $ runResourceT $ do
 -- GC Tests
 
 testFullGc :: RocksDb -> (String -> IO ()) -> IO ()
-testFullGc rdb step = withVersion toyVersion $ runResourceT $ do
+testFullGc rdb step = withVersion (barebonesTestVersion singletonChainGraph) $ runResourceT $ do
     cdb <- withDbs rdb
     let db = cdb ^?! cutDbBlockHeaderDb cid
-    let h = toyGenesis cid
+    let h = genesisBlockHeader cid
     liftIO $ do
         (f0, f1) <- createForks db h
-        -- fullGc logger rdb toyVersion
+        -- fullGc logger rdb (barebonesTestVersion singletonChainGraph)
         assertHeaders db f0
         assertPrunedHeaders db f1
   where
     logger = genericLogger testLogLevel (step . T.unpack)
 
 testPruneWithChecks :: RocksDb -> (String -> IO ()) -> IO ()
-testPruneWithChecks rdb step = withVersion toyVersion $ runResourceT $ do
+testPruneWithChecks rdb step = withVersion (barebonesTestVersion singletonChainGraph) $ runResourceT $ do
     cdb <- withDbs rdb
     let db = cdb ^?! cutDbBlockHeaderDb cid
-    let h = toyGenesis cid
+    let h = genesisBlockHeader cid
     liftIO $ do
         (f0, f1) <- createForks db h
-        -- pruneAllChains logger rdb toyVersion
+        -- pruneAllChains logger rdb (barebonesTestVersion singletonChainGraph)
         assertHeaders db f0
         assertPrunedHeaders db f1
   where
