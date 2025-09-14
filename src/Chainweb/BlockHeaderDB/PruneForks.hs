@@ -246,8 +246,8 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     !noDeletes = onAllChains []
     mar = MaxRank $ int $ resumptionPoint pruneJob
     !action = case doPrune of
-        PruneDryRun -> "would have pruned "
-        _ -> "pruned "
+        PruneDryRun -> "Would have pruned "
+        _ -> "Pruned "
 
     executePendingDeletes prevHeight pendingDeletes pendingDeleteCount = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
