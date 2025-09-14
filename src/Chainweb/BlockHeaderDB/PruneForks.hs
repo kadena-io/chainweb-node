@@ -218,6 +218,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         $ S.foldMap_ (HashSet.singleton . unwrapParent . view blockParent)
             -- the initial live set is expected to be very small. In fact it is
             -- almost always a singleton set on each chain.
+    logFunctionText logger Debug $
+        "Initial live set at " <> sshow mar <> ": " <> sshow initialLiveSet
+
     let initialPruneState = PruneState
             { liveSet = initialLiveSet
             , pendingForkTips = HashSet.empty
