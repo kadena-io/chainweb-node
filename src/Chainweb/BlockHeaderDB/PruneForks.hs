@@ -277,11 +277,15 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             then do
                 executePendingDeletes (prevHeight state) (pendingDeletes state) (pendingDeleteCount state)
                 tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight state, startedFrom pruneJob)
-                go state { prevRecordedHeight = prevHeight state, pendingDeletes = noDeletes, pendingDeleteCount = 0 } strm
+                go
+                    state { prevRecordedHeight = prevHeight state, pendingDeletes = noDeletes, pendingDeleteCount = 0 }
+                    strm
             else if prevRecordedHeight state - prevHeight state > checkpointSize
             then do
                 tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight state, startedFrom pruneJob)
-                go state { prevRecordedHeight = prevHeight state } strm
+                go
+                    state { prevRecordedHeight = prevHeight state }
+                    strm
             else do
                 S.uncons strm >>= \case
                     Nothing -> do
