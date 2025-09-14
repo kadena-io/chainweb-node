@@ -69,6 +69,7 @@ import Chainweb.Version
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Time qualified
 import Data.LogMessage
 import Chainweb.WebBlockHeaderDB
 import Chainweb.Cut
@@ -79,6 +80,7 @@ import Data.Foldable (toList)
 import Data.Functor ((<&>))
 import Data.Ord
 import Control.Concurrent
+import Chainweb.BlockHeader.Validation (validateIntrinsicM)
 
 -- -------------------------------------------------------------------------- --
 -- Chain Database Pruning
@@ -233,6 +235,8 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             , pendingDeleteCount = 0
             }
 
+    now <- Chainweb.Time.getCurrentTimeIntegral
+
     if null initialLiveSet
     then do
         logFunctionText logger Warn
@@ -240,7 +244,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         return 0
     else do
         r <- withWebReverseHeaderStream wbhdb (max 1 mar - 1)
-            $ pruneBlocks initialPruneState
+            $ pruneBlocks now initialPruneState
         tableDelete (_webCurrentPruneJob wbhdb) ()
         return r
 
@@ -269,7 +273,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     deleteBatchSize = 1000
     checkpointSize = 200
 
-    pruneBlocks initialState =
+    pruneBlocks now initialState =
         go initialState
         where
         go state strm =
@@ -326,6 +330,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         HashSet.delete curHash liveSet
                 let !pendingForkTips' =
                         HashSet.delete curParent pendingForkTips
+
+                validateIntrinsicM now cur
+
                 go
                     PruneState
                         { liveSet = liveSet'
