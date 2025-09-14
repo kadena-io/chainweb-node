@@ -2,6 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB.PruneForks
@@ -16,12 +20,19 @@ module Chainweb.Test.BlockHeaderDB.PruneForks
 ( tests
 ) where
 
+import Control.Concurrent.STM
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Trans.Resource
+import Control.Monad.IO.Class
 
 -- import Data.CAS
 -- import Data.CAS.RocksDB
-import qualified Data.Text as T
+import Data.HashMap.Strict qualified as HM
+import Data.Text qualified as T
+import Data.Tree (Tree)
+import Data.Tree qualified as Tree
 
 import Numeric.Natural
 
@@ -33,6 +44,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
@@ -45,18 +57,32 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.CutDB
-import Control.Monad.Trans.Resource
 import Chainweb.Test.CutDB (withTestCutDb)
 import Chainweb.PayloadProvider (ConfiguredPayloadProvider(DisabledPayloadProvider))
-import Control.Monad.IO.Class
 import Chainweb.Test.Pact.Utils
-import Control.Lens
 import Chainweb.Storage.Table
-import Chainweb.Cut (unsafeMkCut)
+import Chainweb.Cut (unsafeMkCut, genesisCut)
 import Chainweb.Cut.CutHashes
-import qualified Data.HashMap.Strict as HM
-import Control.Concurrent.STM
 import Chainweb.Core.Brief
+import Chainweb.Test.TestVersions
+import Chainweb.Graph
+import Chainweb.WebBlockHeaderDB
+import Control.Monad.State.Strict
+import Chainweb.Parent
+import Data.HashMap.Strict (HashMap)
+import Data.Maybe (mapMaybe, catMaybes)
+import Chainweb.Cut.Create
+import Hedgehog
+import Hedgehog.Gen (shuffle)
+import qualified Data.HashSet as HS
+import System.Random.Shuffle (shuffleM)
+import Streaming.Prelude qualified as S
+import Control.Monad.Except
+import Streaming qualified as S
+import PropertyMatchers qualified as P
+import Chainweb.ChainValue
+import qualified Chainweb.TreeDB as TreeDB
+import Chainweb.Ranked
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -84,7 +110,148 @@ withDbs rdb = do
     testLogger <- liftIO getTestLogger
     (_, cutDb) <- withTestCutDb rdb id 0 (onAllChains DisabledPayloadProvider) testLogger
     return cutDb
-  where
+
+selectHighCuts :: Casify RocksDbTable CutHashes -> Int -> Maybe (CasKeyType CutHashes) -> IO ([CutHashes], CasKeyType CutHashes)
+selectHighCuts cutTable candidateCount maybeMaxCutHeight = do
+    (highestCuts, nextCutHeight) <- withTableIterator cutTable $ \iter -> do
+        case maybeMaxCutHeight of
+            Nothing ->
+                iterLast iter
+            Just ch -> do
+                iterSeek iter ch
+                iterPrev iter
+
+        cuts <- fmap catMaybes $ replicateM candidateCount $ do
+            iterValue iter >>= \case
+                Just r -> do
+                    iterPrev iter
+                    return (Just r)
+                Nothing -> return Nothing
+        nextCutHeight <- iterKey iter >>= \case
+            Nothing -> iterNext iter >> fromJuste <$> iterKey iter
+            Just ch -> return ch
+        return (cuts, nextCutHeight)
+    (,nextCutHeight) <$> shuffleM highestCuts
+
+findM :: Monad m => [t] -> (t -> m (Maybe a)) -> m (Maybe a)
+findM (x:xs) f = do
+    y <- f x
+    case y of
+        Nothing -> findM xs f
+        Just u -> return $ Just u
+findM [] _ = return Nothing
+
+selectNewBlockParents
+    :: HasVersion
+    => Casify RocksDbTable CutHashes
+    -> WebBlockHeaderDb
+    -> Maybe (CasKeyType CutHashes)
+    -> Int
+    -> IO CutExtension
+selectNewBlockParents cutTable wbhdb maybeMaxCutHeight candCutCount = do
+    (candCutHashesList, newMaxCutHeight) <- selectHighCuts cutTable candCutCount maybeMaxCutHeight
+    r <- findM candCutHashesList $ \candCutHashes -> do
+        candCutBlocks <- liftIO $
+            iforM (candCutHashes ^. cutHashes) (lookupRankedWebBlockHeaderDb wbhdb)
+        let candCut = unsafeMkCut candCutBlocks
+        let exts = mapMaybe (getCutExtension candCut) (HM.keys candCutBlocks)
+        shuffledExts <- shuffleM exts
+        case shuffledExts of
+            ext:_ -> return $ Just ext
+            [] -> return Nothing
+    case r of
+        Just r' -> return r'
+        Nothing -> selectNewBlockParents cutTable wbhdb (Just newMaxCutHeight) candCutCount
+
+progressArbitraryFork
+    :: (HasVersion, MonadIO m, MonadState Nonce m)
+    => Casify RocksDbTable CutHashes
+    -> WebBlockHeaderDb
+    -> Int
+    -> m ()
+progressArbitraryFork cutTable wbhdb candCutCount = do
+    cutExt <- liftIO $ selectNewBlockParents cutTable wbhdb Nothing candCutCount
+    let parent = _cutExtensionParent cutExt
+    let bhdb = wbhdb ^?! webBlockHeaderDb . ix (parent ^. chainId)
+    adjsForParent <- liftIO $ iforMOf (itraversed . _Parent)
+        (_getBlockHashRecord $ _cutExtensionAdjacentHashes cutExt)
+        (\c blk -> lookupRankedWebBlockHeaderDb wbhdb c
+            (Ranked (view (_Parent . blockHeight) parent) blk))
+    nextNonce <- get
+    let newBlock = testBlockHeader adjsForParent nextNonce parent
+    liftIO $ unsafeInsertBlockHeaderDb bhdb newBlock
+    newCut <- liftIO $ tryMonotonicCutExtension (_cutExtensionCut cutExt) newBlock
+    liftIO $ casInsert cutTable (cutToCutHashes Nothing $ fromJuste newCut)
+    put (succ nextNonce)
+    return ()
+
+pruneTestRandom :: (HasVersion, _) => _
+pruneTestRandom baseRdb f = runResourceT $ do
+    rdb <- withTestRocksDb "" baseRdb
+    liftIO $ do
+        let t = cutHashesTable rdb
+        wbhdb <- initWebBlockHeaderDb rdb
+        let lookupChainBlk (ChainValue c bhsh) = do
+                db <- getWebBlockHeaderDb wbhdb c
+                either (\_ -> Nothing) Just <$> TreeDB.lookup db bhsh
+        let validateAllBlocks = do
+                void $ webEntries_ wbhdb Nothing Nothing $ \blks -> do
+                    blks
+                        & S.hoist liftIO
+                        & S.mapM_ (\blk ->
+                            validateAllParentsExist lookupChainBlk blk
+                                >>= \case
+                                Right r -> P.succeed r
+                                Left e -> P.fail "successful validation" (e, "failed on block: " <> sshow blk)
+                            )
+        casInsert t (cutToCutHashes Nothing genesisCut)
+        lgr <- getTestLogger
+        logFunctionText lgr Info "inserting blocks..."
+        () <- flip evalStateT (Nonce 0) $ f t wbhdb
+        logFunctionText lgr Info "validating initial blocks..."
+        validateAllBlocks
+        highestCut <- readHighestCutHeaders (logFunctionText lgr) wbhdb t
+        numPruned <- pruneForks lgr (unsafeMkCut highestCut) wbhdb Prune 0
+        logFunctionText lgr Info "validating pruned blocks..."
+        validateAllBlocks
+        return numPruned
+
+pruneTestWithOnePivot :: _
+pruneTestWithOnePivot rdb = withVersion (barebonesTestVersion pairChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 4000 $ do
+            progressArbitraryFork t wbhdb 2
+        replicateM_ 10 $ do
+            progressArbitraryFork t wbhdb 1
+    return ()
+
+pruneTestWithLotsOfPivots :: _
+pruneTestWithLotsOfPivots rdb = withVersion (barebonesTestVersion pairChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 4000 $ do
+            progressArbitraryFork t wbhdb 16
+    return ()
+
+pruneTestWithManyForks :: _
+pruneTestWithManyForks rdb = withVersion (barebonesTestVersion pairChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 4000 $ do
+            progressArbitraryFork t wbhdb 16
+    return ()
+
+pruneTestWithManyChains :: _
+pruneTestWithManyChains rdb = withVersion (barebonesTestVersion petersenChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 1000 $ do
+            progressArbitraryFork t wbhdb 14
+    return ()
+
+pruneTestSmall :: _
+pruneTestSmall rdb = withVersion (barebonesTestVersion petersenChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 20 $ do
+            progressArbitraryFork t wbhdb 1
+    return ()
 
 createForks
     :: HasVersion
@@ -147,6 +314,17 @@ tests rdb =
         -- , pruneWithChecksTests rdb
         -- , failPruningChecksTests rdb
         , testCaseSteps "full gc" $ testFullGc rdb
+
+        , testCase "small" $ pruneTestSmall rdb
+
+        , testCase "one pivot" $ pruneTestWithOnePivot rdb
+
+        , testCase "lots of pivots" $ pruneTestWithLotsOfPivots rdb
+
+        , testCase "many forks" $ pruneTestWithManyForks rdb
+
+        , testCase "many chains" $ pruneTestWithManyChains rdb
+
         ]
 
 -- pruneWithChecksTests :: IO RocksDb -> TestTree
