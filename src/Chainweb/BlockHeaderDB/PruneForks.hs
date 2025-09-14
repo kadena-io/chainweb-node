@@ -215,7 +215,10 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     -- from the chain graph.
     --
     !initialLiveSet <- webEntries_ wbhdb (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
-        $ S.foldMap_ (HashSet.singleton . unwrapParent . view blockParent)
+        $ S.foldMap_
+        $ \blk ->
+            HashSet.singleton (view (blockParent . _Parent) blk)
+            <> foldMap HashSet.singleton (getAdjs blk)
             -- the initial live set is expected to be very small. In fact it is
             -- almost always a singleton set on each chain.
     logFunctionText logger Debug $
@@ -248,6 +251,8 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     !action = case doPrune of
         PruneDryRun -> "Would have pruned "
         _ -> "Pruned "
+    getAdjs bh =
+        view _Parent <$> _getBlockHashRecord (view blockAdjacentHashes bh)
 
     executePendingDeletes prevHeight pendingDeletes pendingDeleteCount = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
@@ -313,6 +318,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             -- its parent takes its place as a live block.
             | curHash `elem` liveSet = do
                 let !liveSet' =
+                        flip (foldl' (flip HashSet.insert)) curAdjs $
                         HashSet.insert curParent $
                         HashSet.delete curHash liveSet
                 let !pendingForkTips' =
@@ -352,6 +358,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         } strm
             where
             curParent = view (blockParent . _Parent) cur
+            curAdjs = getAdjs cur
             !cid = view chainId cur
             !curHeight = view blockHeight cur
             !curHash = view blockHash cur
