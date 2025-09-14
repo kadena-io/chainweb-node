@@ -12,6 +12,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.PruneForks
@@ -30,14 +31,14 @@ module Chainweb.BlockHeaderDB.PruneForks
 , DoPrune(..)
 ) where
 
-import Control.DeepSeq
 import Control.Exception (evaluate, throw)
 import Control.Lens (ix, view, (^?!), iforM_, (%~))
 import Control.Monad
 import Control.Monad.Catch
 
 import Data.Function
-import qualified Data.List as L
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text as T
@@ -49,7 +50,7 @@ import Numeric.Natural
 
 import Prelude hiding (lookup)
 
-import qualified Streaming.Prelude as S
+import Streaming.Prelude qualified as S
 
 import System.LogLevel
 
@@ -73,8 +74,6 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.Cut
 import Chainweb.CutDB
 import Control.Monad.Cont
-import qualified Data.HashSet as HashSet
-import Data.HashSet (HashSet)
 import Data.Void (Void)
 import Data.Foldable (toList)
 import Data.Functor ((<&>))
