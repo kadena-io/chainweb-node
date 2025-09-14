@@ -48,12 +48,15 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RemoteDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
+import Chainweb.Core.Brief
 import Chainweb.Difficulty (WindowWidth(..))
 import Chainweb.MinerReward (blockMinerReward)
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Ranked
 import Chainweb.Storage.Table
@@ -69,23 +72,22 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Data.Foldable
+import Data.HashSet qualified as HS
 import Data.Hashable
 import Data.LogMessage
 import Data.PQueue
 import Data.TaskMap
 import Data.Text qualified as T
+import Data.These (partitionHereThere, These (..))
 import GHC.Generics (Generic)
 import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
 import P2P.Peer
 import P2P.TaskQueue
 import Servant.Client
+import Streaming.Prelude qualified as S
 import System.LogLevel
 import Utils.Logging.Trace
-import Chainweb.Parent
-import Streaming.Prelude qualified as S
-import Data.These (partitionHereThere, These (..))
-import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -101,7 +103,10 @@ taskResponseTimeout :: HTTP.ResponseTimeout
 taskResponseTimeout = HTTP.responseTimeoutMicro 500_000
 
 pullOriginResponseTimeout :: HTTP.ResponseTimeout
-pullOriginResponseTimeout = HTTP.responseTimeoutMicro 1_000_000
+pullOriginResponseTimeout = HTTP.responseTimeoutMicro 2_000_000
+
+prefetchOriginResponseTimeout :: HTTP.ResponseTimeout
+prefetchOriginResponseTimeout = HTTP.responseTimeoutMicro 3_000_000
 
 -- | Set the response timeout on all requests made with the ClientEnv This
 -- overwrites the default response timeout of the connection manager.
@@ -650,21 +655,110 @@ getBlockHeader
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
+    -> BlockHeight
+        -- ^ the height of the local chain in the current cut
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
+getBlockHeader
+    headerStore
+    candidateHeaderCas
+    candidatePldTbl
+    providers
+    localPayload
+    cid
+    priority
+    maybeOrigin
+    localHeight
+    h
     = ((\(ChainValue _ b) -> b) <$> go)
         `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h (sshow es)
   where
-    go = getBlockHeaderInternal
-        headerStore
-        candidateHeaderCas
-        candidatePldTbl
-        providers
-        localPayload
-        priority
-        maybeOrigin
-        (ChainValue cid h)
+    go = do
+
+        -- curCut <- readTVarIO cutVar
+        -- let depth = max 0 (_rankedHeight h - curCut ^?! ixg cid . to (int . view blockHeight))
+        -- when (depth > 2) $ case _cutOrigin hs of
+        --     -- in this case it is beneficial to ty to fetch all missing
+        --     -- headers and payloads on the chain in a single batch as a one-off
+        --     -- operation. We use that to pre-populate the candidate tables.
+        --     Just p -> prefetchBranchFromOrigin
+        --     Nothing -> return ()
+
+        prefetchBranchFromOrigin (ChainValue cid h) maybeOrigin localHeight
+
+        getBlockHeaderInternal
+            headerStore
+            candidateHeaderCas
+            candidatePldTbl
+            providers
+            localPayload
+            priority
+            maybeOrigin
+            (ChainValue cid h)
+
+    -- Prefetch branches from origin for cuts that are further ahead
+
+    prefetchBranchFromOrigin
+        :: ChainValue BlockHash
+            -- ^ The target block to query
+        -> Maybe PeerInfo
+            -- ^ The origin to query from
+        -> BlockHeight
+            -- ^ The height of the local chain in the current cut
+        -> IO ()
+    prefetchBranchFromOrigin _ Nothing _ = return ()
+    prefetchBranchFromOrigin ck@(ChainValue cid k) (Just origin) localHeight = do
+
+        -- TODO make this depend on the depth that is going to be queried
+        let originEnv = setResponseTimeout prefetchOriginResponseTimeout $
+                peerInfoClientEnv mgr origin
+            rDb = RemoteDb
+                { _remoteEnv = originEnv
+                , _remoteLogFunction = ALogFunction logfun
+                , _remoteChainId = cid
+                }
+
+        logg Info $ "prefetch headers from origin " <> sshow origin <> " for "
+            <> sshow ck
+            <> " at local height " <> sshow localHeight
+
+        trace logfun (traceLabel "prefetchHeadersFromOrigin") k 0 $
+            TDB.branchEntries rDb
+                Nothing  -- cursor
+                (Just 10) -- limit (FIXME, do we need this at all or should this depend on the cut fetch limit?)
+                (Just $ int localHeight)
+                Nothing  -- max rank
+                mempty
+                    -- we don't provided a lower bound. It is not worth it.
+                    -- There is only <2% orphan blocks. And during catchup the
+                    -- min rank is sufficient for good performance.
+                (HS.singleton (UpperBound k))
+                -- insert all received headers into the candidate cas
+                (\s -> do
+                    l <- s
+                        & S.mapM (\h -> tableInsert candidateHeaderCas (view blockHash h) h)
+                        & S.length_
+                    logg Info $ taskMsg ck $ "pre-fetched " <> sshow l <> " block headers"
+                )
+
+    mgr = _webBlockHeaderStoreMgr headerStore
+    cas = WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore
+    memoMap = _webBlockHeaderStoreMemo headerStore
+    queue = _webBlockHeaderStoreQueue headerStore
+    wdb = _webBlockHeaderStoreCas headerStore
+
+    logfun :: LogFunction
+    logfun = _webBlockHeaderStoreLogFunction headerStore
+
+    logg :: LogFunctionText
+    logg = logfun @T.Text
+
+    taskMsg k msg = "header task " <> sshow k <> ": " <> msg
+
+    traceLabel subfun =
+        "Chainweb.Sync.WebBlockHeaderStore.getBlockHeader." <> subfun
+
+
 {-# INLINE getBlockHeader #-}
 
 instance (HasVersion, CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHeaderCas k (ChainValue BlockHeader) where

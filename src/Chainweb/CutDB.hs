@@ -19,6 +19,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -164,6 +165,16 @@ import Chainweb.Core.Brief
 import Chainweb.Parent
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
 import qualified Data.ByteString.Lazy as BS
+
+
+-- tmp
+
+import Chainweb.ChainValue
+import Chainweb.BlockHeaderDB.RemoteDB
+import Chainweb.TreeDB qualified as TDB
+import Servant.Client
+import Network.HTTP.Client qualified as HTTP
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -678,7 +689,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPru
             & S.filterM (fmap not . isCurrent)
 
             & S.chain (\c -> loggCutId logFun Info c "fetching all prerequisites")
-            & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore providers)
+            & S.mapM (cutHashesToBlockHeaderMap conf logFun cutVar headerStore providers)
             & S.catMaybes
             -- ignore unsuccessful values for now
 
@@ -922,13 +933,14 @@ cutHashesToBlockHeaderMap
     :: HasVersion
     => CutDbParams
     -> LogFunction
+    -> TVar Cut
     -> WebBlockHeaderStore
     -> ChainMap ConfiguredPayloadProvider
     -> CutHashes
     -> IO (Maybe (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
+cutHashesToBlockHeaderMap conf logfun cutVar headerStore providers hs =
     trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
         timeout (_cutDbParamsFetchTimeout conf) go >>= \case
             Nothing -> do
@@ -964,6 +976,11 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
         -- for better error messages on validation failure
         let localPayload = _cutHashesLocalPayload hs
 
+        -- TODO:
+        -- for the minimal payload provider we should add the option to fetch
+        -- missing payloads accross different chains in a single batch in
+        -- order to reduce TCP and HTTP overhead.
+
         (missing, headers) <- fmap partitionEithers
             $ forConcurrently (HM.toList (_cutHashes hs))
             $ tryGetBlockHeader hdrs plds localPayload
@@ -979,15 +996,9 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    -- tryGetBlockHeader hdrs localPayload cv@(cid, _) =
-    --     (Right <$> mapM
-    --         (getBlockHeader minerInfo headerStore hdrs providers localPayload cid priority origin) cv)
-    --             `catch` \case
-    --                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-    --                     return (Left cv)
-    --                 e -> throwM e
-
     tryGetBlockHeader hdrs plds localPayload cv@(cid, _) = do
+        cut <- readTVarIO cutVar
+        let localHeight = cut ^?! ixg cid . blockHeight
         fmap Right $ forM cv $ getBlockHeader
             headerStore
             hdrs
@@ -997,6 +1008,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
             cid
             priority
             origin
+            localHeight
             . _ranked
         `catch` \case
             (TreeDbKeyNotFound e msg :: TreeDbException BlockHeaderDb) ->
