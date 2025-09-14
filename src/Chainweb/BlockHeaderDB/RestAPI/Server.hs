@@ -45,7 +45,6 @@ import Data.Foldable
 import Data.Function
 import Data.Functor.Of
 import Data.IORef
-import qualified Data.Map.Strict as Map
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
 import Numeric.Natural(Natural)
@@ -73,7 +72,6 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
-import qualified Data.Text as Text
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools

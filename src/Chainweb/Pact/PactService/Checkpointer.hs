@@ -1,27 +1,27 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.Checkpointer
@@ -62,19 +62,17 @@ import Data.Maybe
 import Data.Monoid hiding (Product (..))
 import GHC.Stack
 import Prelude hiding (lookup)
-
-import qualified Pact.Core.Persistence.Types as Pact
-
+import Pact.Core.Persistence.Types qualified as Pact
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.MinerReward
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as ChainwebPactDb
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import qualified Chainweb.Pact.Backend.Utils as PactDb
+import Chainweb.Pact.Backend.Utils qualified as PactDb
 import Chainweb.Pact.Types
 import Chainweb.Parent
 import Chainweb.PayloadProvider
@@ -85,21 +83,19 @@ import Chainweb.Version
 import Chainweb.Version.Guards (pact5)
 import Control.Exception.Safe (MonadMask)
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NE
 import Chainweb.Pact.Backend.ChainwebPactDb (lookupRankedBlockHash)
 import Control.Monad.State.Strict
 import System.LogLevel
-import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
+import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact4
 import Control.Concurrent.MVar
-import qualified Pact.Types.Persistence as Pact4
+import Pact.Types.Persistence qualified as Pact4
 import Chainweb.Pact.Backend.DbCache (defaultModuleCacheLimit)
-import qualified Pact.Interpreter as Pact4
-import qualified Data.ByteString.Short as BS
+import Pact.Interpreter qualified as Pact4
+import Data.ByteString.Short qualified as BS
 import Data.Coerce
-import qualified Data.HashMap.Strict as HashMap
-import qualified Pact.Types.Command as Pact4
-import qualified Pact.Types.Hash as Pact4
-import Data.Foldable (foldlM)
+import Data.HashMap.Strict qualified as HashMap
+import Pact.Types.Command qualified as Pact4
+import Pact.Types.Hash qualified as Pact4
 import Data.Foldable1 (foldlMapM1)
 
 -- readFrom demands to know this context in case it's mining a block.

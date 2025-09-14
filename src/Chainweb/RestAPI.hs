@@ -84,8 +84,6 @@ import Chainweb.Logger (Logger)
 import Chainweb.Pact.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Pact.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI.Server as Mining
--- import qualified Chainweb.Pact.RestAPI.Server as PactAPI
-import qualified Chainweb.Pact.Transaction as Pact
 import Chainweb.Pact.Payload.RestAPI
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config

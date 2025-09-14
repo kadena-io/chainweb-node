@@ -1,14 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Chainweb.Pact4.Types
@@ -49,60 +50,42 @@ module Chainweb.Pact4.Types
   , getGasModel
   ) where
 
+import Chainweb.Logger
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Payload(PayloadWithOutputs, newBlockOutputs, blockPayload, payloadData, payloadWithOutputs, newBlockTransactions, Transaction (..), TransactionOutput (..), CoinbaseOutput (..))
+import Chainweb.Pact.Types (Transactions(..), BlockCtx, guardCtx)
+import Chainweb.Pact4.Transaction qualified as Pact
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad.Reader
-
 import Data.Aeson hiding (Error,(.=))
-import qualified Data.Map.Strict as M
-import Data.Text (Text)
-
--- internal pact modules
-
-import qualified Pact.JSON.Encode as J
-import Pact.Parse (ParsedDecimal)
-import Pact.Types.Command
-import Pact.Types.ChainMeta
-import Pact.Types.Gas
-import Pact.Types.Info
-import Pact.Types.Pretty (viaShow)
-import Pact.Types.Runtime (PactError(..), PactErrorType(..))
-import Pact.Types.Term
-
--- internal chainweb modules
-
-import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.ChainId
-import Chainweb.Miner.Pact
-import Chainweb.Logger
-import Chainweb.Time
-import Chainweb.Utils
-import Chainweb.Version
-
-import Pact.Gas.Table
--- import Chainweb.Pact.Types
-import Chainweb.Pact4.ModuleCache
-import qualified Chainweb.Pact4.Transaction as Pact
-import Chainweb.Version.Guards
-import qualified Pact.Types.Persistence as Pact
-import GHC.Stack (CallStack, HasCallStack, callStack)
-import GHC.Generics
+import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as SB
+import Data.DList (DList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
-import Data.ByteString (ByteString)
-import qualified Pact.Types.Runtime as Pact
-import Data.DList (DList)
 import Data.List.NonEmpty (NonEmpty)
-import Chainweb.Parent
+import Data.Map.Strict qualified as M
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import GHC.Generics
+import GHC.Stack (CallStack, HasCallStack, callStack)
+import Pact.Gas.Table
+import Pact.JSON.Encode qualified as J
+import Pact.Parse (ParsedDecimal)
+import Pact.Types.Command
+import Pact.Types.Gas
+import Pact.Types.Info
+import Pact.Types.Persistence qualified as Pact
+import Pact.Types.Pretty (viaShow)
+import Pact.Types.Runtime (PactError(..), PactErrorType(..))
+import Pact.Types.Runtime qualified as Pact
+import Pact.Types.Term
 import System.LogLevel
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import Chainweb.Pact.Payload(PayloadWithOutputs, newBlockOutputs, blockPayload, payloadData, payloadWithOutputs, newBlockTransactions, Transaction (..), TransactionOutput (..), CoinbaseOutput (..))
-import Chainweb.Pact.Types (Transactions(..), BlockCtx, guardCtx)
-import qualified Data.ByteString.Short as SB
 
 
 -- | Indicates a computed gas charge (gas amount * gas price)

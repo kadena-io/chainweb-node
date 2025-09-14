@@ -1,22 +1,21 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE DataKinds #-}
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
@@ -112,48 +111,33 @@ module Chainweb.Test.Pact4.Utils
 
 ) where
 
-import Control.Arrow ((&&&))
-import Control.Concurrent.Async
-import Control.Concurrent.MVar
+
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-
 import Data.Aeson (Value(..), object, (.=), Key)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Short as BS
+import Data.ByteString.Short qualified as BS
 import Data.Decimal
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import Data.IORef
 import Data.List qualified as List
 import Data.Map (Map)
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.Maybe
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Data.String
-import qualified Data.Vector as V
-
+import Data.Vector qualified as V
 import Database.SQLite3.Direct (Database)
-
 import GHC.Generics
-
 import Streaming.Prelude qualified as S
 import System.LogLevel
-
 import Test.Tasty
-import Test.Tasty.HUnit(assertFailure)
-
--- internal pact modules
-
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
-import Pact.Gas
 import Pact.JSON.Legacy.Value
 import Pact.Types.Capability
-import qualified Pact.Types.ChainId as P
+import Pact.Types.ChainId qualified as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -162,7 +146,7 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Info (noInfo)
 import Pact.Types.KeySet
-import qualified Pact.Types.Logger as P
+import Pact.Types.Logger qualified as P
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.RPC
@@ -170,44 +154,31 @@ import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.Term
 import Pact.Types.Util (parseB16TextOnly)
 import Pact.Types.Verifier
-
--- internal modules
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as Sigma
 import Chainweb.Pact.Backend.PactState qualified as PactState
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
 import Chainweb.Pact.Backend.SQLite.DirectV2
-
 import Chainweb.Pact.Backend.Utils hiding (tbl, withSqliteDb)
-import Chainweb.Pact.PactService
-import Chainweb.Pact.RestAPI.Server (validateCommand)
-import Chainweb.Pact.Types
 import Chainweb.Pact4.Types
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
-import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Test.TestVersions
 import Chainweb.Time
-import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), chainIds)
-import qualified Chainweb.Version as Version
-import Chainweb.Version.Utils (someChainId)
-import Chainweb.WebBlockHeaderDB
-
-import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version qualified as Version
 import Chainweb.Pact.Backend.Types
 import Chainweb.Parent
+import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
 -- Keys

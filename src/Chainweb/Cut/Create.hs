@@ -113,7 +113,6 @@ import Data.These
 import GHC.Generics (Generic)
 import GHC.Stack
 import Numeric.Natural
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -131,19 +130,17 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Data.Monoid
-import Chainweb.TreeDB hiding (parent)
-import Data.Function
-import qualified Streaming.Prelude as S
-import Data.Foldable
-import Data.Maybe
-import qualified Data.List as List
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NE
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import qualified Streaming as S
 import Chainweb.Ranked (Ranked(_rankedHeight))
+import Chainweb.TreeDB hiding (parent)
+import Data.Foldable
+import Data.Function
+import Data.List qualified as List
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NE
+import Data.Maybe
+import Data.Monoid
+import Streaming qualified as S
+import Streaming.Prelude qualified as S
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes

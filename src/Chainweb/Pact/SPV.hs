@@ -12,8 +12,7 @@ module Chainweb.Pact.SPV (pactSPV) where
 
 import Control.Lens
 import Control.Monad (when)
-import Control.Monad.Except (ExceptT, runExceptT, throwError)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Except (runExceptT, throwError)
 import Data.Aeson qualified as Aeson
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
@@ -24,14 +23,12 @@ import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Pact.Core.SPV (SPVSupport(..), ContProof (..))
 import Pact.Core.StableEncoding (encodeStable)
 
-import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.Types
-import Chainweb.Parent
 import Chainweb.Pact.Payload(TransactionOutput(..))
 import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
-import Chainweb.SPV.VerifyProof (runTransactionOutputProof, checkProofAndExtractOutput)
-import Chainweb.Utils (decodeB64UrlNoPaddingText, unlessM)
+import Chainweb.SPV.VerifyProof (checkProofAndExtractOutput)
+import Chainweb.Utils (decodeB64UrlNoPaddingText)
 import Chainweb.Version qualified as CW
 
 pactSPV :: HeaderOracle -> SPVSupport

@@ -56,10 +56,12 @@ import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.PactState (allChains, getLatestBlockHeight, getLatestPactStateAtDiffable, TableDiffable(..), addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
@@ -67,6 +69,7 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Cal
 import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
 import Chainweb.PayloadProvider.Pact.Configuration (defaultPactProviderConfig, PactProviderConfig (_pactConfigGenesisPayload), _pactConfigMiner)
+import Chainweb.Storage.Table (IterableTable(withTableIterator), Casify)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
@@ -78,12 +81,13 @@ import Chainweb.WebBlockHeaderDB
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, (^?!), ix, (^.))
+import Control.Lens (set, view, (^?!), ix)
 import Control.Monad
 import Data.Aeson (ToJSON, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Base16 qualified as Base16
 import Data.Foldable
+import Data.Function
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.IORef
@@ -109,10 +113,6 @@ import System.IO.Temp
 import System.LogLevel
 import System.Timeout
 import Test.Tasty.HUnit
-import Chainweb.Miner.Pact
-import Chainweb.Storage.Table (IterableTable(withTableIterator), Casify)
-import Chainweb.Cut.CutHashes
-import Data.Function
 
 -- -------------------------------------------------------------------------- --
 -- * Configuration

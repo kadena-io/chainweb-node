@@ -68,7 +68,6 @@ import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.PayloadProvider
 import Chainweb.PayloadProvider.P2P
-import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
 import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.Map qualified as MapTable

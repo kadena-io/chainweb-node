@@ -26,23 +26,19 @@ module Chainweb.Test.TestVersions
     ) where
 
 import Control.Lens hiding (elements)
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
-import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload as PIN0
-import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload as PINN
+-- import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload as PIN0
+-- import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload as PINN
 import qualified Chainweb.BlockHeader.Genesis.Pact53TransitionTimedCPM0Payload as PIT0
 import qualified Chainweb.BlockHeader.Genesis.Pact53TransitionTimedCPM1to9Payload as PITN
-import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
-import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload as QPINN
 -- import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
 -- import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload as QPINN
-
-import System.IO.Unsafe
+-- import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
+-- import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload as QPINN
 
 -- internal modules
 
@@ -56,10 +52,9 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
-import Chainweb.Version.Registry
 import P2P.Peer
 
-import Chainweb.Pact.Payload(PayloadWithOutputs_(_payloadWithOutputsPayloadHash), PayloadWithOutputs)
+import Chainweb.Pact.Payload(PayloadWithOutputs_(_payloadWithOutputsPayloadHash))
 import qualified Pact.Core.Names as Pact
 import qualified Pact.Core.Gas as Pact
 import qualified Data.List as L

@@ -59,7 +59,6 @@ import qualified Pact.Core.Hash as Pact
 import qualified Chainweb.Pact.Transaction as Pact
 import Chainweb.Utils (ebool_, int)
 import Chainweb.Version.Guards (maxBlockGasLimit)
-import Control.Monad (forM)
 import Numeric.Natural
 
 

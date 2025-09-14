@@ -1,14 +1,15 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.CutDB
@@ -31,6 +32,37 @@ module Chainweb.Test.CutDB
 , tests
 ) where
 
+import Chainweb.Chainweb.Configuration (defaultPayloadProviderConfig, defaultServiceApiConfig)
+import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.ChainId
+import Chainweb.Chainweb.ChainResources (withPayloadProviderResources, providerResPayloadProvider)
+import Chainweb.Cut
+import Chainweb.Cut.CutHashes
+import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI.Server
+import Chainweb.Graph
+import Chainweb.Logger
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Types
+import Chainweb.Parent
+import Chainweb.PayloadProvider
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Test.Cut
+import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.Pact.Utils (getTestLogger)
+import Chainweb.Test.Sync.WebBlockHeaderStore
+import Chainweb.Test.TestVersions (barebonesTestVersion)
+import Chainweb.Test.Utils hiding (awaitBlockHeight)
+import Chainweb.Time
+import Chainweb.TreeDB (MaxRank(..))
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Utils
+import Chainweb.WebBlockHeaderDB
 import Control.Concurrent.Async
 import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements)
@@ -38,69 +70,20 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
-
 import Data.Foldable
 import Data.Function
-import qualified Data.HashMap.Strict as HM
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Semigroup
-import Data.Text(Text)
-import qualified Data.Vector as V
-
+import Data.TaskMap
+import Data.Vector qualified as V
 import GHC.Stack
-
-import qualified Network.HTTP.Client as HTTP
-
-import Numeric.Natural
-
-import qualified Streaming.Prelude as S
-
+import Network.HTTP.Client qualified as HTTP
+import Streaming.Prelude qualified as S
+import System.LogLevel
 import Test.QuickCheck
 import Test.Tasty
-
--- internal modules
-
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.ChainId
-import Chainweb.Cut
-import Chainweb.Cut.CutHashes
-import Chainweb.Graph
-import Chainweb.Test.Cut
-import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI.Server
-import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
-import Chainweb.Parent
-import Chainweb.Pact.Payload
-import Chainweb.Pact.Payload.PayloadStore
-import Chainweb.Pact.Payload.PayloadStore.RocksDB
-import Chainweb.PayloadProvider
-import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.Sync.WebBlockHeaderStore
-import Chainweb.Test.Utils hiding (awaitBlockHeight)
-import Chainweb.Test.TestVersions (barebonesTestVersion)
-import Chainweb.Time
-import Chainweb.TreeDB (MaxRank(..))
-import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.Version.Utils
-import Chainweb.WebBlockHeaderDB
--- import Chainweb.WebPactExecutionService
-
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.RocksDB
-import Data.LogMessage
-import Data.TaskMap
-
 import Test.Tasty.HUnit
-import Chainweb.Logger
-import System.LogLevel
-import Chainweb.Chainweb.ChainResources (withPayloadProviderResources, providerResPayloadProvider)
-import P2P.Node.Configuration (defaultP2pConfiguration)
-import Chainweb.Chainweb.Configuration (PayloadProviderConfig(PayloadProviderConfig), defaultPayloadProviderConfig, defaultServiceApiConfig)
-import Chainweb.Test.Pact.Utils (getTestLogger)
-import qualified Data.HashSet as HS
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store

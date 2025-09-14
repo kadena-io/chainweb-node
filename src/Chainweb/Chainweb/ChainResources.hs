@@ -88,7 +88,6 @@ import Chainweb.Logger
 import Chainweb.Pact.Mempool.InMem qualified as Mempool
 import Chainweb.Pact.Mempool.InMem.ValidatingConfig qualified as Mempool
 import Chainweb.Pact.PactService qualified as Pact
-import Chainweb.Pact.RestAPI qualified as Pact.RestAPI
 import Chainweb.Pact.RestAPI.Server qualified as Pact.RestAPI.Server
 import Chainweb.Pact.Types
 import qualified Chainweb.Pact.Payload.PayloadStore as Pact.Payload.PayloadStore

@@ -1,17 +1,17 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Test.Pact.CheckpointerTest (tests) where
 
@@ -41,7 +41,6 @@ import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, testCase)
 import Test.Tasty.Hedgehog
-
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph)
@@ -55,13 +54,13 @@ import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils hiding (withTempSQLiteResource)
+import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.MinerReward
 import Control.Monad.State.Strict
-import qualified Chainweb.Pact.Payload as Chainweb
+import Chainweb.Pact.Payload qualified as Chainweb
 import Chainweb.Pact.Utils (emptyPayload)
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.

@@ -1,81 +1,60 @@
-{-# language
-    FlexibleContexts
-  , ImportQualifiedPost
-  , LambdaCase
-  , NumericUnderscores
-  , OverloadedStrings
-  , PackageImports
-  , TypeApplications
-#-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Test.Pact.Utils
-    -- ( initCheckpointer
-    -- , pactTxFrom4To5
+(
+-- * Logging
+  getTestLogLevel
+, testLogFn
+, getTestLogger
 
-        -- * Logging
-    ( getTestLogLevel
-    , testLogFn
-    , getTestLogger
+-- * Resources
+, withMempool
+, withBlockDbs
 
-        -- * Resources
-    , withMempool
-    , withBlockDbs
+-- * Properties
+, event
+, successfulTx
 
-        -- * Properties
-    , event
-    , successfulTx
-        -- * Utilities
-    , coinModuleName
-    )
-    where
+-- * Utilities
+, coinModuleName
+)
+where
 
 import Chainweb.Chainweb (validatingMempoolConfig)
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Mempool.InMem
 import Chainweb.Pact.Mempool.Mempool (MempoolBackend (..))
---import Chainweb.Pact.Backend.RelationalCheckpointer
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
-import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Types
-import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Pact.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.Types
 import Chainweb.Storage.Table.RocksDB
--- import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
--- import Control.Concurrent hiding (throwTo)
--- import Control.Exception (AsyncException (..), throwTo)
--- import Control.Lens hiding (elements, only)
--- import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource (ResourceT, allocate)
--- import Control.Monad.Trans.Resource qualified as Resource
--- import Data.Aeson qualified as Aeson
--- import Data.ByteString.Short qualified as SBS
--- import Data.HashSet (HashSet)
--- import Data.HashSet qualified as HashSet
+import Control.Monad.Trans.Resource (ResourceT)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
--- import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as Text
--- import Data.Vector (Vector)
--- import Data.Vector qualified as Vector
+import Pact.Core.Capabilities
 import Pact.Core.Command.Types qualified as Pact
--- import Pact.Core.Hash qualified as Pact
--- import Pact.Core.Pretty qualified as Pact
 import Pact.Core.Gas qualified as Pact
--- import Pact.JSON.Encode qualified as J
-import System.Environment (lookupEnv)
-import System.LogLevel
+import Pact.Core.Names
+import Pact.Core.PactValue
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
-import Pact.Core.PactValue
-import Pact.Core.Capabilities
-import Pact.Core.Names
+import System.Environment (lookupEnv)
+import System.LogLevel
 
 withBlockDbs :: HasVersion => RocksDb -> ResourceT IO (PayloadDb RocksDbTable, WebBlockHeaderDb)
 withBlockDbs rdb = do

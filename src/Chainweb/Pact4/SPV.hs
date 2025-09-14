@@ -47,8 +47,6 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Text.Read (readMaybe)
 
-import Crypto.Hash.Algorithms
-
 import qualified Ethereum.Header as EthHeader
 import Ethereum.Misc
 import Ethereum.Receipt

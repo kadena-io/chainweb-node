@@ -1,6 +1,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
@@ -17,77 +19,57 @@ module Chainweb.Test.Roundtrips
 ) where
 
 import Chainweb.Pact.RestAPI.SPV
-
 import Control.Monad.Catch
-
-import Crypto.Hash.Algorithms
-
 import Data.Aeson
 import Data.Aeson.Encoding
 import Data.Bifunctor
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.HashMap.Strict as HM
+import Data.ByteString.Lazy qualified as BL
+import Data.HashMap.Strict qualified as HM
 import Data.Int
-import qualified Data.Text as T
-
-import qualified Pact.JSON.Encode as J
-import Pact.Parse
-
-import Test.QuickCheck
-import Test.QuickCheck.Instances ()
-import Test.Tasty
-import Test.Tasty.QuickCheck
-
--- internal modules
-
+import Data.Text qualified as T
+import Pact.JSON.Encode qualified as J
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
-import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.HostAddress
-import Chainweb.Pact.Mempool.Mempool
-import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeVersion
-import Chainweb.Pact.Types
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.RestAPI
 import Chainweb.Pact.Payload
 import Chainweb.PowHash
+import Chainweb.Ranked
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
-import Chainweb.SPV
 import Chainweb.SPV.EventProof
-import Chainweb.SPV.PayloadProof
--- import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..), arbitraryBlockHeaderVersion, arbitraryBlockHeaderVersionHeight, arbitraryBlockHashRecordVersionHeightChain, arbitraryBlockHeaderVersionHeightChain)
-import Chainweb.Test.Orphans.Internal (arbitraryBlockHeaderVersion, arbitraryBlockHeaderVersionHeight, arbitraryBlockHashRecordVersionHeightChain, arbitraryBlockHeaderVersionHeightChain)
--- import Chainweb.Test.SPV.EventProof hiding (tests)
+import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
-
+import Chainweb.Version.Mainnet (mainnet)
 import Network.X509.SelfSigned
-
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Peer
 import P2P.Test.Orphans ()
-
-import Utils.Logging
-import Control.Lens (view)
-import Chainweb.Version.Mainnet (mainnet)
 import Pact.Core.Gas
-import Chainweb.Ranked
+import Pact.Parse
+import Test.QuickCheck
+import Test.QuickCheck.Instances ()
+import Test.Tasty
+import Test.Tasty.QuickCheck
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests

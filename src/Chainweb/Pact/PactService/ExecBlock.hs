@@ -24,62 +24,59 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Chainweb.Logger
-import Chainweb.Pact.Mempool.Mempool(BlockFill (..), pactRequestKeyToTransactionHash, InsertError (..))
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
-import Chainweb.Pact.Transaction
-import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Mempool.Mempool(BlockFill (..), pactRequestKeyToTransactionHash, InsertError (..))
+import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload qualified as Chainweb
 import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Transaction
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.Types
+import Chainweb.Pact.Types qualified as Pact
+import Chainweb.Pact.Validations qualified as Pact
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chronos qualified
-import Control.DeepSeq
-import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
-import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as SB
 import Data.Coerce
 import Data.Either (partitionEithers)
 import Data.Foldable
+import Data.HashMap.Strict qualified as HashMap
+import Data.List.NonEmpty qualified as NEL
 import Data.Maybe
+import Data.Set qualified as S
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Void
 import Pact.Core.ChainData hiding (ChainId)
+import Pact.Core.ChainData qualified as Pact
 import Pact.Core.Command.Types qualified as Pact
-import Pact.Core.Persistence qualified as Pact
+import Pact.Core.Errors qualified as Pact
+import Pact.Core.Evaluate qualified as Pact
+import Pact.Core.Gas qualified as P
+import Pact.Core.Gas qualified as Pact
 import Pact.Core.Hash
-import qualified Pact.Core.Gas as Pact
-import qualified Pact.JSON.Encode as J
+import Pact.Core.Hash qualified as Pact
+import Pact.Core.Persistence qualified as Pact
+import Pact.JSON.Encode qualified as J
+import System.LogLevel
 import System.Timeout
 import Utils.Logging.Trace
-import qualified Data.Set as S
-import qualified Pact.Core.Gas as P
-import qualified Data.Text.Encoding as T
-import qualified Data.HashMap.Strict as HashMap
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as Pact
-import qualified Chainweb.Pact.Transaction as Pact
-import qualified Chainweb.Pact.Validations as Pact
-import Chainweb.Pact.NoCoinbase
-import Chainweb.Pact.Backend.Types
-import qualified Data.ByteString.Short as SB
-import qualified Pact.Core.Hash as Pact
-import System.LogLevel
-import qualified Data.Aeson as Aeson
-import qualified Data.List.NonEmpty as NEL
-import qualified Pact.Core.Errors as Pact
-import qualified Pact.Core.Evaluate as Pact
-import qualified Pact.Core.ChainData as Pact
-import qualified Chainweb.Pact.Payload as Chainweb
-import qualified Chainweb.Pact.Types as Pact
 
 runCoinbase
     :: (Logger logger)

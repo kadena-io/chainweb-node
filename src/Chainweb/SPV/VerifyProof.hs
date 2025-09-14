@@ -27,14 +27,11 @@ import Data.MerkleLog.V1 qualified as V1
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeaderDB
 import Chainweb.Crypto.MerkleLog (proofSubject)
-import Chainweb.CutDB
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Payload
 import Chainweb.SPV
-import Chainweb.Version
 import Chainweb.Pact.Backend.Types (HeaderOracle (..))
 import Chainweb.Parent
 import Chainweb.Utils (unlessM)

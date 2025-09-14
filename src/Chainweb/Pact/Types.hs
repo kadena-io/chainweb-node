@@ -137,7 +137,6 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad.IO.Class
-import Control.Monad.State.Strict
 import Data.Aeson hiding (Error, (.=))
 import Data.Bool
 import Data.ByteString (ByteString)
@@ -155,14 +154,12 @@ import GHC.Generics (Generic)
 import Pact.Core.Builtin qualified as Pact
 import Pact.Core.Capabilities qualified as Pact
 import Pact.Core.ChainData qualified as Pact
-import Pact.Core.Command.Types (RequestKey)
 import Pact.Core.Errors qualified as Pact
 import Pact.Core.Evaluate qualified as Pact
 import Pact.Core.Gas.Types qualified as Pact
 import Pact.Core.Hash qualified as Pact
 import Pact.Core.Info qualified as Pact
 import Pact.Core.Literal qualified as Pact
-import Pact.Core.Persistence
 import Pact.Core.StableEncoding qualified as Pact
 import Pact.JSON.Encode qualified as J
 import System.LogLevel
@@ -187,7 +184,6 @@ import Chainweb.Version
 
 import Pact.Core.Command.Types qualified as Pact
 import Pact.Core.Persistence qualified as Pact
-import Pact.Core.SPV qualified as Pact
 import Servant.API
 import Data.List.NonEmpty (NonEmpty)
 import Chainweb.PayloadProvider
