@@ -253,7 +253,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
     getAdjs bh =
         view _Parent <$> _getBlockHashRecord (view blockAdjacentHashes bh)
 
-    executePendingDeletes prevHeight pendingDeletes pendingDeleteCount = do
+    executePendingDeletes PruneState{..} = do
         iforM_ pendingDeletes $ \cid pendingDeletesForCid -> do
             let cdb = _webBlockHeaderDb wbhdb ^?! atChain cid
             case doPrune of
@@ -275,7 +275,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
         go state strm =
             if pendingDeleteCount state >= deleteBatchSize
             then do
-                executePendingDeletes (prevHeight state) (pendingDeletes state) (pendingDeleteCount state)
+                executePendingDeletes state
                 tableInsert (_webCurrentPruneJob wbhdb) () (prevHeight state, startedFrom pruneJob)
                 go
                     state { prevRecordedHeight = prevHeight state, pendingDeletes = noDeletes, pendingDeleteCount = 0 }
@@ -289,7 +289,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             else do
                 S.uncons strm >>= \case
                     Nothing -> do
-                        executePendingDeletes (prevHeight state) (pendingDeletes state) (pendingDeleteCount state)
+                        executePendingDeletes state
                         return $! numPruned state
                     Just (block, strm') -> do
                         pruneBlock state block strm'
@@ -315,7 +315,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             , curHeight < prevHeight
             , HashSet.null pendingForkTips = do
                 when (pendingDeleteCount > 0) $
-                    executePendingDeletes prevHeight pendingDeletes pendingDeleteCount
+                    executePendingDeletes PruneState{..}
                 return numPruned
             -- the current block is live.
             -- its parents take its place as live blocks.
