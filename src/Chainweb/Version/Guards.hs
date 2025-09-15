@@ -52,6 +52,7 @@ module Chainweb.Version.Guards
     , chainweb229Pact
     , chainweb230Pact
     , chainweb231Pact
+    , chainweb232Pact
     , pact5
     , pact44NewTrans
     , pact4ParserVersion
@@ -283,6 +284,9 @@ chainweb230Pact = checkFork atOrAfter Chainweb230Pact
 
 chainweb231Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb231Pact = checkFork atOrAfter Chainweb231Pact
+
+chainweb232Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb232Pact = checkFork atOrAfter Chainweb232Pact
 
 pact5Serialiser :: ChainwebVersion -> ChainId -> BlockHeight -> Pact5.PactSerialise Pact5.CoreBuiltin Pact5.LineInfo
 pact5Serialiser v cid bh
