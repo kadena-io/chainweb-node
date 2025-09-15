@@ -31,9 +31,8 @@ import Data.Function ((&))
 
 import qualified Data.Set as Set
 import Data.Decimal (Decimal)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Text.Encoding as TextEnc
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
@@ -77,21 +76,21 @@ gasParams = GasParams
 -- NOTE: We avoid decoding at parse time. Hex blobs are kept as Text and decoded
 -- under gas in foldHashList.
 data HashListNode
-  = HLNString Text
+  = HLNString T.Text
   | HLNDecimal Decimal
-  | HLNHashHex Text          -- ^ hex-encoded byte chunk, decoded in fold
+  | HLNHashHex T.Text          -- ^ hex-encoded byte chunk, decoded in fold
   | HLNList [HashListNode]
   deriving (Eq, Show)
 
 data HashList
   = HLList [HashListNode]
-  | HLHashHex Text           -- ^ top-level precomputed digest (hex), decoded in fold
+  | HLHashHex T.Text           -- ^ top-level precomputed digest (hex), decoded in fold
   deriving (Eq, Show)
 
 --------------------------------------------------------------------------------
 -- Parsing (no decoding here)
 --------------------------------------------------------------------------------
-parseHashList :: PactValue -> Either Text HashList
+parseHashList :: PactValue -> Either T.Text HashList
 parseHashList (PList vec)   = HLList <$> traverse parseHashListNode (V.toList vec)
 parseHashList (PObject om)  =
   case objectMapToListWith (,) om of
@@ -99,7 +98,7 @@ parseHashList (PObject om)  =
     _ -> Left $ "Malformed binary object at top-level, expected exactly one key '0x'"
 parseHashList _ = Left $ "Expected a list or binary object at the top-level"
 
-parseHashListNode :: PactValue -> Either Text HashListNode
+parseHashListNode :: PactValue -> Either T.Text HashListNode
 parseHashListNode = \case
   PLiteral (LString t)   -> Right $ HLNString t
   PLiteral (LDecimal d)  -> Right $ HLNDecimal d
@@ -135,12 +134,12 @@ foldHashList gp gasRef = \case
     foldNode (HLNString t) = do
       -- UTF-8 encoding under gas
       
-      let bs = TextEnc.encodeUtf8 t
+      let bs = T.encodeUtf8 t
       pure (bs, Just (PLiteral (LString t)))
 
     foldNode (HLNDecimal d) = do
       -- Decimal rendered then UTF-8 encoded under gas
-      let bs = TextEnc.encodeUtf8 (Text.pack (show d))
+      let bs = T.encodeUtf8 (T.pack (show d))
       pure (bs, Just (PLiteral (LDecimal d)))
 
     foldNode (HLNHashHex hexTxt) = do
@@ -157,10 +156,10 @@ foldHashList gp gasRef = \case
 
 
 decodeHex
-  :: Text
+  :: T.Text
   -> ExceptT VerifierError (ST s) BS.ByteString
 decodeHex hexTxt = do
-  case hexToBS (TextEnc.encodeUtf8 hexTxt) of
+  case hexToBS (T.encodeUtf8 hexTxt) of
     Just bs -> pure bs
     Nothing -> throwError $ VerifierError $ "Malformed hex encoding: " <> hexTxt
 
@@ -197,8 +196,8 @@ plugin = VerifierPlugin $ \_ proof caps gasRef -> do
    -- Signature verification
   chargeGas gasRef (sigVerificationGas gp)
 
-  let sigHexBS = TextEnc.encodeUtf8 sigTxt
-      pkHexBS  = TextEnc.encodeUtf8 pubKeyTxt
+  let sigHexBS = T.encodeUtf8 sigTxt
+      pkHexBS  = T.encodeUtf8 pubKeyTxt
 
   isValid <- case verifySecp256k1Signature msgHashBS sigHexBS pkHexBS of
     Just v  -> pure v
