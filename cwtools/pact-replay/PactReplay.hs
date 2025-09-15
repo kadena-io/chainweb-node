@@ -94,8 +94,7 @@ parser = do
         fmap const (jsonOption (long "chains"))
         <|> pure (\Dict -> filter isPactChain (HS.toList chainIds))
     let defaultLogConfig =
-            -- default the threshold to "info" because that's what we log the
-            -- rate and progress.
+            -- default the threshold to "info" because the progress log is "info".
             L.defaultLogConfig & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
     logConfig <- parserOptionGroup "Logging" (($ defaultLogConfig) <$> L.pLogConfig)
     return $ withVersion version $ do
@@ -103,9 +102,8 @@ parser = do
         -- when it's not necessary sometimes during initialization, c.f.
         -- initBlockHeaderDb.
         withRocksDb (getRocksDbDir dbDir) modernDefaultOptions $ \rdb -> do
-            -- Base Backend
             L.withHandleBackend_ logText (logConfig ^. L.logConfigBackend) $ \backend -> do
-                -- do not log tx failures and performance telemetry
+                -- do not log tx failures and performance telemetry.
                 let replayLogHandles = logHandles
                         [ dropLogHandler (Proxy @PactTxFailureLog)
                         , dropLogHandler (Proxy @(JsonLog Trace))
@@ -115,31 +113,35 @@ parser = do
                     let pdb = Pact.Payload.PayloadStore.RocksDB.newPayloadDb rdb
                     let wbhdb = mkWebBlockHeaderDb rdb (tabulateChains (mkBlockHeaderDb rdb))
 
-                    initialCut <- unsafeMkCut <$> readHighestCutHeaders (logFunctionText logger) wbhdb cutTable
-                    limitedCut <- maybe (return initialCut) (\end -> limitCut wbhdb end initialCut) maybeEnd
+                    -- start by finding our upper bound
+                    highestCutInDb <- unsafeMkCut <$> readHighestCutHeaders (logFunctionText logger) wbhdb cutTable
+                    upperBoundCut <- case maybeEnd of
+                        Nothing -> return highestCutInDb
+                        Just upperBound -> limitCut wbhdb upperBound highestCutInDb
 
-                    failuresByChain <- forConcurrently (chains Dict `List.intersect` HM.keys (view cutHeaders limitedCut)) $ \cid -> runResourceT $ do
+                    -- replay all chains concurrently
+                    failuresByChain <- forConcurrently (chains Dict `List.intersect` HM.keys (view cutHeaders upperBoundCut)) $ \cid -> runResourceT $ do
                         let chainLogger = addLabel ("chain", brief cid) logger
-                        let config = defaultPactServiceConfig
-
-                        PactPayloadProvider _ serviceEnv <- withPactPayloadProvider cid rdb Nothing chainLogger Nothing mempty pdb
-                            (getPactDbDir dbDir)
-                            config
-                            (genesisPayload cid)
-
                         bhdb <- getWebBlockHeaderDb wbhdb cid
 
-                        let upperEndBlock = limitedCut ^?! cutHeaders . ix cid
-                        let upper = HS.singleton (TreeDB.UpperBound $ view blockHash upperEndBlock)
+                        PactPayloadProvider _ serviceEnv <- withPactPayloadProvider
+                            cid rdb Nothing chainLogger Nothing mempty pdb
+                            (getPactDbDir dbDir)
+                            defaultPactServiceConfig
+                            (genesisPayload cid)
+
+
+                        let upperBoundBlock = upperBoundCut ^?! cutHeaders . ix cid
+                        let upper = HS.singleton (TreeDB.UpperBound $ view blockHash upperBoundBlock)
 
                         failureCountRef <- liftIO $ newIORef (0 :: Word)
-                        heightRef <- liftIO $ newIORef (view blockHeight upperEndBlock)
+                        heightRef <- liftIO $ newIORef (view blockHeight upperBoundBlock)
                         rateRef <- liftIO $ newIORef (0 :: Double)
                         _ <- withAsyncR (logProgress chainLogger cid heightRef rateRef)
-                        -- Note that branchEntries is descending; so now, we do replays
-                        -- in descending height order. This works well for us because
-                        -- replay failures are most likely to happen nearest the tip of
-                        -- the chains.
+
+                        -- replay all blocks below our upper bound, in descending order.
+                        -- This works well for us because replay failures are
+                        -- most likely to happen nearest the tip of the chains.
                         liftIO $ TreeDB.branchEntries bhdb Nothing Nothing Nothing Nothing mempty upper $ \blockStream -> do
                             blockStream
                                 & S.takeWhile (\blk -> maybe True (\start -> view blockHeight blk >= start) maybeStart)
@@ -155,10 +157,12 @@ parser = do
                                                 (view blockPayloadHash h <$ blockHeaderToEvaluationCtx ph)
                                     )
 
-                                -- Note that this chunking is only used to calculate the
-                                -- rate of the replay. The replay still functionally
-                                -- proceeds on a single block at a time, because it
-                                -- happens *before* the chunking in the pipeline.
+                                -- calculate the rate we're replaying and send
+                                -- it to the progress logger thread, updating
+                                -- the rate every 500 blocks.
+                                -- The replay still functionally proceeds on a
+                                -- single block at a time, because it happens
+                                -- *before* the chunking in the pipeline.
                                 & S.chunksOf 500
                                 & mapsM_ (\blkChunk -> do
                                     startTime <- getCurrentTimeIntegral
