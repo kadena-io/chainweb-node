@@ -33,7 +33,6 @@ import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.DeepSeq
-import Control.Error.Util (hush)
 import Control.Exception (evaluate, mask_)
 import Control.Monad
 import Control.Monad.IO.Class
@@ -493,6 +492,7 @@ insertCheckInMem' cfg lock txs
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
     curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
+    let hush = either (const Nothing) Just
 
     let withHashes :: Vector (T2 TransactionHash t)
         withHashes = flip V.mapMaybe txs $ \tx ->
