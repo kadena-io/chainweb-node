@@ -9,7 +9,8 @@
 {-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Pact4.ModuleCache
-    ( ModuleCache(..)
+    ( ModuleInitCache
+    , ModuleCache(..)
     , filterModuleCacheByKey
     , moduleCacheToHashMap
     , moduleCacheFromHashMap
@@ -34,6 +35,9 @@ import Chainweb.ChainId
 import Chainweb.Version
 
 import qualified Pact.JSON.Legacy.HashMap as LHM
+import qualified Data.Map as M
+
+type ModuleInitCache = M.Map BlockHeight ModuleCache
 
 -- | Block scoped Module Cache
 --
@@ -66,9 +70,9 @@ moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
 
 -- this can't go in Chainweb.Version.Guards because it causes an import cycle
 -- it uses genesisHeight which is from BlockHeader which imports Guards
-cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-cleanModuleCache v cid bh =
-    case v ^?! versionForks . at Chainweb217Pact . _Just . atChain cid of
+cleanModuleCache :: HasVersion => ChainId -> BlockHeight -> Bool
+cleanModuleCache cid bh =
+    case implicitVersion ^?! versionForks . at Chainweb217Pact . _Just . atChain cid of
         ForkAtBlockHeight bh' -> bh == bh'
-        ForkAtGenesis -> bh == genesisHeight v cid
+        ForkAtGenesis -> bh == genesisHeight cid
         ForkNever -> False

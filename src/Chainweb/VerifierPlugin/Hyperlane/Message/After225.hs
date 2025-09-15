@@ -18,7 +18,6 @@
 module Chainweb.VerifierPlugin.Hyperlane.Message.After225 (runPlugin) where
 
 import Control.Lens
-import Control.Error
 import Control.Exception (evaluate)
 import Control.Monad (unless)
 import Control.Monad.Except
@@ -34,9 +33,13 @@ import Data.STRef
 
 import Ethereum.Misc hiding (Word256)
 
-import Pact.Types.Runtime hiding (ChainId)
-import Pact.Types.PactValue
-import Pact.Types.Capability
+import Pact.Core.Capabilities
+import Pact.Core.Errors (VerifierError(..))
+import Pact.Core.Gas
+import Pact.Core.Literal
+import Pact.Core.Names
+import Pact.Core.PactValue
+import Pact.Core.Signer
 
 import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be)
 
@@ -44,13 +47,12 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
-import Pact.Core.Errors (VerifierError(..))
 
 evaluateST :: a -> ST s a
 evaluateST a = unsafeIOToST (evaluate a)
 
 base64DecodeGasCost :: Gas
-base64DecodeGasCost = 5
+base64DecodeGasCost = Gas 5
 
 runPlugin :: forall s
         . PactValue
@@ -59,7 +61,7 @@ runPlugin :: forall s
         -> ExceptT VerifierError (ST s) ()
 runPlugin proof caps gasRef = do
   -- extract capability values
-  SigCapability{..} <- case Set.toList caps of
+  SigCapability (CapToken { _ctArgs = capArgs }) <- case Set.toList caps of
     [cap] -> return cap
     _ -> throwError $ VerifierError "Expected one capability."
 
@@ -71,18 +73,18 @@ runPlugin proof caps gasRef = do
           -> return i
         _ -> throwError $ VerifierError $ k <> " is not an integer"
 
-  (capMessageId, capMessage, capSigners, capThreshold) <- case _scArgs of
+  (capMessageId, capMessage, capSigners, capThreshold) <- case capArgs of
     [mid, mb, PList sigs, PLiteral literalThreshold] -> do
       threshold <- parseInt "Threshold" literalThreshold
       parsedSigners <- forM sigs $ \case
-        (PLiteral (LString v)) -> pure v
+        (PString v) -> pure v
         _ -> throwError $ VerifierError "Only string signers are supported"
 
       parsedObject <-
         case mb of
-          PObject (ObjectMap m) -> do
+          PObject m -> do
             let
-              parseField k = case (m ^? at (FieldKey k) . _Just . _PLiteral) of
+              parseField k = case (m ^? at (Field k) . _Just . _PLiteral) of
                   Just l -> PLiteral . LInteger <$> parseInt k l
                   _ -> throwError $ VerifierError $ k <> " is missing"
 
@@ -91,7 +93,7 @@ runPlugin proof caps gasRef = do
             origin <- parseField "originDomain"
             destination <- parseField "destinationDomain"
 
-            return $ PObject $ ObjectMap $ m
+            return $ PObject $ m
               & at "version" .~ Just version
               & at "nonce" .~ Just nonce
               & at "originDomain" .~ Just origin
@@ -106,7 +108,7 @@ runPlugin proof caps gasRef = do
   -- extract proof object values
   (hyperlaneMessageBase64, metadataBase64) <- case proof of
     PList values
-      | [PLiteral (LString msg), PLiteral (LString mtdt)] <- V.toList values ->
+      | [PString msg, PString mtdt] <- V.toList values ->
         pure (msg, mtdt)
     _ -> throwError $ VerifierError "Expected a proof data as a list"
 
@@ -135,7 +137,7 @@ runPlugin proof caps gasRef = do
     hmRecipientPactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText hmRecipient
 
     hmMessageBodyPactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText hmMessageBody
-    hmMessagePactValue = PObject . ObjectMap . M.fromList $
+    hmMessagePactValue = PObject . M.fromList $
       [ ("version", hmVersionPactValue)
       , ("nonce", hmNoncePactValue)
       , ("originDomain", hmOriginDomainPactValue)
@@ -167,7 +169,7 @@ runPlugin proof caps gasRef = do
       MerkleRootMultisigIsmMetadata{..} <- maybe
         (throwError $ VerifierError "error decoding metadata from bytes") return $
         runGetS getMerkleRootMultisigIsmMetadata binMetadata
-      chargeGas gasRef 18 -- gas cost of the `branchRoot`
+      chargeGas gasRef (Gas 18) -- gas cost of the `branchRoot`
       root <- lift $ evaluateST $ branchRoot messageId mrmimMerkleProof mrmimMessageIdIndex
       let digestEnd = do
             putRawByteString root
@@ -209,7 +211,7 @@ runPlugin proof caps gasRef = do
     verify [] _ = pure ()
     verify (sig:sigs) validators =
       -- gas cost of the address recovery
-      chargeGas gasRef 16250 >> recoverAddress digest sig >>= \case
+      chargeGas gasRef (Gas 16250) >> recoverAddress digest sig >>= \case
         Just addr -> do
           case V.elemIndex (encodeHex addr) validators of
             Just i -> verify sigs (V.drop (i + 1) validators)

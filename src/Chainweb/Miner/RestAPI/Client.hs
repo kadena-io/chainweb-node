@@ -23,16 +23,15 @@ import Servant.Client (ClientM, Response, client)
 -- internal modules
 
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
-import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI (miningApi)
 import Chainweb.Version
 
 -- -----------------------------------------------------------------------------
 -- Mining Results
 
-workClient :: ChainwebVersion -> Maybe ChainId -> Miner -> ClientM WorkBytes
-workClient v mcid m = case clients v of
-  f :<|> _ -> f mcid m
+workClient :: ChainwebVersion -> ClientM WorkBytes
+workClient v = case clients v of
+  f :<|> _ -> f
 
 solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM NoContent
 solvedClient v hbytes = case clients v of
@@ -40,7 +39,7 @@ solvedClient v hbytes = case clients v of
 
 clients
     :: ChainwebVersion
-    -> (Maybe ChainId -> Miner -> ClientM WorkBytes)
+    -> (ClientM WorkBytes)
     :<|> (HeaderBytes -> ClientM NoContent)
     :<|> (ChainBytes -> Method -> ClientM Response)
 clients (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = client (miningApi @v)

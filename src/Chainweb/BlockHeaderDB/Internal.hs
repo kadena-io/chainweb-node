@@ -44,11 +44,11 @@ module Chainweb.BlockHeaderDB.Internal
 ) where
 
 import Control.Arrow
+import Control.Exception.Safe
 import Control.DeepSeq
 import Control.Lens hiding (children)
 import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson
 import Data.Function
@@ -79,6 +79,8 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
+import Control.Monad.Except
+import Control.Monad.IO.Class
 
 -- -------------------------------------------------------------------------- --
 -- | Configuration of the chain DB.
@@ -96,15 +98,11 @@ newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHe
     deriving anyclass (NFData)
     deriving newtype (Hashable, Eq, ToJSON, FromJSON)
 
-instance HasChainwebVersion RankedBlockHeader where
-    _chainwebVersion = _chainwebVersion . _getRankedBlockHeader
-    {-# INLINE _chainwebVersion #-}
-
 instance HasChainId RankedBlockHeader where
     _chainId = _chainId . _getRankedBlockHeader
     {-# INLINE _chainId #-}
 
-instance HasChainGraph RankedBlockHeader where
+instance HasVersion => HasChainGraph RankedBlockHeader where
     _chainGraph = _chainGraph . _getRankedBlockHeader
     {-# INLINE _chainGraph #-}
 
@@ -161,12 +159,8 @@ instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
     {-# INLINE _chainId #-}
 
-instance HasChainwebVersion BlockHeaderDb where
-    _chainwebVersion = _chainDbChainwebVersion
-    {-# INLINE _chainwebVersion #-}
-
-instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHeader where
-    tableLookup = lookup
+instance (k ~ CasKeyType BlockHeader, HasVersion) => ReadableTable BlockHeaderDb k BlockHeader where
+    tableLookup db k = either (\_ -> Nothing) Just <$> lookup db k
     {-# INLINE tableLookup #-}
 
 -- -------------------------------------------------------------------------- --
@@ -178,7 +172,7 @@ instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHead
 --
 -- Updates all indices.
 --
-dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
+dbAddChecked :: HasVersion => BlockHeaderDb -> BlockHeader -> IO ()
 dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
   where
     r = int $ rank e
@@ -196,7 +190,7 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
     dbAddCheckedInternal = case parent e of
         Nothing -> add
         Just p -> tableLookup (_chainDbCas db) (RankedBlockHash (r - 1) p) >>= \case
-            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
+            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e "dbAddCheckedInternal"
             Just (RankedBlockHeader pe) -> do
                 unless (rank e == rank pe + 1)
                     $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
@@ -214,7 +208,7 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
 
 -- | Initialize a database handle
 --
-initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
+initBlockHeaderDb :: HasVersion => Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
     dbAddChecked db rootEntry
     return db
@@ -236,7 +230,7 @@ initBlockHeaderDb config = do
         ["BlockHeader", cidNs, "rank"]
 
     !db = BlockHeaderDb cid
-        (_chainwebVersion rootEntry)
+        implicitVersion
         headerTable
         rankTable
 
@@ -246,15 +240,14 @@ closeBlockHeaderDb :: BlockHeaderDb -> IO ()
 closeBlockHeaderDb _ = return ()
 
 withBlockHeaderDb
-    :: RocksDb
-    -> ChainwebVersion
+    :: HasVersion
+    => RocksDb
     -> ChainId
-    -> (BlockHeaderDb -> IO b)
-    -> IO b
-withBlockHeaderDb db v cid = bracket start closeBlockHeaderDb
+    -> ResourceT IO BlockHeaderDb
+withBlockHeaderDb db cid = snd <$> allocate start closeBlockHeaderDb
   where
     start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader v cid
+        { _configRoot = genesisBlockHeader cid
         , _configRocksDb = db
         }
 
@@ -264,17 +257,21 @@ withBlockHeaderDb db v cid = bracket start closeBlockHeaderDb
 -- | TODO provide more efficient branchEntries implementation that uses
 -- iterators.
 --
-instance TreeDb BlockHeaderDb where
+instance HasVersion => TreeDb BlockHeaderDb where
     type DbEntry BlockHeaderDb = BlockHeader
 
-    lookup db h = runMaybeT $ do
+    lookup db h = runExceptT $ do
         -- lookup rank
-        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
-        MaybeT $ lookupRanked db (int r) h
+        r <- liftIO (tableLookup (_chainDbRankTable db) h) >>= \case
+            Nothing -> throwError ""
+            Just v -> return v
+        ExceptT $ lookupRanked db (int r) h
     {-# INLINEABLE lookup #-}
 
-    lookupRanked db r h = runMaybeT $ do
-        rh <- MaybeT $ tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)
+    lookupRanked db r h = runExceptT $ do
+        rh <- liftIO (tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)) >>= \case
+            Nothing -> throwError ""
+            Just v -> return v
         return $! _getRankedBlockHeader rh
     {-# INLINEABLE lookupRanked #-}
 
@@ -351,14 +348,14 @@ seekTreeDb db k mir it = do
             -- Seek to cursor
             let x = _getNextItem a
             r <- tableLookup (_chainDbRankTable db) x >>= \case
-                Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
+                Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x "seekTreeDb.lookup"
                 (Just !b) -> return b
             iterSeek it (RankedBlockHash r x)
 
             -- if we don't find the cursor, throw exception
             iterKey it >>= \case
                 Just (RankedBlockHash _ b) | b == x -> return ()
-                _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
+                _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x "seekTreeDb.iterKey"
 
             -- If the cursor is exclusive, then advance the iterator
             when (isExclusive a) $ iterNext it
@@ -374,11 +371,10 @@ seekTreeDb db k mir it = do
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertBlockHeaderDb :: BlockHeaderDb -> ValidatedHeader -> IO ()
+insertBlockHeaderDb :: HasVersion => BlockHeaderDb -> ValidatedHeader -> IO ()
 insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 {-# INLINE insertBlockHeaderDb #-}
 
-unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
+unsafeInsertBlockHeaderDb :: HasVersion => BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
-

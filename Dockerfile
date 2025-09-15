@@ -73,6 +73,7 @@ RUN <<EOF
         libssl3 \
         libtinfo5 \
         locales \
+        libmpfr6 \
         zlib1g \
         libgflags2.2
     if [ "${TARGETPLATFORM}" = "linux/arm64" ] ; then
@@ -121,6 +122,7 @@ RUN <<EOF
         libsnappy-dev \
         libssl-dev \
         libzstd-dev \
+        libmpfr-dev \
         neovim \
         pkg-config \
         zlib1g-dev
@@ -159,8 +161,10 @@ EOF
 # ############################################################################ #
 # Setup Context
 
-FROM chainweb-build as chainweb-build-ctx
+FROM chainweb-build AS chainweb-build-ctx
 ARG TARGETPLATFORM
+ARG UNFREEZE
+ENV UNFREEZE=$UNFREEZE
 # RUN git clone --filter=tree:0 https://github.com/kadena-io/chainweb-node
 # WORKDIR /chainweb/chainweb-node
 COPY . .
@@ -173,15 +177,19 @@ if [ -d ".git" ] && ! [ -f "/tools/wip" ] && ! git diff --exit-code; then \
     exit 1 ; \
 fi
 EOF
+RUN [ -z "$UNFREEZE" ] || rm -f cabal.project.freeze
 RUN sh /tools/check-git-clean.sh || touch /tools/wip
 
 # ############################################################################ #
 # Build Dependencies
 
-FROM chainweb-build-ctx as chainweb-build-dependencies
+FROM chainweb-build-ctx AS chainweb-build-dependencies
 ARG TARGETPLATFORM
 ARG PROJECT_NAME
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
+RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
+    cabal update
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     [ -f cabal.project.freeze ] || cabal --enable-tests --enable-benchmarks freeze

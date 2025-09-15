@@ -25,7 +25,7 @@ tests = testGroup "Chainweb.Test.Pact4.RewardsTest"
 rewardsTest :: HasCallStack => TestTree
 rewardsTest = testCaseSteps "rewards" $ \step -> do
 
-    let k = _kda . minerRewardKda . blockMinerReward v
+    let k = _kda . minerRewardKda . withVersion v blockMinerReward
 
     step "block heights below initial threshold"
     let a = k 0

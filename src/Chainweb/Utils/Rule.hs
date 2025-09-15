@@ -5,6 +5,8 @@
 {-# language InstanceSigs #-}
 {-# language LambdaCase #-}
 {-# language TupleSections #-}
+{-# language IncoherentInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Chainweb.Utils.Rule
   ( Rule(..)
@@ -44,8 +46,9 @@ import GHC.Generics
 -- latest occurrence.
 --
 data Rule h a = Above (h, a) (Rule h a) | Bottom (h, a)
-    deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)
+    deriving stock (Eq, Ord, Foldable, Functor, Generic, Generic1, Traversable)
     deriving anyclass (Hashable, NFData)
+deriving stock instance (Show h, Show a) => Show (Rule h a)
 
 instance Bifunctor Rule where
   bimap :: (h -> h') -> (a -> a') -> Rule h a -> Rule h' a'
@@ -91,7 +94,7 @@ ruleDropWhile _ t = t
 -- Leftmost fields are "below", rightmost fields are "above".
 data RuleZipper h a
   = BetweenZipper (Rule h a) [(h, a)]
-  deriving Show
+deriving stock instance (Show h, Show a) => Show (RuleZipper h a)
 
 ruleZipperHere :: RuleZipper h a -> (h, a)
 ruleZipperHere (BetweenZipper r _) = ruleHead r

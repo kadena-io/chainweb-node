@@ -40,11 +40,12 @@ import Test.QuickCheck
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Chainweb.Configuration
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Utils.Paging
 import Chainweb.Version.Mainnet
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- Main
@@ -60,7 +61,7 @@ benchmarks = bgroup "JSONEncoding"
         , group "1000" (payloadPage 1000)
         , group "5000" (payloadPage 5000)
         ]
-    , bgroup "header page"
+    , withVersion mainnet $ bgroup "header page"
         [ group "5" (headerPage 5)
         , group "10" (headerPage 10)
         , group "50" (headerPage 50)
@@ -69,7 +70,7 @@ benchmarks = bgroup "JSONEncoding"
         , group "1000" (headerPage 1000)
         , group "5000" (headerPage 5000)
         ]
-    , bgroup "object encoded header page"
+    , withVersion mainnet $ bgroup "object encoded header page"
         [ group "5" (objHeaderPage 5)
         , group "10" (objHeaderPage 10)
         , group "50" (objHeaderPage 50)
@@ -140,11 +141,11 @@ config :: ChainwebConfiguration
 config = defaultChainwebConfiguration Mainnet01
 {-# NOINLINE config #-}
 
-headerPage :: Natural -> Page BlockHash BlockHeader
+headerPage :: HasVersion => Natural -> Page BlockHash BlockHeader
 headerPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE headerPage #-}
 
-objHeaderPage :: Natural -> Page BlockHash (ObjectEncoded BlockHeader)
+objHeaderPage :: HasVersion => Natural -> Page BlockHash (ObjectEncoded BlockHeader)
 objHeaderPage n = pageItems %~ fmap ObjectEncoded $ unsafePerformIO
     $ generate $ arbitraryPage n
 {-# NOINLINE objHeaderPage #-}
@@ -152,4 +153,3 @@ objHeaderPage n = pageItems %~ fmap ObjectEncoded $ unsafePerformIO
 payloadPage :: Natural -> Page BlockHash PayloadWithOutputs
 payloadPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE payloadPage #-}
-

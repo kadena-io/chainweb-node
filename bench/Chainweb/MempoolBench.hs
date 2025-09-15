@@ -16,29 +16,36 @@ import PropertyMatchers ((?))
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Mempool.Mempool qualified as Mempool
-import Chainweb.Mempool.InMem qualified as InMem
-import Chainweb.Mempool.InMemTypes qualified as InMem
-import Chainweb.Pact4.Transaction
-import Chainweb.Test.Pact4.Utils
+import Chainweb.Pact.Mempool.Mempool qualified as Mempool
+import Chainweb.Pact.Mempool.InMem qualified as InMem
+import Chainweb.Pact.Mempool.InMemTypes qualified as InMem
+import Chainweb.Pact.Transaction
 import Chainweb.Test.TestVersions
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
-import Pact.Types.ChainMeta (getCurrentCreationTime)
-import Pact.Types.Command
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Set as S
 import Data.IORef
 import Data.List (unfoldr)
+import Chainweb.Test.Pact.CmdBuilder
+import Chainweb.Time (epoch)
+import Chainweb.Pact.Utils (toTxCreationTime)
+import Chainweb.PayloadProvider (EvaluationCtx(..))
+import Chainweb.Parent
+import Chainweb.MinerReward
+import Chainweb.BlockCreationTime
 
-txCfg :: Mempool.TransactionConfig UnparsedTransaction
-txCfg = Mempool.pact4TransactionConfig
+import Pact.Core.Command.Types
+import qualified Pact.Core.Gas as Pact
 
-inmemCfg :: InMem.InMemConfig UnparsedTransaction
+txCfg :: Mempool.TransactionConfig Transaction
+txCfg = Mempool.pactTransactionConfig
+
+inmemCfg :: InMem.InMemConfig Transaction
 inmemCfg = InMem.InMemConfig
     { InMem._inmemTxCfg = txCfg
-    , InMem._inmemTxBlockSizeLimit = Mempool.GasLimit 150_000
+    , InMem._inmemTxBlockSizeLimit = Mempool.GasLimit (Pact.Gas 150_000)
     , InMem._inmemTxMinGasPrice = Mempool.GasPrice (0.0000000001)
     , InMem._inmemMaxRecentItems = 2048
     , InMem._inmemPreInsertPureChecks = return
@@ -49,39 +56,38 @@ inmemCfg = InMem.InMemConfig
 v :: ChainwebVersion
 v = instantCpmTestVersion singletonChainGraph
 
-setup :: V.Vector UnparsedTransaction -> IO (NoopNFData (Mempool.MempoolBackend UnparsedTransaction))
+setup :: V.Vector Transaction -> IO (NoopNFData (Mempool.MempoolBackend Transaction))
 setup txs = do
     mp <- InMem.startInMemoryMempoolTest inmemCfg
     Mempool.mempoolInsert mp Mempool.UncheckedInsert txs
     return (NoopNFData mp)
 
-cmds :: V.Vector UnparsedTransaction
-cmds = unsafePerformIO $ V.generateM 4096 $ \i -> do
-    now <- getCurrentCreationTime
-    fmap unparseTransaction
-        $ buildCwCmd (sshow i) v
-        $ set cbCreationTime now
-        $ set cbGasLimit (Mempool.GasLimit 1)
-        $ defaultCmd
+cmds :: V.Vector Transaction
+cmds = withVersion v $ unsafePerformIO $ V.generateM 4096 $ \i -> do
+    buildCwCmd
+        $ set cbGasLimit (Mempool.GasLimit $ Pact.Gas 1)
+        $ set cbNonce (Just (sshow i))
+        $ defaultCmd (unsafeChainId 0)
 
-txHash :: UnparsedTransaction -> Mempool.TransactionHash
+txHash :: Transaction -> Mempool.TransactionHash
 txHash = Mempool.txHasher txCfg
 
-expiredCmds :: V.Vector UnparsedTransaction
-expiredCmds = unsafePerformIO $ V.generateM 4096 $ \i -> do
-    fmap unparseTransaction
-        $ buildCwCmd (sshow i) v
-        $ set cbGasLimit (Mempool.GasLimit 1)
-        $ defaultCmd
+expiredCmds :: V.Vector Transaction
+expiredCmds = withVersion v $ unsafePerformIO $ V.generateM 4096 $ \i ->
+    buildCwCmd
+        $ set cbGasLimit (Mempool.GasLimit $ Pact.Gas 1)
+        $ set cbCreationTime (Just $ toTxCreationTime epoch)
+        $ set cbNonce (Just (sshow i))
+        $ defaultCmd (unsafeChainId 0)
 
-setupMakeTxs :: V.Vector UnparsedTransaction -> IO (NoopNFData (Mempool.MempoolBackend UnparsedTransaction, V.Vector UnparsedTransaction))
+setupMakeTxs :: V.Vector Transaction -> IO (NoopNFData (Mempool.MempoolBackend Transaction, V.Vector Transaction))
 setupMakeTxs txs = do
     mp <- InMem.startInMemoryMempoolTest inmemCfg
     return $ NoopNFData (mp, txs)
 
 bfEmpty :: Mempool.BlockFill
 bfEmpty = Mempool.BlockFill
-    { Mempool._bfGasLimit = Mempool.GasLimit 150_000
+    { Mempool._bfGasLimit = Mempool.GasLimit $ Pact.Gas 150_000
         -- ^ Fetch pending transactions up to this limit.
     , Mempool._bfTxHashes = mempty
         -- ^ Fetch only transactions not in set.
@@ -96,7 +102,8 @@ bfWithNHashes n = bfEmpty
 mempoolGetBlockBench :: _ => _
 mempoolGetBlockBench name p bf n = C.bench name
     $ C.perRunEnv (setup (V.take n cmds)) $ \(NoopNFData mp) -> do
-    Mempool.mempoolGetBlock mp bf Mempool.noopMempoolPreBlockCheck (BlockHeight 1) nullBlockHash
+    Mempool.mempoolGetBlock mp bf Mempool.noopMempoolPreBlockCheck
+        (EvaluationCtx (Parent $ BlockCreationTime epoch) (Parent nullBlockHash) (Parent $ BlockHeight 0) (MinerReward 0) ())
         >>= p
 
 allPendingTxHashes :: Mempool.MempoolBackend t -> IO [Mempool.TransactionHash]
@@ -169,7 +176,7 @@ bench = C.bgroup "mempool" $ concat
                     >>= P.alignExact (V.replicate 2000 (P.equals True))
             )
             $ \(NoopNFData ~(mp, txs)) -> do
-                Mempool.mempoolAddToBadList mp (Mempool.pact4RequestKeyToTransactionHash . cmdToRequestKey <$> txs)
+                Mempool.mempoolAddToBadList mp (Mempool.pactRequestKeyToTransactionHash . cmdToRequestKey <$> txs)
         , C.bench "mempoolPrune" $ C.perRunEnvWithCleanup
             (setup (V.take 2000 cmds))
             (\(NoopNFData mp) ->

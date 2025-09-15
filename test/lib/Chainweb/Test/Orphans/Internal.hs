@@ -6,6 +6,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -42,70 +44,11 @@ module Chainweb.Test.Orphans.Internal
 , arbitraryMerkleHeaderProof
 , arbitraryMerkleBodyProof
 
--- ** Output Proofs
-, arbitraryOutputMerkleProof
-, arbitraryOutputProof
-, mkTestOutputProof
-, arbitraryOutputEvents
-, arbitraryPayloadWithStructuredOutputs
-
--- ** Events Proofs
-, mkTestEventsProof
-, arbitraryEventsProof
-, EventPactValue(..)
-, ProofPactEvent(..)
-
 -- ** Misc
 , arbitraryPage
 ) where
 
 import Control.Applicative
-import Control.Lens (view)
-import Control.Monad
-import Control.Monad.Catch
-
-import Crypto.Hash.Algorithms
-
-import Data.Aeson hiding (Error)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Short as BS
-import Data.Foldable
-import Data.Function
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.Kind
-import qualified Data.List as L
-import Data.MerkleLog
-import Data.Streaming.Network.Internal
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import Data.Type.Equality
-import qualified Data.Vector as V
-
-import GHC.Stack
-
-import Numeric.Natural
-
-import qualified Pact.JSON.Encode as J
-import Pact.Types.Command
-import Pact.Types.PactValue
-import Pact.Types.Runtime (PactEvent(..), Literal(..))
-
-import Prelude hiding (Applicative(..))
-
-import System.IO.Unsafe
-
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Exception (discard)
-import Test.QuickCheck.Gen
-import Test.QuickCheck.Modifiers
-
-import Unsafe.Coerce
-
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
-
--- internal modules
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -113,7 +56,6 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
-import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
@@ -121,25 +63,24 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeVersion
+import Chainweb.Pact.Mempool.Mempool
+import Chainweb.Pact.Mempool.RestAPI
+import Chainweb.Pact.Payload
 import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Types
-import Chainweb.Payload
+import Chainweb.Parent
+import Chainweb.PayloadProvider
 import Chainweb.PowHash
+import Chainweb.Ranked
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
-import Chainweb.SPV
 import Chainweb.SPV.EventProof
-import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.TestVersions
 import Chainweb.Time
@@ -148,23 +89,51 @@ import Chainweb.Utils.Paging
 import Chainweb.Utils.Rule (ruleElems)
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 import Chainweb.Version.Testnet04
 import Chainweb.Version.Utils
-
+import Control.Lens (view)
+import Control.Monad
+import Control.Monad.Catch
+import Data.Aeson hiding (Error)
+import Data.ByteString qualified as B
+import Data.ByteString.Short qualified as BS
+import Data.Foldable
+import Data.Function
+import Data.Functor ((<&>))
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.Kind
+import Data.MerkleLog.V1
 import Data.Singletons
-
+import Data.Streaming.Network.Internal
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Type.Equality
+import GHC.Stack
 import Network.X509.SelfSigned
-
+import Numeric.Natural
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Peer
 import P2P.Test.Orphans ()
-
+import Pact.Core.Capabilities
+import Pact.Core.Command.Types
+import Pact.Core.Literal
+import Pact.Core.PactValue
+import Pact.Core.StableEncoding
+import Pact.JSON.Encode qualified as J
+import Prelude hiding (Applicative(..))
+import System.IO.Unsafe
 import System.Logger.Types
-
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Exception (discard)
+import Test.QuickCheck.Gen
+import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
+import Test.QuickCheck.Modifiers
+import Unsafe.Coerce
 import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
@@ -286,22 +255,34 @@ instance Arbitrary NodeInfo where
     arbitrary = do
         v <- arbitrary
         curHeight <- arbitrary
-        let graphs = unpackGraphs v
-        let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
-        let curChains = map fst $ snd curGraph
-        return $ NodeInfo
-            { nodeVersion = _versionName v
-            , nodePackageVersion = chainwebNodeVersionHeaderValue
-            , nodeApiVersion = prettyApiVersion
-            , nodeChains = T.pack . show <$> curChains
-            , nodeNumberOfChains = length curChains
-            , nodeGraphHistory = graphs
-            , nodeLatestBehaviorHeight = latestBehaviorAt v
-            , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList $ chainIds v
-            , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
-            , nodeServiceDate = T.pack <$> _versionServiceDate v
-            , nodeBlockDelay = _versionBlockDelay v
-            }
+        withVersion v $ do
+            let graphs = unpackGraphs
+            let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+            let curChains = map fst $ snd curGraph
+            return $ NodeInfo
+                { nodeVersion = _versionName v
+                , nodePackageVersion = chainwebNodeVersionHeaderValue
+                , nodeApiVersion = prettyApiVersion
+                , nodeChains = T.pack . show <$> curChains
+                , nodeNumberOfChains = length curChains
+                , nodeGraphHistory = graphs
+                , nodeLatestBehaviorHeight = latestBehaviorAt
+                , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
+                , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+                , nodeServiceDate = T.pack <$> _versionServiceDate v
+                , nodeBlockDelay = _versionBlockDelay v
+                , nodePayloadProviders = _versionPayloadProviderTypes implicitVersion <&> \case
+                    EvmProvider n -> object
+                        [ "type" .= ("eth" :: T.Text)
+                        , "ethChainId" .= n
+                        ]
+                    PactProvider -> object
+                        [ "type" .= ("pact" :: T.Text)
+                        ]
+                    MinimalProvider -> object
+                        [ "type" .= ("parked" :: T.Text)
+                        ]
+                }
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -330,45 +311,45 @@ instance Arbitrary EpochStartTime where
 instance Arbitrary FeatureFlags where
     arbitrary = return mkFeatureFlags
 
-instance Arbitrary BlockHeader where
-    arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
+instance HasVersion => Arbitrary BlockHeader where
+    arbitrary = arbitraryBlockHeaderVersion
 
 arbitraryBlockHashRecordVersionHeightChain
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> ChainId
     -> Gen BlockHashRecord
-arbitraryBlockHashRecordVersionHeightChain v h cid
+arbitraryBlockHashRecordVersionHeightChain h cid
     | isWebChain graph cid = BlockHashRecord
         . HM.fromList
         . zip (toList $ adjacentChainIds graph cid)
-        <$> infiniteListOf arbitrary
+        <$> infiniteListOf (Parent <$> arbitrary)
     | otherwise = discard
   where
     graph
-        | h == genesisHeight v cid = chainGraphAt v h
-        | otherwise = chainGraphAt v (h - 1)
+        | h == genesisHeight cid = chainGraphAt h
+        | otherwise = chainGraphAt (h - 1)
 
-arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
-arbitraryBlockHeaderVersion v = do
+arbitraryBlockHeaderVersion :: HasVersion => Gen BlockHeader
+arbitraryBlockHeaderVersion = do
     h <- arbitrary
-    arbitraryBlockHeaderVersionHeight v h
+    arbitraryBlockHeaderVersionHeight h
 
 arbitraryBlockHeaderVersionHeight
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> Gen BlockHeader
-arbitraryBlockHeaderVersionHeight v h = do
-    cid <- elements $ toList $ chainIdsAt v h
-    arbitraryBlockHeaderVersionHeightChain v h cid
+arbitraryBlockHeaderVersionHeight h = do
+    cid <- elements $ toList $ chainIdsAt h
+    arbitraryBlockHeaderVersionHeightChain h cid
 
 arbitraryBlockHeaderVersionHeightChain
-    :: ChainwebVersion
-    -> BlockHeight
+    :: HasVersion
+    => BlockHeight
     -> ChainId
     -> Gen BlockHeader
-arbitraryBlockHeaderVersionHeightChain v h cid
-    | isWebChain (chainGraphAt v h) cid = do
+arbitraryBlockHeaderVersionHeightChain h cid
+    | isWebChain (chainGraphAt h) cid = do
         t <- chooseEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
         fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
     | otherwise = discard
@@ -376,31 +357,32 @@ arbitraryBlockHeaderVersionHeightChain v h cid
     entries t
         = liftA2 (:+:) arbitrary -- feature flags
         $ liftA2 (:+:) (pure $ BlockCreationTime t) -- time
-        $ liftA2 (:+:) arbitrary -- parent hash
+        $ liftA2 (:+:) (Parent <$> arbitrary) -- parent hash
         $ liftA2 (:+:) arbitrary -- target
         $ liftA2 (:+:) arbitrary -- payload hash
         $ liftA2 (:+:) (pure cid) -- chain id
         $ liftA2 (:+:) arbitrary -- weight
         $ liftA2 (:+:) (pure h) -- height
-        $ liftA2 (:+:) (pure (_versionCode v)) -- version
+        $ liftA2 (:+:) (pure (_versionCode implicitVersion)) -- version
         $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
-            (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents
+            (arbitraryBlockHashRecordVersionHeightChain h cid) -- adjacents
 
-instance Arbitrary HeaderUpdate where
+instance HasVersion => Arbitrary HeaderUpdate where
     arbitrary = HeaderUpdate
         <$> (ObjectEncoded <$> arbitrary)
         <*> arbitrary
         <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
 
-instance Arbitrary BlockHashWithHeight where
-    arbitrary = BlockHashWithHeight <$> arbitrary <*> arbitrary
+instance Arbitrary (Ranked BlockHash) where
+    arbitrary = Ranked <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary CutHashes
+
+instance Arbitrary EncodedPayloadData where
+    arbitrary = EncodedPayloadData <$> arbitrary
 
 instance Arbitrary CutId where
     arbitrary = do
@@ -409,10 +391,10 @@ instance Arbitrary CutId where
             Left e -> error $ "Arbitrary Instance for CutId: " <> show e
             Right x -> return x
 
-instance Arbitrary CutHashes where
+instance HasVersion => Arbitrary CutHashes where
     arbitrary = CutHashes
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> (fmap EncodedPayloadData <$> arbitrary)
         <*> return Nothing
 
 instance Arbitrary CutHeight where
@@ -422,17 +404,19 @@ instance Arbitrary CutHeight where
 -- -------------------------------------------------------------------------- --
 -- Mining Work
 
-instance Arbitrary WorkHeader where
+instance HasVersion => Arbitrary MiningWork where
     arbitrary = do
         hdr <- arbitrary
-        return $ WorkHeader
-            { _workHeaderChainId = _chainId hdr
-            , _workHeaderTarget = view blockTarget hdr
-            , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
+        return $ MiningWork
+            { _miningWorkChainId = _chainId hdr
+            , _miningWorkTarget = view blockTarget hdr
+            , _miningWorkBytes = BS.toShort $ runPutS $ encodeAsMiningWork hdr
             }
 
-instance Arbitrary SolvedWork where
-    arbitrary = SolvedWork <$> arbitrary
+instance HasVersion => Arbitrary SolvedWork where
+    arbitrary = fromJuste . runGetS decodeSolvedWork . BS.fromShort . work <$> arbitrary
+      where
+        work hdr = BS.toShort $ runPutS $ encodeAsMiningWork hdr
 
 -- -------------------------------------------------------------------------- --
 -- Payload over arbitrary bytesstrings
@@ -485,11 +469,11 @@ instance MerkleHashAlgorithm a => Arbitrary (OutputTree_ a) where
 instance Arbitrary (MerkleTree ChainwebMerkleHashAlgorithm) where
     arbitrary = oneof
         [ arbitraryPayloadMerkleTree
-        , arbitraryMerkleTree @_ @BlockHeader
+        , arbitrary >>= \v -> withVersion v $ arbitraryMerkleTree @_ @BlockHeader
         ]
 
 arbitraryHeaderMerkleTree :: Gen (MerkleTree ChainwebMerkleHashAlgorithm)
-arbitraryHeaderMerkleTree = arbitraryMerkleTree @_ @BlockHeader
+arbitraryHeaderMerkleTree = arbitrary >>= \v -> withVersion v $ arbitraryMerkleTree @_ @BlockHeader
 
 arbitraryPayloadMerkleTree
     :: forall a
@@ -530,7 +514,7 @@ arbitraryMerkleProof = do
     (b, hs, bs) <- gen
     idx <- choose (0, hs + bs - 1)
     let result = if idx > (hs - 1)
-            then bodyProof @a b (idx - hs)
+            then bodyProofV1 @a b (idx - hs)
             else mkHeaderProof @a b (fromIntegral idx)
     case result of
         Left !e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryMerkleProof: " <> show e
@@ -551,7 +535,7 @@ arbitraryMerkleBodyProof
 arbitraryMerkleBodyProof = do
     (b, s) <- gen
     !idx <- choose (0, s - 1)
-    case bodyProof b idx of
+    case bodyProofV1 b idx of
         Left !e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryMerkleBodyProof: " <> show e
         Right x -> return x
   where
@@ -586,20 +570,20 @@ mkHeaderProof
     -> Natural
     -> m (MerkleProof a)
 mkHeaderProof b idx = case toLog @a b of
-    mlog@(MerkleLog _ (_ :+: _) _ :: MerkleLog a ChainwebHashTag (h ': t) (MerkleLogBody b)) -> do
+    mlog@(MerkleLog _ (_ :+: _) :: MerkleLog a ChainwebHashTag (h ': t) (MerkleLogBody b)) -> do
         case someN idx of
             -- Index 0
-            SomeSing SZ -> headerProof @(AtIndex 'Z (h ': t)) @a b
+            SomeSing SZ -> headerProofV1 @(AtIndex 'Z (h ': t)) @a b
             -- Index > 0
             SomeSing x@(SS _) -> case x of
                 -- Assert (at runtime) that the index is within bounds
                 (Sing :: Sing n) -> case lt x (headerSizeN mlog) of
                     Just Refl -> case hasHeader @_ @_ @_ @_ @_ @_ @n mlog of
-                        Dict _ -> headerProof @(AtIndex n (h ': t)) @a b
+                        Dict _ -> headerProofV1 @(AtIndex n (h ': t)) @a b
                     Nothing -> error "must not happen"
 
 headerSizeN :: MerkleLog a u t b -> Sing (Length t)
-headerSizeN (MerkleLog _ l _) = go l
+headerSizeN (MerkleLog _ l) = go l
   where
     go :: forall a u t b . MerkleLogEntries a u t b -> Sing (Length t)
     go MerkleLogBody{} = SZ
@@ -658,8 +642,8 @@ hasHeader mlog = case go (sing @N @i) mlog of
             )
             (MerkleLog a u (x' ': t') b)
     go SZ m = Dict m
-    go (SS (n :: Sing n)) m@(MerkleLog r (_ :+: t@(_ :+: _)) b) =
-        case go n (MerkleLog r t b) of
+    go (SS (n :: Sing n)) m@(MerkleLog r (_ :+: t@(_ :+: _))) =
+        case go n (MerkleLog r t) of
 
             -- FIXME: avoid use of unsafeCoerce
             --
@@ -681,68 +665,69 @@ hasHeader mlog = case go (sing @N @i) mlog of
 -- -------------------------------------------------------------------------- --
 -- Output MerkleProofs / Netsted Merkle Proof
 
-arbitraryPayloadWithStructuredOutputs :: Gen (V.Vector RequestKey, PayloadWithOutputs)
-arbitraryPayloadWithStructuredOutputs = resize 10 $ do
-    txs <- V.fromList . L.nubBy ((==) `on` _crReqKey . snd)
-        <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
-    payloads <- newPayloadWithOutputs
-        <$> arbitrary
-        <*> arbitrary
-        <*> pure (fmap (TransactionOutput . J.encodeStrict) <$> txs)
-    return (_crReqKey . snd <$> txs, payloads)
-  where
-    genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
+-- arbitraryPayloadWithStructuredOutputs :: Gen (V.Vector RequestKey, PayloadWithOutputs)
+-- arbitraryPayloadWithStructuredOutputs = resize 10 $ do
+--     txs <- V.fromList . L.nubBy ((==) `on` _crReqKey . snd)
+--         <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
+--     payloads <- newPayloadWithOutputs
+--         <$> arbitrary
+--         <*> arbitrary
+--         -- TODO: PP
+--         <*> pure (fmap (TransactionOutput . J.encodeStrict . fmap (pactErrorToOnChainError . fmap spanInfoToLineInfo)) <$> txs)
+--     return (_crReqKey . snd <$> txs, payloads)
+--   where
+--     genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
 
--- | This creates proof over payloads that contain arbitrary bytestrings.
---
-arbitraryOutputMerkleProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => Gen (MerkleProof a)
-arbitraryOutputMerkleProof = do
-    (p, s) <- genPayload
-    idx <- choose (0, s - 1)
-    case outputMerkleProofByIdx @a p idx of
-        Left e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryBlockOutputsMerkleProof: " <> show e
-        Right x -> return x
-  where
-    -- this uses the default chainweb hash
-    genPayload = suchThatMap (arbitrary @PayloadWithOutputs) $ \p ->
-        let s = V.length (_payloadWithOutputsTransactions p)
-        in (p, s) <$ guard (s > 0)
+-- -- | This creates proof over payloads that contain arbitrary bytestrings.
+-- --
+-- arbitraryOutputMerkleProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => Gen (MerkleProof a)
+-- arbitraryOutputMerkleProof = do
+--     (p, s) <- genPayload
+--     idx <- choose (0, s - 1)
+--     case outputMerkleProofByIdx @a p idx of
+--         Left e -> error $ "Chainweb.Test.Orphans.Internal.arbitraryBlockOutputsMerkleProof: " <> show e
+--         Right x -> return x
+--   where
+--     -- this uses the default chainweb hash
+--     genPayload = suchThatMap (arbitrary @PayloadWithOutputs) $ \p ->
+--         let s = V.length (_payloadWithOutputsTransactions p)
+--         in (p, s) <$ guard (s > 0)
 
-arbitraryOutputProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => Gen (PayloadProof a)
-arbitraryOutputProof = do
-    (ks, p) <- genPayload
-    k <- elements $ V.toList ks
-    return $ mkTestOutputProof p k
-  where
-    -- this uses the default chainweb hash
-    genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
-        V.length (_payloadWithOutputsTransactions p) > 0
+-- arbitraryOutputProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => Gen (PayloadProof a)
+-- arbitraryOutputProof = do
+--     (ks, p) <- genPayload
+--     k <- elements $ V.toList ks
+--     return $ mkTestOutputProof p k
+--   where
+--     -- this uses the default chainweb hash
+--     genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
+--         V.length (_payloadWithOutputsTransactions p) > 0
 
-mkTestOutputProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => HasCallStack
-    => PayloadWithOutputs
-    -> RequestKey
-    -> PayloadProof a
-mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
+-- mkTestOutputProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => HasCallStack
+--     => PayloadWithOutputs
+--     -> RequestKey
+--     -> PayloadProof a
+-- mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
 
-instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
-    arbitrary = arbitraryOutputProof
+-- instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
+--     arbitrary = arbitraryOutputProof
 
--- | This creates proof over payloads that contain arbitrary bytestrings.
---
--- TODO: use a more complex nested proof here, like the ones that occur in
--- cross chain SPV proofs.
---
-instance MerkleHashAlgorithm a => Arbitrary (MerkleProof a) where
-    arbitrary = arbitraryOutputMerkleProof
+-- -- | This creates proof over payloads that contain arbitrary bytestrings.
+-- --
+-- -- TODO: use a more complex nested proof here, like the ones that occur in
+-- -- cross chain SPV proofs.
+-- --
+-- instance MerkleHashAlgorithm a => Arbitrary (MerkleProof a) where
+--     arbitrary = arbitraryOutputMerkleProof
 
 -- -------------------------------------------------------------------------- --
 -- Events Merkle Proofs
@@ -756,18 +741,18 @@ mkTestEventsProof
     -> PayloadProof a
 mkTestEventsProof p reqKey = unsafePerformIO $ createEventsProof_ @a p reqKey
 
-arbitraryEventsProof
-    :: forall a
-    . MerkleHashAlgorithm a
-    => Gen (PayloadProof a)
-arbitraryEventsProof = do
-    (ks, p) <- genPayload
-    k <- elements $ V.toList ks
-    return $ mkTestEventsProof p k
-  where
-    -- this uses the default chainweb hash
-    genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
-        V.length (_payloadWithOutputsTransactions p) > 0
+-- arbitraryEventsProof
+--     :: forall a
+--     . MerkleHashAlgorithm a
+--     => Gen (PayloadProof a)
+-- arbitraryEventsProof = do
+--     (ks, p) <- genPayload
+--     k <- elements $ V.toList ks
+--     return $ mkTestEventsProof p k
+--   where
+--     -- this uses the default chainweb hash
+--     genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
+--         V.length (_payloadWithOutputsTransactions p) > 0
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -787,14 +772,6 @@ instance Arbitrary ChainId where
 
 instance Arbitrary Fork where
     arbitrary = elements [minBound..maxBound]
-
-instance Arbitrary ChainDatabaseGcConfig where
-    arbitrary = elements
-        [ GcNone
-        , GcHeaders
-        , GcHeadersChecked
-        , GcFull
-        ]
 
 instance Arbitrary a => Arbitrary (EnableConfig a) where
     arbitrary = EnableConfig <$> arbitrary <*> arbitrary
@@ -829,14 +806,10 @@ instance Arbitrary CoordinationConfig where
     arbitrary = CoordinationConfig
         <$> arbitrary
         <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
-        <*> arbitrary
 
 instance Arbitrary NodeMiningConfig where
     arbitrary = NodeMiningConfig
-        <$> arbitrary <*> arbitrary <*> pure (MinerCount 10)
+        <$> arbitrary <*> pure (MinerCount 10)
 
 instance Arbitrary MiningConfig where
     arbitrary = MiningConfig <$> arbitrary <*> arbitrary
@@ -852,26 +825,28 @@ arbitraryEventPactValue = oneof
     , PLiteral . LInteger <$> (int256ToInteger <$> arbitrary)
     ]
 
--- | Arbitrary Pact events that are supported in events proofs
---
-arbitraryProofPactEvent :: Gen PactEvent
-arbitraryProofPactEvent = PactEvent
-    <$> arbitrary
-    <*> listOf arbitraryEventPactValue
-    <*> arbitrary
-    <*> arbitrary
+-- -- | Arbitrary Pact events that are supported in events proofs
+-- --
+-- arbitraryProofPactEvent :: Gen (PactEvent PactValue)
+-- arbitraryProofPactEvent = PactEvent
+--     <$> arbitrary
+--     <*> listOf arbitraryEventPactValue
+--     <*> arbitrary
+--     <*> arbitrary
 
-arbitraryOutputEvents :: Gen OutputEvents
-arbitraryOutputEvents = OutputEvents
-    <$> arbitrary
-    <*> (V.fromList <$> listOf arbitraryProofPactEvent)
+-- arbitraryOutputEvents :: Gen OutputEvents
+-- arbitraryOutputEvents = OutputEvents
+--     <$> arbitrary
+--     <*> (V.fromList <$> listOf arbitraryProofPactEvent)
 
-instance Arbitrary OutputEvents where
-    arbitrary = arbitraryOutputEvents
+-- instance Arbitrary OutputEvents where
+--     arbitrary = arbitraryOutputEvents
 
 -- | Events that are supported in proofs
 --
-newtype ProofPactEvent = ProofPactEvent { getProofPactEvent :: PactEvent }
+newtype ProofPactEvent = ProofPactEvent
+    { getProofPactEvent :: StableEncoding (PactEvent PactValue)
+    }
     deriving (Show)
     deriving newtype (Eq, FromJSON)
 
@@ -879,8 +854,8 @@ instance ToJSON ProofPactEvent where
     toJSON = J.toJsonViaEncode . getProofPactEvent
     {-# INLINEABLE toJSON #-}
 
-instance Arbitrary ProofPactEvent where
-    arbitrary = ProofPactEvent <$> arbitraryProofPactEvent
+-- instance Arbitrary ProofPactEvent where
+--     arbitrary = ProofPactEvent . StableEncoding <$> arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -891,7 +866,9 @@ instance Arbitrary Int256 where
 
 -- | PactValues that are supported in Proofs
 --
-newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
+newtype EventPactValue = EventPactValue
+    { getEventPactValue :: PactValue
+    }
     deriving (Show, Eq, Ord)
 
 instance Arbitrary EventPactValue where
@@ -900,29 +877,26 @@ instance Arbitrary EventPactValue where
 instance Arbitrary SpvAlgorithm where
     arbitrary = elements [SpvSHA512t_256, SpvKeccak_256]
 
-instance Arbitrary SpvSubjectIdentifier where
-    arbitrary = SpvSubjectIdentifier <$> arbitrary <*> arbitrary <*> arbitrary
+-- instance Arbitrary SpvSubjectIdentifier where
+--     arbitrary = SpvSubjectIdentifier <$> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary SpvSubjectType where
     arbitrary = elements [SpvSubjectResult, SpvSubjectEvents]
 
-instance Arbitrary SpvRequest where
-    arbitrary = SpvRequest <$> arbitrary <*> arbitrary
+-- instance Arbitrary SpvRequest where
+--     arbitrary = SpvRequest <$> arbitrary <*> arbitrary
 
-instance Arbitrary Spv2Request where
-    arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
+-- instance Arbitrary Spv2Request where
+--     arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
 
-instance Arbitrary (TransactionProof ChainwebMerkleHashAlgorithm) where
-    arbitrary = TransactionProof <$> arbitrary <*> arbitrary
+-- instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
+--     arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
 
-instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
-    arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
-
-instance Arbitrary SomePayloadProof where
-    arbitrary = oneof
-        [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
-        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak_256)
-        ]
+-- instance Arbitrary SomePayloadProof where
+--     arbitrary = oneof
+--         [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
+--         , SomePayloadProof <$> arbitrary @(PayloadProof Keccak256)
+--         ]
 
 -- Equality for SomePayloadProof is only used for testing. Using 'unsafeCoerce'
 -- is a bit ugly, but efficient and doesn't require changing production code.
@@ -939,11 +913,11 @@ instance Eq SomePayloadProof where
 instance Arbitrary MinerId where
     arbitrary = MinerId <$> arbitrary
 
-instance Arbitrary MinerKeys where
-    arbitrary = MinerKeys <$> arbitrary
+-- instance Arbitrary MinerGuard where
+--     arbitrary = MinerGuard <$> arbitrary
 
-instance Arbitrary Miner where
-    arbitrary = Miner <$> arbitrary <*> arbitrary
+-- instance Arbitrary Miner where
+--     arbitrary = Miner <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Mempool

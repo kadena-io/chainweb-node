@@ -5,6 +5,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Test.SPV.EventProof
@@ -39,6 +40,7 @@ import Data.Aeson.Types
 import Data.Bifunctor
 import Data.Decimal
 import Data.MerkleLog
+import Data.MerkleLog.V1 qualified as V1
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -54,7 +56,7 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
@@ -179,14 +181,14 @@ proof_properties = testGroup "merkle proof properties"
     ]
 
 prop_merkleProof_run :: MerkleHashAlgorithm a => MerkleProof a -> Bool
-prop_merkleProof_run p = case runMerkleProof p of !_ -> True
+prop_merkleProof_run p = case V1.runMerkleProof p of !_ -> True
 
 prop_eventsProof_run
     :: forall a
     . MerkleHashAlgorithm a
     => Property
 prop_eventsProof_run = forAll (arbitraryEventsProof @a) $ \p ->
-    case runMerkleProof (_payloadProofBlob p) of !_ -> True
+    case V1.runMerkleProof (_payloadProofBlob p) of !_ -> True
 
 prop_eventsProof_run2
     :: forall a
@@ -294,4 +296,3 @@ eventProof_0 = [aesonQQ|
       "rootType": "blockEvents"
     }
 |]
-

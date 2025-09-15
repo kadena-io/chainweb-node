@@ -12,6 +12,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.SPV.EventProof
@@ -104,17 +106,15 @@ import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
 import Data.Aeson
-import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Foldable
+import Data.Hash.Keccak (Keccak256)
 import Data.Hashable
-import Data.MerkleLog hiding (Actual, Expected)
+import qualified Data.MerkleLog.V1 as V1
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -124,10 +124,8 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Pact.Types.Command
-import Pact.Types.PactValue
-import Pact.Types.Pretty
-import Pact.Types.Runtime hiding (fromText)
+import Pact.Core.Command.Types
+import Pact.Core.PactValue
 
 -- internal modules
 
@@ -136,8 +134,8 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.TreeDB hiding (entries, root)
@@ -145,6 +143,13 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Chainweb.Storage.Table
+import Pact.Core.Names
+import Pact.Core.Capabilities
+import Pact.Core.Hash
+import Pact.Core.ModRefs
+import Pact.Core.Errors
+import Pact.Core.Pretty (renderCompactText)
+import Chainweb.Version (HasVersion)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Encoding Exceptions
@@ -266,15 +271,15 @@ int256Hex x@(Int256 i)
 -- -------------------------------------------------------------------------- --
 -- Pact Event Encoding
 
-encodePactEvent :: PactEvent -> Put
+encodePactEvent :: PactEvent PactValue -> Put
 encodePactEvent e = do
-    encodeString $ _eventName e
-    encodeModuleName $ _eventModule e
-    encodeHash $ _mhHash $ _eventModuleHash e
-    encodeArray (_eventParams e) encodeParam
+    encodeString $ _peName e
+    encodeModuleName $ _peModule e
+    encodeHash $ _mhHash $ _peModuleHash e
+    encodeArray (_peArgs e) encodeParam
 
 encodeModuleName :: ModuleName -> Put
-encodeModuleName = encodeString . asString
+encodeModuleName = encodeString . renderModuleName
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- input bytestring is too long.
@@ -305,8 +310,7 @@ encodeHash :: Hash -> Put
 encodeHash = encodeBytes . BS.fromShort . unHash
 
 encodeModRef :: ModRef -> Put
-encodeModRef n@(ModRef _ (Just _) _) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
-encodeModRef n@(ModRef _  _ (Info (Just _))) = throw $ UnsupportedModRefWithInfo (renderCompactText n)
+encodeModRef n@(ModRef _ s) | not (null s) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
 encodeModRef n = encodeString $ renderCompactText n
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
@@ -322,9 +326,9 @@ encodeArray a f
     | otherwise = putWord32le (int $ length a) >> traverse_ f a
 
 encodeParam :: PactValue -> Put
-encodeParam (PLiteral (LString t)) = putWord8 0x0 >> encodeString t
-encodeParam (PLiteral (LInteger i)) = putWord8 0x1 >> encodeInteger i
-encodeParam (PLiteral (LDecimal i)) = putWord8 0x2 >> encodeDecimal i
+encodeParam (PString t) = putWord8 0x0 >> encodeString t
+encodeParam (PInteger i) = putWord8 0x1 >> encodeInteger i
+encodeParam (PDecimal i) = putWord8 0x2 >> encodeDecimal i
 encodeParam (PModRef n) = putWord8 0x3 >> encodeModRef n
 encodeParam e = throw $ UnsupportedPactValueException e
 
@@ -337,18 +341,17 @@ expect c = label "expect" $ do
     unless (c == c') $
         fail $ "decodeOutputEvents: failed to decode, expected " <> show c <> " but got " <> show c'
 
-decodePactEvent :: Get PactEvent
+decodePactEvent :: Get (PactEvent PactValue)
 decodePactEvent = label "decodeEvent" $ do
     name <- decodeString
     m <- decodeModuleName
     mh <- ModuleHash <$> decodeHash
     params <- decodeArray decodeParam
     return $ PactEvent
-        { _eventModule = m
-        , _eventName = name
-        , _eventModuleHash = mh
-        , _eventParams = params
-        }
+        name
+        params
+        m
+        mh
 
 decodeArray :: Get a -> Get [a]
 decodeArray f = label "decodeArray" $ do
@@ -380,23 +383,22 @@ decodeDecimal = label "decodeDecimal" $ integerToDecimal <$> decodeInteger
 
 decodeParam :: Get PactValue
 decodeParam = label "decodeParam" $ getWord8 >>= \case
-    0x0 -> label "LString" $ PLiteral . LString <$> decodeString
-    0x1 -> label "LInteger" $ PLiteral . LInteger <$> decodeInteger
-    0x2 -> label "LDecimal" $ PLiteral . LDecimal <$> decodeDecimal
+    0x0 -> label "LString" $ PString <$> decodeString
+    0x1 -> label "LInteger" $ PInteger <$> decodeInteger
+    0x2 -> label "LDecimal" $ PDecimal <$> decodeDecimal
     0x3 -> label "PModRef" $ PModRef <$> decodeModRef
     e -> fail $ "decodeParam: unexpected parameter with type tag " <> show e
 
 decodeModuleName :: Get ModuleName
 decodeModuleName = label "decodeModuleName" $
     decodeString >>= \t -> case parseModuleName t of
-        Left e -> fail e
-        Right m -> return m
+        Nothing -> fail "invalid module name"
+        Just m -> return m
 
 decodeModRef :: Get ModRef
 decodeModRef = label "ModRef" $ ModRef
     <$> decodeModuleName
-    <*> pure Nothing
-    <*> pure (Info Nothing)
+    <*> pure mempty
 
 -- -------------------------------------------------------------------------- --
 -- Block Events Hash
@@ -409,27 +411,20 @@ type BlockEventsHash = BlockEventsHash_ ChainwebMerkleHashAlgorithm
 newtype BlockEventsHash_ a = BlockEventsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockEventsHashTag
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (BlockEventsHash_ a) where
     toText (BlockEventsHash h) = toText h
     fromText t = BlockEventsHash <$> fromText t
 
-encodeBlockEventsHash :: BlockEventsHash_ a -> Put
+encodeBlockEventsHash :: MerkleHashAlgorithm  a => BlockEventsHash_ a -> Put
 encodeBlockEventsHash (BlockEventsHash w) = encodeMerkleLogHash w
 
 decodeBlockEventsHash
     :: MerkleHashAlgorithm a
     => Get (BlockEventsHash_ a)
 decodeBlockEventsHash = BlockEventsHash <$!> decodeMerkleLogHash
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockEventsHash_ a) where
-    type Tag (BlockEventsHash_ a) = 'BlockEventsHashTag
-    toMerkleNode = encodeMerkleTreeNode
-    fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
 
 -- -------------------------------------------------------------------------- --
 -- Output Events
@@ -444,7 +439,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockEvent
 --
 data OutputEvents = OutputEvents
     { _outputEventsRequestKey :: !RequestKey
-    , _outputEventsEvents :: !(V.Vector PactEvent)
+    , _outputEventsEvents :: !(V.Vector (PactEvent PactValue))
     }
     deriving (Show, Eq, Generic)
 
@@ -517,7 +512,7 @@ getBlockEvents
     -> m (BlockEvents_ b)
 getBlockEvents p = fmap blockEvents $
     forM (_payloadWithOutputsTransactions p) $ \(_, o) -> do
-        r <- decodeStrictOrThrow @_ @(CommandResult Hash) $ _transactionOutputBytes o
+        r <- decodeStrictOrThrow @_ @(CommandResult Hash PactOnChainError) $ _transactionOutputBytes o
         return $ OutputEvents (_crReqKey r) (V.fromList (_crEvents r))
 
 -- -------------------------------------------------------------------------- --
@@ -530,7 +525,7 @@ eventsMerkleProof
     => PayloadWithOutputs_ h
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 eventsMerkleProof p reqKey = do
     events <- getBlockEvents @_ @a p
 
@@ -541,7 +536,7 @@ eventsMerkleProof p reqKey = do
 
     -- Create proof from outputs tree and payload tree
     let (!subj, !pos, !t) = bodyTree events i
-    merkleProof subj pos t
+    V1.merkleTreeProof subj pos t
 
 createEventsProof_
     :: forall a
@@ -568,7 +563,7 @@ createEventsProofKeccak256
     :: PayloadWithOutputs
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createEventsProofKeccak256 = createEventsProof_
 
 -- -------------------------------------------------------------------------- --
@@ -577,6 +572,7 @@ createEventsProofKeccak256 = createEventsProof_
 createEventsProofDb_
     :: forall a tbl
     . MerkleHashAlgorithm a
+    => HasVersion
     => CanReadablePayloadCas tbl
     => BlockHeaderDb
     -> PayloadDb tbl
@@ -607,6 +603,7 @@ createEventsProofDb_ headerDb payloadDb d h reqKey = do
 
 createEventsProofDb
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -621,6 +618,7 @@ createEventsProofDb = createEventsProofDb_
 
 createEventsProofDbKeccak256
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -630,7 +628,7 @@ createEventsProofDbKeccak256
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createEventsProofDbKeccak256 = createEventsProofDb_
 
 -- -------------------------------------------------------------------------- --

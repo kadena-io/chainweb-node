@@ -32,7 +32,6 @@ module Chainweb.RestAPI.Orphans () where
 
 import Control.Monad
 
-import Data.Bool
 import Data.Bifunctor
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
@@ -53,7 +52,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Pact.Types
+-- import Chainweb.Pact.Types
 
 import P2P.Peer
 
@@ -172,25 +171,3 @@ instance
   where
     type MkLink (sym :> sub) a = MkLink sub a
     toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
-
-instance ToHttpApiData LocalPreflightSimulation where
-    toUrlPiece PreflightSimulation = toUrlPiece True
-    toUrlPiece LegacySimulation = toUrlPiece False
-
-instance FromHttpApiData LocalPreflightSimulation where
-    parseUrlPiece = fmap (bool LegacySimulation PreflightSimulation) . parseUrlPiece
-
-instance ToHttpApiData LocalSignatureVerification where
-    toUrlPiece Verify = toUrlPiece True
-    toUrlPiece NoVerify = toUrlPiece False
-
-instance FromHttpApiData LocalSignatureVerification where
-    parseUrlPiece = fmap (bool NoVerify Verify) . parseUrlPiece
-
-deriving newtype instance FromHttpApiData RewindDepth
-
-deriving newtype instance ToHttpApiData RewindDepth
-
-deriving newtype instance FromHttpApiData ConfirmationDepth
-
-deriving newtype instance ToHttpApiData ConfirmationDepth

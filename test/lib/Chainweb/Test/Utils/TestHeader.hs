@@ -57,6 +57,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
+import Chainweb.Parent
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Version
 
@@ -67,8 +68,8 @@ import Chainweb.Storage.Table
 
 data TestHeader = TestHeader
     { _testHeaderHdr :: !BlockHeader
-    , _testHeaderParent :: !ParentHeader
-    , _testHeaderAdjs :: ![ParentHeader]
+    , _testHeaderParent :: !(Parent BlockHeader)
+    , _testHeaderAdjs :: ![Parent BlockHeader]
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -77,10 +78,7 @@ makeLenses ''TestHeader
 instance HasChainId TestHeader where
     _chainId = _chainId . _testHeaderHdr
 
-instance HasChainwebVersion TestHeader where
-    _chainwebVersion = _chainwebVersion . _testHeaderHdr
-
-instance HasChainGraph TestHeader where
+instance HasVersion => HasChainGraph TestHeader where
     _chainGraph = _chainGraph . _testHeaderHdr
 
 instance (k ~ CasKeyType BlockHeader) => ReadableTable TestHeader k BlockHeader where
@@ -90,24 +88,24 @@ testHeaderLookup :: TestHeader -> BlockHash -> Maybe BlockHeader
 testHeaderLookup testHdr x = lookup x tbl
   where
     h = _testHeaderHdr testHdr
-    p = _parentHeader $ _testHeaderParent testHdr
+    p = unwrapParent $ _testHeaderParent testHdr
     a = _testHeaderAdjs testHdr
     tbl
         = (view blockHash h, h)
         : (view blockHash p, p)
-        : fmap (\(ParentHeader b) -> (view blockHash b, b)) a
+        : fmap (\(Parent b) -> (view blockHash b, b)) a
 
 instance FromJSON TestHeader where
     parseJSON = withObject "TestHeader" $ \o -> TestHeader
         <$> o .: "header"
-        <*> (ParentHeader <$> o .: "parent")
-        <*> (fmap ParentHeader <$> o .: "adjacents")
+        <*> (Parent <$> o .: "parent")
+        <*> (fmap Parent <$> o .: "adjacents")
 
 instance ToJSON TestHeader where
     toJSON o = object
         [ "header" .= _testHeaderHdr o
-        , "parent" .= _parentHeader (_testHeaderParent o)
-        , "adjacents" .= fmap _parentHeader (_testHeaderAdjs o)
+        , "parent" .= unwrapParent (_testHeaderParent o)
+        , "adjacents" .= fmap unwrapParent (_testHeaderAdjs o)
         ]
 
 -- | An unsafe convenience functions for hard coding test headers in the code
@@ -128,34 +126,34 @@ testHeader v = case fromJSON (object v) of
 -- This construction will satisfy all block header valdiation properties except
 -- for POW.
 --
-arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
-arbitraryTestHeader v cid = do
-    h <- chooseEnum (genesisHeight v cid, maxBound `div` 2)
-    arbitraryTestHeaderHeight v cid h
+arbitraryTestHeader :: HasVersion => ChainId -> Gen TestHeader
+arbitraryTestHeader cid = do
+    h <- chooseEnum (genesisHeight cid, maxBound `div` 2)
+    arbitraryTestHeaderHeight cid h
 
 arbitraryTestHeaderHeight
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
     -> BlockHeight
     -> Gen TestHeader
-arbitraryTestHeaderHeight v cid h = do
-    parent <- ParentHeader <$> arbitraryBlockHeaderVersionHeightChain v h cid
+arbitraryTestHeaderHeight cid h = do
+    parent <- Parent <$> arbitraryBlockHeaderVersionHeightChain h cid
     trace "a" $ return ()
 
     -- TODO: support graph changes in arbitary?
     as <- fmap HM.fromList
-        $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain v h c)
+        $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain h c)
         $ toList
-        $ adjacentChainIds (chainGraphAt v h) cid
+        $ adjacentChainIds (chainGraphAt h) cid
     nonce <- arbitrary
     payloadHash <- arbitrary
     let pt = maximum $ _bct . view blockCreationTime
-            <$> HM.insert cid (_parentHeader parent) as
+            <$> HM.insert cid (unwrapParent parent) as
     t <- BlockCreationTime <$> chooseEnum (pt, maxBound)
     return $ TestHeader
-        { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
+        { _testHeaderHdr = newBlockHeader (Parent <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent
-        , _testHeaderAdjs = toList $ ParentHeader <$> as
+        , _testHeaderAdjs = toList $ Parent <$> as
         }
 
 -- -------------------------------------------------------------------------- --
@@ -174,21 +172,20 @@ testHeaderChainLookup h x = pure $! testHeaderLookup h $ _chainValueValue x
 -- Genesis Test Headers
 
 genesisTestHeaders
-    :: HasChainwebVersion v
-    => v -> [TestHeader]
-genesisTestHeaders v = genesisTestHeader v <$> toList (chainIds v)
+    :: HasVersion
+    => [TestHeader]
+genesisTestHeaders = genesisTestHeader <$> toList chainIds
 
 genesisTestHeader
-    :: HasChainwebVersion v
+    :: HasVersion
     => HasChainId c
-    => v
-    -> c
+    => c
     -> TestHeader
-genesisTestHeader v cid = TestHeader
+genesisTestHeader cid = TestHeader
     { _testHeaderHdr = gen
-    , _testHeaderParent = ParentHeader gen
-    , _testHeaderAdjs = ParentHeader . genesisBlockHeader (_chainwebVersion v)
+    , _testHeaderParent = Parent gen
+    , _testHeaderAdjs = Parent . genesisBlockHeader
         <$> toList (adjacentChainIds (_chainGraph gen) cid)
     }
   where
-    gen = genesisBlockHeader (_chainwebVersion v) (_chainId cid)
+    gen = genesisBlockHeader (_chainId cid)

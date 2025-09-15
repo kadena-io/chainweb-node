@@ -20,11 +20,10 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import Pact.Types.Verifier
-
-import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload as RDN0
-import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDNN
-import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
+import Pact.Core.Names
+-- import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload as RDN0
+-- import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDNN
+-- import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
 import qualified Chainweb.Pact.Transactions.RecapDevelopmentTransactions as RecapDevnet
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
@@ -39,54 +38,54 @@ pattern RecapDevelopment <- ((== recapDevnet) -> True) where
     RecapDevelopment = recapDevnet
 
 recapDevnet :: ChainwebVersion
-recapDevnet = ChainwebVersion
+recapDevnet = withVersion recapDevnet ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x0000_0001
     , _versionName = ChainwebVersionName "recap-development"
 
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        Vuln797Fix -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        CoinV2 -> onChains $ [(unsafeChainId 0, ForkAtBlockHeight $ BlockHeight 3)] <> [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 4) | i <- [1..19]]
-        PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        OldTargetGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        OldDAGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 13
-        PactEvents -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
-        SPVBridge -> AllChains $ ForkAtBlockHeight $ BlockHeight 50
-        Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 80
-        EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 100
-        Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
-        CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 110
-        Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 95
-        Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 115
-        Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 165
-        Pact44NewTrans -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 215
-        Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 470
-        Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 500
-        Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 550
-        Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 560
-        Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 580
-        Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 590
-        Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 600
-        Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 610
-        Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 620
-        Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 630
-        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 640
-        Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 650
-        Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 660
-        Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 680
-        Chainweb231Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 690
-
-    , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
-        [ indexByForkHeights recapDevnet
+        SlowEpoch -> onAllChains ForkAtGenesis
+        Vuln797Fix -> onAllChains ForkAtGenesis
+        CoinV2 -> onAllChains ForkAtGenesis
+        PactBackCompat_v16 -> onAllChains ForkAtGenesis
+        SkipTxTimingValidation -> onAllChains ForkAtGenesis
+        OldTargetGuard -> onAllChains ForkAtGenesis
+        SkipFeatureFlagValidation -> onAllChains ForkAtGenesis
+        ModuleNameFix -> onAllChains ForkAtGenesis
+        ModuleNameFix2 -> onAllChains ForkAtGenesis
+        OldDAGuard -> onAllChains ForkAtGenesis
+        PactEvents -> onAllChains ForkAtGenesis
+        SPVBridge -> onAllChains ForkAtGenesis
+        Pact4Coin3 -> onAllChains ForkAtGenesis
+        EnforceKeysetFormats -> onAllChains ForkAtGenesis
+        Pact42 -> onAllChains ForkAtGenesis
+        CheckTxHash -> onAllChains ForkAtGenesis
+        Chainweb213Pact -> onAllChains ForkAtGenesis
+        Chainweb214Pact -> onAllChains ForkAtGenesis
+        Chainweb215Pact -> onAllChains ForkAtGenesis
+        Pact44NewTrans -> onAllChains ForkAtGenesis
+        Chainweb216Pact -> onAllChains ForkAtGenesis
+        Chainweb217Pact -> onAllChains ForkAtGenesis
+        Chainweb218Pact -> onAllChains ForkAtGenesis
+        Chainweb219Pact -> onAllChains ForkAtGenesis
+        Chainweb220Pact -> onAllChains ForkAtGenesis
+        Chainweb221Pact -> onAllChains ForkAtGenesis
+        Chainweb222Pact -> onAllChains ForkAtGenesis
+        Chainweb223Pact -> onAllChains ForkAtGenesis
+        Chainweb224Pact -> onAllChains ForkAtGenesis
+        Chainweb225Pact -> onAllChains ForkAtGenesis
+        Chainweb226Pact -> onAllChains ForkAtGenesis
+        Pact5Fork -> onAllChains ForkAtGenesis
+        Chainweb228Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 10
+        Chainweb229Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 20
+        Chainweb230Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 30
+        Chainweb231Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 35
+        HashedAdjacentRecord -> onAllChains $ ForkAtBlockHeight $ BlockHeight 40
+    , _versionUpgrades = foldr (chainZip HM.union) (onAllChains mempty)
+        [ indexByForkHeights
             [ (CoinV2, onChains [(unsafeChainId i, pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
-            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
+            , (Pact4Coin3, onAllChains (Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, onAllChains (Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, onAllChains (Pact4Upgrade CoinV5.transactions True))
             ]
         , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (pact4Upgrade MNKAD.transactions))]
         ]
@@ -104,11 +103,28 @@ recapDevnet = ChainwebVersion
             [ [(unsafeChainId i, HashTarget $ maxBound `div` 100_000) | i <- [0..9]]
             , [(unsafeChainId i, HashTarget 0x0000088f99632cadf39b0db7655be62cb7dbc84ebbd9a90e5b5756d3e7d9196c) | i <- [10..19]]
             ]
-        , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-        , _genesisBlockPayload = onChains $ concat
-            [ [(unsafeChainId 0, RDN0.payloadBlock)]
-            , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
-            , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
+        , _genesisTime = onAllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+        , _genesisBlockPayload = onChains
+            [ (unsafeChainId 0, unsafeFromText "5TWTF5R6Vc85vWHqcklTY91ljkV6mJ1wYfDJShooTCw")
+            , (unsafeChainId 1, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 2, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 3, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 4, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 5, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 6, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 7, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 8, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 9, unsafeFromText "yZ6Syxl34TTrGGKxVHInV0S29BH8v-C8VZTbJr2eK2k")
+            , (unsafeChainId 10, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 11, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 12, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 13, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 14, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 15, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 16, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 17, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 18, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
+            , (unsafeChainId 19, unsafeFromText "OXFBWONFKY7fTY4MH3GaOOELd_cPCMn9GpIOPBYMsvM")
             ]
         }
 
@@ -122,9 +138,10 @@ recapDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $
+    , _versionVerifierPluginNames = onAllChains $
         (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
+    , _versionPayloadProviderTypes = onAllChains PactProvider
     }

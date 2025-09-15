@@ -55,12 +55,11 @@ module Chainweb.Pact.Backend.PactState
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (T2(..), int)
-import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
+import Chainweb.Version
 import Chainweb.Version.Utils (chainIdsAt)
 import Control.Exception (bracket)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, when)
 import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Trans.Class (lift)
@@ -85,11 +84,11 @@ import Database.SQLite3.Direct qualified as Direct
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 
-import Pact.Types.SQLite (SType(..), RType(..))
-import Pact.Types.SQLite qualified as Pact
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils hiding (tbl)
+import Control.Monad.Trans.Resource
 
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables
@@ -101,14 +100,14 @@ excludedTables = checkpointerTables ++ compactionTables
 getLatestBlockHeight :: Database -> IO BlockHeight
 getLatestBlockHeight db = do
   let qryText = "SELECT MAX(blockheight) FROM BlockHistory"
-  Pact.qry db qryText [] [RInt] >>= \case
+  throwOnDbError $ qry db qryText [] [RInt] >>= \case
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getLatestBlockHeight: expected int"
 
 getEarliestBlockHeight :: Database -> IO BlockHeight
 getEarliestBlockHeight db = do
   let qryText = "SELECT MIN(blockheight) FROM BlockHistory"
-  Pact.qry db qryText [] [RInt] >>= \case
+  throwOnDbError $ qry db qryText [] [RInt] >>= \case
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getEarliestBlockHeight: expected int"
 
@@ -117,7 +116,7 @@ getEarliestBlockHeight db = do
 --   Throws an exception if it doesn't.
 ensureBlockHeightExists :: Database -> BlockHeight -> IO ()
 ensureBlockHeightExists db bh = do
-  r <- Pact.qry db "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1" [SInt (fromIntegral bh)] [RInt]
+  r <- throwOnDbError $ qry db "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1" [SInt (fromIntegral bh)] [RInt]
   case r of
     [[SInt rBH]] -> do
       when (fromIntegral bh /= rBH) $ do
@@ -131,8 +130,9 @@ getLatestCommonBlockHeight :: (Logger logger)
   -> [ChainId]
   -> IO BlockHeight
 getLatestCommonBlockHeight logger path cids = do
-  fmap minimum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
-    getLatestBlockHeight sqlEnv
+  fmap minimum $ forM cids $ \cid -> runResourceT $ do
+    sqlEnv <- withChainDb cid logger path
+    liftIO $ getLatestBlockHeight sqlEnv
 
 getEarliestCommonBlockHeight :: (Logger logger)
   => logger
@@ -140,8 +140,9 @@ getEarliestCommonBlockHeight :: (Logger logger)
   -> [ChainId]
   -> IO BlockHeight
 getEarliestCommonBlockHeight logger path cids = do
-  fmap maximum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
-    getEarliestBlockHeight sqlEnv
+  fmap maximum $ forM cids $ \cid -> runResourceT $ do
+    sqlEnv <- withChainDb cid logger path
+    liftIO $ getEarliestBlockHeight sqlEnv
 
 -- | Wrapper around 'withSqliteDb' that adds the chainId label to the logger
 --   and sets resetDb to False.
@@ -149,12 +150,11 @@ withChainDb :: (Logger logger)
   => ChainId
   -> logger
   -> FilePath
-  -> (logger -> SQLiteEnv -> IO x)
-  -> IO x
-withChainDb cid logger' path f = do
+  -> ResourceT IO SQLiteEnv
+withChainDb cid logger' path = do
   let logger = addChainIdLabel cid logger'
   let resetDb = False
-  withSqliteDb cid logger path resetDb (f logger)
+  withSqliteDb cid logger path resetDb
 
 -- | Get all Pact table names in the database.
 getPactTableNames :: Database -> Stream (Of Utf8) IO ()
@@ -171,7 +171,7 @@ getPactTableNames db = S.each =<< liftIO (do
           \  type = 'table' \
           \AND \
           \  name NOT LIKE 'sqlite_%'"
-    Pact.qry db qryText [] [RText])
+    throwOnDbError $ qry db qryText [] [RText])
 
 -- | Get all of the rows for each table. The tables will be appear sorted
 --   lexicographically by table name.
@@ -184,7 +184,7 @@ getPactTables db = do
     & S.mapM (\tbl -> do
         let qryText = "SELECT rowkey, rowdata, txid FROM "
               <> fmtTable tbl
-        userRows <- liftIO $ Pact.qry db qryText [] [RText, RBlob, RInt]
+        userRows <- throwOnDbError $ qry db qryText [] [RText, RBlob, RInt]
         shapedRows <- forM userRows $ \case
           [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
             pure $ PactRow {..}
@@ -227,16 +227,8 @@ qryStream :: ()
   -> IO x
 qryStream db qryText args returnTypes k = do
   bracket (SQL.prepareUtf8 db qryText) Direct.finalize $ \stmt -> do
-    bindParams stmt args
+    throwOnDbError $ bindParams stmt args
     k (stepStatement stmt returnTypes)
-  where
-    bindParams :: Direct.Statement -> [SType] -> IO ()
-    bindParams s as = forM_ (List.zip [1..] as) $ \(argIndex, arg) -> do
-      case arg of
-        SInt a -> Direct.bindInt64 s argIndex a
-        SDouble a -> Direct.bindDouble s argIndex a
-        SText a -> Direct.bindText s argIndex a
-        SBlob a -> Direct.bindBlob s argIndex a
 
 -- | Get the latest Pact state (in a ready-to-diff form).
 getLatestPactStateDiffable :: Database -> Stream (Of TableDiffable) IO ()
@@ -258,7 +250,7 @@ getEndingTxId :: ()
   -> BlockHeight
   -> IO Int64
 getEndingTxId db bh = do
-  r <- liftIO $ Pact.qry db
+  r <- throwOnDbError $ qry db
          "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
          [SInt (int bh)]
          [RInt]
@@ -296,7 +288,7 @@ getLatestPactTableNamesAt :: ()
 getLatestPactTableNamesAt db bh = do
   tablesCreatedAfter <- liftIO $ do
     let qryText = "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
-    rows <- Pact.qry db qryText [SInt (int bh)] [RText]
+    rows <- throwOnDbError $ qry db qryText [SInt (int bh)] [RText]
     forM rows $ \case
       [SText tbl] -> pure tbl
       _ -> error "getLatestPactStateAt.tablesCreatedAfter: expected text"
@@ -404,17 +396,7 @@ data PactRowContents = PactRowContents
 --   contains the pact db for the given ChainId.
 doesPactDbExist :: ChainId -> FilePath -> IO Bool
 doesPactDbExist cid dbDir = do
-  doesFileExist (chainDbFileName cid dbDir)
-
--- | Given a pact database directory, return the SQLite
---   path chainweb uses for the given ChainId.
-chainDbFileName :: ChainId -> FilePath -> FilePath
-chainDbFileName cid dbDir = dbDir </> mconcat
-  [ "pact-v1-chain-"
-  , Text.unpack (chainIdToText cid)
-  , ".sqlite"
-  ]
-
+  doesFileExist (dbDir </> chainDbFileName cid)
 
 addChainIdLabel :: (Logger logger)
   => ChainId
@@ -422,5 +404,5 @@ addChainIdLabel :: (Logger logger)
   -> logger
 addChainIdLabel cid = addLabel ("chainId", chainIdToText cid)
 
-allChains :: ChainwebVersion -> [ChainId]
-allChains v = List.sort $ F.toList $ chainIdsAt v (BlockHeight maxBound)
+allChains :: HasVersion => [ChainId]
+allChains = List.sort $ F.toList $ chainIdsAt (BlockHeight maxBound)

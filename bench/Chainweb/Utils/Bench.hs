@@ -17,14 +17,13 @@ module Chainweb.Utils.Bench
 import Chainweb.Logger
 import Pact.Core.Errors
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb)
-import Chainweb.Test.Pact5.Utils (getTestLogLevel)
+import Chainweb.Test.Pact.Utils (getTestLogLevel)
 import Chainweb.Test.Utils ()
 import Database.SQLite3.Direct (Database(..))
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
-import Chainweb.Pact.Types (PactServiceEnv)
+import Chainweb.Pact.Types (ServiceEnv)
 import Control.DeepSeq (NFData(..))
-import Chainweb.Mempool.Mempool (MempoolBackend)
-import Chainweb.Pact.Service.PactQueue (PactQueue)
+import Chainweb.Pact.Mempool.Mempool (MempoolBackend)
 import Control.Monad.IO.Class (liftIO)
 import Data.Text.IO qualified as Text
 
@@ -49,7 +48,7 @@ instance NFData (NoopNFData a) where
 
 deriving newtype instance NFData Database
 
-instance NFData (PactServiceEnv logger tbl) where
+instance NFData (ServiceEnv tbl) where
     rnf !_ = ()
 
 instance NFData WebBlockHeaderDb where
@@ -59,9 +58,6 @@ instance NFData TestBlockDb where
     rnf !_ = ()
 
 instance NFData (MempoolBackend a) where
-    rnf !_ = ()
-
-instance NFData PactQueue where
     rnf !_ = ()
 
 instance NFData LegacyPactErrorType where

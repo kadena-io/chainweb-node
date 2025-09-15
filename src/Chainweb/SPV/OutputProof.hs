@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.SPV.OutputProof
@@ -36,18 +37,18 @@ import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
-import Crypto.Hash.Algorithms
-
 import qualified Data.List.NonEmpty as N
-import Data.MerkleLog hiding (Expected, Actual)
+import Data.MerkleLog.V1 qualified as V1
 import qualified Data.Vector as V
+import Data.Hash.Keccak (Keccak256)
 
 import GHC.Stack
 
 import Numeric.Natural
 
-import Pact.Types.Command
-import Pact.Types.Runtime hiding (ChainId)
+import Pact.Core.Command.Types
+import Pact.Core.Errors
+import Pact.Core.Hash
 
 -- internal modules
 
@@ -56,14 +57,15 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.TreeDB
 import Chainweb.Utils
 
 import Chainweb.Storage.Table
+import Chainweb.Version (HasVersion)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -79,7 +81,7 @@ findTxIdx
 findTxIdx p reqKey = do
     -- get request keys
     reqKeys <- forM (_payloadWithOutputsTransactions p) $ \(_, o) -> do
-        result <- decodeStrictOrThrow @_ @(CommandResult Hash) $ _transactionOutputBytes o
+        result <- decodeStrictOrThrow @_ @(CommandResult Hash PactOnChainError) $ _transactionOutputBytes o
         return (_crReqKey result)
     -- find tx index
     case V.findIndex (== reqKey) reqKeys of
@@ -100,7 +102,7 @@ getRequestKey
 getRequestKey p txIdx = case _payloadWithOutputsTransactions p V.!? txIdx of
     Nothing -> throwM $ TxIndexOutOfBoundsException txIdx
     Just (_, o) -> _crReqKey
-        <$> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes o)
+        <$> decodeStrictOrThrow @_ @(CommandResult Hash PactOnChainError) (_transactionOutputBytes o)
 
 -- -------------------------------------------------------------------------- --
 -- Transaction Output Proofs By Index
@@ -116,11 +118,11 @@ outputMerkleProofByIdx
     => PayloadWithOutputs_ h
     -> Int
         -- ^ The index of the transaction in the block
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 outputMerkleProofByIdx p txIdx = do
     -- Create proof from outputs tree and payload tree
     let (!subj, pos, t) = bodyTree outs txIdx
-    merkleProof_ subj
+    V1.merkleTreeProof_ subj
         $ (pos, t) N.:| [headerTree_ @(BlockOutputsHash_ a) payload]
   where
 
@@ -150,7 +152,7 @@ outputMerkleProof
     => PayloadWithOutputs_ h
     -> RequestKey
         -- ^ The index of the transaction in the block
-    -> m (MerkleProof a)
+    -> m (V1.MerkleProof a)
 outputMerkleProof p = findTxIdx p >=> outputMerkleProofByIdx p
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
@@ -189,7 +191,7 @@ createOutputProofKeccak256
     :: PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createOutputProofKeccak256 = createOutputProof_
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
@@ -199,6 +201,7 @@ createOutputProofDb_
     :: forall a tbl
     . MerkleHashAlgorithm a
     => CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -231,6 +234,7 @@ createOutputProofDb_ headerDb payloadDb d h reqKey = do
 --
 createOutputProofDb
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -248,6 +252,7 @@ createOutputProofDb = createOutputProofDb_
 --
 createOutputProofDbKeccak256
     :: CanReadablePayloadCas tbl
+    => HasVersion
     => BlockHeaderDb
     -> PayloadDb tbl
     -> Natural
@@ -257,7 +262,7 @@ createOutputProofDbKeccak256
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction
-    -> IO (PayloadProof Keccak_256)
+    -> IO (PayloadProof Keccak256)
 createOutputProofDbKeccak256 = createOutputProofDb_
 
 -- -------------------------------------------------------------------------- --
