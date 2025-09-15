@@ -31,6 +31,7 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , cpPactDbEnv
 , cpRegisterProcessedTx
 , cpLookupProcessedTx
+, cpHeaderOracle
 , callDb
 , BlockEnv(..)
 , benvDbEnv
@@ -51,6 +52,7 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , blockHandlerModuleNameFix
 , blockHandlerSortedKeys
 , blockHandlerLowerCaseTables
+, blockHandlerChainId
 , mkBlockHandlerEnv
 
 , domainTableName
