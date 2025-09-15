@@ -48,7 +48,6 @@ import Control.Exception.Safe
 import Control.DeepSeq
 import Control.Lens hiding (children)
 import Control.Monad
-import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Resource hiding (throwM)
 
 import Data.Aeson

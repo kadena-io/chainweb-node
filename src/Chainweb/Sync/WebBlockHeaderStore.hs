@@ -70,7 +70,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Data.Foldable
 import Data.Hashable
-import Data.HashSet qualified as HS
 import Data.LogMessage
 import Data.PQueue
 import Data.TaskMap

@@ -21,7 +21,6 @@ module Chainweb.BlockHeaderDB.RemoteDB
   , remoteDb
   ) where
 
-import Control.Error.Util (hush)
 import Control.Lens
 import Control.Monad.Catch (handle, throwM)
 
