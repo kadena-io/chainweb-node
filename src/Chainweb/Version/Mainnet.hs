@@ -167,6 +167,9 @@ mainnet = ChainwebVersion
     , _versionMaxBlockGasLimit =
         (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         Bottom (minBound, Nothing)
+    , _versionMinimumBlockHeaderHistory =
+        (succ $ mainnet ^?! versionForks . at Chainweb231Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 20_000) `Above`
+        Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo mainnetBootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat

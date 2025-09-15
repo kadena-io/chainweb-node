@@ -114,6 +114,7 @@ recapDevnet = ChainwebVersion
         }
 
     , _versionMaxBlockGasLimit = Bottom (minBound, Just 180_000)
+    , _versionMinimumBlockHeaderHistory = Bottom (minBound, Nothing)
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = True

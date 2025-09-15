@@ -57,6 +57,7 @@ module Chainweb.Version.Guards
     , pact44NewTrans
     , pact4ParserVersion
     , maxBlockGasLimit
+    , minimumBlockHeaderHistory
     , validPPKSchemes
     , isWebAuthnPrefixLegal
     , validKeyFormats
@@ -71,16 +72,17 @@ module Chainweb.Version.Guards
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import Control.Lens
+import Data.Word (Word64)
 import Numeric.Natural
 import Pact.Core.Builtin qualified as Pact5
 import Pact.Core.Info qualified as Pact5
 import Pact.Core.Serialise qualified as Pact5
 import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
-import Chainweb.Pact4.Transaction qualified as Pact4
 
 getForkHeight :: Fork -> ChainwebVersion -> ChainId -> ForkHeight
 getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . atChain cid
@@ -302,6 +304,9 @@ maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
 maxBlockGasLimit v bh = snd $ ruleZipperHere $ snd
     $ ruleSeek (\h _ -> bh >= h) (_versionMaxBlockGasLimit v)
 
+minimumBlockHeaderHistory :: ChainwebVersion -> BlockHeight -> Maybe Word64
+minimumBlockHeaderHistory v bh = snd $ ruleZipperHere $ snd
+    $ ruleSeek (\h _ -> bh >= h) (_versionMinimumBlockHeaderHistory v)
 
 -- | Different versions of Chainweb allow different PPKSchemes.
 --

@@ -80,6 +80,7 @@ import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookup
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText)
+import Chainweb.Version.Guards (minimumBlockHeaderHistory)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Testnet04 (testnet04)
@@ -751,12 +752,30 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
           Nothing -> exitLog logger "Missing final payload. This is likely due to a corrupted database."
           Just rbh -> pure (_getRankedBlockHeader rbh ^. blockHeight)
 
-      -- Go to the earliest entry. We migrate all BlockHeaders, for now.
-      -- They are needed for SPV.
+      -- The header that we start at depends on whether or not
+      -- we have a minimal block header history window.
       --
-      -- Constructing SPV proofs actually needs the payloads, but validating
-      -- them does not.
-      iterFirst it
+      -- On old enough chainweb versions, we just copy over every
+      -- single block header that's available.
+      --
+      -- On new enough chainweb versions, we want to only copy over
+      -- the minimal number of block headers.
+      case minimumBlockHeaderHistory cwVersion latestHeader of
+        -- Go to the earliest possible entry. We migrate all BlockHeaders, for now.
+        -- They are needed for SPV.
+        --
+        -- Constructing SPV proofs actually needs the payloads, but validating
+        -- them does not.
+        Nothing -> do
+          iterFirst it
+        
+        Just minBlockHeaderHistory -> do
+          let runBack =
+                let x = int latestHeader
+                    y = minBlockHeaderHistory
+                in if x >= y then x - y else 0
+          iterSeek it $ RankedBlockHash (BlockHeight runBack) nullBlockHash
+
       earliestHeader <- do
         iterValue it >>= \case
           Nothing -> exitLog logger "Missing first payload. This is likely due to a corrupted database."
