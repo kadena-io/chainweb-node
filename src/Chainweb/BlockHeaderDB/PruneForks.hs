@@ -170,7 +170,6 @@ instance Exception PruneForksException
 
 data PruneState = PruneState
     { liveSet :: HashSet BlockHash
-    , pendingForkTips :: HashSet BlockHash
     , prevHeight :: BlockHeight
     , prevRecordedHeight :: BlockHeight
     , numPruned :: Int
@@ -225,7 +224,6 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
 
     let initialPruneState = PruneState
             { liveSet = initialLiveSet
-            , pendingForkTips = HashSet.empty
             , prevHeight = resumptionPoint pruneJob
             , prevRecordedHeight = resumptionPoint pruneJob
             , numPruned = 0
@@ -311,7 +309,7 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
             -- we're done early.
             | curHeight <= lowerBound pruneJob
             , curHeight < prevHeight
-            , HashSet.null pendingForkTips = do
+            = do
                 when (pendingDeleteCount > 0) $
                     executePendingDeletes PruneState{..}
                 return numPruned
@@ -322,12 +320,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         flip (foldl' (flip HashSet.insert)) curAdjs $
                         HashSet.insert curParent $
                         HashSet.delete curHash liveSet
-                let !pendingForkTips' =
-                        HashSet.delete curParent pendingForkTips
                 go
                     PruneState
                         { liveSet = liveSet'
-                        , pendingForkTips = pendingForkTips'
                         , prevHeight = curHeight
                         , prevRecordedHeight
                         , numPruned
@@ -341,16 +336,9 @@ pruneForks_ logger wbhdb doPrune pruneJob = do
                         (pendingDeletes & ix cid %~ (newDelete :)
                         , pendingDeleteCount + 1)
                 let !numPruned' = numPruned + 1
-                let pendingForkTips' = HashSet.delete curHash $
-                        -- don't add a *new* pending fork tip if we're below the lower bound already
-                        if not (HashSet.member curParent liveSet) &&
-                            (curHeight > lowerBound pruneJob || HashSet.member curHash pendingForkTips)
-                        then HashSet.insert curParent pendingForkTips
-                        else pendingForkTips
                 go
                     PruneState
                         { liveSet
-                        , pendingForkTips = pendingForkTips'
                         , prevHeight = curHeight
                         , prevRecordedHeight
                         , numPruned = numPruned'
