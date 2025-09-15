@@ -46,6 +46,7 @@ import Data.Function
 import Data.Functor.Of
 import Data.IORef
 import Data.Proxy
+import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8)
 import Numeric.Natural(Natural)
 

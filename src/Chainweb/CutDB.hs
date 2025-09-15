@@ -101,7 +101,7 @@ import Control.Monad.Morph
 import Control.Monad.STM
 import Control.Monad.Trans.Resource hiding (throwM)
 
-import Data.Aeson (ToJSON, decodeStrict')
+import Data.Aeson (ToJSON)
 import Data.Foldable
 import Data.Either (partitionEithers)
 import Data.Function
