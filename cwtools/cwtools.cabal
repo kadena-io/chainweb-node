@@ -191,7 +191,6 @@ executable pact-replay
         , chainweb
         , chainweb:chainweb-test-utils
 
-        , aeson
         , async
         , base
         , chainweb-storage
@@ -205,10 +204,8 @@ executable pact-replay
         , resourcet
         , safe-exceptions
         , streaming
-        , temporary
         , unordered-containers
         , text
-        , vector
         , yet-another-logger
 
 -- Generate genesis headers.
