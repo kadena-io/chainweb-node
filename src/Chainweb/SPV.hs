@@ -3,6 +3,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -25,32 +27,25 @@ module Chainweb.SPV
 , outputProofChainId
 ) where
 
-import Control.Applicative
-import Control.DeepSeq
-import Control.Lens (Getter, to)
-import Control.Monad
-import Control.Monad.Catch
-
-import Crypto.Hash.Algorithms
-
-import Data.Aeson
-import qualified Data.Aeson.Types as Aeson
-import qualified Data.ByteString as B
-import Data.MerkleLog hiding (Expected, Actual)
-import qualified Data.Text as T
-
-import GHC.Generics (Generic)
-
-import Numeric.Natural
-
-import Prelude hiding (lookup)
-
--- internal modules
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Utils
+import Control.Applicative
+import Control.DeepSeq
+import Control.Lens (Getter, to)
+import Control.Monad
+import Control.Monad.Catch
+import Crypto.Hash.Algorithms
+import Data.Aeson
+import Data.Aeson.Types qualified as Aeson
+import Data.ByteString qualified as B
+import Data.MerkleLog hiding (Expected, Actual)
+import Data.Text qualified as T
+import GHC.Generics (Generic)
+import Numeric.Natural
+import Prelude hiding (lookup)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -212,3 +207,4 @@ instance FromJSON (TransactionOutputProof SHA512t_256) where
 --
 outputProofChainId :: Getter (TransactionOutputProof a) ChainId
 outputProofChainId = to (\(TransactionOutputProof cid _) -> cid)
+

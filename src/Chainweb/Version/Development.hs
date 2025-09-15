@@ -51,6 +51,7 @@ devnet = ChainwebVersion
     -- still the *default* block gas limit is set, see
     -- defaultChainwebConfiguration._configBlockGasLimit
     , _versionMaxBlockGasLimit = Bottom (minBound, Nothing)
+    , _versionMinimumBlockHeaderHistory = Bottom (minBound, Nothing)
     , _versionCheats = VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
