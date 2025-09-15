@@ -58,23 +58,20 @@ import Data.STRef
 import Control.Monad.ST
 
 --------------------------------------------------------------------------------
-
 -- Gas Charging Parameters
 --------------------------------------------------------------------------------
-data GasParams = GasParams
-  { sigVerificationGas            :: Gas  -- Fixed cost for signature verification
-  }
+
+-- Fixed cost for signature verification
+newtype GasParams = GasParams { sigVerificationGas :: Gas }
 
 gasParams :: GasParams
-gasParams = GasParams
-  { sigVerificationGas         = Gas 650
-  }
+gasParams = GasParams { sigVerificationGas = Gas 650 }
 
 --------------------------------------------------------------------------------
 -- Message structure
 --------------------------------------------------------------------------------
--- NOTE: We avoid decoding at parse time. Hex blobs are kept as Text and decoded
--- under gas in foldHashList.
+-- NOTE: We avoid decoding at parse time. Hex blobs are kept as Text
+
 data HashListNode
   = HLNString T.Text
   | HLNDecimal Decimal
@@ -132,18 +129,14 @@ foldHashList gp gasRef = \case
   where
     foldNode :: HashListNode -> ExceptT VerifierError (ST s) (BS.ByteString, Maybe PactValue)
     foldNode (HLNString t) = do
-      -- UTF-8 encoding under gas
-      
       let bs = T.encodeUtf8 t
       pure (bs, Just (PLiteral (LString t)))
 
     foldNode (HLNDecimal d) = do
-      -- Decimal rendered then UTF-8 encoded under gas
       let bs = T.encodeUtf8 (T.pack (show d))
       pure (bs, Just (PLiteral (LDecimal d)))
 
     foldNode (HLNHashHex hexTxt) = do
-      -- Hex decoding under gas; excluded from stripped cap args
       bs <- decodeHex hexTxt
       pure (bs, Nothing)
 
