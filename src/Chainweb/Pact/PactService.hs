@@ -316,7 +316,7 @@ execReadOnlyReplay
     => logger
     -> ServiceEnv tbl
     -> [EvaluationCtx BlockPayloadHash]
-    -> IO [BlockInvalidError]
+    -> IO [(EvaluationCtx BlockPayloadHash, BlockInvalidError)]
 execReadOnlyReplay logger serviceEnv blocks = do
     let readSqlPool = view psReadSqlPool serviceEnv
     let cid = view chainId serviceEnv
@@ -327,7 +327,7 @@ execReadOnlyReplay logger serviceEnv blocks = do
                 lookupPayloadWithHeight (_payloadStoreTable pdb) (Just $ _evaluationCtxCurrentHeight evalCtx) (_evaluationCtxPayload evalCtx)
             let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
             let isUpgradeBlock = isJust $ implicitVersion ^? versionUpgrades . atChain cid . ix (_evaluationCtxCurrentHeight evalCtx)
-            if isPayloadEmpty && not isUpgradeBlock
+            if not isPayloadEmpty || isUpgradeBlock
             then Pool.withResource readSqlPool $ \sql -> do
                 hist <- Checkpointer.readFrom
                     logger
@@ -343,7 +343,7 @@ execReadOnlyReplay logger serviceEnv blocks = do
                             runExceptT $
                                 void $ Pact4.execBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
                         }
-                either Just (\_ -> Nothing) <$> throwIfNoHistory hist
+                either (Just . (,) evalCtx) (\_ -> Nothing) <$> throwIfNoHistory hist
             else
                 return Nothing
             )

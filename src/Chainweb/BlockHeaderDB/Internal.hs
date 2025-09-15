@@ -35,6 +35,7 @@ module Chainweb.BlockHeaderDB.Internal
 , Configuration(..)
 , BlockHeaderDb(..)
 , initBlockHeaderDb
+, mkBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
 
@@ -210,26 +211,30 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
 --
 initBlockHeaderDb :: HasVersion => Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
+    let db = mkBlockHeaderDb (_configRocksDb config) (_chainId rootEntry)
     dbAddChecked db rootEntry
     return db
   where
     rootEntry = _configRoot config
-    cid = _chainId rootEntry
-    cidNs = T.encodeUtf8 (toText cid)
 
+mkBlockHeaderDb :: HasVersion => RocksDb -> ChainId -> BlockHeaderDb
+mkBlockHeaderDb rdb cid = db
+    where
     headerTable = newTable
-        (_configRocksDb config)
+        rdb
         (Codec (runPutS . encodeRankedBlockHeader) (runGetS decodeRankedBlockHeader))
         (Codec (runPutS . encodeRankedBlockHash) (runGetS decodeRankedBlockHash))
         ["BlockHeader", cidNs, "header"]
 
     rankTable = newTable
-        (_configRocksDb config)
+        rdb
         (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
         (Codec (runPutS . encodeBlockHash) (runGetS decodeBlockHash))
         ["BlockHeader", cidNs, "rank"]
 
-    !db = BlockHeaderDb cid
+    cidNs = T.encodeUtf8 (toText cid)
+    db = BlockHeaderDb
+        cid
         implicitVersion
         headerTable
         rankTable
