@@ -437,7 +437,6 @@ jobs:
         cp $(cabal list-bin known-graphs) artifacts/chainweb
         cp $(cabal list-bin pact-diff) artifacts/chainweb
         cp $(cabal list-bin pact-replay) artifacts/chainweb
-        cp $(cabal list-bin remote-tests) artifacts/chainweb
         cp $(cabal list-bin standalone-pruner) artifacts/chainweb
         cp $(cabal list-bin tx-list) artifacts/chainweb
         cp $(cabal list-bin run-nodes) artifacts/chainweb
