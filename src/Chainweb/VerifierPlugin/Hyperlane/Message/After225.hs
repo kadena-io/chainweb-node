@@ -18,7 +18,6 @@
 module Chainweb.VerifierPlugin.Hyperlane.Message.After225 (runPlugin) where
 
 import Control.Lens
-import Control.Error
 import Control.Exception (evaluate)
 import Control.Monad (unless)
 import Control.Monad.Except

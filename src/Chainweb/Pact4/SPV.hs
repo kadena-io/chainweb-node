@@ -30,7 +30,6 @@ module Chainweb.Pact4.SPV
 
 import GHC.Stack
 
-import Control.Error
 import Control.Lens hiding (index)
 import Control.Monad
 import Control.Monad.Catch
@@ -414,7 +413,7 @@ getTxIdx headerOracle pdb bh th = do
           & S.mapM toTxHash
           & sindex (== th)
 
-        r & note "unable to find transaction at the given block height"
+        r & maybe (Left "unable to find transaction at the given block height") Right
           & fmap int
           & return
   where
