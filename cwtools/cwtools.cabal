@@ -201,9 +201,6 @@ executable pact-replay
         , lens
         , loglevel
         , optparse-applicative
-        , pact-json
-        , pact-tng:pact-request-api
-        , pact-tng
         , resource-pool
         , resourcet
         , safe-exceptions
