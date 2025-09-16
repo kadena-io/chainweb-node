@@ -344,10 +344,10 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
         , FlagRequireKeysetNs
         ]
   let flags = Set.unions
-      [ defaultFlags
-      , guardDisablePact51Flags txCtx
-      , guardDisablePact52And53Flags txCtx
-      , guardDisablePact54Flags txCtx]
+              [ defaultFlags
+              , guardDisablePact51Flags txCtx
+              , guardDisablePact52And53Flags txCtx
+              , guardDisablePact54Flags txCtx]
 
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
@@ -574,7 +574,7 @@ runGenesisPayload logger db spv ctx cmd = do
   -- Todo gas logs
   freeGasEnv <- mkFreeGasEnv GasLogsDisabled
   let defaultFlags = Set.fromList [FlagDisableRuntimeRTC]
-      flags = Set.union defaultFlags (guardDisablePact52And53Flags ctx)
+      flags = Set.unions [defaultFlags, guardDisablePact52And53Flags ctx, guardDisablePact54Flags ctx]
   runExceptT
     (runReaderT
       (runTransactionM
