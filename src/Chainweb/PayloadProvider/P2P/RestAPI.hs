@@ -166,8 +166,8 @@ instance MimeRender OctetStream a => MimeRender OctetStream (RestPayload a) wher
 --
 -- @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/\<BlockPayloadHash\>@
 --
--- * For Pact the a parameter is PayloadData
--- * For EVM the a parameter is Header
+-- * For Pact the result is the PayloadData
+-- * For EVM the result is the EVM execution header
 --
 type ServicePayloadGetApi_ (v :: ChainwebVersionT) (c :: ChainIdT) (p :: PayloadProviderType)
     = "payload"
@@ -189,10 +189,10 @@ servicePayloadGetApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Payload GET API
 
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/height/\<BlockHeight\>/payload\/\<BlockPayloadHash\>@
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/height\/\<BlockHeight\>\/payload\/\<BlockPayloadHash\>@
 --
--- * For Pact the a parameter is PayloadData
--- * For EVM the a parameter is Header
+-- * For Pact the result is the PayloadData
+-- * For EVM the result is the EVM execution header
 --
 type PayloadGetApi_ (v :: ChainwebVersionT) (c :: ChainIdT) (p :: PayloadProviderType)
     = "height"
