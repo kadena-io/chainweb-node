@@ -162,6 +162,7 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet10to19Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
+        , Chainweb.BlockHeaderDB.HeaderOracle
         , Chainweb.BlockHeaderDB.Internal
         , Chainweb.BlockHeaderDB.PruneForks
         , Chainweb.BlockHeaderDB.RemoteDB

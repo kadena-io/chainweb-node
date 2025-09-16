@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,40 +25,8 @@ module Chainweb.Test.SPV
 , apiTests
 ) where
 
-import Control.Lens (view, (^?!))
-import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.IO.Class
-
-import Crypto.Hash.Algorithms
-
-import Data.Aeson
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
-import Data.Foldable
-import Data.Functor.Of
-import qualified Data.List as L
-import Data.LogMessage
-import Data.MerkleLog
-import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
-
-import Numeric.Natural
-
-import Servant.Client
-
-import Statistics.Regression
-
-import qualified Streaming.Prelude as S
-
-import Test.QuickCheck
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
-
--- internal modules
-
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.HeaderOracle qualified as Oracle
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut hiding (join)
@@ -73,15 +42,37 @@ import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.SPV.RestAPI.Client
 import Chainweb.SPV.VerifyProof
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Test.Orphans.Internal
-import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions(barebonesTestVersion)
+import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
-
-import Chainweb.Storage.Table.RocksDB
+import Control.Lens (view, (^?!))
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Crypto.Hash.Algorithms
+import Data.Aeson
+import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as BL
+import Data.Foldable
+import Data.Functor.Of
+import Data.List qualified as L
+import Data.LogMessage
+import Data.MerkleLog
+import Data.Vector qualified as V
+import Data.Vector.Unboxed qualified as VU
+import Numeric.Natural
+import Servant.Client
+import Statistics.Regression
+import Streaming.Prelude qualified as S
+import Test.QuickCheck
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -286,7 +277,8 @@ spvTest rdb v step = do
                     (_chainId h) -- source chain
                     (view blockHeight h) -- source block height
                     txIx -- transaction index
-                subj <- verifyTransactionOutputProof cutDb proof
+                oracle <- createHeaderOracle cutDb trgChain
+                subj <- verifyTransactionOutputProof oracle proof
                 assertEqual "transaction output proof subject matches transaction" txOut subj
 
                 -- return (proof size, block size, height, distance, tx size)
@@ -382,7 +374,8 @@ spvTransactionRoundtripTest rdb v step = do
             (eitherDecode (encode proof))
 
         step "verify proof"
-        subj <- verifyTransactionProof cutDb proof
+        oracle <- createHeaderOracle cutDb trgChain
+        subj <- verifyTransactionProof oracle proof
 
         step "confirm that proof subject matches transaction"
         assertEqual "proof subject matches transaction" tx subj
@@ -418,7 +411,8 @@ spvTransactionOutputRoundtripTest rdb v step = do
             (eitherDecode (encode proof))
 
         step "verify proof"
-        subj <- verifyTransactionOutputProof cutDb proof
+        oracle <- createHeaderOracle cutDb trgChain
+        subj <- verifyTransactionOutputProof oracle proof
 
         step "confirm that proof subject matches transaction output"
         assertEqual "proof subject matches transaction output" out subj
@@ -468,7 +462,8 @@ txApiTests envIO step = do
 
         Right proof -> do
             step "verify transaction proof"
-            subj <- verifyTransactionProof cutDb proof
+            oracle <- createHeaderOracle cutDb trgChain
+            subj <- verifyTransactionProof oracle proof
 
             step "confirm that transaction proof subject matches transaction"
             assertEqual "proof subject matches transaction" tx subj
@@ -486,7 +481,14 @@ txApiTests envIO step = do
 
         Right proof -> do
             step "verify transaction output proof"
-            subj <- verifyTransactionOutputProof cutDb proof
+            oracle <- createHeaderOracle cutDb trgChain
+            subj <- verifyTransactionOutputProof oracle proof
 
             step "confirm that transaction output proof subject matches transaction output"
             assertEqual "proof subject matches transaction output" out subj
+
+createHeaderOracle :: CutDb tbl -> ChainId -> IO Oracle.HeaderOracle
+createHeaderOracle cutDb trgChain = do
+  curCut <- _cut cutDb
+  Oracle.createSpv (cutDb ^?! cutDbBlockHeaderDb trgChain) (curCut ^?! ixg trgChain)
+
