@@ -84,20 +84,21 @@ migrateBlockHistoryTable logger sdb bhdb cleanup
               rr@[SInt bh, SInt _, SBlob h] -> do
                 let rowBlockHeight = fromIntegral bh
                 rowBlockHash <- runGetS decodeBlockHash h
-                blockHeader <- lookupRanked bhdb rowBlockHeight rowBlockHash >>= \case
+                lookupRanked bhdb rowBlockHeight rowBlockHash >>= \case
                     Nothing -> do
-                      error $ "BlockHeader Entry missing for "
-                        <> "blockHeight="
-                        <> sshow rowBlockHeight
-                        <> ", blockHash="
-                        <> sshow rowBlockHash
-                    Just blockHeader -> return blockHeader
+                      logFunctionText logger Warn
+                        $ "BlockHeader Entry missing for "
+                          <> "blockHeight="
+                          <> sshow rowBlockHeight
+                          <> ", blockHash="
+                          <> sshow rowBlockHash
+                    Just blockHeader -> do
+                      let bph = view blockPayloadHash blockHeader
+                          enc = runPutS $ encodeBlockPayloadHash bph
 
-                let bph = view blockPayloadHash blockHeader
-                    enc = runPutS $ encodeBlockPayloadHash bph
+                      throwOnDbError $ exec' sdb "INSERT INTO BlockHistory2 (blockheight, endingtxid, hash, payloadhash) VALUES (?, ?, ?, ?)"
+                        $ rr ++ [SBlob enc]
 
-                throwOnDbError $ exec' sdb "INSERT INTO BlockHistory2 (blockheight, endingtxid, hash, payloadhash) VALUES (?, ?, ?, ?)"
-                  $ rr ++ [SBlob enc]
               _ -> error "unexpected row shape"
 
             modifyIORef' remainingRowsRef (\old -> max 0 (old - 10_000))
