@@ -413,17 +413,18 @@ instance NFData PactUpgrade where
 pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
 pact4Upgrade txs = Pact4Upgrade txs False
 
-data TxIdxInBlock = TxBlockIdx Word
+newtype TxIdxInBlock = TxBlockIdx Word
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (Hashable, NFData)
 
 makePrisms ''TxIdxInBlock
 
--- The type of quirks, i.e. special validation behaviors that are in some
+-- | The type of quirks, i.e. special validation behaviors that are in some
 -- sense one-offs which can't be expressed as upgrade transactions and must be
 -- preserved.
-data VersionQuirks = VersionQuirks
-    { _quirkGasFees :: (ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas))
+--
+newtype VersionQuirks = VersionQuirks
+    { _quirkGasFees :: ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas)
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
