@@ -119,17 +119,22 @@ migrateBlockHistoryTable logger cid sdb bhdb cleanup
       case e of
         _ S.:> Left e' ->
           error $ "Table migration failure: " <> sshow e'
-        Nothing S.:> Right () -> do
-          error "No blocks were actually found!"
-        Just finalBlock S.:> Right () -> do
+        maybeFinalBlock S.:> Right () -> do
+          finalBlock <- case maybeFinalBlock of
+            Nothing -> do
+              logf Warn "No blocks were found in the original table!"
+              return (genesisBlockHeader cid)
+            Just finalBlock ->
+              return finalBlock
           end <- getCurrentTime
           logf Info $ "Elapsed Time: " <> sshow (diffUTCTime end start)
 
           when cleanup $ withTransaction sdb $ do
             logf Info "Data migration completed, cleaning up"
             _ <- rewindDbTo cid sdb (Parent $ view rankedBlockHash finalBlock)
-            let ss = syncStateOfBlockHeader finalBlock
-            throwOnDbError $ setConsensusState sdb (ConsensusState ss ss ss)
+            let finalBlockSyncState = syncStateOfBlockHeader finalBlock
+            throwOnDbError $ setConsensusState sdb
+              (ConsensusState finalBlockSyncState finalBlockSyncState finalBlockSyncState)
             throwOnDbError $ exec_ sdb "DROP TABLE BlockHistory"
 
           logf Info "Table migration successful"
