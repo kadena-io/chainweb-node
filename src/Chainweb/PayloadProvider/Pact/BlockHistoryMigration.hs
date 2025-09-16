@@ -12,6 +12,7 @@ module Chainweb.PayloadProvider.Pact.BlockHistoryMigration where
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.TreeDB
@@ -22,6 +23,8 @@ import System.Logger qualified as L
 import System.LogLevel
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.PactState (qryStream)
+import Chainweb.Parent
+import Chainweb.PayloadProvider
 import Streaming qualified as S
 import Streaming.Prelude qualified as S
 import Chainweb.Utils (sshow, whenM)
@@ -49,12 +52,13 @@ import Data.Time.Clock (getCurrentTime, diffUTCTime)
 migrateBlockHistoryTable
   :: HasVersion
   => Logger logger
-  => logger        -- ^ logger
-  -> SQLiteEnv     -- ^ sqlite database
-  -> BlockHeaderDb -- ^ block header database
+  => logger
+  -> ChainId
+  -> SQLiteEnv
+  -> BlockHeaderDb
   -> Bool          -- ^ cleanup table after migration
   -> IO ()
-migrateBlockHistoryTable logger sdb bhdb cleanup
+migrateBlockHistoryTable logger cid sdb bhdb cleanup
   = L.withLoggerLabel ("component", "migrateBlockHistoryTable") logger $ \lf ->
     whenM (tableNeedsMigration lf sdb) $ do
       let logf serv msg = liftIO $ logFunctionText lf serv msg
@@ -75,41 +79,57 @@ migrateBlockHistoryTable logger sdb bhdb cleanup
         remainingRowsRef <- newIORef nBlockHistory
         rs
           & S.chunksOf 10_000
-          & S.mapsM_ (\chunk -> do
+          & S.mapsM (\chunk -> do
             remainingRows <- readIORef remainingRowsRef
             let perc = (1.0 - fromIntegral @_ @Double remainingRows / fromIntegral @_ @Double nBlockHistory) * 100.0
             logf Info $ "Table migration: Process remaining rows: " <> sshow remainingRows <> " ("<> sshow perc <> ")"
-            r <- withTransaction sdb $ flip S.mapM_ chunk $ \case
-              rr@[SInt bh, SInt _, SBlob h] -> do
-                let rowBlockHeight = fromIntegral bh
-                rowBlockHash <- runGetS decodeBlockHash h
-                blockHeader <- lookupRanked bhdb rowBlockHeight rowBlockHash >>= \case
-                    Nothing -> do
-                      error $ "BlockHeader Entry missing for "
-                        <> "blockHeight="
-                        <> sshow rowBlockHeight
-                        <> ", blockHash="
-                        <> sshow rowBlockHash
-                    Just blockHeader -> return blockHeader
+            r <- withTransaction sdb $ chunk
+              & S.mapMaybeM (\case
+                rr@[SInt bh, SInt _, SBlob h] -> do
+                  let rowBlockHeight = fromIntegral bh
+                  rowBlockHash <- runGetS decodeBlockHash h
+                  lookupRanked bhdb rowBlockHeight rowBlockHash >>= \case
+                      Nothing -> do
+                        -- TODO: stop when there's a missing header?
+                        -- error if there's a gap?
+                        logFunctionText logger Warn
+                          $ "BlockHeader Entry missing for "
+                            <> "blockHeight="
+                            <> sshow rowBlockHeight
+                            <> ", blockHash="
+                            <> sshow rowBlockHash
+                        return Nothing
+                      Just blockHeader -> do
+                        let bph = view blockPayloadHash blockHeader
+                            enc = runPutS $ encodeBlockPayloadHash bph
 
-                let bph = view blockPayloadHash blockHeader
-                    enc = runPutS $ encodeBlockPayloadHash bph
-
-                throwOnDbError $ exec' sdb "INSERT INTO BlockHistory2 (blockheight, endingtxid, hash, payloadhash) VALUES (?, ?, ?, ?)"
-                  $ rr ++ [SBlob enc]
-              _ -> error "unexpected row shape"
+                        throwOnDbError $ exec' sdb
+                          "INSERT INTO BlockHistory2 (blockheight, endingtxid, hash, payloadhash) VALUES (?, ?, ?, ?)"
+                            $ rr ++ [SBlob enc]
+                        return (Just blockHeader)
+                _ -> error "unexpected row shape"
+              )
+              & S.last
 
             modifyIORef' remainingRowsRef (\old -> max 0 (old - 10_000))
             pure r)
+          & S.catMaybes
+          & S.last
 
       case e of
-        Left e' -> error $ "Table migration failure: " <> sshow e'
-        Right () -> do
+        _ S.:> Left e' ->
+          error $ "Table migration failure: " <> sshow e'
+        Nothing S.:> Right () -> do
+          error "No blocks were actually found!"
+        Just finalBlock S.:> Right () -> do
           end <- getCurrentTime
           logf Info $ "Elapsed Time: " <> sshow (diffUTCTime end start)
 
-          when cleanup $ do
+          when cleanup $ withTransaction sdb $ do
             logf Info "Data migration completed, cleaning up"
+            _ <- rewindDbTo cid sdb (Parent $ view rankedBlockHash finalBlock)
+            let ss = syncStateOfBlockHeader finalBlock
+            throwOnDbError $ setConsensusState sdb (ConsensusState ss ss ss)
             throwOnDbError $ exec_ sdb "DROP TABLE BlockHistory"
 
           logf Info "Table migration successful"
