@@ -1020,5 +1020,5 @@ guardDisablePact52And53Flags txCtx
 
 guardDisablePact54Flags :: TxContext -> Set ExecutionFlag
 guardDisablePact54Flags txCtx
-  | guardCtx chainweb232Pact txCtx = Set.empty
+  | guardCtx chainweb231Pact txCtx = Set.empty
   | otherwise = Set.fromList [FlagDisablePact54]
