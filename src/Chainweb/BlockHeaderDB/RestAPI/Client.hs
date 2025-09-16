@@ -126,6 +126,65 @@ headerClientJsonBinary c k = runIdentity $ do
     return $ headerClientContentType_ @v @c @OctetStream k
 
 -- -------------------------------------------------------------------------- --
+-- Ranked Header Client
+
+rankedHeaderClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => DbKey RankedBlockHeaderDb
+    -> ClientM BlockHeader
+rankedHeaderClient_ = rankedHeaderClientContentType_ @v @c @OctetStream
+
+rankedHeaderClient
+    :: HasVersion
+    => ChainId
+    -> DbKey RankedBlockHeaderDb
+    -> ClientM BlockHeader
+rankedHeaderClient = rankedHeaderClientJsonBinary
+
+rankedHeaderClientContentType_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Accept ct
+    => SupportedRespBodyContentType ct x BlockHeader
+    => (HeaderApi v c) ~ x
+    => RankedBlockHash
+    -> ClientM BlockHeader
+rankedHeaderClientContentType_ = client (Proxy @(SetRespBodyContentType ct x))
+
+rankedHeaderClientJson
+    :: HasVersion
+    => ChainId
+    -> DbKey RankedBlockHeaderDb
+    -> ClientM BlockHeader
+rankedHeaderClientJson c (RankedBlockHash h k) = runIdentity $ do
+    SomeSing (SChainwebVersion :: Sing v) <- return $ toSing (_versionName implicitVersion)
+    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    return $ rankedHeaderClientContentType_ @v @c @JSON h k
+
+rankedHeaderClientJsonPretty
+    :: HasVersion
+    => ChainId
+    -> RankedBlockHash
+    -> ClientM BlockHeader
+rankedHeaderClientJsonPretty c (RankedBlockHash h k) = runIdentity $ do
+    SomeSing (SChainwebVersion :: Sing v) <- return $ toSing (_versionName implicitVersion)
+    SomeSing (SChainId :: Sing c) <- return $ toSing c
+    return $ rankedHeaderClientContentType_ @v @c @JsonBlockHeaderObject h k
+
+rankedHeaderClientJsonBinary
+    :: HasVersion
+    => ChainId
+    -> RankedBlockHash
+    -> ClientM BlockHeader
+rankedHeaderClientJsonBinary c (RankedBlockHash h k) = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName implicitVersion)
+    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    return $ rankedHeaderClientContentType_ @v @c @OctetStream h k
+
+-- -------------------------------------------------------------------------- --
 -- Headers Client
 
 headersClient_

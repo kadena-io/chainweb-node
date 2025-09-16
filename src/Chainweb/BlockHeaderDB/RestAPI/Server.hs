@@ -268,6 +268,23 @@ headerHandler db k = liftIO (lookup db k) >>= \case
         ]
     Just !e -> pure e
 
+-- | Query a single 'BlockHeader' by its 'BlockHeight' and 'BlockHash'
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
+rankedHeaderHandler
+    :: ToJSON (DbKey db)
+    => TreeDb db
+    => db
+    -> DbKey db
+    -> Handler (DbEntry db)
+rankedHeaderHandler db k = liftIO (rankedLookup db k) >>= \case
+    Nothing -> throwError $ err404Msg $ object $ concat
+        [ ["reason" .= ("key not found" :: String)]
+        , ["key" .= k]
+        ]
+    Just !e -> pure e
+
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
 

@@ -109,6 +109,7 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization hiding (Get)
 import Chainweb.Version
+import Chainweb.BlockHeight
 
 -- -------------------------------------------------------------------------- --
 -- API types
@@ -156,7 +157,7 @@ instance MimeRender OctetStream BlockHeader where
 
 -- | Orphan instance to encode pages of blocks as JSON
 instance HasVersion => MimeRender JSON BlockPage where
-    mimeRender _ = encode
+    mimeRender _ = encode_
     {-# INLINE mimeRender #-}
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
@@ -278,6 +279,20 @@ someBlockHeaderDbVal cid db = case someChainwebVersionVal of
         SomeChainIdT (Proxy :: Proxy cidt) -> SomeBlockHeaderDb (BlockHeaderDb_ @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
+-- Type indexed RankedBlockHeaderDb
+
+newtype RankedBlockHeaderDb_ (v :: ChainwebVersionT) (c :: ChainIdT) = RankedBlockHeaderDb_ RankedBlockHeaderDb
+
+data SomeRankedBlockHeaderDb = forall v c
+    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
+    => SomeRankedBlockHeaderDb (RankedBlockHeaderDb_ v c)
+
+someRankedBlockHeaderDbVal :: HasVersion => ChainId -> RankedBlockHeaderDb -> SomeRankedBlockHeaderDb
+someRankedBlockHeaderDbVal cid db = case someChainwebVersionVal of
+    SomeChainwebVersionT (Proxy :: Proxy vt) -> case someChainIdVal cid of
+        SomeChainIdT (Proxy :: Proxy cidt) -> SomeRankedBlockHeaderDb (RankedBlockHeaderDb_ @vt @cidt db)
+
+-- -------------------------------------------------------------------------- --
 -- Query Parameters
 
 -- | Filter:
@@ -291,6 +306,8 @@ type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
 
 -- -------------------------------------------------------------------------- --
+-- Branch Hashes API
+
 type BranchHashesApi_
     = "hash" :> "branch"
     :> PageParams (NextItem BlockHash)
@@ -325,6 +342,8 @@ branchHashesApi
 branchHashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Branch Headers API
+
 type BranchHeadersApi_
     = "header" :> "branch"
     :> PageParams (NextItem BlockHash)
@@ -339,6 +358,15 @@ type P2pBranchHeadersApi_
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] BlockHeaderPage
+
+type RankedP2pBranchHeadersApi_
+    = "header"
+    :> "branch"
+    :> PageParams (NextItem RankedBlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds RankedBlockHeaderDb)
     :> Post '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
@@ -374,6 +402,8 @@ p2pBranchHeadersApi
 p2pBranchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Hashes API
+
 type HashesApi_
     = "hash"
     :> PageParams (NextItem BlockHash)
@@ -398,6 +428,8 @@ hashesApi
 hashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Headers API
+
 type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
@@ -436,6 +468,8 @@ p2pHeadersApi
 p2pHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Header API
+
 type HeaderApi_
     = "header"
     :> Capture "BlockHash" BlockHash
@@ -466,6 +500,42 @@ p2pHeaderApi
 p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Ranked Header API
+
+type RankedHeaderApi_
+    = "height"
+    :> Capture "height" BlockHeight
+    :> "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+
+type RankedP2pHeaderApi_
+    = "height"
+    :> Capture "height" BlockHeight
+    :> "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, OctetStream] BlockHeader
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/height\/\<height\>\/header\/\<BlockHash\>@
+--
+-- Returns a single block headers for a given block hash.
+--
+type RankedHeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> RankedHeaderApi_
+type RankedP2pHeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> RankedP2pHeaderApi_
+
+rankedHeaderApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (RankedHeaderApi v c)
+rankedHeaderApi = Proxy
+
+rankedP2pHeaderApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (RankedP2pHeaderApi v c)
+rankedP2pHeaderApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
@@ -481,6 +551,23 @@ type P2pBlockHeaderDbApi v c
     = P2pHeadersApi v c
     :<|> P2pHeaderApi v c
     :<|> P2pBranchHeadersApi v c
+
+-- -------------------------------------------------------------------------- --
+-- | RankedBlockHeaderDb Api
+--
+type RankedBlockHeaderDbApi v c
+    = RankedHashesApi v c
+    :<|> RankedHeadersApi v c
+    :<|> RankedHeaderApi v c
+    :<|> RankedBranchHashesApi v c
+    :<|> RankedBranchHeadersApi v c
+
+-- | Restricted P2P BlockHeader DB API
+--
+type RankedP2pBlockHeaderDbApi v c
+    = RankedP2pHeadersApi v c
+    :<|> RankedP2pHeaderApi v c
+    :<|> RankedP2pBranchHeadersApi v c
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
