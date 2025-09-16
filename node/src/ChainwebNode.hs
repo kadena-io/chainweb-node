@@ -359,7 +359,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     -- Base Backend
     baseBackend <- managed
         $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
-
+baseBackend
     -- we don't log tx failures in replay
     let !txFailureHandler =
             if isJust (_cutInitialCutFile (_configCuts chainwebCfg))

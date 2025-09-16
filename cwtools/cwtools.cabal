@@ -212,6 +212,7 @@ executable pact-replay
         , unordered-containers
         , text
         , vector
+        , yet-another-logger
 
 -- Generate genesis headers.
 executable ea
