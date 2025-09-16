@@ -15,10 +15,10 @@ module Main(main) where
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeight (BlockHeight (..))
+import Chainweb.BlockHeight
 import Chainweb.Core.Brief
 import Chainweb.Cut (cutHeaders, unsafeMkCut)
-import Chainweb.Cut.Create hiding (join)
+import Chainweb.Cut.Create (limitCut)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger
 import Chainweb.Pact.PactService qualified as PactService
@@ -35,7 +35,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Registry
 import Chainweb.WebBlockHeaderDB
-import Control.Concurrent(threadDelay)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Exception.Safe
 import Control.Lens
