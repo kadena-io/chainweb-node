@@ -62,7 +62,7 @@ initSchema sql = do
 withSetup
   :: TestName
   -> (SQLiteEnv -> IO ())
-  -> (HasVersion => GenericLogger -> SQLiteEnv -> BlockHeaderDb -> Bool -> IO ())
+  -> (HasVersion => GenericLogger -> ChainId -> SQLiteEnv -> BlockHeaderDb -> Bool -> IO ())
   -> TestTree
 withSetup n setup action = withResourceT (withTempChainSqlite cid) $ \sqlIO -> do
   testCase n $ do
@@ -74,7 +74,7 @@ withSetup n setup action = withResourceT (withTempChainSqlite cid) $ \sqlIO -> d
     withTempRocksDb "chainweb-tests" $ \rdb -> do
       withVersion Mainnet01 $ runResourceT $ do
         bhdb <- withBlockHeaderDb rdb cid
-        liftIO $ action logger sql bhdb True
+        liftIO $ action logger cid sql bhdb True
 
 tests :: HasCallStack => TestTree
 tests = testGroup "BlockHistory Table Migration" [
@@ -83,36 +83,36 @@ tests = testGroup "BlockHistory Table Migration" [
         migrateBlockHistoryTable
     , withSetup "test successful migration cleanup"
         initSchema
-        $ \lf sdb bhdb cleanup -> do
+        $ \lf cid sdb bhdb cleanup -> do
             let qryIO = throwOnDbError $ qry sdb "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'BlockHistory'" [] [RInt]
             [[SInt p]] <- qryIO
             assertExpectation "Table should be present" (Expected 1) (Actual p)
-            migrateBlockHistoryTable lf sdb bhdb cleanup
+            migrateBlockHistoryTable lf cid sdb bhdb cleanup
             post <- qryIO
             assertExpectation "Table should not be present" (Expected []) (Actual post)
     , withSetup "test migration"
         initSchema
-        $ \lf sdb bhdb _cleanup -> do
+        $ \lf cid sdb bhdb _cleanup -> do
           traverse_ (unsafeInsertBlockHeaderDb bhdb) blockHeaders
           traverse_ (unsafeInsertEntry sdb) sqliteData
 
           -- Disable original table cleanup for migration verification.
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
 
           -- Re-run verification
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
     , withSetup "test migration with one missing row"
         initSchema
-        $ \lf sdb bhdb _cleanup -> do
+        $ \lf cid sdb bhdb _cleanup -> do
           traverse_ (unsafeInsertBlockHeaderDb bhdb) blockHeaders
           traverse_ (unsafeInsertEntry sdb) sqliteData
 
           -- Disable original table cleanup for migration verification.
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
 
@@ -124,7 +124,7 @@ tests = testGroup "BlockHistory Table Migration" [
           assert (n == 9) $ "BlockHistory2 should contain 9 entries, actual: " <> sshow n
 
           -- Re-run verification
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
     ]
