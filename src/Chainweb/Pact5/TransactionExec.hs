@@ -303,7 +303,11 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
     , FlagAllowReadInLocal
     , FlagRequireKeysetNs
     ]
-  localFlags = Set.unions [defaultFlags, guardDisablePact51Flags txCtx, guardDisablePact52And53Flags txCtx]
+  localFlags = Set.unions
+    [ defaultFlags
+    , guardDisablePact51Flags txCtx
+    , guardDisablePact52And53Flags txCtx
+    , guardDisablePact54Flags txCtx]
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command,
@@ -339,7 +343,11 @@ applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
         , FlagEnforceKeyFormats
         , FlagRequireKeysetNs
         ]
-  let flags = Set.unions [defaultFlags, guardDisablePact51Flags txCtx, guardDisablePact52And53Flags txCtx]
+  let flags = Set.unions
+      [ defaultFlags
+      , guardDisablePact51Flags txCtx
+      , guardDisablePact52And53Flags txCtx
+      , guardDisablePact54Flags txCtx]
 
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
@@ -1009,3 +1017,8 @@ guardDisablePact52And53Flags :: TxContext -> Set ExecutionFlag
 guardDisablePact52And53Flags txCtx
   | guardCtx chainweb230Pact txCtx = Set.empty
   | otherwise = Set.fromList [FlagDisablePact52, FlagDisablePact53, FlagDisableReentrancyCheck]
+
+guardDisablePact54Flags :: TxContext -> Set ExecutionFlag
+guardDisablePact54Flags txCtx
+  | guardCtx chainweb232Pact txCtx = Set.empty
+  | otherwise = Set.fromList [FlagDisablePact54]
