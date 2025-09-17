@@ -1051,7 +1051,7 @@ data EvmNewPayloadExeception
         { _inconsistentPayloadBlockValue :: !BlockValue
         , _inconsistentPayloadFees :: !Stu
         }
-    | InconsistenNewPayloadHash (Expected EVM.BlockHash) (Actual EVM.BlockHash)
+    | InconsistentNewPayloadHash (Expected EVM.BlockHash) (Actual EVM.BlockHash)
     deriving (Show, Eq, Generic)
 
 instance Exception EvmNewPayloadExeception
