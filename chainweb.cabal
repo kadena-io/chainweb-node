@@ -257,6 +257,8 @@ library
         , Chainweb.Utils.RequestLog
         , Chainweb.Utils.Rule
         , Chainweb.Utils.Serialization
+        , Chainweb.Utils.Throttle
+        , Chainweb.Utils.TokenLimiting
         , Chainweb.VerifierPlugin
         , Chainweb.VerifierPlugin.Allow
         , Chainweb.VerifierPlugin.Hyperlane.Announcement
@@ -381,6 +383,7 @@ library
         , base64-bytestring-kadena == 0.1
         , binary >= 0.8
         , bytestring >= 0.10.12
+        , cache >= 0.1.1.2
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
@@ -456,7 +459,7 @@ library
         , time >= 1.12.2
         , tls >=2.1.4
         , tls-session-manager >= 0.0
-        , token-bucket >= 0.1
+        , token-limiter >= 0.1
         , transformers >= 0.5
         , trifecta >= 2.1
         , unliftio >= 0.2
@@ -468,7 +471,6 @@ library
         , wai-app-static >= 3.1.6.3
         , wai-cors >= 0.2.7
         , wai-extra >= 3.0.28
-        , wai-middleware-throttle >= 0.3
         , wai-middleware-validation
         , warp >= 3.3.6
         , warp-tls >= 3.4
@@ -667,6 +669,7 @@ test-suite chainweb-tests
         Chainweb.Test.SPV
         Chainweb.Test.SPV.EventProof
         Chainweb.Test.Sync.WebBlockHeaderStore
+        Chainweb.Test.Throttle
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Version
