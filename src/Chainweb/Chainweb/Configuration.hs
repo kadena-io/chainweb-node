@@ -596,7 +596,7 @@ parseVersion = constructVersion
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
     <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
-    <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
+    <*> optional (switch (long "disable-pow" <> help "(development mode only) disable proof of work check"))
     where
     constructVersion cliVersion fub bd disablePow' oldVersion = winningVersion
         & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) bd
@@ -612,6 +612,6 @@ parseVersion = constructVersion
                     )
                     (HS.toMap (chainIds winningVersion))
             ) fub
-        & versionCheats . disablePow .~ disablePow'
+        & versionCheats . disablePow %~ flip fromMaybe disablePow'
         where
         winningVersion = fromMaybe oldVersion cliVersion
