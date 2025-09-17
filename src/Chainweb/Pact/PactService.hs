@@ -52,7 +52,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils (withSavepoint, SavepointName (..))
+import Chainweb.Pact.Backend.Utils (withSavepoint, SavepointName (..), LocatedSQ3Error)
 import Chainweb.Pact.NoCoinbase qualified as Pact
 import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
 import Chainweb.Pact.PactService.ExecBlock
@@ -98,6 +98,8 @@ import Data.Monoid
 import Data.Pool (Pool)
 import Data.Pool qualified as Pool
 import Data.Text qualified as Text
+import Data.Version (Version(..))
+import Paths_chainweb (version)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Void
@@ -117,6 +119,8 @@ import System.LogLevel
 import Chainweb.Version.Guards (pact5)
 import Control.Concurrent.MVar (newMVar)
 import Chainweb.Pact.Payload.RestAPI.Client (payloadClient)
+import Pact.Types.SQLite
+
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -141,6 +145,17 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
         )
 
     liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
+
+    -- Check if the SQLiteEnv requires a minimal version of chainweb to work properly
+    mMinChainwebVersion <- liftIO $ getMinChainwebVersion readWriteSqlenv
+    case mMinChainwebVersion of
+        Nothing -> pure ()
+        Just minVersion ->
+            if version >= minVersion
+                then pure ()
+                else error $ "PactService required at least version: " <> show minVersion <> ", currently at: " <> show version
+
+
     candidatePdb <- liftIO MapTable.emptyTable
     moduleInitCacheVar <- liftIO $ newMVar mempty
 
@@ -174,6 +189,13 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
         GeneratingGenesis -> return ()
         _ -> liftIO $ initialPayloadState chainwebLogger pse
     return pse
+
+    where
+    getMinChainwebVersion :: SQLiteEnv -> IO (Maybe Version)
+    getMinChainwebVersion sql = qry_ sql "SELECT minMajorVersion, minMinorVersion from ChainwebMeta limit 1" [RInt, RInt] >>= \case
+        [[SInt major, SInt minor]] -> pure $ Just $ Version [fromIntegral major, fromIntegral minor] []
+        [] -> pure Nothing
+        _ -> error "getMinChainwebVersion: incorrect column types"
 
 initialPayloadState
     :: Logger logger
