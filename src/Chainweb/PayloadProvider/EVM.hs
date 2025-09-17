@@ -1179,7 +1179,7 @@ awaitNewPayload p = do
                 -- response
                 unless (newEvmBlockHash == EVM._hdrHash pldHdr) $ do
                     lf Warn $ "Inconsitent new payload hash for " <> brief (phdr, pheight)
-                    throwM $ InconsistenNewPayloadHash
+                    throwM $ InconsistentNewPayloadHash
                         (Expected newEvmBlockHash)
                         (Actual (EVM._hdrHash pldHdr))
 
