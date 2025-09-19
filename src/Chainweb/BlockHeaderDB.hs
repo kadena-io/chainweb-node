@@ -19,8 +19,9 @@ module Chainweb.BlockHeaderDB
 , Configuration(..)
 , BlockHeaderDb
 , RankedBlockHeaderDb(..)
-, initBlockHeaderDb
 , closeBlockHeaderDb
+, initBlockHeaderDb
+, mkBlockHeaderDb
 , withBlockHeaderDb
 
 -- * Misc

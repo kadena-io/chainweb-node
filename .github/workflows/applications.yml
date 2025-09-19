@@ -370,6 +370,7 @@ jobs:
           exe:genconf \
           exe:known-graphs \
           exe:pact-diff \
+          exe:pact-replay \
           test:chainweb-tests \
           test:multi-node-network-tests \
           test:remote-tests \
@@ -416,6 +417,7 @@ jobs:
         cp $(cabal list-bin known-graphs) artifacts/chainweb
         cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
         cp $(cabal list-bin pact-diff) artifacts/chainweb
+        cp $(cabal list-bin pact-replay) artifacts/chainweb
         cp $(cabal list-bin remote-tests) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
