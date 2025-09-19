@@ -125,13 +125,13 @@ withPactPayloadProvider
     -> Maybe HTTP.Manager
     -> logger
     -> Maybe (Counter "txFailures")
-    -> MempoolBackend Pact.Transaction
+    -> MemPoolAccess
     -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
     -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider cid rdb http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
+withPactPayloadProvider cid rdb http logger txFailuresCounter mpa pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
     liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
 
@@ -149,8 +149,6 @@ withPactPayloadProvider cid rdb http logger txFailuresCounter mp pdb pactDbDir c
     PactPayloadProvider logger <$>
         PactService.withPactService cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
         (maybe GenesisNotNeeded GenesisPayload maybeGenesisPayload)
-    where
-    mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 
 pactMemPoolAccess
     :: Logger logger
