@@ -378,7 +378,7 @@ withPayloadProviderResources logger cid serviceApiConfig peerStuff rdb rewindLim
                             (view _4 <$> peerStuff)
                             logger
                             Nothing
-                            mempool
+                            mpa
                             pdb
                             pactDbDir
                             pactConfig
@@ -394,6 +394,7 @@ withPayloadProviderResources logger cid serviceApiConfig peerStuff rdb rewindLim
                                         (pactPayloadProviderServiceEnv pp) txs
                                 )
                     mempool <- Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolConfig
+                    let mpa = pactMemPoolAccess mempool $ addLabel ("sub-component", "MempoolAccess") logger
                 let queue = _payloadStoreQueue $ _psPdb $ pactPayloadProviderServiceEnv pp
                 p2pRes <- liftIO $ forM peerStuff $ \(p2pConfig, myPeerInfo, peerDb, mgr) ->
                     pactPayloadP2pResources @v' @c' logger p2pConfig myPeerInfo peerDb pdb queue mgr
