@@ -229,7 +229,7 @@ newMinimalPayloadProvider logger c rdb mgr conf
         store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb payloadClient
         var <- newEmptyTMVarIO
         candidates <- emptyTable
-        logFunctionText logger Info "minimal payload provider started"
+        logFunctionText logger Debug "minimal payload provider started"
         return MinimalPayloadProvider
             { _minimalChainId = _chainId c
             , _minimalPayloadVar = var
@@ -385,7 +385,7 @@ minimalPrefetchPayloads
     -> [Ranked ConsensusPayload]
     -> IO ()
 minimalPrefetchPayloads p h ps = do
-    logg p Info "prefetch payloads"
+    logg p Debug "prefetch payloads"
     mapConcurrently_ (try @_ @TaskException . getPayloadForContext p h) ps
 
 -- |
@@ -416,7 +416,7 @@ minimalSyncToBlock
     -> ForkInfo
     -> IO ConsensusState
 minimalSyncToBlock p h i = do
-    logg p Info "syncToBlock called"
+    logg p Debug "syncToBlock called"
     validatePayloads p h i
 
     -- FIXME: is this right place to prune the candidate store?
@@ -425,10 +425,10 @@ minimalSyncToBlock p h i = do
     -- Produce new block
     case _forkInfoNewBlockCtx i of
         Nothing -> do
-            logg p Info $ "no new payload for sync state: " <> sshow latestState
+            logg p Debug $ "no new payload for sync state: " <> sshow latestState
             return ()
         Just ctx -> do
-            logg p Info $ "create new payload for sync state: " <> sshow latestState
+            logg p Debug $ "create new payload for sync state: " <> sshow latestState
             atomically
                 $ writeTMVar (_minimalPayloadVar p)
                 $ makeNewPayload p latestState ctx
