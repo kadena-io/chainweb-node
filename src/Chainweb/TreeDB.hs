@@ -541,22 +541,24 @@ getBranch db lowerBounds upperBounds = do
     let mar = getMax $ fromJuste $
             foldMap' (foldMap' (Just . Max . rank)) [lowers, uppers]
 
-    go mar (active mar lowers mempty) (active mar uppers mempty)
+    go mar (activate mar lowers mempty) (activate mar uppers mempty)
   where
     getEntriesHs :: (a -> Key (DbEntry db)) -> HS.HashSet a -> IO (HS.HashSet (DbEntry db))
     getEntriesHs f = streamToHashSet_ . lookupStream db . S.map f . S.each
     getParentsHs = streamToHashSet_ . lookupParentStreamM GenesisParentNone db . S.each
 
+    -- The newly active members of the set after advancing the highest ones
+    -- downwards.
     -- prop> all ((==) r . rank) $ snd (active r s c)
     --
-    active
+    activate
         :: Natural
         -> HS.HashSet (DbEntry db)
         -> HS.HashSet (DbEntry db)
         -> (HS.HashSet (DbEntry db), HS.HashSet (DbEntry db))
-    active r s c =
-        let (a, b) = hsPartition (\x -> rank x < r) s
-        in (a, c <> b)
+    activate r inactive active =
+        let (stillInactive, newlyActive) = hsPartition (\x -> rank x < r) inactive
+        in (stillInactive, active <> newlyActive)
 
     -- | The size of the input sets decreases monotonically. Space complexity is
     -- linear in the input and constant in the output size.
@@ -566,15 +568,15 @@ getBranch db lowerBounds upperBounds = do
         -> (HS.HashSet (DbEntry db), HS.HashSet (DbEntry db))
         -> (HS.HashSet (DbEntry db), HS.HashSet (DbEntry db))
         -> S.Stream (Of (DbEntry db)) IO ()
-    go r (ls0, ls1) (us0, us1)
-        | HS.null us0 && HS.null us1 = return ()
+    go r (lowerInactive, lowerActive) (upperInactive, upperActive)
+        | HS.null upperInactive && HS.null upperActive = return ()
         | otherwise = do
-            let us1' = us1 `HS.difference` ls1
-            mapM_ S.yield us1'
-            us1p <- liftIO $ getParentsHs us1'
-            ls1p <- liftIO $ getParentsHs ls1
+            let upperActiveFiltered = upperActive `HS.difference` lowerActive
+            mapM_ S.yield upperActiveFiltered
+            upperActive' <- liftIO $ getParentsHs upperActiveFiltered
+            lowerActive' <- liftIO $ getParentsHs lowerActive
             let r' = pred r
-            go r' (active r' ls0 ls1p) (active r' us0 us1p)
+            go r' (activate r' lowerInactive lowerActive') (activate r' upperInactive upperActive')
 
     hsPartition
         :: Hashable a
