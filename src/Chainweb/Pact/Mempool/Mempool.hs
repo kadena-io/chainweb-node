@@ -244,6 +244,7 @@ data InsertError
   | InsertErrorTimedOut
   | InsertErrorPactParseError Text
   | InsertErrorWrongChain Text Text
+  | InsertErrorDefPactComplete Text
   deriving (Generic, Eq, NFData)
 
 instance Show InsertError where
@@ -270,6 +271,8 @@ instance Show InsertError where
         , "It should be rounded to at most 12 decimal places."
         ]
       InsertErrorTooManySigs -> "Too many signatures"
+      InsertErrorDefPactComplete i ->
+        "This transaction is attempting to complete an already-completed defpact ID: " <> T.unpack i
 
 instance Exception InsertError
 
