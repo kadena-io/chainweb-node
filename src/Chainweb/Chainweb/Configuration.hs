@@ -57,6 +57,10 @@ module Chainweb.Chainweb.Configuration
 , BackupConfig(..)
 , defaultBackupConfig
 
+-- * Pruning configuration
+, PruneConfig(..)
+, defaultPruneConfig
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
@@ -76,6 +80,7 @@ module Chainweb.Chainweb.Configuration
 
 ) where
 
+import Chainweb.BlockHeaderDB.PruneForks qualified as PruneForks
 import Chainweb.BlockHeight
 import Chainweb.Difficulty
 import Chainweb.HostAddress
@@ -506,6 +511,34 @@ pBackupConfig = id
     backup = Just "backup"
 
 -- -------------------------------------------------------------------------- --
+-- Pruning Configuration
+
+data PruneConfig = PruneConfig
+    { _configPruneCommand :: PruneForks.DoPrune
+    }
+    deriving (Show, Eq)
+
+defaultPruneConfig :: PruneConfig
+defaultPruneConfig = PruneConfig
+    { _configPruneCommand = PruneForks.Prune
+    }
+makeLenses ''PruneConfig
+
+instance ToJSON PruneConfig where
+    toJSON cfg = object [ "command" .= _configPruneCommand cfg ]
+instance FromJSON PruneConfig where
+    parseJSON = withObject "PruneConfig" $ \o ->
+        PruneConfig <$> o .: "command"
+instance FromJSON (PruneConfig -> PruneConfig) where
+    parseJSON = withObject "PruneConfig" $ \o -> id
+        <$< configPruneCommand ..: "command" % o
+
+pPruneConfig :: MParser PruneConfig
+pPruneConfig = id
+    <$< parserOptionGroup "Pruning"
+        (configPruneCommand .:: textOption (long "pruning-command"))
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
@@ -518,6 +551,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
     , _configPayloadProviders :: PayloadProviderConfig
+    , _configPrune :: !PruneConfig
 
     -- The following properties are deprecated: history replay should not be
     -- part of normal operation mode. It should probably use a completely
@@ -575,6 +609,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReorgLimit = defaultReorgLimit
     , _configServiceApi = defaultServiceApiConfig
     , _configReadOnlyReplay = False
+    , _configPrune = defaultPruneConfig
     , _configSyncChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configPayloadProviders = defaultPayloadProviderConfig
@@ -593,6 +628,7 @@ instance ToJSON ChainwebConfiguration where
         , "syncChains" .= _configSyncChains o
         , "backup" .= _configBackup o
         , "payloadProviders" .= _configPayloadProviders o
+        , "pruning" .= _configPrune o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -612,6 +648,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configSyncChains ..: "syncChains" % o
         <*< configBackup %.: "backup" % o
         <*< configPayloadProviders %.: "payloadProviders" % o
+        <*< configPrune %.: "pruning" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -636,6 +673,7 @@ pChainwebConfiguration = id
 
     -- FIXME support payload providers
     <*< configPayloadProviders %:: pPayloadProviderConfig
+    <*< configPrune %:: pPruneConfig
 
 parseVersion :: MParser ChainwebVersion
 parseVersion = constructVersion
