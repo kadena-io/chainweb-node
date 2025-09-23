@@ -77,6 +77,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
     , lookupRankedBlockHash
     , getPayloadsAfter
     , getEarliestBlock
+    , getLatestBlock
     , getConsensusState
     , setConsensusState
     , throwOnDbError
@@ -785,7 +786,7 @@ setConsensusState db cs = do
 
 getConsensusState :: SQ3.Database -> ExceptT LocatedSQ3Error IO (Maybe ConsensusState)
 getConsensusState db = do
-    qry db "SELECT blockheight, hash, payloadhash, safety FROM ConsensusState ORDER BY safety ASC;"
+    maybeState <- qry db "SELECT blockheight, hash, payloadhash, safety FROM ConsensusState ORDER BY safety ASC;"
         [] [RInt, RBlob, RBlob, RText] >>= \case
             [final, latest, safe] -> return $ Just ConsensusState
                 { _consensusStateFinal = readRow "final" final
@@ -794,6 +795,13 @@ getConsensusState db = do
                 }
             [] -> return Nothing
             inv -> error $ "invalid contents of the ConsensusState table: " <> sshow inv
+    case maybeState of
+        Nothing -> do
+            getLatestBlock db >>= \case
+                Nothing -> return Nothing
+                Just latest ->
+                    return $ Just $ ConsensusState latest latest latest
+        Just s -> return (Just s)
     where
     readRow expectedType [SInt height, SBlob hash, SBlob payloadHash, SText type']
         | expectedType == type' = SyncState
@@ -906,6 +914,28 @@ getEarliestBlock db = do
         let hash = either error id $ runGetEitherS decodeBlockHash blob
         in return (RankedBlockHash (fromIntegral hgt) hash)
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
+
+-- | Get the checkpointer's idea of the latest block.
+getLatestBlock :: HasCallStack => SQLiteEnv -> ExceptT LocatedSQ3Error IO (Maybe SyncState)
+getLatestBlock db = do
+    r <- qry db qtext [] [RInt, RBlob, RBlob] >>= mapM go
+    case r of
+        [] -> return Nothing
+        (!o:_) -> return (Just o)
+    where
+    qtext = "SELECT blockheight, hash, payloadhash FROM BlockHistory2 ORDER BY blockheight DESC LIMIT 1"
+
+    go [SInt hgt, SBlob blob, SBlob pBlob] =
+        let hash = either error id $ runGetEitherS decodeBlockHash blob
+        in let pHash = either error id $ runGetEitherS decodeBlockPayloadHash pBlob
+        in return $ SyncState
+            { _syncStateBlockHash = hash
+            , _syncStateBlockPayloadHash = pHash
+            , _syncStateHeight = int hgt
+            }
+    go r = fail $
+        "Chainweb.Pact.Backend.RelationalCheckpointer.doGetLatest: impossible. This is a bug in chainweb-node. Details: "
+        <> sshow r
 
 lookupBlockWithHeight :: HasCallStack => SQ3.Database -> BlockHeight -> ExceptT LocatedSQ3Error IO (Maybe (Ranked BlockHash))
 lookupBlockWithHeight db bheight = do
