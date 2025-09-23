@@ -67,8 +67,6 @@ module Chainweb.Chainweb.Configuration
 , configReorgLimit
 , configBackup
 , configServiceApi
-, configReadOnlyReplay
-, configSyncChains
 , configPayloadProviders
 , defaultChainwebConfiguration
 , pChainwebConfiguration
@@ -519,16 +517,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configPayloadProviders :: PayloadProviderConfig
 
-    -- The following properties are deprecated: history replay should not be
-    -- part of normal operation mode. It should probably use a completely
-    -- separate configuration.
-
-    , _configReadOnlyReplay :: !Bool
-        -- ^ do a read-only replay using the cut db params for the block heights
-    , _configSyncChains :: !(Maybe [ChainId])
-        -- ^ the only chains to be synchronized on startup to the latest cut.
-        --   if unset, all chains will be synchronized.
-
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -574,8 +562,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configReorgLimit = defaultReorgLimit
     , _configServiceApi = defaultServiceApiConfig
-    , _configReadOnlyReplay = False
-    , _configSyncChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configPayloadProviders = defaultPayloadProviderConfig
     }
@@ -589,8 +575,6 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "reorgLimit" .= _configReorgLimit o
         , "serviceApi" .= _configServiceApi o
-        , "readOnlyReplay" .= _configReadOnlyReplay o
-        , "syncChains" .= _configSyncChains o
         , "backup" .= _configBackup o
         , "payloadProviders" .= _configPayloadProviders o
         ]
@@ -608,8 +592,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configServiceApi %.: "serviceApi" % o
-        <*< configReadOnlyReplay ..: "readOnlyReplay" % o
-        <*< configSyncChains ..: "syncChains" % o
         <*< configBackup %.: "backup" % o
         <*< configPayloadProviders %.: "payloadProviders" % o
 
@@ -625,13 +607,6 @@ pChainwebConfiguration = id
     <*< parserOptionGroup "Cut Processing" (configCuts %:: pCutConfig)
     <*< parserOptionGroup "Service API" (configServiceApi %:: pServiceApiConfig)
     <*< parserOptionGroup "Mining Coordination" (configMining %:: pMiningConfig)
-    <*< configReadOnlyReplay .:: boolOption_
-        % long "read-only-replay"
-        <> help "Replay the block history non-destructively"
-    <*< configSyncChains .:: fmap Just % jsonOption
-        % long "sync-chains"
-        <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
-        <> metavar "JSON list of chain ids"
     <*< parserOptionGroup "Backup" (configBackup %:: pBackupConfig)
 
     -- FIXME support payload providers
