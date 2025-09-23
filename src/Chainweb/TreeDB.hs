@@ -1060,9 +1060,9 @@ ancestorOf
     -> DbKey db
         -- ^ the context, i.e. the branch of the chain that contains the member
     -> IO Bool
-ancestorOf db h ctx = do
-    th <- lookupM db ctx
-    ancestorOfEntry db h th
+ancestorOf db h ctx = lookup db ctx >>= \case
+    Nothing -> return False
+    Just lh -> ancestorOfEntry db h lh
 
 onLongestBranch
     :: forall db
