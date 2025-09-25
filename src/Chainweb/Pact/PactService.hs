@@ -573,7 +573,7 @@ syncToFork logger serviceEnv hints forkInfo = do
                                     (_, pwo, validatedTxs) <-
                                         Pact.execExistingBlock logger serviceEnv
                                             (BlockEnv blockCtx chainwebPactDb)
-                                            (CheckablePayload expectedPayloadHash payload)
+                                            (CheckablePayload payload)
                                     -- add payload immediately after executing the block, because this is when we learn it's valid
                                     liftIO $ addNewPayload
                                         (_payloadStoreTable $ _psPdb serviceEnv)
@@ -587,7 +587,7 @@ syncToFork logger serviceEnv hints forkInfo = do
                                     (_, pwo) <-
                                         Pact4.execBlock logger serviceEnv
                                             (Pact4.BlockEnv blockCtx blockDbEnv)
-                                            (CheckablePayload expectedPayloadHash payload)
+                                            (CheckablePayload payload)
                                     -- add payload immediately after executing the block, because this is when we learn it's valid
                                     liftIO $ addNewPayload
                                         (_payloadStoreTable $ _psPdb serviceEnv)

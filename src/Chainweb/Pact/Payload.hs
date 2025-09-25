@@ -1420,15 +1420,19 @@ verifyPayloadWithOutputs p
 -- for comparative error messages if the block is invalid.
 data CheckablePayload
     = CheckablePayloadWithOutputs !PayloadWithOutputs
-    | CheckablePayload !BlockPayloadHash !PayloadData
-    deriving (Show, Generic, ToJSON)
+    | CheckablePayload !PayloadData
+    deriving (Show, Generic)
+
+instance ToJSON CheckablePayload where
+    toJSON (CheckablePayloadWithOutputs pwo) = toJSON pwo
+    toJSON (CheckablePayload pd) = toJSON pd
 
 checkablePayloadToPayloadData :: CheckablePayload -> PayloadData
 checkablePayloadToPayloadData = \case
-    CheckablePayload _ pd -> pd
+    CheckablePayload pd -> pd
     CheckablePayloadWithOutputs pwo -> payloadWithOutputsToPayloadData pwo
 
 checkablePayloadExpectedHash :: CheckablePayload -> BlockPayloadHash
 checkablePayloadExpectedHash = \case
-    CheckablePayload h _ -> h
+    CheckablePayload pd -> _payloadDataPayloadHash pd
     CheckablePayloadWithOutputs pwo -> _payloadWithOutputsPayloadHash pwo

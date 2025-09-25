@@ -607,7 +607,7 @@ validateHashes bctx payload miner transactions =
                 [ "header" J..= sshow @_ @Text bctx
                 , "actual" J..= J.encodeWithAeson actualPwo
                 , "expected" J..?= case payload of
-                    CheckablePayload _ _ -> Nothing
+                    CheckablePayload _ -> Nothing
                     CheckablePayloadWithOutputs pwo -> Just $ J.encodeWithAeson pwo
                 ]
   where
