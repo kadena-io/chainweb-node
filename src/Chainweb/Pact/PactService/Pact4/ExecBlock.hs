@@ -50,6 +50,7 @@ import Chainweb.Pact.Types (ServiceEnv(..), Transactions (..), bctxParentCreatio
 import Chainweb.Pact4.Backend.ChainwebPactDb
 import Chainweb.Pact4.ModuleCache
 import Chainweb.Pact4.NoCoinbase
+import Chainweb.Pact4.SPV qualified as Pact4
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Pact4.TransactionExec qualified as Pact4
 import Chainweb.Pact4.Types
@@ -505,9 +506,7 @@ applyPactCmd logger serviceEnv blockEnv txIdxInBlock miner cmd = StateT $ \(T2 m
     if _bctxIsGenesis bCtx
     then liftIO $! Pact4.applyGenesisCmd logger pactDb Pact4.noSPVSupport bCtx gasLimitedCmd
     else do
-      -- FIXME
-      -- let bhdb = view psBlockHeaderDb serviceEnv
-      -- let spv = Pact4.pactSPV bhdb (_parentHeader parent)
+      let spv = Pact4.pactSPV (_cpHeaderOracle $ _benvDbEnv blockEnv) bCtx
       let
         txTimeout io = do
             logFunctionText logger Debug $ "txTimeLimit was not set - defaulting to a function of the block gas limit"
@@ -516,7 +515,7 @@ applyPactCmd logger serviceEnv blockEnv txIdxInBlock miner cmd = StateT $ \(T2 m
         liftIO $ txTimeout $
           Pact4.applyCmd logger
             -- FIXME spv
-            blockEnv miner gasModel txIdxInBlock undefined gasLimitedCmd initialGas mcache
+            blockEnv miner gasModel txIdxInBlock spv gasLimitedCmd initialGas mcache
       pure $ T2 r c
 
   if _bctxIsGenesis bCtx

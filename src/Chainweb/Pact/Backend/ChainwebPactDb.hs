@@ -261,7 +261,7 @@ chainwebPactBlockDb env = ChainwebPactDb
                 , consult = \(Parent hsh) -> do
                     throwOnDbError (lookupBlockHash (_blockHandlerDb env) hsh) <&> \case
                         Nothing -> False
-                        Just rootHeight -> rootHeight > currentHeight
+                        Just rootHeight -> rootHeight < currentHeight
                 }
         let spv = pactSPV headerOracle
         r <- liftIO $ kont pactDb spv

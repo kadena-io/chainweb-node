@@ -10,7 +10,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ImportQualifiedPost #-}
--- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -918,6 +917,6 @@ headerOracleForBlock env = HeaderOracle
     { consult = \(Parent blkHash) -> do
         lookupBlockHash (_blockHandlerDb env) blkHash <&> \case
             Nothing -> False
-            Just rootHeight -> rootHeight > _blockHandlerBlockHeight env
+            Just rootHeight -> rootHeight < _blockHandlerBlockHeight env
     , chain = _blockHandlerChainId env
     }
