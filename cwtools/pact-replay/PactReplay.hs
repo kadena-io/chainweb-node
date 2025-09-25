@@ -87,7 +87,7 @@ parser = do
         fmap const (jsonOption (long "chains"))
         <|> pure (\Dict -> filter isPactChain (HS.toList chainIds))
     return $ withVersion version $ do
-        withReadOnlyRocksDb (getRocksDbDir dbDir) modernDefaultOptions $ \rdb -> do
+        withRocksDb (getRocksDbDir dbDir) modernDefaultOptions $ \rdb -> do
             let logger = genericLogger logLevel T.putStrLn
             let cutTable = cutHashesTable rdb
             let pdb = Pact.Payload.PayloadStore.RocksDB.newPayloadDb rdb
