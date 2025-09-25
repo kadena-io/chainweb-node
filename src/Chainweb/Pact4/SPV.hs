@@ -62,6 +62,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types (HeaderOracle)
+import Chainweb.Pact.Types(BlockCtx(..), _bctxCurrentBlockHeight)
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Pact4.Types(internalError)
 import Chainweb.Pact.Payload
@@ -84,20 +85,19 @@ import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Types.SPV as Pact4
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 
-forkedThrower :: CW.HasVersion => BlockHeader -> Text -> ExceptT Text IO a
-forkedThrower bh =
-  if CW.chainweb219Pact (CW._chainId bh) (view blockHeight bh)
+forkedThrower :: CW.HasVersion => BlockCtx -> Text -> ExceptT Text IO a
+forkedThrower bctx =
+  if CW.chainweb219Pact (CW._chainId bctx) (_bctxCurrentBlockHeight bctx)
   then throwError
   else internalError
 
-catchAndDisplaySPVError :: CW.HasVersion => BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
-catchAndDisplaySPVError bh =
-  if CW.chainweb219Pact (CW._chainId bh) (view blockHeight bh)
-  then flip catch $ \case
-    -- only error we expect
-    SpvExceptionVerificationFailed _ -> throwError ("spv verification failed: target header is not in the chain")
-    spvErr -> throwM spvErr
-  else id
+catchAndDisplaySPVError :: CW.HasVersion => BlockCtx -> ExceptT Text IO a -> ExceptT Text IO a
+catchAndDisplaySPVError bctx =
+  if CW.chainweb219Pact (CW._chainId bctx) (_bctxCurrentBlockHeight bctx)
+  then id
+  else flip catchError $
+    -- the only error we expect
+    \_msg -> throwM $ SpvExceptionVerificationFailed "target header is not in the chain"
 
 -- | Spv support for pact
 --
@@ -105,12 +105,12 @@ pactSPV
     :: CW.HasVersion
     => HeaderOracle
       -- ^ handle into the cutdb
-    -> BlockHeader
+    -> BlockCtx
       -- ^ the context for verifying the proof
     -> Pact4.SPVSupport
-pactSPV headerOracle bh = Pact4.SPVSupport
-  (verifySPV headerOracle bh)
-  (verifyCont headerOracle bh)
+pactSPV headerOracle bctx = Pact4.SPVSupport
+  (verifySPV headerOracle bctx)
+  (verifyCont headerOracle bctx)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -120,7 +120,7 @@ verifySPV
     :: CW.HasVersion
     => HeaderOracle
       -- ^ handle into the cut db
-    -> BlockHeader
+    -> BlockCtx
         -- ^ the context for verifying the proof
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
@@ -128,10 +128,10 @@ verifySPV
     -> Pact4.Object Pact4.Name
       -- ^ the proof object to validate
     -> IO (Either Text (Pact4.Object Pact4.Name))
-verifySPV headerOracle bh typ proof = runExceptT $ go typ proof
+verifySPV headerOracle bctx typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId headerOracle
-    enableBridge = CW.enableSPVBridge cid (view blockHeight bh)
+    enableBridge = CW.enableSPVBridge cid (_bctxCurrentBlockHeight bctx)
 
     mkSPVResult' cr j
         | enableBridge =
@@ -152,7 +152,7 @@ verifySPV headerOracle bh typ proof = runExceptT $ go typ proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
         unless (view outputProofChainId u == cid) $
-          forkedThrower bh "cannot redeem spv proof on wrong target chain"
+          forkedThrower bctx "cannot redeem spv proof on wrong target chain"
 
         -- SPV proof verification is a 3 step process:
         --
@@ -163,11 +163,11 @@ verifySPV headerOracle bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $
+        TransactionOutput p <- catchAndDisplaySPVError bctx $
           checkProofAndExtractOutput headerOracle u
 
         q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
-          Nothing -> forkedThrower bh "unable to decode spv transaction output"
+          Nothing -> forkedThrower bctx "unable to decode spv transaction output"
           Just cr -> return cr
 
         case Pact4._crResult q of
@@ -258,22 +258,22 @@ verifyCont
     :: CW.HasVersion
     => HeaderOracle
       -- ^ handle into the cut db
-    -> BlockHeader
+    -> BlockCtx
         -- ^ the context for verifying the proof
     -> Pact4.ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text Pact4.PactExec)
-verifyCont headerOracle bh (Pact4.ContProof cp) = runExceptT $ do
+verifyCont headerOracle bctx (Pact4.ContProof cp) = runExceptT $ do
     let errorMessageType =
-          if CW.chainweb221Pact (CW._chainId bh) (view blockHeight bh)
+          if CW.chainweb221Pact (CW._chainId bctx) (_bctxCurrentBlockHeight bctx)
           then Simplified
           else Legacy
     t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ Text.decodeUtf8 cp
     case decodeStrict' t of
-      Nothing -> forkedThrower bh "unable to decode continuation proof"
+      Nothing -> forkedThrower bctx "unable to decode continuation proof"
       Just u
         | view outputProofChainId u /= cid ->
-          forkedThrower bh "cannot redeem continuation proof on wrong target chain"
+          forkedThrower bctx "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
@@ -285,11 +285,11 @@ verifyCont headerOracle bh (Pact4.ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $
+          TransactionOutput p <- catchAndDisplaySPVError bctx $
             checkProofAndExtractOutput headerOracle u
 
           q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
-            Nothing -> forkedThrower bh "unable to decode spv transaction output"
+            Nothing -> forkedThrower bctx "unable to decode spv transaction output"
             Just cr -> return cr
 
           case Pact4._crContinuation q of
