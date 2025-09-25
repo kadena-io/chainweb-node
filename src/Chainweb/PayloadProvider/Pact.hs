@@ -26,6 +26,7 @@ import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.MerkleUniverse
 import Chainweb.MinerReward qualified as MinerReward
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Pact.PactService qualified as PactService
@@ -132,6 +133,7 @@ withPactPayloadProvider
     -> ResourceT IO (PactPayloadProvider logger tbl)
 withPactPayloadProvider cid rdb http logger txFailuresCounter mpa pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
+    liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
 
     -- perform the database migration of the `BlockHeader` Table.
     bhdb <- withBlockHeaderDb rdb cid

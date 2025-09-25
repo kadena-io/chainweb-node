@@ -181,6 +181,8 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
             , _psModuleInitCacheVar = moduleInitCacheVar
             }
 
+    liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
+
     case pactGenesis of
         GeneratingGenesis -> return ()
         _ -> liftIO $ initialPayloadState chainwebLogger pse
