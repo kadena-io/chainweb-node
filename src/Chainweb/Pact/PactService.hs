@@ -140,7 +140,6 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
             traverse_ cancel refresherThread
         )
 
-    liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
     candidatePdb <- liftIO MapTable.emptyTable
     moduleInitCacheVar <- liftIO $ newMVar mempty
 
