@@ -357,7 +357,7 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
     -- TODO: trace more info?
     let rk = Pact.RequestKey $ Pact._cmdHash cmd
     (resultOrError, blockHandle') <- flip runStateT blockHandle $
-      trace' (logFunction logger) "applyCmdInBlock" computeTrace (\_ -> 0) $
+      -- trace' (logFunction logger) "applyCmdInBlock" computeTrace (\_ -> 0) $
         doChainwebPactDbTransaction dbEnv (Just rk) $ \pactDb spv ->
           if _bctxIsGenesis blockCtx
           then do
