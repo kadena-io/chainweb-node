@@ -551,8 +551,8 @@ instance ToJSON ForkInfo where
 -- -------------------------------------------------------------------------- --
 -- Hints for querying Payloads
 
-data Hints = Hints
-    { _hintsOrigin :: !PeerInfo
+newtype Hints = Hints
+    { _hintsOrigin :: PeerInfo
     }
 
 hintsProperties :: forall e kv . KeyValue e kv => Hints -> [kv]

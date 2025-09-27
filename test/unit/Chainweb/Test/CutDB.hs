@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
@@ -7,8 +6,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -46,7 +43,6 @@ import Chainweb.Logger
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.Pact.Types
-import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -387,7 +383,6 @@ tryMineForChain cutDb c cid = do
             return $ Right (c', cid, newPayload)
         Left e -> return $ Left e
   where
-    parent = Parent $ c ^?! ixg cid -- parent to mine on
     wdb = view cutDbWebBlockHeaderDb cutDb
 
 -- | picks a random block header from a web chain. The result header is
