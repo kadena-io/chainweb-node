@@ -1,21 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -76,49 +68,31 @@ module Chainweb.Cut
 
 ) where
 
-import Control.DeepSeq
-import Control.Exception hiding (catch)
-import Control.Lens hiding ((:>), (.=))
-import Control.Monad hiding (join)
-import Control.Monad.Catch
-import Control.Monad.State.Strict
-
-import Data.Bifoldable
-import Data.Foldable
-import Data.Function
-import Data.Functor.Of
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import qualified Data.List as List
-import Data.Maybe (fromMaybe)
-import Data.Monoid
-import Data.Ord
-import Data.Text (Text)
-import qualified Data.Text as T
-
-import GHC.Generics (Generic)
-import GHC.Stack
-
-import Numeric.Natural
-
-import Prelude hiding (lookup)
-
-import qualified Streaming.Prelude as S
-
--- internal modules
-
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.TreeDB
+import Chainweb.Parent
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
-import Chainweb.WebBlockHeaderDB
-import Chainweb.Parent
+import Control.DeepSeq
+import Control.Exception hiding (catch)
+import Control.Lens hiding ((:>), (.=))
+import Control.Monad hiding (join)
+import Control.Monad.Catch
+import Data.Foldable
+import Data.Function
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.List qualified as List
+import Data.Ord
+import Data.Text (Text)
+import Data.Text qualified as T
+import GHC.Generics (Generic)
+import Prelude hiding (lookup)
 
 -- -------------------------------------------------------------------------- --
 -- Cut
@@ -165,7 +139,7 @@ data Cut = Cut'
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-_cutHeaders :: Cut -> (HM.HashMap ChainId BlockHeader)
+_cutHeaders :: Cut -> HM.HashMap ChainId BlockHeader
 _cutHeaders = _cutHeaders'
 {-# INLINE cutHeaders #-}
 
@@ -253,7 +227,7 @@ unsafeMkCut hdrs = Cut'
     , _cutWeight' = sum $ view blockWeight <$> hdrs
     , _cutMinHeight' = minimum $ view blockHeight <$> hdrs
     , _cutMaxHeight' = maximum $ view blockHeight <$> hdrs
-    , _cutIsTransition' =  minheight < lastGraphChange (maxheight)
+    , _cutIsTransition' =  minheight < lastGraphChange maxheight
     }
   where
     minheight = minimum $ view blockHeight <$> hdrs

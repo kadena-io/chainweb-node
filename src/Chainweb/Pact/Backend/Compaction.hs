@@ -34,36 +34,7 @@ module Chainweb.Pact.Backend.Compaction
   )
   where
 
-import "base" Control.Exception hiding (Handler)
-import "base" Control.Monad (forM, forM_, unless, void, when)
-import "base" Control.Monad.IO.Class (MonadIO(liftIO))
-import Control.Monad.Trans.Resource (runResourceT)
-import "base" Data.Function ((&))
-import "base" Data.Int (Int64)
-import "base" Data.Maybe (fromMaybe)
-import "base" Prelude hiding (log)
-import "base" System.Exit (exitFailure)
-import "base" System.IO (Handle)
-import "base" System.IO qualified as IO
-import "chainweb-storage" Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
-import "chainweb-storage" Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import "direct-sqlite" Database.SQLite3 qualified as Lite
-import "direct-sqlite" Database.SQLite3.Direct (Utf8(..), Database)
-import "directory" System.Directory (createDirectoryIfMissing, doesDirectoryExist)
-import "filepath" System.FilePath ((</>))
-import "lens" Control.Lens (set, over, (^.), _3, view)
-import "loglevel" System.LogLevel qualified as LL
-import "monad-control" Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
-import "optparse-applicative" Options.Applicative qualified as O
-import "rocksdb-haskell-kadena" Database.RocksDB.Types (Options(..), Compression(..))
-import "streaming" Streaming qualified as S
-import "streaming" Streaming.Prelude qualified as S
-import "text" Data.Text (Text)
-import "text" Data.Text qualified as Text
-import "unliftio" UnliftIO.Async (pooledForConcurrently_)
-import "yet-another-logger" System.Logger hiding (Logger)
-import "yet-another-logger" System.Logger qualified as YAL
-import "yet-another-logger" System.Logger.Backend.ColorOption (useColor)
+import Control.Exception hiding (Handler)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (blockHeight, blockHash, blockPayloadHash)
 import Chainweb.BlockHeaderDB.Internal (BlockHeaderDb(..), RankedBlockHeader(..))
@@ -77,13 +48,42 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Payload.PayloadStore (addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Pact.Payload.PayloadStore.RocksDB (newPayloadDb)
+import Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
+import Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, HasVersion(..), withVersion, ChainwebVersion(..), chainIdToText)
-import Chainweb.Version.Registry (findKnownVersion)
 import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.Registry (findKnownVersion)
 import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb, initWebBlockHeaderDb)
+import Control.Lens (set, over, (^.), _3, view)
+import Control.Monad (forM, forM_, unless, void, when)
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
+import Control.Monad.Trans.Resource (runResourceT)
+import Data.Function ((&))
+import Data.Int (Int64)
 import Data.LogMessage (SomeLogMessage, logText)
+import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Database.RocksDB.Types (Options(..), Compression(..))
+import Database.SQLite3 qualified as Lite
+import Database.SQLite3.Direct (Utf8(..), Database)
+import Options.Applicative qualified as O
+import Prelude hiding (log)
+import Streaming qualified as S
+import Streaming.Prelude qualified as S
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist)
+import System.Exit (exitFailure)
+import System.FilePath ((</>))
+import System.IO (Handle)
+import System.IO qualified as IO
+import System.LogLevel qualified as LL
+import System.Logger hiding (Logger)
+import System.Logger qualified as YAL
+import System.Logger.Backend.ColorOption (useColor)
+import UnliftIO.Async (pooledForConcurrently_)
 
 withDefaultLogger :: LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
 withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->
@@ -377,7 +377,7 @@ compact cfg = withVersion cfg.chainwebVersion $ do
     pure targetBlockHeight
 
   -- Compact RocksDB.
-  when (not cfg.noRocksDb) $ do
+  unless cfg.noRocksDb $ do
     withRocksDbFileLogger cfg.logDir LL.Debug $ \logger -> do
       withReadOnlyRocksDb (rocksDir cfg.fromDir) modernDefaultOptions $ \srcRocksDb -> do
         withRocksDb (rocksDir cfg.toDir) (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
@@ -388,7 +388,7 @@ compact cfg = withVersion cfg.chainwebVersion $ do
         { keepFullTransactionIndex = cfg.keepFullTransactionIndex
         , compactThese = _compactThese
         }
-  when (not cfg.noPactState) $ do
+  unless cfg.noPactState $ do
     forChains_ cfg.concurrent cids $ \cid -> do
       withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> runResourceT $ do
         srcDb <- withChainDb cid logger (pactDir cfg.fromDir)

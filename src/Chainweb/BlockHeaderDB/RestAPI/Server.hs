@@ -3,10 +3,11 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -31,36 +32,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Lens hiding (children, (.=))
-import Control.Monad
-import Control.Monad.Except (MonadError(..))
-import Control.Monad.IO.Class
-
-import Data.Aeson
-import Data.Binary.Builder (fromByteString, fromLazyByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base16 as B16
-import Data.ByteString.Short (fromShort)
-import Data.Foldable
-import Data.Function
-import Data.Functor.Of
-import Data.IORef
-import Data.Proxy
-import qualified Data.Text as Text
-import Data.Text.Encoding (decodeUtf8)
-import Numeric.Natural(Natural)
-
-import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
-
-import Prelude hiding (lookup)
-
-import Servant.API
-import Servant.Server
-
-import qualified Streaming.Prelude as SP
-
--- internal modules
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
@@ -73,6 +44,27 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Control.Lens hiding (children, (.=))
+import Control.Monad
+import Control.Monad.Except (MonadError(..))
+import Control.Monad.IO.Class
+import Data.Aeson
+import Data.Binary.Builder (fromByteString, fromLazyByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Short (fromShort)
+import Data.Foldable
+import Data.Function
+import Data.Functor.Of
+import Data.IORef
+import Data.Proxy
+import Data.Text.Encoding (decodeUtf8)
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
+import Numeric.Natural(Natural)
+import Prelude hiding (lookup)
+import Servant.API
+import Servant.Server
+import Streaming.Prelude qualified as SP
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -306,9 +298,8 @@ someBlockHeaderDbServers
     :: HasVersion
     => ChainMap BlockHeaderDb
     -> SomeServer
-someBlockHeaderDbServers cdbs = ifoldMap
-    (\cid cdb -> someBlockHeaderDbServer (someBlockHeaderDbVal cid cdb))
-    cdbs
+someBlockHeaderDbServers = ifoldMap $ \cid cdb ->
+    someBlockHeaderDbServer (someBlockHeaderDbVal cid cdb)
 
 someP2pBlockHeaderDbServer :: HasVersion => SomeBlockHeaderDb -> SomeServer
 someP2pBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
@@ -323,7 +314,7 @@ someP2pBlockHeaderDbServers = ifoldMap
 
 someBlockStreamServer :: HasVersion => CutDb -> SomeServer
 someBlockStreamServer  cdb = runIdentity $ do
-    SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
+    SomeChainwebVersionT @v _ <- return someChainwebVersionVal
     Identity $ SomeServer (Proxy @(BlockStreamApi v)) $ blockStreamHandler cdb
 
 blockStreamHandler :: HasVersion => CutDb -> Tagged Handler Application

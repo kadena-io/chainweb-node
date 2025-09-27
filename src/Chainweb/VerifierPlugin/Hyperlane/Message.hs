@@ -1,9 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Chainweb.VerifierPlugin.Hyperlane.Message
@@ -19,5 +15,5 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Message.After225 qualified as After225
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \(cid, bh) proof caps gasRef ->
+plugin = VerifierPlugin $ \(_cid, _bh) proof caps gasRef ->
   After225.runPlugin proof caps gasRef

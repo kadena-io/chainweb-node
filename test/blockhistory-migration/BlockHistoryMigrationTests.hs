@@ -1,6 +1,7 @@
-{-# LANGUAGE RankNTypes, OverloadedStrings #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Main
 ( main
@@ -9,8 +10,6 @@ module Main
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.Graph
-import Chainweb.Logger
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.PactState (qryStream)
@@ -18,35 +17,20 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.PayloadProvider.Pact.BlockHistoryMigration (migrateBlockHistoryTable)
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.MultiNode qualified
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils
 import Chainweb.TreeDB (lookupRankedM)
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.EvmTestnet (evmTestnet)
 import Chainweb.Version.Mainnet
 import Control.Lens
-import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
-import Data.ByteString qualified as BS
-import Data.Function
-import Database.SQLite3.Direct qualified as SQL
-import Streaming qualified as S
 import Streaming.Prelude qualified as S
 import System.Directory
 import System.Environment (lookupEnv)
 import System.FilePath
 import System.IO.Temp
-import System.LogLevel
 import Test.HUnit (assertFailure)
-import Test.Tasty
-import Test.Tasty.HUnit
-
-loglevel :: LogLevel
-loglevel = Warn
 
 cid :: ChainId
 cid = unsafeChainId 1
@@ -101,20 +85,22 @@ main = withSystemTempDirectory "sql-db" $ \dbDir -> do
                     \ ORDER BY A.blockheight, A.endingtxid"
             rty = [RInt, RInt, RBlob, RBlob, RBlob]
 
-        qryStream sql  qstmt [] rty $ \rs -> do
-          rs & flip S.mapM_ $ \[SInt a_bh, SInt a_etxid, SBlob b_hash, SBlob b_payload, SBlob a_hash] -> do
+        _ <- qryStream sql  qstmt [] rty $ \rs -> do
+          rs & flip S.mapM_ $ \case
+            [SInt a_bh, SInt a_etxid, SBlob b_hash, SBlob b_payload, SBlob a_hash] -> do
 
-            assert (a_hash == b_hash) $
-              "Hash mismatch at block " ++ show a_bh ++ " / txid " ++ show a_etxid
+                assert (a_hash == b_hash) $
+                  "Hash mismatch at block " ++ show a_bh ++ " / txid " ++ show a_etxid
 
-            let rowBlockHeight = fromIntegral a_bh
-            rowBlockHash <- runGetS decodeBlockHash a_hash
-            blockHeader <- lookupRankedM bhdb rowBlockHeight rowBlockHash
-            let bph = view blockPayloadHash blockHeader
-                enc = runPutS $ encodeBlockPayloadHash bph
+                let rowBlockHeight = fromIntegral a_bh
+                rowBlockHash <- runGetS decodeBlockHash a_hash
+                blockHeader <- lookupRankedM bhdb rowBlockHeight rowBlockHash
+                let bph = view blockPayloadHash blockHeader
+                    enc = runPutS $ encodeBlockPayloadHash bph
 
-            assert (b_payload == enc) $
-              "Payload Hash mismatch at block " ++ show a_bh ++ " / txid " ++ show a_etxid
+                assert (b_payload == enc) $
+                  "Payload Hash mismatch at block " ++ show a_bh ++ " / txid " ++ show a_etxid
+            r -> error $ "unexpected row shape: " ++ show r
 
         n2' <- nTableEntries sql "BlockHistory2"
         assert (n == n2') "BlockHistory2 has the same number of rows as BlockHistory"

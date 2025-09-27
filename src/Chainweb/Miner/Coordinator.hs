@@ -1,27 +1,20 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Miner.Coordinator
@@ -245,8 +238,8 @@ instance Brief ParentState where
 -- -------------------------------------------------------------------------- --
 -- Mining State
 
-newMiningState :: HasVersion => Cut -> IO (ChainMap (TVar (Maybe ParentState)))
-newMiningState c = do
+newMiningState :: HasVersion => IO (ChainMap (TVar (Maybe ParentState)))
+newMiningState = do
     states <- forM cids $ \cid -> do
         var <- newTVarIO Nothing
         return (cid, var)
@@ -267,12 +260,11 @@ newMiningState c = do
 --
 updateForCut
     :: HasVersion
-    => LogFunctionText
-    -> (ChainValue BlockHash -> IO BlockHeader)
-    -> (ChainMap (TVar (Maybe ParentState)))
+    => (ChainValue BlockHash -> IO BlockHeader)
+    -> ChainMap (TVar (Maybe ParentState))
     -> Cut
     -> IO ()
-updateForCut lf hdb ms c = do
+updateForCut hdb ms c = do
     forM_ (HM.keys (c ^. cutMap)) forChain
   where
     forChain cid = do
@@ -390,8 +382,7 @@ newMiningCoordination
     -> CutDb
     -> IO (MiningCoordination logger)
 newMiningCoordination logger conf cdb = do
-    c <- _cut cdb
-    state <- newMiningState c
+    state <- newMiningState
     caches <- newPayloadCaches
     return $ MiningCoordination
         { _coordLogger = logger
@@ -441,13 +432,6 @@ runCoordination mr = do
 
     cdb = _coordCutDb mr
 
-    providers = view cutDbPayloadProviders $ _coordCutDb mr
-    withProvider :: ChainId -> (forall p. PayloadProvider p => p -> a) -> a
-    withProvider cid k = case providers ^?! atChain cid of
-        ConfiguredPayloadProvider p -> k p
-        DisabledPayloadProvider ->
-            error $ "payload provider disabled on chain " <> sshow cid <> ", which is illegal for miners"
-
     -- Update the work state
     --
     updateWork = runForever lf "miningCoordination" $ do
@@ -455,7 +439,7 @@ runCoordination mr = do
         eventStream cdb caches
             & S.chain (\e -> lf Debug $ "coordination event: " <> brief e)
             & S.mapM_ \case
-                CutEvent c -> updateForCut lf f state c
+                CutEvent c -> updateForCut f state c
                 NewPayloadEvent _ -> return ()
                 -- There is a race with solved events. Does it matter?
                 -- We could synchronize those by delivering those via an
@@ -464,8 +448,8 @@ runCoordination mr = do
 
     initializeState = do
         lf Debug "initialize mining state"
-        curCut <- _cut $ cdb
-        updateForCut lf f state curCut
+        curCut <- _cut cdb
+        updateForCut f state curCut
         lf Debug "done initializing mining state for all chains"
 
 -- | Note that this stream is lossy. It always delivers the latest available
@@ -600,7 +584,7 @@ randomWork logFun cdb caches parentStateVars = do
 
     go [] = do
 
-        logFun @T.Text Info $ "randomWork: no work is ready. Awaiting work"
+        logFun @T.Text Info "randomWork: no work is ready. Awaiting work"
 
         -- We shall check for the following conditions:
         --
@@ -641,8 +625,7 @@ randomWork logFun cdb caches parentStateVars = do
                 -- FIXME: throw a proper exception and log what is going on
 
     go ((cid, var):t) = do
-        readyCheck <- atomically $
-            Just <$> awaitWorkReady cid var <|> pure Nothing
+        readyCheck <- atomically $ optional $ awaitWorkReady cid var
         case readyCheck of
             Just (parents, payload) -> do
                 ct <- BlockCreationTime <$> getCurrentTimeIntegral
@@ -678,7 +661,7 @@ randomWork logFun cdb caches parentStateVars = do
                 [ (cid, p) | (cid, Just p) <- itoList parentStates ]
         payloads <- forM
             (chainIntersect (,) chainsWithParents caches)
-            (\(parent, cache) -> Just <$> awaitLatestPayloadForParentStateSTM cache parent <|> return Nothing)
+            (\(parent, cache) -> optional $ awaitLatestPayloadForParentStateSTM cache parent)
         let chainsWithMissingPayloads =
                 [ cid | (cid, Nothing) <- itoList payloads ]
         c <- _cutStm cdb
@@ -780,4 +763,4 @@ logMinedBlock lf bh np = do
         }
 
 publish :: CutDb -> CutHashes -> IO ()
-publish cdb ch = addCutHashes cdb ch
+publish = addCutHashes
