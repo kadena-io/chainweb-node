@@ -41,6 +41,7 @@ module Chainweb.CutDB
 , cutDbParamsPruningFrequency
 , cutDbParamsReadOnly
 , defaultCutDbParams
+, defaultCutDbParamsWithMetrics
 , farAheadThreshold
 
 -- * Cut Hashes Table
@@ -128,6 +129,10 @@ import System.LogLevel
 import qualified System.Random.MWC as Prob
 import System.Timeout
 
+-- metrics imports
+import qualified Chainweb.Metrics.Blockchain as Metrics
+import Data.Time (getCurrentTime, diffUTCTime)
+
 -- internal modules
 
 import Chainweb.BlockHash
@@ -178,7 +183,9 @@ data CutDbParams = CutDbParams
     , _cutDbParamsReadOnly :: !Bool
     -- ^ Should the cut store be read-only?
     -- Enabled during replay-only mode.
-    --
+
+    , _cutDbParamsMetrics :: !(Maybe Metrics.ChainMetricsState)
+    -- ^ Optional metrics collection state
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -196,9 +203,16 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
     , _cutDbParamsReadOnly = False
+    , _cutDbParamsMetrics = Nothing
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
+
+-- | Create CutDbParams with metrics enabled
+defaultCutDbParamsWithMetrics :: ChainwebVersion -> Int -> Metrics.ChainMetricsState -> CutDbParams
+defaultCutDbParamsWithMetrics v ft metricsState = (defaultCutDbParams v ft)
+    { _cutDbParamsMetrics = Just metricsState
+    }
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -266,6 +280,7 @@ data CutDb tbl = CutDb
     , _cutDbQueueSize :: !Natural
     , _cutDbReadOnly :: !Bool
     , _cutDbFastForwardHeightLimit :: !(Maybe BlockHeight)
+    , _cutDbMetrics :: !(Maybe Metrics.ChainMetricsState)
     }
 
 instance HasChainwebVersion (CutDb tbl) where
@@ -450,6 +465,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         , _cutDbCutStore = cutHashesStore
         , _cutDbReadOnly = _cutDbParamsReadOnly config
         , _cutDbFastForwardHeightLimit = _cutDbParamsFastForwardHeightLimit config
+        , _cutDbMetrics = _cutDbParamsMetrics config
         }
   where
     logg = logfun @T.Text
@@ -569,6 +585,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         -- by keeping the value of cutVar in memory. We use the S.mapM variant with
         -- an redundant 'readTVarIO' because it is easier to read.
         & S.mapM_ (\newCut -> do
+            startTime <- getCurrentTime
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
@@ -577,6 +594,20 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
                 loggCutId logFun Debug newCut "writing cut"
                 casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
+            endTime <- getCurrentTime
+            let duration = diffUTCTime endTime startTime
+
+            -- Record cut advancement metrics if available
+            case _cutDbParamsMetrics conf of
+                Just metricsState -> do
+                    let cutHeight = fromIntegral $ _blockHeight $ cutAvgBlockHeight v resultCut
+                    -- Record metrics for all chains in the cut
+                    mapM_ (\(chainId, _header) -> do
+                        chainMetrics <- Metrics.getChainMetrics metricsState chainId
+                        Metrics.recordCutAdvancement chainMetrics duration (fromIntegral cutHeight)
+                        Metrics.recordConsensusStateTransition chainMetrics
+                        ) (HM.toList $ _cutMap resultCut)
+                Nothing -> pure ()
             let cutDiff = cutDiffToTextShort curCut resultCut
             let currentCutIdMsg = T.unwords
                     [ "current cut is now"

@@ -28,6 +28,10 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 
 -- * Header Stream Server
 , someBlockStreamServer
+
+-- * Metrics Server
+, metricsHandler
+, p2pMetricsHandler
 ) where
 
 import Control.Applicative
@@ -56,6 +60,7 @@ import Prelude hiding (lookup)
 
 import Servant.API
 import Servant.Server
+import qualified Data.Text as T
 
 import qualified Streaming.Prelude as SP
 
@@ -77,6 +82,9 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
 import Chainweb.Block
+
+import qualified P2P.Metrics
+import P2P.Metrics (P2pMetrics)
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -120,6 +128,34 @@ err400Msg msg = ServerError
     , errHeaders = []
     }
 
+-- | Validate branch bounds against the limit
+validateBranchBounds
+    :: MonadError ServerError m
+    => BranchBounds db
+    -> BranchBoundsLimit
+    -> m ()
+validateBranchBounds bounds (BranchBoundsLimit boundsLimit) = do
+    when (fromIntegral (length (_branchBoundsUpper bounds)) > boundsLimit) $
+        throwError $ err400Msg $
+            "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+    when (fromIntegral (length (_branchBoundsLower bounds)) > boundsLimit) $
+        throwError $ err400Msg $
+            "lower branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+
+-- | Calculate the effective limit for paging
+calculateEffectiveLimit :: Limit -> Maybe Limit -> Maybe Limit
+calculateEffectiveLimit maxLimit maybeLimit = min maxLimit <$> (maybeLimit <|> Just maxLimit)
+
+-- | Fetch block payload with height
+fetchBlockPayload
+    :: CanReadablePayloadCas tbl
+    => PayloadDb tbl
+    -> BlockHeader
+    -> IO Block
+fetchBlockPayload pdb h = do
+    Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
+    pure (Block h x)
+
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
@@ -161,21 +197,17 @@ branchHashesHandler
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-branchHashesHandler db limit next minr maxr bounds
-    | fromIntegral (length (_branchBoundsUpper bounds)) > getBranchBoundsLimit defaultBoundsLimit = throwError $ err400Msg $
-        "upper branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
-    | fromIntegral (length (_branchBoundsLower bounds)) > getBranchBoundsLimit defaultBoundsLimit = throwError $ err400Msg $
-        "lower branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
-    | otherwise = do
-        nextChecked <- traverse (traverse $ checkKey db) next
-        checkedBounds <- checkBounds db bounds
-        liftIO
-            $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
-                (_branchBoundsLower checkedBounds)
-                (_branchBoundsUpper checkedBounds)
-            $ finiteStreamToPage id effectiveLimit . void
+branchHashesHandler db limit next minr maxr bounds = do
+    validateBranchBounds bounds defaultBoundsLimit
+    nextChecked <- traverse (traverse $ checkKey db) next
+    checkedBounds <- checkBounds db bounds
+    liftIO
+        $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
+            (_branchBoundsLower checkedBounds)
+            (_branchBoundsUpper checkedBounds)
+        $ finiteStreamToPage id effectiveLimit . void
   where
-    effectiveLimit = min defaultKeyLimit <$> (limit <|> Just defaultKeyLimit)
+    effectiveLimit = calculateEffectiveLimit defaultKeyLimit limit
 
 -- | Query Branch Headers of the database.
 --
@@ -194,21 +226,17 @@ branchHeadersHandler
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-branchHeadersHandler db (BranchBoundsLimit boundsLimit) maxLimit limit next minr maxr bounds
-    | fromIntegral (length (_branchBoundsUpper bounds)) > boundsLimit = throwError $ err400Msg $
-        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | fromIntegral (length (_branchBoundsLower bounds)) > boundsLimit = throwError $ err400Msg $
-        "lower branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | otherwise = do
-        nextChecked <- traverse (traverse $ checkKey db) next
-        checkedBounds <- checkBounds db bounds
-        liftIO
-            $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
-                (_branchBoundsLower checkedBounds)
-                (_branchBoundsUpper checkedBounds)
-            $ finiteStreamToPage key effectiveLimit . void
+branchHeadersHandler db boundsLimit maxLimit limit next minr maxr bounds = do
+    validateBranchBounds bounds boundsLimit
+    nextChecked <- traverse (traverse $ checkKey db) next
+    checkedBounds <- checkBounds db bounds
+    liftIO
+        $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
+            (_branchBoundsLower checkedBounds)
+            (_branchBoundsUpper checkedBounds)
+        $ finiteStreamToPage key effectiveLimit . void
   where
-    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
+    effectiveLimit = calculateEffectiveLimit maxLimit limit
 
 -- | Query Branch Blocks of the database.
 --
@@ -227,25 +255,17 @@ branchBlocksHandler
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> Handler (Page (NextItem BlockHash) Block)
-branchBlocksHandler bhdb pdb (BranchBoundsLimit boundsLimit) maxLimit limit next minr maxr bounds
-    | fromIntegral (length (_branchBoundsUpper bounds)) > boundsLimit = throwError $ err400Msg $
-        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | fromIntegral (length (_branchBoundsLower bounds)) > boundsLimit = throwError $ err400Msg $
-        "lower branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | otherwise = do
-        nextChecked <- traverse (traverse $ checkKey bhdb) next
-        checkedBounds <- checkBounds bhdb bounds
-        liftIO
-            $ branchEntries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
-                (_branchBoundsLower checkedBounds)
-                (_branchBoundsUpper checkedBounds)
-            $ finiteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM grabPayload
+branchBlocksHandler bhdb pdb boundsLimit maxLimit limit next minr maxr bounds = do
+    validateBranchBounds bounds boundsLimit
+    nextChecked <- traverse (traverse $ checkKey bhdb) next
+    checkedBounds <- checkBounds bhdb bounds
+    liftIO
+        $ branchEntries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
+            (_branchBoundsLower checkedBounds)
+            (_branchBoundsUpper checkedBounds)
+        $ finiteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM (fetchBlockPayload pdb)
   where
-    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
-    grabPayload :: BlockHeader -> IO Block
-    grabPayload h = do
-        Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
-        pure (Block h x)
+    effectiveLimit = calculateEffectiveLimit maxLimit limit
 
 -- | Every `TreeDb` key within a given range.
 --
@@ -267,7 +287,7 @@ hashesHandler db limit next minr maxr = do
         $ finitePrefixOfInfiniteStreamToPage id effectiveLimit
         . void
   where
-    effectiveLimit = min defaultKeyLimit <$> (limit <|> Just defaultKeyLimit)
+    effectiveLimit = calculateEffectiveLimit defaultKeyLimit limit
 
 -- | Every `TreeDb` entry within a given range.
 --
@@ -290,7 +310,7 @@ headersHandler db maxLimit limit next minr maxr = do
         $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
         $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
   where
-    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
+    effectiveLimit = calculateEffectiveLimit maxLimit limit
 
 -- | Every block within a given range.
 --
@@ -311,13 +331,9 @@ blocksHandler bhdb pdb maxLimit limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey bhdb) next
     liftIO
         $ entries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
-        $ finitePrefixOfInfiniteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM grabPayload
+        $ finitePrefixOfInfiniteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM (fetchBlockPayload pdb)
   where
-    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
-    grabPayload :: BlockHeader -> IO Block
-    grabPayload h = do
-        Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
-        pure (Block h x)
+    effectiveLimit = calculateEffectiveLimit maxLimit limit
 
 -- | Query a single 'BlockHeader' by its 'BlockHash'
 --
@@ -430,3 +446,15 @@ blockStreamHandler db withPayloads = Tagged $ \req resp -> do
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
         [ fromLazyByteString . encode $ toJSON hu ]
+
+-- -------------------------------------------------------------------------- --
+-- Metrics Handlers
+
+-- | Generic metrics handler that exports metrics in Prometheus format
+metricsHandler :: P2pMetrics -> Handler T.Text
+metricsHandler metrics = liftIO $ P2P.Metrics.collectMetrics metrics
+
+-- | P2P specific metrics handler
+p2pMetricsHandler :: Maybe P2pMetrics -> Handler T.Text
+p2pMetricsHandler Nothing = throwError $ err503 { errReasonPhrase = "Metrics not enabled" }
+p2pMetricsHandler (Just metrics) = metricsHandler metrics

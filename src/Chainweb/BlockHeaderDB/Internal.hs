@@ -80,12 +80,18 @@ import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
 
+-- metrics
+import qualified Chainweb.Metrics.Blockchain as Metrics
+import Control.Monad.IO.Class (liftIO)
+import Data.Time (getCurrentTime, diffUTCTime)
+
 -- -------------------------------------------------------------------------- --
 -- | Configuration of the chain DB.
 --
 data Configuration = Configuration
     { _configRoot :: !BlockHeader
     , _configRocksDb :: !RocksDb
+    , _configMetrics :: !(Maybe Metrics.ChainMetricsState)
     }
 
 -- -------------------------------------------------------------------------- --
@@ -155,6 +161,9 @@ data BlockHeaderDb = BlockHeaderDb
     , _chainDbRankTable :: !(RocksDbTable BlockHash BlockHeight)
         -- ^ This index supports lookup of a block hash for which the height
         -- isn't known
+
+    , _chainDbMetrics :: !(Maybe Metrics.ChainMetricsState)
+        -- ^ Optional metrics collection state
     }
 
 instance HasChainId BlockHeaderDb where
@@ -179,7 +188,18 @@ instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHead
 -- Updates all indices.
 --
 dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
-dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
+dbAddChecked db e = do
+    startTime <- getCurrentTime
+    unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
+    endTime <- getCurrentTime
+    let duration = diffUTCTime endTime startTime
+
+    -- Record metrics if available
+    case _chainDbMetrics db of
+        Just metricsState -> do
+            Metrics.recordBlockInsertion metricsState (_chainDbId db) e duration
+            Metrics.recordBlockHeight metricsState (_chainDbId db) (view blockHeight e)
+        Nothing -> pure ()
   where
     r = int $ rank e
     ek = RankedBlockHash r (view blockHash e)
@@ -239,6 +259,7 @@ initBlockHeaderDb config = do
         (_chainwebVersion rootEntry)
         headerTable
         rankTable
+        (_configMetrics config)
 
 -- | Close a database handle and release all resources
 --
@@ -256,6 +277,23 @@ withBlockHeaderDb db v cid = bracket start closeBlockHeaderDb
     start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader v cid
         , _configRocksDb = db
+        , _configMetrics = Nothing
+        }
+
+-- | Create a BlockHeaderDb with metrics enabled
+withBlockHeaderDbMetrics
+    :: RocksDb
+    -> ChainwebVersion
+    -> ChainId
+    -> Metrics.ChainMetricsState
+    -> (BlockHeaderDb -> IO b)
+    -> IO b
+withBlockHeaderDbMetrics db v cid metricsState = bracket start closeBlockHeaderDb
+  where
+    start = initBlockHeaderDb Configuration
+        { _configRoot = genesisBlockHeader v cid
+        , _configRocksDb = db
+        , _configMetrics = Just metricsState
         }
 
 -- -------------------------------------------------------------------------- --

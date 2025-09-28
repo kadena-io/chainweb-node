@@ -1,0 +1,328 @@
+# Resource and Database Alert Rules for Chainweb
+# Alerts for system resource exhaustion, database issues, and capacity management
+# Covers CPU, memory, disk usage, and database operations
+
+groups:
+  - name: chainweb-system-resources-critical
+    interval: 30s
+    rules:
+      # Critical: High CPU usage (>90%)
+      - alert: ChainwebHighCPUUsage
+        expr: |
+          chainweb_system_cpu_usage_percent > 90
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: system
+          alert_type: cpu_exhaustion
+        annotations:
+          summary: "Critical CPU usage on Chainweb node"
+          description: |
+            CPU usage: {{ $value }}%
+            The node is experiencing critical CPU exhaustion which may impact all operations.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#cpu-exhaustion"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Critical: High memory usage (>85%)
+      - alert: ChainwebHighMemoryUsage
+        expr: |
+          chainweb_system_memory_usage_percent > 85
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: system
+          alert_type: memory_exhaustion
+        annotations:
+          summary: "Critical memory usage on Chainweb node"
+          description: |
+            Memory usage: {{ $value }}%
+            Available memory: {{ query "chainweb_system_memory_available_bytes" | first | value | humanizeBytes }}
+            The node is at risk of OOM conditions.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#memory-exhaustion"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Critical: Disk space exhaustion (>90%)
+      - alert: ChainwebDiskSpaceExhaustion
+        expr: |
+          chainweb_system_disk_usage_percent > 90
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: system
+          alert_type: disk_exhaustion
+        annotations:
+          summary: "Critical disk space usage on Chainweb node"
+          description: |
+            Disk usage: {{ $value }}%
+            Available space: {{ query "chainweb_system_disk_available_bytes" | first | value | humanizeBytes }}
+            The node may stop functioning if disk space is exhausted.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#disk-exhaustion"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Critical: High GC pause times (>1s)
+      - alert: ChainwebHighGCPauses
+        expr: |
+          histogram_quantile(0.95, chainweb_system_gc_pause_duration_seconds_bucket) > 1.0
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: system
+          alert_type: gc_pauses
+        annotations:
+          summary: "Critical GC pause times detected"
+          description: |
+            GC pause duration (95th percentile): {{ $value }}s
+            Long GC pauses severely impact node responsiveness.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#gc-pauses"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Critical: Database size growth anomaly
+      - alert: ChainwebDatabaseSizeAnomalyGrowth
+        expr: |
+          (
+            rate(chainweb_system_database_size_bytes[1h]) /
+            avg_over_time(chainweb_system_database_size_bytes[24h])
+          ) > 0.1
+        for: 30m
+        labels:
+          severity: critical
+          subsystem: database
+          alert_type: size_anomaly
+        annotations:
+          summary: "Abnormal database size growth detected"
+          description: |
+            Database growth rate: {{ $value | humanizePercentage }} per hour
+            This indicates potential data corruption or attack.
+            Current size: {{ query "chainweb_system_database_size_bytes" | first | value | humanizeBytes }}
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#size-anomaly"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+  - name: chainweb-database-critical
+    interval: 60s
+    rules:
+      # Critical: RocksDB high read latency
+      - alert: ChainwebRocksDBHighReadLatency
+        expr: |
+          histogram_quantile(0.95, chainweb_database_read_duration_seconds_bucket) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          subsystem: database
+          alert_type: read_latency
+        annotations:
+          summary: "High RocksDB read latency for chain {{ $labels.chain_id }}"
+          description: |
+            Database read latency (95th percentile): {{ $value }}s
+            This indicates serious database performance issues.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#read-latency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+      # Critical: RocksDB high write latency
+      - alert: ChainwebRocksDBHighWriteLatency
+        expr: |
+          histogram_quantile(0.95, chainweb_database_write_duration_seconds_bucket) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: database
+          alert_type: write_latency
+        annotations:
+          summary: "High RocksDB write latency for chain {{ $labels.chain_id }}"
+          description: |
+            Database write latency (95th percentile): {{ $value }}s
+            This severely impacts block processing performance.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#write-latency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+      # Critical: Low cache hit rate
+      - alert: ChainwebRocksDBLowCacheHitRate
+        expr: |
+          chainweb_database_cache_hit_rate < 0.8
+        for: 5m
+        labels:
+          severity: critical
+          subsystem: database
+          alert_type: cache_hit_rate
+        annotations:
+          summary: "Low RocksDB cache hit rate for chain {{ $labels.chain_id }}"
+          description: |
+            Cache hit rate: {{ $value | humanizePercentage }}
+            Low cache hit rates indicate insufficient memory allocation or cache thrashing.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#cache-hit-rate"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+      # Critical: Compaction failures
+      - alert: ChainwebRocksDBCompactionFailures
+        expr: |
+          rate(chainweb_database_compaction_failures_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: database
+          alert_type: compaction_failure
+        annotations:
+          summary: "RocksDB compaction failures detected for chain {{ $labels.chain_id }}"
+          description: |
+            Compaction failure rate: {{ $value }} per second
+            Compaction failures can lead to performance degradation and space issues.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#compaction-failures"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+      # Critical: Backup operation failures
+      - alert: ChainwebBackupOperationFailures
+        expr: |
+          rate(chainweb_database_backup_failures_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          subsystem: database
+          alert_type: backup_failure
+        annotations:
+          summary: "Database backup failures detected"
+          description: |
+            Backup failure rate: {{ $value }} per hour
+            Failed backups compromise data recovery capabilities.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#backup-failures"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+  - name: chainweb-system-resources-warning
+    interval: 60s
+    rules:
+      # Warning: Elevated CPU usage (>70%)
+      - alert: ChainwebElevatedCPUUsage
+        expr: |
+          chainweb_system_cpu_usage_percent > 70
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: system
+          alert_type: elevated_cpu
+        annotations:
+          summary: "Elevated CPU usage on Chainweb node"
+          description: |
+            CPU usage: {{ $value }}%
+            Monitor for potential performance impact.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#elevated-cpu"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Warning: High memory usage (>70%)
+      - alert: ChainwebHighMemoryPressure
+        expr: |
+          chainweb_system_memory_usage_percent > 70
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: system
+          alert_type: memory_pressure
+        annotations:
+          summary: "High memory pressure on Chainweb node"
+          description: |
+            Memory usage: {{ $value }}%
+            Consider monitoring for memory leaks or optimizing memory usage.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#memory-pressure"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Warning: Disk space usage (>80%)
+      - alert: ChainwebHighDiskUsage
+        expr: |
+          chainweb_system_disk_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: system
+          alert_type: high_disk_usage
+        annotations:
+          summary: "High disk usage on Chainweb node"
+          description: |
+            Disk usage: {{ $value }}%
+            Plan for disk space management before reaching critical levels.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#high-disk-usage"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Warning: Increased thread count
+      - alert: ChainwebHighThreadCount
+        expr: |
+          chainweb_system_thread_count > 1000
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: system
+          alert_type: thread_count
+        annotations:
+          summary: "High thread count detected"
+          description: |
+            Thread count: {{ $value }}
+            Monitor for potential thread leaks or excessive concurrency.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#thread-count"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Warning: Compaction delays
+      - alert: ChainwebRocksDBCompactionDelays
+        expr: |
+          avg_over_time(chainweb_database_compaction_duration_seconds[10m]) > 300
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: database
+          alert_type: compaction_delay
+        annotations:
+          summary: "RocksDB compaction delays for chain {{ $labels.chain_id }}"
+          description: |
+            Average compaction duration: {{ $value }}s (last 10 minutes)
+            Long compaction times may impact performance.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#compaction-delays"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+  - name: chainweb-system-resources-info
+    interval: 120s
+    rules:
+      # Info: GC frequency monitoring
+      - alert: ChainwebGCFrequency
+        expr: |
+          rate(chainweb_system_gc_count_total[5m]) > 2
+        for: 10m
+        labels:
+          severity: info
+          subsystem: system
+          alert_type: gc_frequency
+        annotations:
+          summary: "High GC frequency detected"
+          description: |
+            GC frequency: {{ $value }} per second
+            Monitor memory allocation patterns.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#gc-frequency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"
+
+      # Info: Database size growth monitoring
+      - alert: ChainwebDatabaseSizeGrowth
+        expr: |
+          rate(chainweb_system_database_size_bytes[24h]) > 1073741824  # 1GB per day
+        for: 1h
+        labels:
+          severity: info
+          subsystem: database
+          alert_type: size_growth
+        annotations:
+          summary: "Database size growth monitoring"
+          description: |
+            Database growth rate: {{ $value | humanizeBytes }} per day
+            Monitor for capacity planning purposes.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/database-issues.md#size-growth"
+          dashboard_url: "https://grafana.example.com/d/chainweb-database"
+
+      # Info: Memory allocation rate monitoring
+      - alert: ChainwebMemoryAllocationRate
+        expr: |
+          rate(chainweb_system_memory_allocated_bytes[5m]) > 104857600  # 100MB/s
+        for: 10m
+        labels:
+          severity: info
+          subsystem: system
+          alert_type: allocation_rate
+        annotations:
+          summary: "High memory allocation rate"
+          description: |
+            Memory allocation rate: {{ $value | humanizeBytes }} per second
+            Monitor for potential memory pressure.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/resource-alerts.md#allocation-rate"
+          dashboard_url: "https://grafana.example.com/d/chainweb-system"

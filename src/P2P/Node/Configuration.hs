@@ -29,6 +29,8 @@ module P2P.Node.Configuration
 , p2pConfigKnownPeers
 , p2pConfigIgnoreBootstrapNodes
 , p2pConfigBootstrapReachability
+, p2pConfigEnableMetrics
+, p2pConfigDebugLogging
 , defaultP2pConfiguration
 , validateP2pConfiguration
 , pP2pConfiguration
@@ -101,6 +103,10 @@ data P2pConfiguration = P2pConfiguration
     , _p2pConfigValidateSpec :: !Bool
         -- ^ enable OpenAPI specification validation for requests and responses.
         -- this will likely cause significant performance degradation.
+    , _p2pConfigEnableMetrics :: !Bool
+        -- ^ enable Prometheus metrics collection for P2P networking
+    , _p2pConfigDebugLogging :: !Bool
+        -- ^ enable verbose debug logging for P2P connections
     }
     deriving (Show, Eq, Generic)
 
@@ -125,6 +131,8 @@ defaultP2pConfiguration = P2pConfiguration
     , _p2pConfigBootstrapReachability = 0.5
     , _p2pConfigTls = True
     , _p2pConfigValidateSpec = False
+    , _p2pConfigEnableMetrics = False
+    , _p2pConfigDebugLogging = False
     }
 
 validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
@@ -173,6 +181,8 @@ instance ToJSON P2pConfiguration where
         -- hidden: Do not print the default value.
         <> [ "tls" .= _p2pConfigTls o | not (_p2pConfigTls o) ]
         <> [ "validateSpec" .= _p2pConfigValidateSpec o | _p2pConfigValidateSpec o ]
+        <> [ "enableMetrics" .= _p2pConfigEnableMetrics o | _p2pConfigEnableMetrics o ]
+        <> [ "debugLogging" .= _p2pConfigDebugLogging o | _p2pConfigDebugLogging o ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
     parseJSON = withObject "P2pConfiguration" $ \o -> id
@@ -186,6 +196,8 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigBootstrapReachability ..: "bootstrapReachability" % o
         <*< p2pConfigTls ..: "tls" % o
         <*< p2pConfigValidateSpec ..: "validateSpec" % o
+        <*< p2pConfigEnableMetrics ..: "enableMetrics" % o
+        <*< p2pConfigDebugLogging ..: "debugLogging" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -199,6 +211,8 @@ instance FromJSON P2pConfiguration where
         <*> o .: "bootstrapReachability"
         <*> o .:? "tls" .!= True
         <*> o .:? "validateSpec" .!= False
+        <*> o .:? "enableMetrics" .!= False
+        <*> o .:? "debugLogging" .!= False
 
 pP2pConfiguration :: MParser P2pConfiguration
 pP2pConfiguration = id
@@ -230,6 +244,12 @@ pP2pConfiguration = id
     <*< p2pConfigValidateSpec .:: enableDisableFlag
         % prefixLong net "validate-spec"
         <> internal -- hidden option, only for expert use
+    <*< p2pConfigEnableMetrics .:: enableDisableFlag
+        % prefixLong net "p2p-enable-metrics"
+        <> help "enable Prometheus metrics collection for P2P networking"
+    <*< p2pConfigDebugLogging .:: enableDisableFlag
+        % prefixLong net "p2p-debug-logging"
+        <> help "enable verbose debug logging for P2P connections"
   where
     net = Nothing
 

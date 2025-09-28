@@ -15,6 +15,7 @@ module Chainweb.BlockHeaderDB
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
+, withBlockHeaderDbMetrics
 ) where
 
 -- internal imports

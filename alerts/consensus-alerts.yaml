@@ -1,0 +1,233 @@
+# Consensus and Chain Health Alert Rules for Chainweb
+# Critical alerts for blockchain consensus failures, chain synchronization issues, and cut advancement problems
+# Severity levels: critical (consensus failure, complete stagnation), warning (slow advancement, minor divergence), info (temporary delays)
+
+groups:
+  - name: chainweb-consensus-critical
+    interval: 30s
+    rules:
+      # Critical: Cut height stagnation - no advancement for >5 minutes
+      - alert: ChainwebCutHeightStagnation
+        expr: |
+          increase(chainweb_blockchain_cut_height[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          subsystem: consensus
+          alert_type: stagnation
+        annotations:
+          summary: "Chainweb cut height has not advanced for {{ $labels.chain_id }}"
+          description: |
+            Cut height for chain {{ $labels.chain_id }} has not advanced in the last 5 minutes.
+            Current cut height: {{ $value }}
+            This indicates a complete consensus stagnation which can lead to transaction processing halts.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#cut-stagnation"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+      # Critical: Chain height divergence - chains falling behind >10 blocks
+      - alert: ChainwebChainHeightDivergence
+        expr: |
+          (
+            max(chainweb_blockchain_block_height) by (instance) -
+            min(chainweb_blockchain_block_height) by (instance)
+          ) > 10
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: consensus
+          alert_type: divergence
+        annotations:
+          summary: "Chainweb chains have diverged significantly"
+          description: |
+            Chain height divergence detected: {{ $value }} blocks difference.
+            Max height: {{ query "max(chainweb_blockchain_block_height)" | first | value }}
+            Min height: {{ query "min(chainweb_blockchain_block_height)" | first | value }}
+            This indicates potential consensus issues or network partitioning.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#chain-divergence"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+      # Critical: Block height stagnation per chain
+      - alert: ChainwebBlockHeightStagnation
+        expr: |
+          increase(chainweb_blockchain_block_height[10m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+          subsystem: consensus
+          alert_type: stagnation
+        annotations:
+          summary: "Chain {{ $labels.chain_id }} block height has stagnated"
+          description: |
+            Block height for chain {{ $labels.chain_id }} has not increased in 10 minutes.
+            Current height: {{ $value }}
+            This may indicate mining issues, network problems, or consensus failures.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#block-stagnation"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+      # Critical: High orphan block rate indicates potential forks
+      - alert: ChainwebHighOrphanBlockRate
+        expr: |
+          (
+            rate(chainweb_blockchain_orphan_blocks_total[5m]) /
+            rate(chainweb_blockchain_blocks_processed_total[5m])
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: consensus
+          alert_type: fork_detection
+        annotations:
+          summary: "High orphan block rate detected for chain {{ $labels.chain_id }}"
+          description: |
+            Orphan block rate is {{ $value | humanizePercentage }} for chain {{ $labels.chain_id }}.
+            This indicates potential network forks or consensus instability.
+            Orphan blocks in 5m: {{ query "rate(chainweb_blockchain_orphan_blocks_total[5m]) * 300" | first | value }}
+            Total blocks in 5m: {{ query "rate(chainweb_blockchain_blocks_processed_total[5m]) * 300" | first | value }}
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#high-orphan-rate"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+      # Critical: Consensus state transition anomalies
+      - alert: ChainwebAbnormalConsensusTransitions
+        expr: |
+          rate(chainweb_blockchain_consensus_state_transitions_total[5m]) > 2
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: consensus
+          alert_type: state_transition
+        annotations:
+          summary: "Abnormal consensus state transitions for chain {{ $labels.chain_id }}"
+          description: |
+            High rate of consensus state transitions ({{ $value }} per second) detected for chain {{ $labels.chain_id }}.
+            This may indicate rapid fork switching or consensus instability.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#consensus-transitions"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+  - name: chainweb-consensus-warning
+    interval: 60s
+    rules:
+      # Warning: Slow cut advancement
+      - alert: ChainwebSlowCutAdvancement
+        expr: |
+          avg_over_time(chainweb_blockchain_cut_advancement_duration_seconds[5m]) > 30
+        for: 3m
+        labels:
+          severity: warning
+          subsystem: consensus
+          alert_type: slow_advancement
+        annotations:
+          summary: "Slow cut advancement detected for chain {{ $labels.chain_id }}"
+          description: |
+            Cut advancement taking {{ $value }}s on average (last 5 minutes) for chain {{ $labels.chain_id }}.
+            Normal advancement should be under 30 seconds.
+            This may indicate processing bottlenecks or network issues.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#slow-cut-advancement"
+          dashboard_url: "https://grafana.example.com/d/chainweb-performance"
+
+      # Warning: Minor chain height divergence
+      - alert: ChainwebMinorChainDivergence
+        expr: |
+          (
+            max(chainweb_blockchain_block_height) by (instance) -
+            min(chainweb_blockchain_block_height) by (instance)
+          ) > 5 and <= 10
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: consensus
+          alert_type: minor_divergence
+        annotations:
+          summary: "Minor chain height divergence detected"
+          description: |
+            Chain height divergence: {{ $value }} blocks difference.
+            This is within acceptable limits but should be monitored.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#minor-divergence"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+      # Warning: Slow block processing
+      - alert: ChainwebSlowBlockProcessing
+        expr: |
+          avg_over_time(chainweb_blockchain_block_insertion_duration_seconds[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          subsystem: consensus
+          alert_type: slow_processing
+        annotations:
+          summary: "Slow block processing for chain {{ $labels.chain_id }}"
+          description: |
+            Average block insertion duration: {{ $value }}s (last 5 minutes) for chain {{ $labels.chain_id }}.
+            Normal processing should be under 5 seconds.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#slow-block-processing"
+          dashboard_url: "https://grafana.example.com/d/chainweb-performance"
+
+      # Warning: Reduced active chain count
+      - alert: ChainwebReducedActiveChains
+        expr: |
+          chainweb_blockchain_active_chain_count < 15
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: consensus
+          alert_type: inactive_chains
+        annotations:
+          summary: "Reduced number of active chains"
+          description: |
+            Only {{ $value }} chains are currently active (expected: ~20).
+            This may indicate network issues or node synchronization problems.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#inactive-chains"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"
+
+  - name: chainweb-consensus-info
+    interval: 120s
+    rules:
+      # Info: Temporary processing delays
+      - alert: ChainwebTemporaryProcessingDelay
+        expr: |
+          avg_over_time(chainweb_blockchain_block_insertion_duration_seconds[2m]) > 2
+        for: 2m
+        labels:
+          severity: info
+          subsystem: consensus
+          alert_type: temporary_delay
+        annotations:
+          summary: "Temporary block processing delay for chain {{ $labels.chain_id }}"
+          description: |
+            Block insertion taking {{ $value }}s on average (last 2 minutes) for chain {{ $labels.chain_id }}.
+            This is above normal but not critical yet.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#temporary-delays"
+          dashboard_url: "https://grafana.example.com/d/chainweb-performance"
+
+      # Info: Cut advancement variance
+      - alert: ChainwebCutAdvancementVariance
+        expr: |
+          stddev_over_time(chainweb_blockchain_cut_advancement_duration_seconds[10m]) > 10
+        for: 5m
+        labels:
+          severity: info
+          subsystem: consensus
+          alert_type: variance
+        annotations:
+          summary: "High variance in cut advancement times for chain {{ $labels.chain_id }}"
+          description: |
+            Standard deviation of cut advancement duration: {{ $value }}s (last 10 minutes).
+            High variance may indicate intermittent performance issues.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#advancement-variance"
+          dashboard_url: "https://grafana.example.com/d/chainweb-performance"
+
+      # Info: Block height consistency monitoring
+      - alert: ChainwebBlockHeightConsistency
+        expr: |
+          stddev(chainweb_blockchain_block_height) > 3
+        for: 5m
+        labels:
+          severity: info
+          subsystem: consensus
+          alert_type: consistency_monitoring
+        annotations:
+          summary: "Block height consistency variance detected"
+          description: |
+            Standard deviation of block heights across chains: {{ $value }}.
+            This provides insight into chain synchronization consistency.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/consensus-failures.md#consistency-monitoring"
+          dashboard_url: "https://grafana.example.com/d/chainweb-consensus"

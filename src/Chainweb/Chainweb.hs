@@ -147,6 +147,7 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MempoolSyncClient
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Metrics.Registry
 import Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.Counter
 import Chainweb.Cut
@@ -205,6 +206,7 @@ data Chainweb logger tbl = Chainweb
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
     , _chainwebBackup :: !(BackupEnv logger)
+    , _chainwebMetrics :: !(Maybe ChainwebMetrics)
     }
 
 makeLenses ''Chainweb
@@ -385,6 +387,22 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     when (_cutPruneChainDatabase (_configCuts conf) /= GcNone) $
         logg Info "finished pruning databases"
     logFunctionJson logger Info InitializingChainResources
+
+    -- Initialize metrics registry if enabled
+    maybeMetrics <- if _metricsEnabled (_configMetrics conf)
+        then do
+            logg Info "initializing metrics registry"
+            let simpleConfig = MetricsConfig
+                    { _metricsEnabled = True
+                    , _metricsRetentionPeriod = 300  -- 5 minutes default
+                    , _metricsMemoryLimit = 50 * 1024 * 1024  -- 50MB default
+                    , _metricsCleanupInterval = 60  -- 1 minute cleanup
+                    }
+            metrics <- initializeMetricsRegistry simpleConfig
+            return $ Just metrics
+        else do
+            logg Info "metrics disabled in configuration"
+            return Nothing
 
     txFailuresCounter <- newCounter @"txFailures"
     let monitorTxFailuresCounter =
@@ -600,6 +618,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                     , _backupChainIds = cids
                                     , _backupLogger = backupLogger
                                     }
+                                , _chainwebMetrics = maybeMetrics
                                 }
 
     withPactData
@@ -919,6 +938,7 @@ runChainweb cw nowServing = do
             (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
             (_chainwebBackup cw <$ guard backupApiEnabled)
             (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
+            (_chainwebMetrics cw)
             mw
 
     serviceHttpLog :: Middleware

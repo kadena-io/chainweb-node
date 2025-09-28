@@ -91,6 +91,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import Chainweb.Metrics.Registry (ChainwebMetrics)
 import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
@@ -99,6 +100,7 @@ import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
+import Chainweb.RestAPI.Metrics
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
@@ -366,10 +368,12 @@ someServiceApiServer
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
+    -> Maybe ChainwebMetrics
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) backupEnv pbl =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) backupEnv pbl maybeMetrics =
     someHealthCheckServer
     <> maybe mempty (someBackupServer v) backupEnv
+    <> maybe mempty someMetricsServer maybeMetrics
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
@@ -396,11 +400,12 @@ serviceApiApplication
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
+    -> Maybe ChainwebMetrics
     -> Application
-serviceApiApplication v dbs pacts mr hs be pbl
+serviceApiApplication v dbs pacts mr hs be pbl maybeMetrics
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs be pbl
+    $ someServiceApiServer v dbs pacts mr hs be pbl maybeMetrics
 
 serveServiceApiSocket
     :: Show t
@@ -415,7 +420,8 @@ serveServiceApiSocket
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
+    -> Maybe ChainwebMetrics
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs be pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs be pbl
+serveServiceApiSocket s sock v dbs pacts mr hs be pbl maybeMetrics m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs be pbl maybeMetrics

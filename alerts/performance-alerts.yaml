@@ -1,0 +1,245 @@
+# Performance Alert Rules for Chainweb
+# Alerts for system performance degradation, high latency, and throughput issues
+# Covers P2P messaging, mempool operations, and general performance metrics
+
+groups:
+  - name: chainweb-performance-critical
+    interval: 30s
+    rules:
+      # Critical: High P2P message latency (>1s p99)
+      - alert: ChainwebHighP2PLatency
+        expr: |
+          histogram_quantile(0.99, chainweb_p2p_request_duration_seconds_bucket) > 1.0
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: p2p
+          alert_type: high_latency
+        annotations:
+          summary: "High P2P message latency detected"
+          description: |
+            P2P request latency (99th percentile): {{ $value }}s
+            This indicates severe network issues or processing bottlenecks.
+            Normal P2P latency should be under 1 second.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#high-p2p-latency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
+
+      # Critical: Mempool near saturation (>90% capacity)
+      - alert: ChainwebMempoolSaturation
+        expr: |
+          (chainweb_mempool_current_size / chainweb_mempool_max_capacity) > 0.9
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: mempool
+          alert_type: saturation
+        annotations:
+          summary: "Mempool nearing saturation for chain {{ $labels.chain_id }}"
+          description: |
+            Mempool utilization: {{ $value | humanizePercentage }}
+            Current size: {{ query "chainweb_mempool_current_size" | first | value }}
+            Max capacity: {{ query "chainweb_mempool_max_capacity" | first | value }}
+            Transaction processing may be severely impacted.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#mempool-saturation"
+          dashboard_url: "https://grafana.example.com/d/chainweb-mempool"
+
+      # Critical: High transaction validation latency
+      - alert: ChainwebHighValidationLatency
+        expr: |
+          histogram_quantile(0.95, chainweb_mempool_validation_duration_seconds_bucket) > 5.0
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: mempool
+          alert_type: validation_latency
+        annotations:
+          summary: "High transaction validation latency for chain {{ $labels.chain_id }}"
+          description: |
+            Transaction validation latency (95th percentile): {{ $value }}s
+            This indicates severe Pact execution issues or resource constraints.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#validation-latency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-mempool"
+
+      # Critical: High Pact execution latency
+      - alert: ChainwebHighPactExecutionLatency
+        expr: |
+          histogram_quantile(0.95, chainweb_mempool_pact_execution_duration_seconds_bucket) > 10.0
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: pact
+          alert_type: execution_latency
+        annotations:
+          summary: "High Pact execution latency for chain {{ $labels.chain_id }}"
+          description: |
+            Pact execution latency (95th percentile): {{ $value }}s
+            This may indicate complex smart contracts or resource exhaustion.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#pact-execution-latency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-pact"
+
+      # Critical: High connection failure rate
+      - alert: ChainwebHighConnectionFailureRate
+        expr: |
+          (
+            rate(chainweb_p2p_connection_failures_total[5m]) /
+            (rate(chainweb_p2p_connection_failures_total[5m]) + rate(chainweb_p2p_session_successes_total[5m]))
+          ) > 0.3
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: p2p
+          alert_type: connection_failures
+        annotations:
+          summary: "High P2P connection failure rate"
+          description: |
+            Connection failure rate: {{ $value | humanizePercentage }}
+            This indicates severe network connectivity issues.
+            Failures: {{ query "rate(chainweb_p2p_connection_failures_total[5m]) * 300" | first | value }}
+            Successes: {{ query "rate(chainweb_p2p_session_successes_total[5m]) * 300" | first | value }}
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#connection-failures"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
+
+  - name: chainweb-performance-warning
+    interval: 60s
+    rules:
+      # Warning: Moderate P2P latency (>500ms p95)
+      - alert: ChainwebModerateP2PLatency
+        expr: |
+          histogram_quantile(0.95, chainweb_p2p_request_duration_seconds_bucket) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          subsystem: p2p
+          alert_type: moderate_latency
+        annotations:
+          summary: "Moderate P2P message latency detected"
+          description: |
+            P2P request latency (95th percentile): {{ $value }}s
+            Performance is degraded but not critical yet.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#moderate-p2p-latency"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
+
+      # Warning: Mempool high utilization (>70% capacity)
+      - alert: ChainwebMempoolHighUtilization
+        expr: |
+          (chainweb_mempool_current_size / chainweb_mempool_max_capacity) > 0.7
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: mempool
+          alert_type: high_utilization
+        annotations:
+          summary: "High mempool utilization for chain {{ $labels.chain_id }}"
+          description: |
+            Mempool utilization: {{ $value | humanizePercentage }}
+            Monitor for potential saturation.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#high-mempool-utilization"
+          dashboard_url: "https://grafana.example.com/d/chainweb-mempool"
+
+      # Warning: High transaction rejection rate
+      - alert: ChainwebHighTransactionRejectionRate
+        expr: |
+          (
+            rate(chainweb_mempool_transactions_rejected_total[5m]) /
+            rate(chainweb_mempool_transactions_inserted_total[5m])
+          ) > 0.2
+        for: 3m
+        labels:
+          severity: warning
+          subsystem: mempool
+          alert_type: rejection_rate
+        annotations:
+          summary: "High transaction rejection rate for chain {{ $labels.chain_id }}"
+          description: |
+            Transaction rejection rate: {{ $value | humanizePercentage }}
+            This may indicate fee issues or validation problems.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#transaction-rejections"
+          dashboard_url: "https://grafana.example.com/d/chainweb-mempool"
+
+      # Warning: Message propagation delay
+      - alert: ChainwebMessagePropagationDelay
+        expr: |
+          histogram_quantile(0.95, chainweb_p2p_message_propagation_delay_seconds_bucket) > 5.0
+        for: 3m
+        labels:
+          severity: warning
+          subsystem: p2p
+          alert_type: propagation_delay
+        annotations:
+          summary: "High message propagation delay"
+          description: |
+            Message propagation delay (95th percentile): {{ $value }}s
+            Network topology or bandwidth issues may be affecting message spread.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#propagation-delay"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
+
+      # Warning: High task queue depth
+      - alert: ChainwebHighTaskQueueDepth
+        expr: |
+          chainweb_p2p_task_queue_depth > 1000
+        for: 2m
+        labels:
+          severity: warning
+          subsystem: p2p
+          alert_type: queue_depth
+        annotations:
+          summary: "High P2P task queue depth"
+          description: |
+            Task queue depth: {{ $value }}
+            This indicates processing bottlenecks in P2P operations.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#task-queue-depth"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
+
+  - name: chainweb-performance-info
+    interval: 120s
+    rules:
+      # Info: Increased validation duration
+      - alert: ChainwebIncreasedValidationDuration
+        expr: |
+          histogram_quantile(0.90, chainweb_mempool_validation_duration_seconds_bucket) > 1.0
+        for: 5m
+        labels:
+          severity: info
+          subsystem: mempool
+          alert_type: increased_duration
+        annotations:
+          summary: "Increased transaction validation duration for chain {{ $labels.chain_id }}"
+          description: |
+            Transaction validation duration (90th percentile): {{ $value }}s
+            This is above normal but not critical yet.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#increased-validation-duration"
+          dashboard_url: "https://grafana.example.com/d/chainweb-mempool"
+
+      # Info: Connection timeout rate monitoring
+      - alert: ChainwebConnectionTimeoutRate
+        expr: |
+          rate(chainweb_p2p_connection_timeouts_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: info
+          subsystem: p2p
+          alert_type: timeout_monitoring
+        annotations:
+          summary: "Elevated connection timeout rate"
+          description: |
+            Connection timeout rate: {{ $value }} per second
+            Monitor for potential network issues.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#connection-timeouts"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
+
+      # Info: Peer quality score variance
+      - alert: ChainwebPeerQualityVariance
+        expr: |
+          stddev(chainweb_p2p_peer_quality_score) > 0.3
+        for: 10m
+        labels:
+          severity: info
+          subsystem: p2p
+          alert_type: quality_variance
+        annotations:
+          summary: "High variance in peer quality scores"
+          description: |
+            Peer quality score standard deviation: {{ $value }}
+            This may indicate inconsistent peer performance.
+          runbook_url: "https://github.com/kadena-io/chainweb-node/blob/master/docs/runbooks/performance-issues.md#peer-quality-variance"
+          dashboard_url: "https://grafana.example.com/d/chainweb-p2p"
