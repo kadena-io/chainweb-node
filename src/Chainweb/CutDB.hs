@@ -544,6 +544,12 @@ synchronizeProviders logger wbh providers c = do
                         MaybeT $ return Nothing
                     _ -> empty
 
+                -- FIXME: this stream can be very long. We should limit it and
+                -- proceed iteratively if necessary.
+                -- Ideally, we check the length based on block heights before
+                -- we compute the full trace below. We also have to be careful,
+                -- that we compute the fork point only once and iterate from
+                -- there, otherwise the complexity would become quadratic.
                 (forkBlocksDescendingStream S.:> forkPoint) <- liftIO $
                         S.toList $ branchDiff_ bhdb ppBlock hdr
                 let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
@@ -554,7 +560,11 @@ synchronizeProviders logger wbh providers c = do
                                     blockHeaderToEvaluationCtx (Parent prent))
                             (forkPoint : forkBlocksAscending)
                             forkBlocksAscending
-                let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                let newForkInfo = finfo
+                        { _forkInfoTrace = newTrace
+                        , _forkInfoBasePayloadHash =
+                            Parent (view blockPayloadHash forkPoint)
+                        }
                 -- if this fails, there is no way for the payload provider
                 -- to sync to the block without using the ordinary cut pipeline.
                 -- so, we don't care.
