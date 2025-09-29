@@ -112,7 +112,7 @@ account bs
 encodeAccount :: HasCallStack => Account -> Put
 encodeAccount (Account bs) = do
     let l = BS.length bs
-    void $ when (l > int (maxBound @Word16)) $
+    when (l > int (maxBound @Word16)) $
         error "Chainweb.PayloadProvider.Minimal.encodePayload: account is too large"
     putWord16le (int l)
     putShortByteString bs

@@ -126,7 +126,7 @@ payloadDbConfiguration
     -> RocksDb
     -> EVM.Header
     -> EvmDB.Configuration
-payloadDbConfiguration c rdb hdr = EvmDB.configuration c rdb hdr
+payloadDbConfiguration = EvmDB.configuration
 
 -- -------------------------------------------------------------------------- --
 -- Configuration

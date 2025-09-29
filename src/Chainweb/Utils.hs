@@ -129,6 +129,7 @@ module Chainweb.Utils
 , decodeFileStrictOrThrow'
 , parseJsonFromText
 , JsonTextRepresentation(..)
+, jlabel
 
 -- ** Cassava (CSV)
 , CsvDecimal(..)
@@ -275,6 +276,7 @@ import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 import Control.Monad.Trans.Resource
 
+import Data.Aeson.Key qualified as Aeson
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types qualified as Aeson
 import Data.Array.Byte
@@ -877,6 +879,9 @@ instance
     parseJSON = fmap JsonTextRepresentation . parseJsonFromText (symbolVal_ @s)
     {-# INLINE parseJSON #-}
 
+jlabel :: T.Text -> Aeson.Parser a -> Aeson.Parser a
+jlabel t = flip (<?>) (Aeson.Key $ Aeson.fromString $ T.unpack t)
+
 -- -------------------------------------------------------------------------- --
 -- ** Cassava (CSV)
 
@@ -885,7 +890,7 @@ newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
 
 instance CSV.FromField CsvDecimal where
     parseField s = do
-        cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
+        cs <- either (fail . show) (pure . T.unpack) $ T.decodeUtf8' s
         either fail pure $ readEither cs
     {-# INLINE parseField #-}
 

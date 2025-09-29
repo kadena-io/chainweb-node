@@ -85,8 +85,7 @@ import Chainweb.BlockHeight
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (RewindLimit)
-import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Types (RewindLimit, defaultReorgLimit)
 import Chainweb.Pact.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.PayloadProvider.EVM (EvmProviderConfig, pEvmProviderConfig, defaultEvmProviderConfig, validateEvmProviderConfig)
 import Chainweb.PayloadProvider.Minimal (MinimalProviderConfig, defaultMinimalProviderConfig, pMinimalProviderConfig)
@@ -161,7 +160,7 @@ validatePayloadProviderConfig conf = do
         PactProvider -> return () -- FIXME implement validation
         e -> do
             tell [ "Pact provider configured for chain " <> sshow cid <> ": " <> sshow conf ]
-            throwError $ mconcat $
+            throwError $ mconcat
                 [ "Wrong payload provider type configuration for chain " <> sshow cid
                 , ". Expected " <> sshow e <> " but found Pact"
                 ]
@@ -170,7 +169,7 @@ validatePayloadProviderConfig conf = do
         EvmProvider _ -> validateEvmProviderConfig cid _conf
         e -> do
             tell [ "EVM provider configured for chain " <> sshow cid <> ": " <> sshow conf ]
-            throwError $ mconcat $
+            throwError $ mconcat
                 [ "Wrong payload provider type configuration for chain " <> sshow cid
                 , ". Expected " <> sshow e <> " but found EVM"
                 ]
@@ -209,8 +208,10 @@ instance ToJSON PayloadProviderConfig where
 --
 instance FromJSON (PayloadProviderConfig -> PayloadProviderConfig) where
     parseJSON = withObject "PayloadProviderConfig" $ \o -> do
-        updateMinimal <- payloadProviderConfigMinimal %.: "default" % o
-        ifoldlM go updateMinimal (KM.toMapText o)
+        updateMinimal <- jlabel "minimalPayloadProviderConfig" $
+            payloadProviderConfigMinimal %.: "default" % o
+        jlabel "payloadProviderConfig" $
+            ifoldlM go updateMinimal (KM.toMapText o)
       where
         parseKey k = case T.stripPrefix "chain-" k of
             Nothing -> fail $ "failed to parse chain key: " <> sshow k
@@ -220,27 +221,29 @@ instance FromJSON (PayloadProviderConfig -> PayloadProviderConfig) where
                 Right _ -> fail $ "trailng garabage when parsing chain value: " <> sshow x
 
         go "default" c _ = return c
-        go k c v = do
-            cid <- parseKey k
-            go2 cid c v
+        go k c v = jlabel k $ do
+            cid <- jlabel k $ parseKey k
+            jlabel ("chain:" <> toText cid) $ go2 cid c v
 
         -- disable provider:
-        go2 cid c Null = return $ (payloadProviderConfigPact . at cid .~ Nothing) . c
+        go2 cid c Null = jlabel "provider:null" $
+            return ((payloadProviderConfigPact . at cid .~ Nothing) . c)
 
         -- enabled provider:
         go2 cid c v = flip (withObject ("ProviderConfig for chain " <> sshow cid)) v $ \o -> do
             (o .: "type") >>= \case
-                "pact" ->  do
+                "pact" -> jlabel "provider:pact" $ do
                     x <- parseJSON (Object o)
                     let f Nothing = Just (x defaultPactProviderConfig)
                         f (Just y) = Just (x y)
                     return $ (payloadProviderConfigPact . at cid %~ f) . c
-                "evm" -> do
+                "evm" -> jlabel "provider:evm" $ do
                     x <- parseJSON (Object o)
                     let f Nothing = Just (x defaultEvmProviderConfig)
                         f (Just y) = Just (x y)
                     return $ (payloadProviderConfigEvm . at cid %~ f) . c
-                (x :: T.Text) -> fail $ "unknown payload provider type: " <> sshow x
+                (x :: T.Text) -> jlabel ("provider:" <> x) $
+                    fail $ "unknown payload provider type: " <> sshow x
 
 -- | Command line option parser for the payload provider configuration.
 --
@@ -262,7 +265,7 @@ pPayloadProviderConfig = id
         -- FIXME this is is ugly. At least use the largest know graph. Ideally,
         -- we would use the chainweb version -- but we don't know it yet.
         -- For the help message we just display options for chain 0.
-    pevm = foldr (\a b -> a . b) id <$> traverse go cids
+    pevm = foldr (.) id <$> traverse go cids
     go cid
         = parserOptionGroup "EVM [only options for chain 0 are shown]" evmChains
         <|> parserOptionGroup "Pact [only for chain 0 are shown]" pactChains
@@ -294,12 +297,12 @@ providerOpt prov cid a p = f <$> dis <*> ena <*> p cid
 
     ena = switch
         % long ("enable-chain-" <> T.unpack (toText cid) <> "-" <> prov)
-        <> help ("enable the payload provider for this chain")
+        <> help "enable the payload provider for this chain"
         <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
 
     dis = switch
         % long ("disable-chain-" <> T.unpack (toText cid) <> "-" <> prov)
-        <> help ("disabled the payload provider for this chain")
+        <> help "disabled the payload provider for this chain"
         <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
 
 -- -------------------------------------------------------------------------- --
