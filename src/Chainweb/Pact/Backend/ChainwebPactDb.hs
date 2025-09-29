@@ -934,7 +934,7 @@ getLatestBlock db = do
             , _syncStateHeight = int hgt
             }
     go r = fail $
-        "Chainweb.Pact.Backend.RelationalCheckpointer.doGetLatest: impossible. This is a bug in chainweb-node. Details: "
+        "Chainweb.Pact.Backend.ChainwebPactDb.getLatestBlock: impossible. This is a bug in chainweb-node. Details: "
         <> sshow r
 
 lookupBlockWithHeight :: HasCallStack => SQ3.Database -> BlockHeight -> ExceptT LocatedSQ3Error IO (Maybe (Ranked BlockHash))
