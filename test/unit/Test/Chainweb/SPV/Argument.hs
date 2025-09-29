@@ -1,9 +1,10 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeAbstractions #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeAbstractions #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Test.Chainweb.SPV.Argument
@@ -23,31 +24,23 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Payload
-import Chainweb.PayloadProvider.EVM.Genesis qualified as EVM
 import Chainweb.PayloadProvider.EVM.Header qualified as EVM
 import Chainweb.PayloadProvider.EVM.Receipt qualified as EVM
 import Chainweb.PayloadProvider.Pact.Genesis qualified as Pact
 import Chainweb.SPV.Argument
-import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.EvmDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Registry
 import Control.Lens
 import Control.Monad
 import Data.Aeson
-import Data.ByteString qualified as B
 import Data.Coerce
-import Data.Hash.SHA2
-import Data.List qualified as L
 import Data.List.NonEmpty qualified as NE
 import Data.MerkleLog qualified as ML
 import Data.MerkleLog.V1 qualified as MLV1
 import Data.Text qualified as T
 import Data.Typeable
 import Data.Vector qualified as V
-import Ethereum.Block qualified as E
-import Ethereum.Misc qualified as E
 import Numeric.Natural
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -255,7 +248,7 @@ test_evmHeaderArguments =
     withVersion evmDevnet $ test_evmHeaderArgument simpleTestData 0
 
 test_evmHeaderArgument :: HasVersion => ReceiptTestData -> Natural -> IO ()
-test_evmHeaderArgument d idx = do
+test_evmHeaderArgument d _idx = do
     let trieProof = EVM.rpcReceiptTrieProof rs (EVM.TransactionIndex 0)
     trieProofRoot <- validateTrieProof trieProof
     assertEqual "receipt proof gives correct root hash"
@@ -319,8 +312,8 @@ test_evmHeaderArgument d idx = do
 -- -------------------------------------------------------------------------- --
 -- EVM Test Data
 
-testReceipt :: EVM.Receipt
-testReceipt = EVM.fromRpcReceipt testRpcReceipt
+-- testReceipt :: EVM.Receipt
+-- testReceipt = EVM.fromRpcReceipt testRpcReceipt
 
 testRpcReceipt :: EVM.RpcReceipt
 testRpcReceipt = case eitherDecodeStrictText jsonReceiptStr of

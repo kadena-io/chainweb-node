@@ -22,7 +22,6 @@ module Chainweb.PayloadProvider.Pact
 import Chainweb.BlockHeaderDB (withBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Core.Brief
-import Chainweb.Core.Brief
 import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.MerkleUniverse
@@ -45,9 +44,8 @@ import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource (ResourceT, allocate)
+import Control.Monad.Trans.Resource (ResourceT)
 import Data.LogMessage
-import Data.Pool qualified as Pool
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Network.HTTP.Client qualified as HTTP

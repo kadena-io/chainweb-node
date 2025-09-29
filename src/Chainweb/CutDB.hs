@@ -89,57 +89,21 @@ module Chainweb.CutDB
 , getQueueStats
 ) where
 
-import Control.Applicative
-import Control.Concurrent.Async
-import Control.Concurrent.STM.TVar
-import Control.DeepSeq
-import Control.Exception.Safe
-import Control.Lens hiding ((:>))
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Morph
-import Control.Monad.STM
-import Control.Monad.Trans.Resource hiding (throwM)
-
-import Data.Aeson (ToJSON)
-import Data.Foldable
-import Data.Either (partitionEithers)
-import Data.Function
-import Data.Functor.Of
-import Data.HashMap.Strict qualified as HM
-import Data.HashSet qualified as HS
-import Data.LogMessage
-import Data.Maybe
-import Data.Monoid
-import Data.Ord
-import Data.Text (Text)
-import Data.Text qualified as T
-import Data.These
-
-import GHC.Generics hiding (to)
-
-import Numeric.Natural
-
-import Prelude hiding (lookup)
-
-import Streaming.Prelude qualified as S
-
-import System.LogLevel
-import System.Timeout
-
--- internal modules
-
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Core.Brief
 import Chainweb.Cut
-import Chainweb.Cut.CutHashes
 import Chainweb.Cut.Create
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
+import Chainweb.Logger
+import Chainweb.Parent
 import Chainweb.PayloadProvider
+import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.HashMap
 import Chainweb.Storage.Table.RocksDB
@@ -150,20 +114,44 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-
+import Control.Applicative
+import Control.Concurrent.Async
+import Control.Concurrent.STM.TVar
+import Control.DeepSeq
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception.Safe
+import Control.Lens hiding ((:>))
+import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Morph
+import Control.Monad.STM
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Resource hiding (throwM)
+import Data.Aeson (ToJSON)
+import Data.ByteString.Lazy qualified as BS
+import Data.Either (partitionEithers)
+import Data.Foldable
+import Data.Function
+import Data.Functor.Of
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.LogMessage
+import Data.Maybe
+import Data.Monoid
+import Data.Ord
 import Data.PQueue
 import Data.TaskMap qualified as TM
-
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.These
+import GHC.Generics hiding (to)
+import Numeric.Natural
 import P2P.TaskQueue
-
+import Prelude hiding (lookup)
+import Streaming.Prelude qualified as S
+import System.LogLevel
+import System.Timeout
 import Utils.Logging.Trace
-import Chainweb.Ranked
-import Control.Monad.Trans.Maybe
-import Chainweb.Logger
-import Chainweb.Core.Brief
-import Chainweb.Parent
-import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
-import qualified Data.ByteString.Lazy as BS
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -516,51 +504,76 @@ synchronizeProviders logger wbh providers c = do
                 (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
         mapConcurrently_ (runMaybeT . syncOne True) recoveryHeaders
         return recoveryCut
-    where
+  where
     syncOne :: Bool -> BlockHeader -> MaybeT IO ()
     syncOne recovery hdr = case providers ^?! atChain (_chainId hdr) of
         ConfiguredPayloadProvider provider -> do
-            let loggr = logger & providerLogger provider . chainLogger hdr
-            liftIO $ logFunctionText loggr Info $
+            let pLogger = providerLogger provider . chainLogger hdr $ logger
+            let pLog l = liftIO . logFunctionText pLogger l
+            pLog Info $
                 (if recovery then "recover" else "sync") <> " payload provider to "
                     <> sshow (view blockHeight hdr)
                     <> ":" <> sshow (view blockHash hdr)
             finfo <- liftIO $ forkInfoForHeader wbh hdr Nothing Nothing
-            liftIO $ logFunctionText loggr Debug $ "syncToBlock with fork info " <> sshow finfo
+            pLog Debug $ "syncToBlock with fork info " <> sshow finfo
             r <- liftIO (syncToBlock provider Nothing finfo) `catch` \(e :: SomeException) -> do
-                liftIO $ logFunctionText loggr Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e
+                pLog Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e
                 empty
+
+            -- Check result of syncToBlock
+            --
             if r == _forkInfoTargetState finfo
-            then return ()
-            else do
-                liftIO $ logFunctionText loggr Info
+
+              -- We are done
+              --
+              then return ()
+
+              -- We are not in sync and need to resolve (could be a fork a
+              -- payload provider that is not caught up yet)
+              --
+              else do
+                pLog Info
                     $ "resolving fork on startup, from " <> brief r
                     <> " to " <> brief (_forkInfoTargetState finfo)
+
+                -- Query the trace from the fork point to the target block
+                --
                 bhdb <- liftIO $ getWebBlockHeaderDb wbh cid
                 let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
                 ppBlock <- liftIO (lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH)) `catch` \case
                     e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
-                        liftIO $ logFunctionText loggr Warn $ "PP block is missing: " <> brief ppRBH <> ", error: " <> sshow e
+                        pLog Warn $ "PP block is missing: " <> brief ppRBH <> ", error: " <> sshow e
                         MaybeT $ return Nothing
                     _ -> empty
 
+                -- FIXME: this stream can be very long. We should limit it and
+                -- proceed iteratively if necessary.
+                -- Ideally, we check the length based on block heights before
+                -- we compute the full trace below. We also have to be careful,
+                -- that we compute the fork point only once and iterate from
+                -- there, otherwise the complexity would become quadratic.
                 (forkBlocksDescendingStream S.:> forkPoint) <- liftIO $
                         S.toList $ branchDiff_ bhdb ppBlock hdr
                 let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
-                let newTrace =
-                        zipWith
-                            (\prent child ->
-                                ConsensusPayload (view blockPayloadHash child) Nothing <$
-                                    blockHeaderToEvaluationCtx (Parent prent))
-                            (forkPoint : forkBlocksAscending)
-                            forkBlocksAscending
-                let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                let newTrace = zipWith
+                        (\prent child ->
+                            ConsensusPayload (view blockPayloadHash child) Nothing <$
+                                blockHeaderToEvaluationCtx (Parent prent))
+                        (forkPoint : forkBlocksAscending)
+                        forkBlocksAscending
+
+                let newForkInfo = finfo
+                        { _forkInfoTrace = newTrace
+                        , _forkInfoBasePayloadHash =
+                            Parent (view blockPayloadHash forkPoint)
+                        }
+
                 -- if this fails, there is no way for the payload provider
                 -- to sync to the block without using the ordinary cut pipeline.
                 -- so, we don't care.
                 r' <- liftIO $ syncToBlock provider Nothing newForkInfo
                 let syncSucceeded = _forkInfoTargetState finfo == r'
-                when (not syncSucceeded) $ do
+                unless syncSucceeded $ do
                     liftIO $ logFunctionText logger (if recovery then Error else Warn)
                         $ "unexpected " <> (if recovery then "recovery" else "initial sync") <> " result state"
                         <> "; expected: " <> brief (_forkInfoTargetState finfo)
@@ -575,7 +588,7 @@ synchronizeProviders logger wbh providers c = do
         DisabledPayloadProvider -> do
             liftIO $ logFunctionText logger Info $
                 "payload provider disabled, not synced, on chain: " <> toText (_chainId hdr)
-        where
+      where
         cid = _chainId hdr
 
 

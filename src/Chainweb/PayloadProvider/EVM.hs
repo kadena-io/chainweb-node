@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
@@ -12,20 +13,17 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -Wprepositive-qualified-module #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM
@@ -1296,7 +1294,7 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
             -- If we don't know that base, there's nothing we can do
             Nothing -> do
                 lf Warn $ "unknown base " <> brief rankedBaseHash
-                lf Info $ sshow forkInfo
+                lf Info $ encodeToText forkInfo
 
             Just _ -> case trace of
                 -- Case of an empty trace:
@@ -1307,7 +1305,7 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                 -- either succeed or fail.
                 --
                 [] -> do
-                    lf Debug $ "empty trace"
+                    lf Debug "empty trace"
                     updateEvm p trgState pctx []
 
                 l -> do
