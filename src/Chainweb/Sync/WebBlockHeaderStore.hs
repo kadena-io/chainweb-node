@@ -502,7 +502,11 @@ getBlockHeaderInternal
                                         blockHeaderToEvaluationCtx (Parent prent))
                                 (forkPoint : forkBlocksAscending)
                                 forkBlocksAscending
-                    let newForkInfo = finfo { _forkInfoTrace = newTrace }
+                    let newForkInfo = finfo
+                            { _forkInfoTrace = newTrace
+                            , _forkInfoBasePayloadHash =
+                                Parent $ view blockPayloadHash forkPoint
+                            }
                     r' <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
                         logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation retry for " <> sshow h <> " failed with: " <> sshow e
                         throwM e
