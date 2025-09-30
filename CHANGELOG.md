@@ -1,3 +1,17 @@
+## 2.31 (FIXME)
+This is a major version update. This release replaces all previous versions.
+
+Any prior version will stop working on **2025-10-15T00:00:00Z**. Node administrators must
+upgrade to this version before that date. The 2.31 feature upgrade will
+occur at block height 6269344 which is estimated to be mined at **2025-10-16T00-00-00Z**.
+
+### Changes
+- Upgrade to Pact 5.4 [`937b13a`](https://github.com/kadena-io/chainweb-node/commit/937b13ae8b9624df03b8f850baab3bbfaf35a598)
+- Implement expiration for cross-chain transfers [`138578c`](https://github.com/kadena-io/chainweb-node/commit/138578cf9a40b0593ee15fb2adc74500991eafd6)
+
+--------------------------------------------------------------------------------
+
+
 ## 2.30 (2025-07-07)
 This is a major version update. This release replaces all previous versions.
 
