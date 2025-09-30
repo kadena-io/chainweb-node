@@ -519,9 +519,9 @@ withEvmPayloadProvider logger c rdb mgr conf
     | FromSing @_ @p (SEvmProvider ecid) <- payloadProviderTypeForChain c = do
         engineCtx <- liftIO $ mkEngineCtx (_evmConfEngineJwtSecret conf) (_engineUri $ _evmConfEngineUri conf)
 
-        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
+        SomeChainwebVersionT @v _ <- return someChainwebVersionVal
         SomeChainIdT @c _ <- return $ someChainIdVal c
-        let pldCli h = Rest.payloadClient @v @c @p h
+        let pldCli = Rest.payloadClient @v @c @p
 
         genPld <- liftIO $ checkExecutionClient logger c engineCtx (EVM.ChainId (fromSNat ecid))
         liftIO $ logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
@@ -530,7 +530,7 @@ withEvmPayloadProvider logger c rdb mgr conf
         store <- liftIO $ newPayloadStore mgr (logFunction pldStoreLogger) pdb pldCli
         pldVar <- liftIO newEmptyTMVarIO
         pldIdVar <- liftIO newEmptyTMVarIO
-        candidates <- liftIO $ emptyTable
+        candidates <- liftIO emptyTable
         stateVar <- liftIO $ newTVarIO (T2 (genesisState c) Nothing)
         lock <- liftIO $ newMVar ()
         let p = EvmPayloadProvider
@@ -625,7 +625,7 @@ getPayloadTimeout = 30_000_000
 -- | Scheduler for listening for new payloads.
 --
 payloadListener :: (Logger logger, HasVersion) => EvmPayloadProvider logger -> IO ()
-payloadListener p = case (_evmMinerAddress p) of
+payloadListener p = case _evmMinerAddress p of
     Nothing -> do
         lf Info "New payload creation is disabled."
         return ()
@@ -774,7 +774,7 @@ forkchoiceUpdate p t fcs attr = do
     waitTime = Micros 100_000
     go remaining
         | remaining <= 0 = do
-            lf Warn $ "forkchoiceUpdate timed out while EVM is syncing"
+            lf Warn "forkchoiceUpdate timed out while EVM is syncing"
             throwM $ ForkchoiceUpdatedTimeoutException t
         | otherwise = do
             lf Info $ briefJson $ object
@@ -822,11 +822,20 @@ newPayload
     -> IO ()
 newPayload p t request = go t
   where
-    lf = loggS p "forkchoiceUpdate"
+    lf = loggS p "newPayload"
     waitTime = Micros 500_000
     go remaining
         | remaining <= 0 = do
-            lf Warn $ "newPayload timed out while EVM is syncing"
+            lf Warn "newPayload timed out while EVM is syncing"
+
+            -- FIXME FIXME FIXME
+            -- this is an experiment. Check comment in validatePayload for
+            -- details. It seems that when reth returns SYNCING we are actually
+            -- stuck (it does not resolve itself). So, we try to force it to
+            -- sync and hope that when we come back the newPaylaod call is
+            -- successful.
+            -- updateEvm p trgState Nothing []
+
             throwM $ NewPayloadTimeoutException t
         | otherwise = do
             lf Info $ briefJson $ object
@@ -970,7 +979,7 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
         -- There is a race here: If we fail updating the variable
         -- the EVM is ahead. That could cause payload updates to
         -- fail and possibly stale mining.
-        lf Info $ "update state and payload ID variable"
+        lf Info "update state and payload ID variable"
         lf Debug $ briefJson $ object
                 [ "newState" .= state
                 , "newBlockCtx" .= nctx
@@ -1029,7 +1038,7 @@ mkPayloadAttributes pheight phash parentTimestamp addr nctx = PayloadAttributesV
     withdrawal = WithdrawalV1
         { _withdrawalValidatorIndex = 0
         , _withdrawalIndex = int pheight + 1
-        , _withdrawalAmount = int $ reward
+        , _withdrawalAmount = int reward
         , _withdrawalAddress = addr
         }
 
@@ -1134,7 +1143,7 @@ awaitNewPayload p = do
         atomically (tryReadTMVar (_evmPayloadVar p)) >>= \case
             Just (T2 curEvmBlockHash _)
                 | curEvmBlockHash == newEvmBlockHash -> do
-                    lf Info $ "the new execution payload is the same as the current payload. No update."
+                    lf Info "The new execution payload is the same as the current payload. No update."
             x -> do
                 lf Debug $ "checking new execution payload for " <> toText pid
                     <> "; execution payload: " <> briefJson resp
@@ -1188,8 +1197,8 @@ awaitNewPayload p = do
                 lf Debug $ "write new payload to payload var for evm hash " <> briefJson newEvmBlockHash
                 atomically $ writeTMVar (_evmPayloadVar p) $ T2 newEvmBlockHash NewPayload
                     { _newPayloadTxCount = int $ length (_executionPayloadV1Transactions v1)
-                    , _newPayloadSize = int $ sum $ (BS.length . _transactionBytes)
-                            <$> (_executionPayloadV1Transactions v1)
+                    , _newPayloadSize = int $ sum $ BS.length . _transactionBytes
+                            <$> _executionPayloadV1Transactions v1
                     , _newPayloadParentHeight = Parent $ _syncStateHeight sstate
                     , _newPayloadParentHash = Parent $ _syncStateBlockHash sstate
                     , _newPayloadBlockPayloadHash = EVM._hdrPayloadHash pldHdr
@@ -1321,16 +1330,18 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                     -- It could also make sense to check the empty trace case first
                     -- and skip any ctx validation.
 
-                    unknowns' <- dropWhile (isJust . snd) . zip l
-                        <$> tableLookupBatch p (_evaluationCtxRankedPayloadHash <$> l)
+                    ctxBlockHashes <- tableLookupBatch p (_evaluationCtxRankedPayloadHash <$> l)
+                    let (knowns', unknowns') = span (isJust . snd) $ zip l ctxBlockHashes
 
                     -- assert db invariant
                     unless (all (isNothing . snd) unknowns') $
                         error "Chainweb.PayloadProviders.EVM.syncToBlock: detected corrupted payload database"
 
+                    let knowns = fst <$> knowns'
                     let unknowns = fst <$> unknowns'
 
                     lf Debug $ "unknown blocks in context: " <> sshow (length unknowns)
+                    lf Debug $ "known blocks in context: " <> sshow (length knowns)
 
                     -- fetch all unknown payloads
                     --
@@ -1338,11 +1349,112 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                     -- unknowns in batches without redundant local lookups. Then
                     -- validate all payloads together before sending them to the
                     -- EVM and inserting them into the DB.
+
+                    -- FIXME FIXME FIXME
+                    -- We also must make sure that the EVM has synced all
+                    -- payloads that are known to the payload provider. Normally
+                    -- that happens at startup. However, at startup that happens
+                    -- only up to the latest. But there is no guarantee that the
+                    -- latest cut isn't behind the latest known payload of the
+                    -- provider (e.g. when the cut got reset). In those cases it
+                    -- can happen that during catchup we encounter blocks that
+                    -- are known to the provider but not yet to the EVM.
                     --
+                    -- What can we do?
+                    -- - We can just proceed and update the evm (updateEvm) in
+                    --   case validatePayload times out (SYNCING).
+                    -- - We can keep track of the latest state of the EVM.
+                    -- - We can check each time the latest state of the EVM.
+                    -- - We can always update the the EVM, which should be fast
+                    --   if is is already in sync, though it would still be a
+                    --   network roundtrip.
+                    -- - Altenatively, we can make sure that the forkpoint
+                    --   reflects the state of the EVM and not the state of the
+                    --   payload provider. However, that could mean that we
+                    --   revalidate blocks that we did validate before.
+                    --
+                    -- The first option is somewhat inefficient on long catchups
+                    -- with small per chain chunks sizes.
+                    --
+                    -- For now we try the second option:
+
+                    -- Check that the last known is known to the EVM according
+                    -- to the current EVM state.
+
+                    -- FIXME: the ForkInfo trace is based on the forkpoint with
+                    -- the payload provider (and not the EVM state). Therefore
+                    -- the knowns may not contain what we expect, in particular
+                    -- they are likely just empty (because the forkpoint is the
+                    -- last known payload provider block).
+                    --
+                    -- So, this check fails and we skip the updateEvm call. The
+                    -- correct approach is to call evmUpdate whenever the first
+                    -- trace entry is ahead of the evm state.
+                    case unknowns of
+                        (firstUnknown:_) -> do
+                            let lastKnownPayloadHash = case reverse knowns of
+                                    [] -> unwrapParent $ _forkInfoBasePayloadHash forkInfo
+                                    (lastKnown:_) -> _consensusPayloadHash $ _evaluationCtxPayload lastKnown
+
+                            let lastKnownHeight = firstUnknown._evaluationCtxParentHeight.unwrapParent
+                            let lastKnownHash = firstUnknown._evaluationCtxParentHash.unwrapParent
+                            when (_latestHeight curState < lastKnownHeight) $ do
+                                lf Warn $ "Chainweb.PayloadProviders.EVM.syncToBlock: last known block in the trace is ahead of the current EVM state"
+                                    <> "; last known height: " <> sshow lastKnownHeight
+                                    <> "; last known hash: " <> brief lastKnownHash
+                                    <> "; current state height: " <> sshow (_latestHeight curState)
+                                    <> "; current state hash: " <> brief (_latestBlockHash curState)
+
+                                -- call evmUpdate to update the EVM to the last unknown
+                                -- block without providing any payload attributes or
+                                -- payloads, so the validation state does not change.
+                                --
+                                -- We are updating consensus here but that is ok,
+                                -- because it is still below the head of the  canonical
+                                -- chain that we go asked to update to. It is also still
+                                -- within the range of known to be valid blocks. We do
+                                -- not update the safe or final state at this point.
+                                let lastKnownConsensusState = ConsensusState
+                                        { _consensusStateLatest = SyncState
+                                            { _syncStateHeight = lastKnownHeight
+                                            , _syncStateBlockHash = lastKnownHash
+                                            , _syncStateBlockPayloadHash = lastKnownPayloadHash
+                                            }
+                                        , _consensusStateSafe = curState._consensusStateSafe
+                                        , _consensusStateFinal = curState._consensusStateFinal
+                                        }
+                                updateEvm p lastKnownConsensusState Nothing []
+                        _ -> return ()
+
 
                     plds <- forM unknowns $ \ctx -> do
                         pld <- getPayloadForContext p hints ctx
+
                         -- FIXME FIXME FIXME
+                        --
+                        -- The follwoing can result in timeouts. Even on empty
+                        -- blocks. But why? Well, see the commant above!
+                        --
+                        -- It seems that it is a problem when we have a header
+                        -- in the payload db (we know it) but the EVM does not
+                        -- yet know about it. That's a corner case that can
+                        -- happen when syncing after the EVM and the payload
+                        -- provider got out of sync. In those cases it is
+                        -- probably the best to update the EVM first. Normally,
+                        -- that happens at startup, but iwhen the cut got reset,
+                        -- the payload provider may know validated blocks beyond
+                        -- the latest cut. Whe consensus moves the cut beyond
+                        -- the latest block that is known to the EVM, but the
+                        -- payload provider already knows those blocks we get
+                        -- into situation where the blocks in the fork info
+                        -- trace do not cover the missing blocks in the EVM.
+                        --
+                        -- Can we skip the newPayload call in it -- at least
+                        -- sometimes? If we instruct the EVM to just go to those
+                        -- blocks it will sync all by itself. However, we still
+                        -- must guarantee that we validated the Chainweb Merkle
+                        -- root of all payloads that the payload provider knows
+                        -- about.
                         validatePayload p pld ctx
                         return (_evaluationCtxRankedPayloadHash ctx, pld)
 
@@ -1532,7 +1644,7 @@ getLogEntry p e = do
     logs <- getLogEntries p (int $ _xEventBlockHeight e)
     case filter ftx logs of
         [] -> throwM $ InvalidTransactionIndex e
-        tx -> case tx L.!? (int $ _xEventEventIndex e) of
+        tx -> case tx L.!? int (_xEventEventIndex e) of
             Nothing -> throwM $ InvalidEventIndex e
             Just l -> return $ fromRpcLogEntry l
   where
@@ -1546,9 +1658,9 @@ getSpvProof
     -> XEventId
     -> IO SpvProof
 getSpvProof p e = do
-    le <- getLogEntry p e
-    lf Info $ "got logEntry: " <> encodeToText le
-    ld <- parseXLogData e le
+    entry <- getLogEntry p e
+    lf Info $ "got logEntry: " <> encodeToText entry
+    ld <- parseXLogData e entry
     lf Info $ "got logData: " <> sshow ld
     return $ SpvProof $ object
         [ "origin" .= object
