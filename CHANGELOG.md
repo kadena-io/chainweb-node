@@ -1,4 +1,4 @@
-## 2.31 (FIXME)
+## 2.31 (2025-10-06)
 This is a major version update. This release replaces all previous versions.
 
 Any prior version will stop working on **2025-10-15T00:00:00Z**. Node administrators must
