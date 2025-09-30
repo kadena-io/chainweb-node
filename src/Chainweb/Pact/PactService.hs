@@ -510,112 +510,129 @@ syncToFork logger serviceEnv hints forkInfo = do
         pactConsensusState <- fromJuste <$> Checkpointer.getConsensusState sql
         let atTarget =
                 _syncStateBlockHash (_consensusStateLatest pactConsensusState) ==
-                    _latestBlockHash (forkInfo._forkInfoTargetState)
-        -- check if some past block had the target as its parent; if so, that
-        -- means we can rewind to it
-        latestBlockRewindable <-
-            isJust <$> Checkpointer.lookupBlockHash sql (_latestBlockHash forkInfo._forkInfoTargetState)
+                    _latestBlockHash forkInfo._forkInfoTargetState
+
         if atTarget
-        then do
+          then do
             -- no work to do at all except set consensus state
             -- TODO PP: disallow rewinding final?
             logFunctionText logger Debug $ "no work done to move to " <> brief forkInfo._forkInfoTargetState
             Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
             return (mempty, mempty, forkInfo._forkInfoTargetState)
-        else if latestBlockRewindable
-        then do
-            -- we just have to rewind and set the final + safe blocks
-            -- TODO PP: disallow rewinding final?
-            logFunctionText logger Debug $ "pure rewind to " <> brief forkInfo._forkInfoTargetState
-            rewoundTxs <- getRewoundTxs (Parent $ forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
-            Checkpointer.rewindTo cid sql (Parent $ _syncStateRankedBlockHash (_consensusStateLatest forkInfo._forkInfoTargetState))
-            Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
-            return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
-        else do
-            let traceBlockHashesAscending =
-                    drop 1 (unwrapParent . _evaluationCtxRankedParentHash <$> forkInfo._forkInfoTrace) <>
-                    [_syncStateRankedBlockHash forkInfo._forkInfoTargetState._consensusStateLatest]
-            logFunctionText logger Debug $
-                "playing blocks to move to " <> brief forkInfo._forkInfoTargetState
-                <> " using trace blocks " <> brief traceBlockHashesAscending
-            findForkChainAscending (reverse $ zip forkInfo._forkInfoTrace traceBlockHashesAscending) >>= \case
-                Nothing -> do
-                    logFunctionText logger Info $
-                        "impossible to move to " <> brief forkInfo._forkInfoTargetState
-                        <> " from " <> brief pactConsensusState <> " with trace " <> brief (align forkInfo._forkInfoTrace traceBlockHashesAscending)
-                    -- error: we have no way to get to the target block. just report
-                    -- our current state and do nothing else.
-                    return (mempty, mempty, pactConsensusState)
-                Just forkChainBottomToTop -> do
-                    logFunctionText logger Debug $ "fork chain found: " <> brief forkChainBottomToTop
-                    rewoundTxs <- getRewoundTxs (Parent $ forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
-                    -- the happy case: we can find a way to get to the target block
-                    -- look up all of the payloads to see if we've run them before
-                    -- even then we still have to run them, because they aren't in the checkpointer
-                    knownPayloads <- liftIO $
-                        tableLookupBatch' pdb (each . _2) ((\e -> (e, _evaluationCtxRankedPayloadHash $ fst e)) <$> forkChainBottomToTop)
+          else do
+            -- check if some past block had the target as its parent; if so, that
+            -- means we can rewind to it
+            --
+            -- FIXME: why the parent? Why not the block itself?
+            --
+            latestBlockRewindable <-
+                isJust <$> Checkpointer.lookupBlockHash sql (_latestBlockHash forkInfo._forkInfoTargetState)
 
-                    let unknownPayloads = NEL.filter (isNothing . snd) knownPayloads
-                    when (not (null unknownPayloads))
-                        $ logFunctionText logger Debug $ "unknown blocks in context: " <> sshow (length unknownPayloads)
+            if latestBlockRewindable
+              then do
+                -- we just have to rewind and set the final + safe blocks
+                -- TODO PP: disallow rewinding final?
+                logFunctionText logger Debug $ "pure rewind to " <> brief forkInfo._forkInfoTargetState
+                rewoundTxs <- getRewoundTxs (Parent forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
+                Checkpointer.rewindTo cid sql (Parent $ _syncStateRankedBlockHash (_consensusStateLatest forkInfo._forkInfoTargetState))
+                Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
+                return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
+              else do
+                let traceBlockHashesAscending =
 
-                    runnableBlocks <- forM knownPayloads $ \((evalCtx, rankedBHash), maybePayload) -> do
-                        logFunctionText logger Debug $ "running block: " <> brief rankedBHash
-                        payload <- case maybePayload of
-                            -- fetch payload if missing
-                            Nothing -> getPayloadForContext logger serviceEnv hints evalCtx
-                            Just payload -> return payload
-                        let expectedPayloadHash = _consensusPayloadHash $ _evaluationCtxPayload evalCtx
-                        let blockCtx = blockCtxOfEvaluationCtx cid evalCtx
-                        if guardCtx pact5 blockCtx
-                        then
-                            return $
-                                (Checkpointer.Pact5RunnableBlock $ \chainwebPactDb -> do
-                                    (_, pwo, validatedTxs) <-
-                                        Pact.execExistingBlock logger serviceEnv
-                                            (BlockEnv blockCtx chainwebPactDb)
-                                            (CheckablePayload expectedPayloadHash payload)
-                                    -- add payload immediately after executing the block, because this is when we learn it's valid
-                                    liftIO $ addNewPayload
-                                        (_payloadStoreTable $ _psPdb serviceEnv)
-                                        (_evaluationCtxCurrentHeight evalCtx)
-                                        pwo
-                                    return $ (DList.singleton validatedTxs, (_ranked rankedBHash, expectedPayloadHash))
-                                )
-                        else
-                            return $
-                                (Checkpointer.Pact4RunnableBlock $ \blockDbEnv -> do
-                                    (_, pwo) <-
-                                        Pact4.execBlock logger serviceEnv
-                                            (Pact4.BlockEnv blockCtx blockDbEnv)
-                                            (CheckablePayload expectedPayloadHash payload)
-                                    -- add payload immediately after executing the block, because this is when we learn it's valid
-                                    liftIO $ addNewPayload
-                                        (_payloadStoreTable $ _psPdb serviceEnv)
-                                        (_evaluationCtxCurrentHeight evalCtx)
-                                        pwo
-                                    -- don't remove pact 4 txs from the mempool, who cares when we can't make Pact 4 blocks anymore?
-                                    return $ (mempty, (_ranked rankedBHash, expectedPayloadHash))
-                                    )
+                        -- Why do we drop the first entry? That seems fishy.
+                        drop 1 (unwrapParent . _evaluationCtxRankedParentHash <$> forkInfo._forkInfoTrace) <>
+                        [_syncStateRankedBlockHash forkInfo._forkInfoTargetState._consensusStateLatest]
 
-                    runExceptT (Checkpointer.restoreAndSave logger cid sql
-                        (knownPayloads ^. head1 . _1 . _1 . to _evaluationCtxRankedParentHash)
-                        runnableBlocks
-                        ) >>= \case
-                            Left err -> do
-                                logFunctionText logger Error $ "Error in execValidateBlock: " <> sshow err
-                                return (mempty, mempty, pactConsensusState)
-                            Right (DList.toList -> blockResults) -> do
-                                let validatedTxs = msum blockResults
-                                Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
-                                return (rewoundTxs, validatedTxs, forkInfo._forkInfoTargetState)
+                -- FIXME: we sometimes get stuck in a loop with a fork into trace
+                -- that is too short, i.e. the forkpoint is too far ahead.
+
+                logFunctionText logger Debug $ "playing blocks"
+                    <> "; from: " <> brief pactConsensusState
+                    <> "; target: " <> brief forkInfo._forkInfoTargetState
+                    <> "; trace: " <> brief traceBlockHashesAscending
+
+                findForkChainAscending (reverse $ zip forkInfo._forkInfoTrace traceBlockHashesAscending) >>= \case
+
+                    Nothing -> do
+                        logFunctionText logger Info $
+                            "impossible to move"
+                            <> "; from: " <> brief pactConsensusState
+                            <> "; target: " <> brief forkInfo._forkInfoTargetState
+                            <> "; trace: " <> brief (align forkInfo._forkInfoTrace traceBlockHashesAscending)
+                        -- error: we have no way to get to the target block. just report
+                        -- our current state and do nothing else.
+                        return (mempty, mempty, pactConsensusState)
+
+                    Just forkChainBottomToTop -> do
+                        logFunctionText logger Debug $ "fork chain found: " <> brief forkChainBottomToTop
+                        rewoundTxs <- getRewoundTxs (Parent forkInfo._forkInfoTargetState._consensusStateLatest._syncStateHeight)
+                        -- the happy case: we can find a way to get to the target block
+                        -- look up all of the payloads to see if we've run them before
+                        -- even then we still have to run them, because they aren't in the checkpointer
+                        knownPayloads <- liftIO $
+                            tableLookupBatch' pdb (each . _2) ((\e -> (e, _evaluationCtxRankedPayloadHash $ fst e)) <$> forkChainBottomToTop)
+
+                        let unknownPayloads = NEL.filter (isNothing . snd) knownPayloads
+                        unless (null unknownPayloads)
+                            $ logFunctionText logger Debug $ "unknown blocks in context: " <> sshow (length unknownPayloads)
+
+                        runnableBlocks <- forM knownPayloads $ \((evalCtx, rankedBHash), maybePayload) -> do
+                            logFunctionText logger Debug $ "running block: " <> brief rankedBHash
+                            payload <- case maybePayload of
+                                -- fetch payload if missing
+                                Nothing -> getPayloadForContext logger serviceEnv hints evalCtx
+                                Just payload -> return payload
+                            let expectedPayloadHash = _consensusPayloadHash $ _evaluationCtxPayload evalCtx
+                            let blockCtx = blockCtxOfEvaluationCtx cid evalCtx
+                            if guardCtx pact5 blockCtx
+                            then
+                                return $
+                                    Checkpointer.Pact5RunnableBlock $ \chainwebPactDb -> do
+                                        (_, pwo, validatedTxs) <-
+                                            Pact.execExistingBlock logger serviceEnv
+                                                (BlockEnv blockCtx chainwebPactDb)
+                                                (CheckablePayload expectedPayloadHash payload)
+                                        -- add payload immediately after executing the block, because this is when we learn it's valid
+                                        liftIO $ addNewPayload
+                                            (_payloadStoreTable $ _psPdb serviceEnv)
+                                            (_evaluationCtxCurrentHeight evalCtx)
+                                            pwo
+                                        return $ (DList.singleton validatedTxs, (_ranked rankedBHash, expectedPayloadHash))
+                            else
+                                return $
+                                    Checkpointer.Pact4RunnableBlock $ \blockDbEnv -> do
+                                        (_, pwo) <-
+                                            Pact4.execBlock logger serviceEnv
+                                                (Pact4.BlockEnv blockCtx blockDbEnv)
+                                                (CheckablePayload expectedPayloadHash payload)
+                                        -- add payload immediately after executing the block, because this is when we learn it's valid
+                                        liftIO $ addNewPayload
+                                            (_payloadStoreTable $ _psPdb serviceEnv)
+                                            (_evaluationCtxCurrentHeight evalCtx)
+                                            pwo
+                                        -- don't remove pact 4 txs from the mempool, who cares when we can't make Pact 4 blocks anymore?
+                                        return $ (mempty, (_ranked rankedBHash, expectedPayloadHash))
+
+                        runExceptT (Checkpointer.restoreAndSave logger cid sql
+                            (knownPayloads ^. head1 . _1 . _1 . to _evaluationCtxRankedParentHash)
+                            runnableBlocks
+                            ) >>= \case
+                                Left err -> do
+                                    logFunctionText logger Error $ "Error in execValidateBlock: " <> sshow err
+                                    return (mempty, mempty, pactConsensusState)
+                                Right (DList.toList -> blockResults) -> do
+                                    let validatedTxs = msum blockResults
+                                    Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
+                                    return (rewoundTxs, validatedTxs, forkInfo._forkInfoTargetState)
+
     liftIO $ mpaProcessFork memPoolAccess (V.concat rewoundTxs, validatedTxs)
     case forkInfo._forkInfoNewBlockCtx of
         Just newBlockCtx
             | Just _ <- _psMiner serviceEnv
             , pact5 cid (_rankedHeight (_latestRankedBlockHash newConsensusState))
             , _syncStateBlockHash (_consensusStateLatest newConsensusState) ==
-                _latestBlockHash (forkInfo._forkInfoTargetState) -> do
+                _latestBlockHash forkInfo._forkInfoTargetState -> do
                     -- if we're at the target block we were sent, and we were
                     -- told to start mining, we produce an empty block
                     -- immediately. then we set up a separate thread
@@ -636,7 +653,7 @@ syncToFork logger serviceEnv hints forkInfo = do
 
         _ -> return ()
     return newConsensusState
-    where
+  where
 
     memPoolAccess = view psMempoolAccess serviceEnv
     sql = view psReadWriteSql serviceEnv
@@ -715,7 +732,7 @@ refreshPayloads
 refreshPayloads logger serviceEnv = do
     -- note that if this is empty, we wait; taking from it is the way to make us stop
     let logOutraced =
-            liftIO $ logFunctionText logger Debug $ "Refresher outraced by new block"
+            liftIO $ logFunctionText logger Debug "Refresher outraced by new block"
     (_, blockInProgress) <- liftIO $ atomically $ readTMVar payloadVar
     logFunctionText logger Debug $
         "refreshing payloads for " <>

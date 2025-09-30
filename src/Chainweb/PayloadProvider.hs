@@ -130,8 +130,7 @@ import Chainweb.Ranked
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
-data PayloadProviderException
-    = InvalidForkInfo T.Text
+newtype PayloadProviderException = InvalidForkInfo T.Text
     deriving (Show, Eq, Generic)
 
 instance Exception PayloadProviderException
@@ -305,22 +304,9 @@ data EvaluationCtx p = EvaluationCtx
         -- Kda value for the EVM provider it is in Stu. Also the recipient and
         -- the mechanism how it is credited is provider specific.
     , _evaluationCtxPayload :: !p
-    --     -- ^ Payload hash of the block that is validated. This is used as a
-    --     -- checksum for the payload validation. For the last block of a ForkInfo
-    --     -- structure this value must match the respective value in the target
-    --     -- sync state.
-    --     --
-    --     -- The BlockPayloadHash is first computed when the respective payload is
-    --     -- created for mining and before it is included in a block.
-    -- , _evaluationCtxPayloadData :: !(Maybe EncodedPayloadData)
-    --     -- ^ Optional external payload data. This may be
-    --     -- the complete, self contained block payload or it may just contain
-    --     -- complementary data that aids with the validation.
-    --     --
-    --     -- The main purpose of this field is to allow consensus to gossip around
-    --     -- payload data along with new cuts in the P2P network, which allows for
-    --     -- more efficient synchronization and a reduction of block propagation
-    --     -- latencies.
+        -- ^ The 'BlockPayloadHash' for the payload to be evaluated. It may also
+        -- include some additional payload data. This should be of type
+        -- `ConsensusPayload` in most cases.
     }
     deriving (Functor, Show, Eq, Ord)
 
@@ -410,9 +396,26 @@ instance ToJSON NewBlockCtx where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
+-- | Payload in an Evaluation Context that is sent to a Payload Provider.
+--
 data ConsensusPayload = ConsensusPayload
     { _consensusPayloadHash :: !BlockPayloadHash
+        -- ^ Payload hash of the block that is validated. This is used as a
+        -- checksum for the payload validation. For the last block of a ForkInfo
+        -- structure this value must match the respective value in the target
+        -- sync state.
+        --
+        -- The BlockPayloadHash is first computed when the respective payload is
+        -- created for mining and before it is included in a block.
     , _consensusPayloadData :: !(Maybe EncodedPayloadData)
+        -- ^ Optional external payload data. This may be the complete, self
+        -- contained block payload or it may just contain complementary data
+        -- that aids with the validation.
+        --
+        -- The main purpose of this field is to allow consensus to gossip around
+        -- payload data along with new cuts in the P2P network, which allows for
+        -- more efficient synchronization and a reduction of block propagation
+        -- latencies.
     }
     deriving (Show, Eq, Ord)
 

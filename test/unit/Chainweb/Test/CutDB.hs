@@ -137,7 +137,7 @@ withTestCutDb rdb conf n providers logger = do
         where
         syncOne hdr = forM_ (providers ^? atChain (_chainId hdr)) $ \case
             ConfiguredPayloadProvider provider -> do
-                finfo <- forkInfoForHeader wbh hdr Nothing Nothing
+                finfo <- forkInfoForHeader wbh hdr Nothing Nothing True
                 r <- syncToBlock provider Nothing finfo `catch` \(e :: SomeException) -> do
                     throwM e
                 unless (r == _forkInfoTargetState finfo) $ do

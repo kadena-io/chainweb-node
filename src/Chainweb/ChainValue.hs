@@ -1,11 +1,10 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -31,17 +30,13 @@ module Chainweb.ChainValue
 ) where
 
 import Control.DeepSeq
-import Control.Lens
-
-import Data.Hashable
-
-import GHC.Generics
-
--- internal modules
-
 import Chainweb.ChainId
-
 import Chainweb.Storage.Table
+import Chainweb.Utils (HasTextRepresentation(..))
+import Control.Lens
+import Data.Hashable
+import GHC.Generics
+import Data.Text qualified as T
 
 -- -------------------------------------------------------------------------- --
 -- Tag Values With a ChainId
@@ -62,6 +57,12 @@ instance TraversableWithIndex ChainId ChainValue where
 
 instance FoldableWithIndex ChainId ChainValue
 instance FunctorWithIndex ChainId ChainValue
+
+instance HasTextRepresentation a => HasTextRepresentation (ChainValue a) where
+    toText (ChainValue cid a) = toText cid <> ":" <> toText a
+    fromText t = case T.breakOn ":" t of
+        (c, r) -> ChainValue <$> fromText c <*> fromText (T.drop 1 r)
+    {-# INLINE toText #-}
 
 -- | If a type is already an instance of 'IsCasValue', adding the chain does
 -- preserve this property. By also wrapping the key it is possible to shard

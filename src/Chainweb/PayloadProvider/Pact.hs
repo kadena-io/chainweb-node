@@ -63,8 +63,7 @@ instance HasChainId (PactPayloadProvider logger tbl) where
 instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvider logger tbl) where
     prefetchPayloads _pp _hints _forkInfo = return ()
 
-    syncToBlock (PactPayloadProvider logger e) hints forkInfo =
-        PactService.syncToFork logger e hints forkInfo
+    syncToBlock (PactPayloadProvider logger e) = PactService.syncToFork logger e
 
     latestPayloadSTM (PactPayloadProvider _logger e) = do
         (_, bip) <- readTMVar (_psMiningPayloadVar e)

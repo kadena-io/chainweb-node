@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -7,8 +8,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Chainweb.CutResources
@@ -62,8 +61,6 @@ import Chainweb.PayloadProvider
 import Data.Text qualified as T
 import P2P.Session (P2pSession)
 import P2P.Node.PeerDB (PeerDb)
-import Chainweb.Utils
-import Chainweb.BlockHeaderDB.PruneForks qualified as PruneForks
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources

@@ -95,18 +95,17 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
-import Chainweb.Core.Brief
 import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.HashMap
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Sync.ForkInfo
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
@@ -481,110 +480,67 @@ startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
                 blockHeaders <- iforM rankedBlockHashes (lookupRankedWebBlockHeaderDb wbhdb)
                 return $ unsafeMkCut blockHeaders
 
+-- | Sync all configured payload providers with consensus.
+--
 synchronizeProviders
     :: (Logger logger, HasVersion)
-    => logger -> WebBlockHeaderDb -> ChainMap ConfiguredPayloadProvider -> Cut -> IO Cut
+    => logger
+    -> WebBlockHeaderDb
+    -> ChainMap ConfiguredPayloadProvider
+    -> Cut
+    -> IO Cut
 synchronizeProviders logger wbh providers c = do
     let startHeaders = HM.unionWith
-            (\startHeader _genesisHeader -> startHeader)
+            const
             (_cutHeaders c)
             (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
-    syncsSuccessful <- mapConcurrently (runMaybeT . syncOne False) startHeaders
+    syncsSuccessful <- mapConcurrently (runMaybeT . syncOne) startHeaders
+
+    logFunctionText logger Info $ "finished synchronizing payload all providers"
+        <> "; failed: " <> sshow (length (HM.filter isNothing syncsSuccessful))
+
     if all isJust syncsSuccessful
-    then return c
-    else do
+      then do
+        return c
+      else do
         -- try to recover from the fork automatically by removing ~`diameter`
         -- blocks from the cut
         let recoveryHeight =
                 max (int (diameter (chainGraphAt maxBound))) (_cutMinHeight c) - int (diameter (chainGraphAt maxBound))
         recoveryCut <- limitCut wbh recoveryHeight c
         let recoveryHeaders = HM.unionWith
-                (\recoveryHeader _genesisHeader -> recoveryHeader)
+                const
                 (_cutHeaders recoveryCut)
                 (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
-        mapConcurrently_ (runMaybeT . syncOne True) recoveryHeaders
+        mapConcurrently_ (runMaybeT . syncOne) recoveryHeaders
         return recoveryCut
   where
-    syncOne :: Bool -> BlockHeader -> MaybeT IO ()
-    syncOne recovery hdr = case providers ^?! atChain (_chainId hdr) of
+    syncOne :: BlockHeader -> MaybeT IO ()
+    syncOne hdr = case providers ^?! atChain (_chainId hdr) of
         ConfiguredPayloadProvider provider -> do
             let pLogger = providerLogger provider . chainLogger hdr $ logger
-            let pLog l = liftIO . logFunctionText pLogger l
-            pLog Info $
-                (if recovery then "recover" else "sync") <> " payload provider to "
+            let pLog :: MonadIO m => LogLevel -> Text -> m ()
+                pLog l = liftIO . logFunctionText pLogger l
+            pLog Info $ "syncing payload provider to "
                     <> sshow (view blockHeight hdr)
-                    <> ":" <> sshow (view blockHash hdr)
-            finfo <- liftIO $ forkInfoForHeader wbh hdr Nothing Nothing
-            pLog Debug $ "syncToBlock with fork info " <> sshow finfo
-            r <- liftIO (syncToBlock provider Nothing finfo) `catch` \(e :: SomeException) -> do
-                pLog Warn $ "syncToBlock for " <> sshow finfo <> " failed with :" <> sshow e
+                    <> "." <> toText (view blockHash hdr)
+            finfo <- liftIO $ forkInfoForHeader wbh hdr Nothing Nothing True
+            pLog Debug $ "syncToBlock with fork info " <> encodeToText finfo
+
+            -- FIXME does this really cover all failure scenarios? What if
+            -- the payload provider is only slow in syncing? Also the protocol
+            -- allows partial results -- in which case we should retry.
+            bhdb <- liftIO $ getWebBlockHeaderDb wbh cid
+            liftIO (resolveForkInfo pLog bhdb provider Nothing finfo) `catch` \(e :: SomeException) -> do
+                pLog Warn $ "resolveFork for failed"
+                    <> "; finfo: " <> encodeToText finfo
+                    <> "; failure: " <> sshow e
+                -- pLog Error "It is recommend using --initial-block-height-limit to recover from fork manually."
                 empty
+            pLog Info $ "payload provider synced to "
+                <> sshow (view blockHeight hdr)
+                <> "." <> toText (view blockHash hdr)
 
-            -- Check result of syncToBlock
-            --
-            if r == _forkInfoTargetState finfo
-
-              -- We are done
-              --
-              then return ()
-
-              -- We are not in sync and need to resolve (could be a fork a
-              -- payload provider that is not caught up yet)
-              --
-              else do
-                pLog Info
-                    $ "resolving fork on startup, from " <> brief r
-                    <> " to " <> brief (_forkInfoTargetState finfo)
-
-                -- Query the trace from the fork point to the target block
-                --
-                bhdb <- liftIO $ getWebBlockHeaderDb wbh cid
-                let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
-                ppBlock <- liftIO (lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH)) `catch` \case
-                    e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
-                        pLog Warn $ "PP block is missing: " <> brief ppRBH <> ", error: " <> sshow e
-                        MaybeT $ return Nothing
-                    _ -> empty
-
-                -- FIXME: this stream can be very long. We should limit it and
-                -- proceed iteratively if necessary.
-                -- Ideally, we check the length based on block heights before
-                -- we compute the full trace below. We also have to be careful,
-                -- that we compute the fork point only once and iterate from
-                -- there, otherwise the complexity would become quadratic.
-                (forkBlocksDescendingStream S.:> forkPoint) <- liftIO $
-                        S.toList $ branchDiff_ bhdb ppBlock hdr
-                let forkBlocksAscending = reverse $ snd $ partitionHereThere forkBlocksDescendingStream
-                let newTrace = zipWith
-                        (\prent child ->
-                            ConsensusPayload (view blockPayloadHash child) Nothing <$
-                                blockHeaderToEvaluationCtx (Parent prent))
-                        (forkPoint : forkBlocksAscending)
-                        forkBlocksAscending
-
-                let newForkInfo = finfo
-                        { _forkInfoTrace = newTrace
-                        , _forkInfoBasePayloadHash =
-                            Parent (view blockPayloadHash forkPoint)
-                        }
-
-                -- if this fails, there is no way for the payload provider
-                -- to sync to the block without using the ordinary cut pipeline.
-                -- so, we don't care.
-                r' <- liftIO $ syncToBlock provider Nothing newForkInfo
-                let syncSucceeded = _forkInfoTargetState finfo == r'
-                unless syncSucceeded $ do
-                    liftIO $ logFunctionText logger (if recovery then Error else Warn)
-                        $ "unexpected " <> (if recovery then "recovery" else "initial sync") <> " result state"
-                        <> "; expected: " <> brief (_forkInfoTargetState finfo)
-                        <> "; actual: " <> brief r
-                        <> "; PP latest block: " <> brief ppBlock
-                        <> "; target block: " <> brief hdr
-                        <> "; fork blocks: " <> brief forkBlocksAscending
-                        <> if recovery
-                            then ". recommend using --initial-block-height-limit to recover from fork manually."
-                            else ""
-                    empty
         DisabledPayloadProvider -> do
             liftIO $ logFunctionText logger Info $
                 "payload provider disabled, not synced, on chain: " <> toText (_chainId hdr)
@@ -742,31 +698,41 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPru
                         loggCutId logFun Info newCut
                             $ "writing cut at bh " <> sshow resultCutMaxHeight
                         casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
+
                 -- ensure that payload providers are in sync with the *merged*
                 -- cut, so that they produce payloads on the correct parents.
                 iforM_ (_cutMap resultCut) $ \cid bh -> do
+                    let clog l = loggChainId logFun l cid
                     -- avoid asking for syncToBlock when we know that we're already
                     -- in sync, otherwise some payload providers misbehave.
                     when (Just bh /= curCut ^? ixg cid) $
                         case providers ^?! atChain cid of
                             ConfiguredPayloadProvider provider -> do
-                                finfo <- forkInfoForHeader hdrStore bh Nothing Nothing
-                                r <- syncToBlock provider Nothing finfo
-                                unless (r == _forkInfoTargetState finfo) $ do
-                                    error $ "unexpected result state"
-                                        <> "; expected: " <> sshow (_forkInfoTargetState finfo)
-                                        <> "; actual: " <> sshow r
+                                -- During this final sync we also enable payload production.
+                                finfo <- forkInfoForHeader hdrStore bh Nothing Nothing True
+
+                                -- Note, that this really should be super quick and
+                                -- should never fail.
+                                --
+                                -- FIXME: Can't we go to the merge cut directly?
+                                -- FIXME: we could we trigger this with only a
+                                -- single node in the system?
+                                clog Info "Syncing paylooad provider with merged cut"
+                                resolveForkInfo clog (hdrStore ^?! ixg cid) provider Nothing finfo `catch`
+                                    -- FIXME calling error is not OK!
+                                    \(e :: SomeException) -> error
+                                        $ "Failed to sync to merge cut (on chain " <> sshow cid <> "): " <> sshow e
                             _ -> return ()
                 let cutDiff = cutDiffToTextShort curCut resultCut
                 let currentCutIdMsg = T.unwords
                         [ "current cut is now"
                         , cutIdToTextShort (_cutId resultCut) <> ","
-                        , "diff:"
+                        , "diff:" -- ???
                         ]
                 let catOverflowing x xs =
                         if length xs == 1
                         then T.unwords (x : xs)
-                        else T.intercalate "\n" (x : (map ("    " <>) xs))
+                        else T.intercalate "\n" (x : map ("    " <>) xs)
                 logFun @T.Text Info $ catOverflowing currentCutIdMsg cutDiff
                 atomically $ writeTVar cutVar resultCut
                 )
@@ -949,7 +915,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
                         Nothing -> "from " <> maybe "unknown origin" (\p -> "origin " <> toText p) origin
                         Just _ -> "which was locally mined - the mining loop will stall until unstuck by another miner"
 
-                logfun (maybe Warn (\_ -> Error) (_cutHashesLocalPayload hs))
+                logfun (maybe Warn (const Error) (_cutHashesLocalPayload hs))
                     $ "Timeout while processing cut "
                         <> cutIdToTextShort hsid
                         <> " at height " <> sshow (_cutHashesHeight hs)
@@ -1084,3 +1050,7 @@ getQueueStats db = QueueStats
 -- Logging
 loggCutId :: HasCutId c => LogFunction -> LogLevel -> c -> T.Text -> IO ()
 loggCutId logFun l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+
+-- Logging
+loggChainId :: HasChainId c => LogFunction -> LogLevel -> c -> T.Text -> IO ()
+loggChainId logFun l c msg = logFun @T.Text l $  "chain " <> toText (_chainId c) <> ": " <> msg

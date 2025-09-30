@@ -273,6 +273,7 @@ library
         , Chainweb.SPV.RestAPI
         , Chainweb.SPV.RestAPI.Server
         , Chainweb.SPV.RestAPI.Client
+        , Chainweb.Sync.ForkInfo
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Time
         , Chainweb.TreeDB

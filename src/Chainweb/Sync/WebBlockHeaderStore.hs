@@ -16,7 +16,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Sync.WebBlockHeaderStore
@@ -54,9 +53,10 @@ import Chainweb.Difficulty (WindowWidth(..))
 import Chainweb.MinerReward (blockMinerReward)
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Parent
 import Chainweb.PayloadProvider
-import Chainweb.Ranked
 import Chainweb.Storage.Table
+import Chainweb.Sync.ForkInfo
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.TreeDB qualified as TDB
@@ -82,10 +82,6 @@ import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
 import Utils.Logging.Trace
-import Chainweb.Parent
-import Streaming.Prelude qualified as S
-import Data.These (partitionHereThere, These (..))
-import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -241,10 +237,20 @@ forkInfoForHeader
     :: HasVersion
     => WebBlockHeaderDb
     -> BlockHeader
+        -- ^ The block header of the target consensus state of the fork info.
     -> Maybe EncodedPayloadData
     -> Maybe (Parent BlockHeader)
+        -- ^ Parent header of the given header if available. But this is not
+        -- checked!
+        -- If not provided it will be looked up in the database by this function.
+        --
+        -- TODO: we should probably check that this value is indeed the parent
+        -- of the given header.
+    -> Bool
+        -- ^ Whether to request payload production on the target state of
+        -- the fork info.
     -> IO ForkInfo
-forkInfoForHeader wdb hdr pldData parentHdr
+forkInfoForHeader wdb hdr pldData parentHdr createPayload
 
     -- FIXME do we need this case??? We never add genesis headers...
     | isGenesisBlockHeader hdr = do
@@ -253,7 +259,7 @@ forkInfoForHeader wdb hdr pldData parentHdr
             { _forkInfoTrace = []
             , _forkInfoBasePayloadHash = Parent $ _latestPayloadHash state
             , _forkInfoTargetState = state
-            , _forkInfoNewBlockCtx = Just nbctx
+            , _forkInfoNewBlockCtx = nbctx
             }
 
     | otherwise = do
@@ -269,15 +275,17 @@ forkInfoForHeader wdb hdr pldData parentHdr
             { _forkInfoTrace = [consensusPayload <$ blockHeaderToEvaluationCtx phdr]
             , _forkInfoBasePayloadHash = view blockPayloadHash <$> phdr
             , _forkInfoTargetState = state
-            , _forkInfoNewBlockCtx = Just nbctx
+            , _forkInfoNewBlockCtx = nbctx
             }
   where
     pld = view blockPayloadHash hdr
 
-    nbctx = NewBlockCtx
-        { _newBlockCtxMinerReward = blockMinerReward (height + 1)
-        , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
-        }
+    nbctx
+        | createPayload = Just NewBlockCtx
+            { _newBlockCtxMinerReward = blockMinerReward (height + 1)
+            , _newBlockCtxParentCreationTime = Parent $ view blockCreationTime hdr
+            }
+        | otherwise = Nothing
     height = view blockHeight hdr
 
 -- -------------------------------------------------------------------------- --
@@ -331,6 +339,9 @@ getBlockHeaderInternal
   = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
     !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
+        -- assertion: h == k
+
+        let taskLog l = logg l . taskMsg k
 
         -- query BlockHeader via
         --
@@ -371,7 +382,7 @@ getBlockHeaderInternal
         --
         let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash p
             queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
-                logg Debug $ taskMsg k
+                taskLog Debug
                     $ "getBlockHeaderInternal.getPrerequisiteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
                 getBlockHeaderInternal
@@ -389,7 +400,7 @@ getBlockHeaderInternal
             -- after payload validation when the header is finally added to the db.
             --
             queryParent p = Concurrently $ do
-                logg Debug $ taskMsg k
+                taskLog Debug
                     $ "getBlockHeaderInternal.getPrerequisiteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
                 parentHdr <- Parent <$> getBlockHeaderInternal
@@ -435,7 +446,7 @@ getBlockHeaderInternal
             --
             -- This requires to provide a CPS version of memoInsert.
 
-        logg Debug $ taskMsg k $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
+        taskLog Debug $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
 
         -- ------------------------------------------------------------------ --
         -- Validation
@@ -462,70 +473,33 @@ getBlockHeaderInternal
 
         -- 4. Validate block payload
         --
-        -- Pact validation is done in the context of a particular header. Just
-        -- because the payload does already exist in the store doesn't mean that
-        -- validation succeeds in the context of a particular block header.
+        -- Payload validation is done in the context of a particular header.
+        -- Just because the payload does already exist in the store doesn't mean
+        -- that validation succeeds in the context of a particular block header.
         --
         -- If we reach this point in the code we are certain that the header
         -- isn't yet in the block header database and thus we still must
         -- validate the payload for this block header.
         --
 
+        -- Compute a ForkInfo FOR A SINGLE BLOCK.
+        --
         -- Do not produce payloads at this point; we may not stick around at
         -- this block.
-        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) <&> forkInfoNewBlockCtx .~ Nothing
+        --
+        finfo <- forkInfoForHeader wdb header pld (Just parentHdr) False
 
-        logg Debug $ taskMsg k $
-            "getBlockHeaderInternal validate payload for " <> sshow h
+        taskLog Debug $ "getBlockHeaderInternal validate payload for " <> sshow h
         case providers ^?! atChain cid of
             ConfiguredPayloadProvider provider -> do
-                r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
-                    logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation for " <> sshow h <> " failed with : " <> sshow e
-                    throwM e
-                if r /= _forkInfoTargetState finfo
-                then do
-                    bhdb <- getWebBlockHeaderDb wdb cid
-                    let ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest r
-                    ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) `catch` \case
-                        e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
-                            logfun Warn $ "PP block is missing: " <> brief ppRBH
-                            throwM e
-                        e -> throwM e
-
-                    (forkBlocksDescendingStream S.:> forkPoint) <-
-                            S.toList $ branchDiff_ bhdb ppBlock (unwrapParent parentHdr)
-                    let forkBlocksAscending = reverse $ snd $ partitionHereThere (That header : forkBlocksDescendingStream)
-                    let newTrace =
-                            zipWith
-                                (\prent child ->
-                                    ConsensusPayload (view blockPayloadHash child) Nothing <$
-                                        blockHeaderToEvaluationCtx (Parent prent))
-                                (forkPoint : forkBlocksAscending)
-                                forkBlocksAscending
-                    let newForkInfo = finfo
-                            { _forkInfoTrace = newTrace
-                            , _forkInfoBasePayloadHash =
-                                Parent $ view blockPayloadHash forkPoint
-                            }
-                    r' <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
-                        logg Warn $ taskMsg k $ "getBlockHeaderInternal payload validation retry for " <> sshow h <> " failed with: " <> sshow e
-                        throwM e
-                    unless (r' == _forkInfoTargetState finfo) $ do
-                        throwM $ GetBlockHeaderFailure $ "unexpected result state"
-                            <> "; expected: " <> brief (_forkInfoTargetState finfo)
-                            <> "; actual: " <> brief r
-                            <> "; PP latest block: " <> brief ppBlock
-                            <> "; target block: " <> brief header
-                            <> "; target block parent: " <> brief (unwrapParent parentHdr)
-                            <> "; fork blocks: " <> brief forkBlocksAscending
-                else
-                    return ()
+                bhdb <- getWebBlockHeaderDb wdb cid
+                resolveForkInfo taskLog bhdb provider hints finfo
             DisabledPayloadProvider -> do
-                logg Debug $ taskMsg k $ "getBlockHeaderInternal payload provider disabled"
+                taskLog Debug "getBlockHeaderInternal payload provider disabled"
 
-        logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"
+        taskLog Debug "getBlockHeaderInternal pact validation succeeded"
 
-        logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
+        taskLog Debug $ "getBlockHeaderInternal return header " <> sshow h
         return $! chainValue header
     logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
     return bh
@@ -544,7 +518,7 @@ getBlockHeaderInternal
     logg :: LogFunctionText
     logg = logfun @T.Text
 
-    taskMsg k msg = "header task " <> sshow k <> ": " <> msg
+    taskMsg k msg = "header task " <> toText k <> ": " <> msg
 
     traceLabel subfun =
         "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal." <> subfun
@@ -690,3 +664,4 @@ instance (HasVersion, CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlock
     -- instance is available only locally.
     --
     -- The instance requires that memoCache doesn't delete from the cas.
+
