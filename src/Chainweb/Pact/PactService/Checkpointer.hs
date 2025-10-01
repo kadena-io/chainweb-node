@@ -136,24 +136,23 @@ readFromNthParent
     -> PactRead a
     -> IO (Historical a)
 readFromNthParent logger cid sql parentCreationTime n doRead = do
-    withSavepoint sql ReadFromNSavepoint $ do
-        latest <-
-            _consensusStateLatest . fromMaybe (error "readFromNthParent is illegal to call before genesis")
-            <$> getConsensusState sql
-        if genesisHeight cid + fromIntegral @Word @BlockHeight n > _syncStateHeight latest
-        then do
-            logFunctionText logger Warn $ "readFromNthParent asked to rewind beyond genesis, to "
-                <> sshow (int (_syncStateHeight latest) - int n :: Integer)
-            return NoHistory
-        else do
-            let targetHeight = _syncStateHeight latest - fromIntegral @Word @BlockHeight n
-            lookupBlockWithHeight sql targetHeight >>= \case
-                    -- this case for shallow nodes without enough history
-                    Nothing -> do
-                        logFunctionText logger Warn "readFromNthParent asked to rewind beyond known blocks"
-                        return NoHistory
-                    Just nthBlock ->
-                        readFrom logger cid sql parentCreationTime (Parent nthBlock) doRead
+    latest <-
+        _consensusStateLatest . fromMaybe (error "readFromNthParent is illegal to call before genesis")
+        <$> getConsensusState sql
+    if genesisHeight cid + fromIntegral @Word @BlockHeight n > _syncStateHeight latest
+    then do
+        logFunctionText logger Warn $ "readFromNthParent asked to rewind beyond genesis, to "
+            <> sshow (int (_syncStateHeight latest) - int n :: Integer)
+        return NoHistory
+    else do
+        let targetHeight = _syncStateHeight latest - fromIntegral @Word @BlockHeight n
+        lookupBlockWithHeight sql targetHeight >>= \case
+                -- this case for shallow nodes without enough history
+                Nothing -> do
+                    logFunctionText logger Warn "readFromNthParent asked to rewind beyond known blocks"
+                    return NoHistory
+                Just nthBlock ->
+                    readFrom logger cid sql parentCreationTime (Parent nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
@@ -175,7 +174,7 @@ readFrom logger cid sql parentCreationTime parent pactRead = do
             , _bctxMinerReward = blockMinerReward (childBlockHeight cid parent)
             , _bctxChainId = cid
             }
-    liftIO $ withSavepoint sql ReadFromSavepoint $ do
+    liftIO $ do
         !latestHeader <- maybe (genesisRankedParentBlockHash cid) (Parent . _syncStateRankedBlockHash . _consensusStateLatest) <$>
             ChainwebPactDb.throwOnDbError (ChainwebPactDb.getConsensusState sql)
         -- is the parent the latest header, i.e., can we get away without rewinding?
@@ -228,8 +227,7 @@ rewindTo
     -> Parent RankedBlockHash
     -> IO ()
 rewindTo cid sql ancestor = do
-    withSavepoint sql RewindSavePoint $
-        void $ PactDb.rewindDbTo cid sql ancestor
+    void $ PactDb.rewindDbTo cid sql ancestor
 
 data PactRead a
     = PactRead
@@ -283,11 +281,10 @@ restoreAndSave
     -> NonEmpty (RunnableBlock m q)
     -> m q
 restoreAndSave logger cid sql parent blocks = do
-    withSavepoint sql RestoreAndSaveSavePoint $ do
-        -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
-        startTxId <- liftIO $ PactDb.rewindDbTo cid sql parent
-        let startBlockHeight = childBlockHeight cid parent
-        foldState1 (fmap executeBlock blocks) (T2 startBlockHeight startTxId)
+    -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
+    startTxId <- liftIO $ PactDb.rewindDbTo cid sql parent
+    let startBlockHeight = childBlockHeight cid parent
+    foldState1 (fmap executeBlock blocks) (T2 startBlockHeight startTxId)
     where
 
     executeBlock :: RunnableBlock m q -> T2 BlockHeight Pact.TxId -> m (q, T2 BlockHeight Pact.TxId)

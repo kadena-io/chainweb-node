@@ -45,7 +45,7 @@
 -- |                     +v--------------------------------------------+   +v----------------------------------------------+ |
 -- |                      Pact5Db tx                                        Pact5Db tx                                       |
 -- +v------------------------------------------------------------------------------------------------------------------------+
---  SQLite tx (withSavepoint)
+--  SQLite tx (withTransaction)
 --    (in some cases multiple blocks in tx)
 --
 --
@@ -762,19 +762,18 @@ createVersionedTable tablename db = do
 
 setConsensusState :: SQ3.Database -> ConsensusState -> ExceptT LocatedSQ3Error IO ()
 setConsensusState db cs = do
-    withSavepoint db SetConsensusSavePoint $ do
-        exec' db
-            "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-            \(?, ?, ?, ?);"
-            (toRow "final" $ _consensusStateFinal cs)
-        exec' db
-            "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-            \(?, ?, ?, ?);"
-            (toRow "safe" $ _consensusStateSafe cs)
-        exec' db
-            "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-            \(?, ?, ?, ?);"
-            (toRow "latest" $ _consensusStateLatest cs)
+    exec' db
+        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+        \(?, ?, ?, ?);"
+        (toRow "final" $ _consensusStateFinal cs)
+    exec' db
+        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+        \(?, ?, ?, ?);"
+        (toRow "safe" $ _consensusStateSafe cs)
+    exec' db
+        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+        \(?, ?, ?, ?);"
+        (toRow "latest" $ _consensusStateLatest cs)
     where
     toRow safety SyncState {..} =
         [ SInt $ fromIntegral @BlockHeight @Int64 _syncStateHeight
@@ -808,18 +807,17 @@ getConsensusState db = do
 -- | Create all tables that exist pre-genesis
 -- TODO: migrate this logic to the checkpointer itself?
 initSchema :: SQLiteEnv -> IO ()
-initSchema sql =
-    withSavepoint sql InitSchemaSavePoint $ throwOnDbError $ do
-        createConsensusStateTable
-        createBlockHistoryTable
-        createTableCreationTable
-        createTableMutationTable
-        createTransactionIndexTable
-        create (toUtf8 $ Pact.renderDomain Pact.DKeySets)
-        create (toUtf8 $ Pact.renderDomain Pact.DModules)
-        create (toUtf8 $ Pact.renderDomain Pact.DNamespaces)
-        create (toUtf8 $ Pact.renderDomain Pact.DDefPacts)
-        create (toUtf8 $ Pact.renderDomain Pact.DModuleSource)
+initSchema sql = throwOnDbError $ do
+    createConsensusStateTable
+    createBlockHistoryTable
+    createTableCreationTable
+    createTableMutationTable
+    createTransactionIndexTable
+    create (toUtf8 $ Pact.renderDomain Pact.DKeySets)
+    create (toUtf8 $ Pact.renderDomain Pact.DModules)
+    create (toUtf8 $ Pact.renderDomain Pact.DNamespaces)
+    create (toUtf8 $ Pact.renderDomain Pact.DDefPacts)
+    create (toUtf8 $ Pact.renderDomain Pact.DModuleSource)
     where
     create tablename = do
         createVersionedTable tablename sql

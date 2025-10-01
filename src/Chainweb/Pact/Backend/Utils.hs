@@ -37,14 +37,12 @@ module Chainweb.Pact.Backend.Utils
   , rewindDbToBlock
   , rewindDbToGenesis
   , getEndTxId
-    -- * Savepoints
-  , withSavepoint
-  , SavepointName(..)
+    -- * Transactions
+  , withTransaction
   -- * SQLite conversions and assertions
   , toUtf8
   , fromUtf8
   , asStringUtf8
-  , convSavepointName
   -- * SQLite runners
   , withSqliteDb
   , withReadSqlitePool
@@ -147,88 +145,29 @@ asStringUtf8 = toUtf8 . asString
 -- -------------------------------------------------------------------------- --
 --
 
-withSavepoint
+withTransaction
     :: (HasCallStack, MonadMask m, MonadIO m)
     => SQLiteEnv
-    -> SavepointName
     -> m a
     -> m a
-withSavepoint db name action = fmap fst $ generalBracket
-    (liftIO $ beginSavepoint db name)
+withTransaction db action = fmap fst $ generalBracket
+    (liftIO $ beginTransaction db)
     (\_ -> liftIO . \case
-        ExitCaseSuccess {} -> commitSavepoint db name
-        _ -> abortSavepoint db name
+        ExitCaseSuccess {} -> commitTransaction db
+        _ -> rollbackTransaction db
     ) $ \_ -> action
 
-beginSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
-beginSavepoint db name =
-  throwOnDbError $ exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
+beginTransaction :: HasCallStack => SQLiteEnv -> IO ()
+beginTransaction db =
+  throwOnDbError $ exec_ db $ "BEGIN TRANSACTION;"
 
-commitSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
-commitSavepoint db name =
-  throwOnDbError $ exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
+commitTransaction :: HasCallStack => SQLiteEnv -> IO ()
+commitTransaction db =
+  throwOnDbError $ exec_ db $ "COMMIT TRANSACTION;"
 
-convSavepointName :: SavepointName -> SQ3.Utf8
-convSavepointName = toUtf8 . toText
-
--- | @rollbackSavepoint n@ rolls back all database updates since the most recent
--- savepoint with the name @n@ and restarts the transaction.
---
--- /NOTE/ that the savepoint is not removed from the savepoint stack. In order to
--- also remove the savepoint @rollbackSavepoint n >> commitSavepoint n@ can be
--- used to release the (empty) transaction.
---
--- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
--- savepoints.
---
-rollbackSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
-rollbackSavepoint db name =
-  throwOnDbError $ exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
-
--- | @abortSavepoint n@ rolls back all database updates since the most recent
--- savepoint with the name @n@ and removes it from the savepoint stack.
-abortSavepoint :: HasCallStack => SQLiteEnv -> SavepointName -> IO ()
-abortSavepoint db name = do
-  rollbackSavepoint db name
-  commitSavepoint db name
-
-data SavepointName
-    = ReadFromSavepoint
-    | ReadFromNSavepoint
-    | RestoreAndSaveSavePoint
-    | RewindSavePoint
-    | InitSchemaSavePoint
-    | ValidateBlockSavePoint
-    | SetConsensusSavePoint
-    | RunGenesisSavePoint
-    deriving (Eq, Ord, Enum, Bounded)
-
-instance Show SavepointName where
-    show = T.unpack . toText
-
-instance HasTextRepresentation SavepointName where
-    toText ReadFromSavepoint = "read-from"
-    toText ReadFromNSavepoint = "read-from-n"
-    toText RestoreAndSaveSavePoint = "restore-and-save"
-    toText RewindSavePoint = "rewind"
-    toText InitSchemaSavePoint = "init-schema"
-    toText ValidateBlockSavePoint = "validate-block"
-    toText SetConsensusSavePoint = "set-consensus"
-    toText RunGenesisSavePoint = "run-genesis"
-    {-# INLINE toText #-}
-
-    fromText "read-from" = pure ReadFromSavepoint
-    fromText "read-from-n" = pure ReadFromNSavepoint
-    fromText "restore-and-save" = pure RestoreAndSaveSavePoint
-    fromText "rewind" = pure RewindSavePoint
-    fromText "init-schema" = pure InitSchemaSavePoint
-    fromText "validate-block" = pure ValidateBlockSavePoint
-    fromText "set-consensus" = pure SetConsensusSavePoint
-    fromText "run-genesis" = pure RunGenesisSavePoint
-    fromText t = throwM $ TextFormatException
-        $ "failed to decode SavepointName " <> t
-        <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
-    {-# INLINE fromText #-}
+rollbackTransaction :: HasCallStack => SQLiteEnv -> IO ()
+rollbackTransaction db =
+  throwOnDbError $ exec_ db $ "ROLLBACK TRANSACTION;"
 
 chainwebPragmas :: [Pact4.Pragma]
 chainwebPragmas =

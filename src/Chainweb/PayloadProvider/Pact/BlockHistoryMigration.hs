@@ -80,7 +80,7 @@ migrateBlockHistoryTable logger sdb bhdb cleanup
             remainingRows <- readIORef remainingRowsRef
             let perc = (1.0 - fromIntegral @_ @Double remainingRows / fromIntegral @_ @Double nBlockHistory) * 100.0
             logf Info $ "Table migration: Process remaining rows: " <> sshow remainingRows <> " ("<> sshow perc <> ")"
-            r <- tx $ flip S.mapM_ chunk $ \case
+            r <- withTransaction sdb $ flip S.mapM_ chunk $ \case
               rr@[SInt bh, SInt _, SBlob h] -> do
                 let rowBlockHeight = fromIntegral bh
                 rowBlockHash <- runGetS decodeBlockHash h
@@ -116,9 +116,6 @@ migrateBlockHistoryTable logger sdb bhdb cleanup
           logf Info "Table migration successful"
 
   where
-    tx = bracket_
-      (throwOnDbError $ exec_ sdb "BEGIN TRANSACTION")
-      (throwOnDbError $ exec_ sdb "COMMIT TRANSACTION")
     nTableEntries tname = throwOnDbError $ qry_ sdb ("SELECT count(*) from " <> tname) [RInt] >>= \case
         [[SInt n]] -> pure n
         _ -> error "unexpected row shape"
