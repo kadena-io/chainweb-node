@@ -83,7 +83,15 @@ instance Brief a => Brief (Maybe a) where
     brief Nothing = "nothing"
 
 instance Brief a => Brief [a] where
-    brief l = "[" <> (T.intercalate "," $ brief <$> l) <> "]"
+    brief l
+        | length l < 50 = mconcat ["[", T.intercalate "," (brief <$> l), "]"]
+        | otherwise = mconcat
+            [ "["
+            , T.intercalate "," (brief <$> take 20 l)
+            , " ... "
+            , T.intercalate "," (brief <$> drop (length l - 20) l)
+            , "]"
+            ]
 
 instance Brief Int where
     brief = sshow
