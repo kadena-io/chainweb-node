@@ -4,7 +4,9 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -37,19 +39,16 @@ module Chainweb.BlockHeight
 ) where
 
 import Control.DeepSeq
-
-import Data.Aeson
-import Data.Hashable
-import Data.Word
-
-import GHC.Generics (Generic)
-
--- Internal imports
-
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
+import Chainweb.Utils
 import Chainweb.Utils.Serialization
-
+import Control.Monad.Catch
+import Data.Aeson
+import Data.Hashable
+import Data.Text qualified as T
+import Data.Word
+import GHC.Generics (Generic)
 import Numeric.Additive
 
 -- -------------------------------------------------------------------------- --
@@ -63,7 +62,17 @@ newtype BlockHeight = BlockHeight { getBlockHeight :: Word64 }
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , Num, Integral, Real, Enum, Bounded
         )
+
 instance Show BlockHeight where show (BlockHeight b) = show b
+
+instance HasTextRepresentation BlockHeight where
+    toText = sshow
+    fromText t = case reads (T.unpack t) of
+        [(h, "")] -> return (BlockHeight h)
+        _         -> throwM $ TextFormatException $ "BlockHeight: failed to parse: " <> t
+
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockHeight where
     type Tag BlockHeight = 'BlockHeightTag

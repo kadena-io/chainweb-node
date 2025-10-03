@@ -387,8 +387,9 @@ getBlockHeaderInternal
         let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash p
             queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
                 taskLog Debug
-                    $ "getBlockHeaderInternal.getPrerequisiteHeader (adjacent) for " <> sshow h
-                    <> ": " <> sshow p
+                    $ "getBlockHeaderInternal.getPrerequisiteHeader (adjacent)"
+                    <> "; header: " <> toText (brief <$> h)
+                    <> "; queried adjacent parent: " <> toText (brief <$> p)
                 getBlockHeaderInternal
                     headerStore
                     candidateHeaderCas
@@ -405,8 +406,9 @@ getBlockHeaderInternal
             --
             queryParent p = Concurrently $ do
                 taskLog Debug
-                    $ "getBlockHeaderInternal.getPrerequisiteHeader (parent) for " <> sshow h
-                    <> ": " <> sshow p
+                    $ "getBlockHeaderInternal.getPrerequisiteHeader (parent)"
+                    <> "; header: " <> toText (brief <$> h)
+                    <> "; queried parent: " <> toText (brief <$> p)
                 parentHdr <- Parent <$> getBlockHeaderInternal
                     headerStore
                     candidateHeaderCas
@@ -424,10 +426,11 @@ getBlockHeaderInternal
         let hints = Hints <$> maybeOrigin'
         pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
         let prefetchProviderPayloads = case providers ^?! atChain cid of
-                ConfiguredPayloadProvider _provider -> return ()
+                ConfiguredPayloadProvider provider -> do
                     -- TODO PP
                     -- prefetchPayloads provider hints
                     --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
+                    return ()
                 DisabledPayloadProvider -> return ()
 
         parentHdr <- runConcurrently
@@ -450,7 +453,7 @@ getBlockHeaderInternal
             --
             -- This requires to provide a CPS version of memoInsert.
 
-        taskLog Debug $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
+        taskLog Debug $ "getBlockHeaderInternal got pre-requesites for " <> toText h
 
         -- ------------------------------------------------------------------ --
         -- Validation
@@ -493,19 +496,19 @@ getBlockHeaderInternal
         --
         finfo <- forkInfoForHeader wdb header pld (Just parentHdr) False
 
-        taskLog Debug $ "getBlockHeaderInternal validate payload for " <> sshow h
+        taskLog Debug $ "getBlockHeaderInternal: validate payload for " <> toText h
         case providers ^?! atChain cid of
             ConfiguredPayloadProvider provider -> do
                 bhdb <- getWebBlockHeaderDb wdb cid
                 resolveForkInfo taskLog bhdb provider hints finfo
             DisabledPayloadProvider -> do
-                taskLog Debug "getBlockHeaderInternal payload provider disabled"
+                taskLog Debug "getBlockHeaderInternal: payload provider disabled"
 
-        taskLog Debug "getBlockHeaderInternal pact validation succeeded"
+        taskLog Debug "getBlockHeaderInternal payload validation succeeded"
 
-        taskLog Debug $ "getBlockHeaderInternal return header " <> sshow h
+        taskLog Debug $ "getBlockHeaderInternal return header " <> toText h
         return $! chainValue header
-    logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
+    logg Debug $ "getBlockHeaderInternal: got block header for " <> toText h
     return bh
 
   where

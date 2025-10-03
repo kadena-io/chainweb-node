@@ -1,8 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveGeneric #-}
 
 -- |
 -- Module: Chainweb.Sync.ForkInfo
@@ -28,12 +28,15 @@ import Control.Lens
 import Control.Monad.Catch
 import Data.List qualified as L
 import Data.LogMessage
+import Data.Maybe
 import Data.Text qualified as T
-import Data.These (partitionHereThere, These (..))
+import Data.These (partitionHereThere)
 import GHC.Generics (Generic)
 import GHC.Stack
 import Streaming.Prelude qualified as S
 import System.LogLevel
+
+-- -------------------------------------------------------------------------- --
 
 newtype ForkInfoSyncFailure = ForkInfoSyncFailure T.Text
     deriving (Show, Eq, Ord, Generic)
@@ -83,13 +86,19 @@ resolveForkInfo
     -> IO ()
 resolveForkInfo logg bhdb provider hints finfo = do
 
+    logg Info $ "resolveForkInfo: starting resolution"
+            <> "; target state: " <> brief (_forkInfoTargetState finfo)
+            <> "; base payload: " <> brief (_forkInfoBasePayloadHash finfo)
+            <> "; trace length: " <> sshow (length $ _forkInfoTrace finfo)
+            <> "; payload requested: " <> sshow (isJust $ _forkInfoNewBlockCtx finfo)
+
     -- Attempt payload validation for the given ForkInfo
     --
     -- We assume that this forkInfo has a trace of "reasonable" size
     --
     r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
-        logg Warn $ "getBlockHeaderInternal payload validation for " <> sshow h
-            <> " failed with: " <> sshow e
+        logg Warn $ "getBlockHeaderInternal payload validation for "
+            <> toText h <> " failed with: " <> sshow e
         throwM e
 
     -- Check result of syncToBlock
@@ -232,9 +241,7 @@ resolveForkInfoForProviderState logg bhdb provider hints finfo ppState
         --
         newState <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
             logg Warn $ "getBlockHeaderInternal payload validation retry for "
-                <> brief h
-                <> " failed with: "
-                <> sshow e
+                <> brief h <> " failed with: " <> sshow e
             throwM e
 
         -- check if we made progress
