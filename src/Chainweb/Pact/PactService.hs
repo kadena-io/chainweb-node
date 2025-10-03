@@ -106,10 +106,12 @@ import Network.HTTP.Client qualified as HTTP
 import P2P.TaskQueue (Priority(..))
 import Pact.Core.ChainData qualified as Pact
 import Pact.Core.Command.Types qualified as Pact
+import Pact.Core.Command.RPC qualified as Pact
 import Pact.Core.Errors qualified as Pact
 import Pact.Core.Evaluate qualified as Pact
 import Pact.Core.Gas qualified as Pact
 import Pact.Core.Hash qualified as Pact
+import Pact.Core.Names qualified as Pact
 import Pact.Core.StableEncoding qualified as Pact
 import Pact.JSON.Encode qualified as J
 import Prelude hiding (lookup)
@@ -117,6 +119,8 @@ import System.LogLevel
 import Chainweb.Version.Guards (pact5)
 import Control.Concurrent.MVar (newMVar)
 import Chainweb.Pact.Payload.RestAPI.Client (payloadClient)
+import qualified Pact.Core.Persistence as Pact
+import qualified Pact.Core.Info as Pact
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -790,13 +794,22 @@ execPreInsertCheckReq logger serviceEnv txs = do
     fakeParentCreationTime <- Checkpointer.mkFakeParentCreationTime
     let act sql = Checkpointer.readFromLatest logger cid sql fakeParentCreationTime $ Checkpointer.PactRead
             { pact5Read = \blockEnv bh -> do
-                forM txs $ \tx ->
-                    fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
-                        -- it's safe to use initialBlockHandle here because it's
-                        -- only used to check for duplicate pending txs in a block
-                        () <- mapExceptT liftIO
-                            $ Pact.validateParsedChainwebTx logger blockEnv tx
-                        evalStateT (attemptBuyGas blockEnv tx) bh
+                liftIO $ flip evalStateT bh $ doChainwebPactDbTransaction (blockEnv ^. psBlockDbEnv) Nothing $ \pdb _ -> do
+                    forM txs $ \tx ->
+                        fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
+                            -- it's safe to use initialBlockHandle here because it's
+                            -- only used to check for duplicate pending txs in a block
+                            () <- mapExceptT liftIO
+                                $ Pact.validateParsedChainwebTx logger blockEnv tx
+                            evalStateT (attemptBuyGas blockEnv tx) bh
+                            case tx ^? Pact.cmdPayload . Pact.payloadObj . Pact.pPayload . Pact._Continuation of
+                                Just contMsg -> do
+                                    let pactId = Pact._cmPactId contMsg
+                                    defPactState <- liftIO $ Pact.ignoreGas (Pact.LineInfo 0) $ Pact._pdbRead pdb Pact.DDefPacts pactId
+                                    let isComplete = defPactState == Just Nothing
+                                    when isComplete $
+                                        throwError (InsertErrorDefPactComplete (sshow pactId))
+                                Nothing -> return ()
             -- pessimistically, if we're catching up and not even past the Pact
             -- 5 activation, just badlist everything as in-the-future.
             , pact4Read = \_ -> return $ Just InsertErrorTimeInFuture <$ txs
