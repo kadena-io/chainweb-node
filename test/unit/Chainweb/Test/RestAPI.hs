@@ -1,13 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeAbstractions #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-imports #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeAbstractions #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -141,22 +140,23 @@ version = barebonesTestVersion singletonChainGraph
 
 -- | The type of 'TestClientEnv' that is used everywhere in this file
 --
-type TestClientEnv_ = TestClientEnv MockTx
+type TestClientEnv_ l = TestClientEnv l MockTx
 
 mkEnv
-    :: (Logger logger, HasVersion)
+    :: forall logger . HasVersion
+    => Logger logger
     => logger
     -> HTTP.Manager
     -> RocksDb
     -> Bool
     -> ChainMap BlockHeaderDb
-    -> ResourceT IO TestClientEnv_
+    -> ResourceT IO (TestClientEnv_ logger)
 mkEnv logger mgr rdb tls dbs = do
     let mkPayloadServer cid = do
             pp <- newMinimalPayloadProvider logger cid rdb (Just mgr) defaultMinimalProviderConfig
             let pdb = view minimalPayloadDb pp
             let queue = view minimalPayloadQueue pp
-            SomeChainwebVersionT @v' _ <- return $ someChainwebVersionVal
+            SomeChainwebVersionT @v' _ <- return someChainwebVersionVal
             SomeChainIdT @c' _ <- return $ someChainIdVal cid
             -- let serv = liftIO $ somePayloadServer @_ @v' @c' @'MinimalProvider
             --     logger defaultP2pConfiguration myInfo peerDb pdb queue mgr
@@ -177,7 +177,7 @@ simpleSessionTests rdb tls = withVersion version $
             $ httpHeaderTests env (head $ toList chainIds)
             : (simpleClientSession env <$> toList chainIds)
 
-httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
+httpHeaderTests :: IO (TestClientEnv_ l) -> ChainId -> TestTree
 httpHeaderTests envIO cid =
     testGroup ("http header tests for chain " <> sshow cid)
         [ testCase "headerClient" $ go $ \h -> headerClient' cid (key h)
@@ -214,7 +214,7 @@ httpHeaderTests envIO cid =
                             (d <= 2)
                         return res
 
-simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
+simpleClientSession :: IO (TestClientEnv_ l) -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
         env <- _envClientEnv <$> envIO

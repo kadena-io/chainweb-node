@@ -82,6 +82,8 @@ import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
 import Utils.Logging.Trace
+import Chainweb.Logger
+import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -145,11 +147,11 @@ data WebBlockPayloadStore tbl = WebBlockPayloadStore
 --   would be possible to run this on top of any CAS and API that offers
 --   a simple GET.
 --
-data WebBlockHeaderStore = WebBlockHeaderStore
+data WebBlockHeaderStore l = WebBlockHeaderStore
     { _webBlockHeaderStoreCas :: !WebBlockHeaderDb
     , _webBlockHeaderStoreMemo :: !(TaskMap (ChainValue BlockHash) (ChainValue BlockHeader))
     , _webBlockHeaderStoreQueue :: !(PQueue (Task ClientEnv (ChainValue BlockHeader)))
-    , _webBlockHeaderStoreLogFunction :: !LogFunction
+    , _webBlockHeaderStoreLogger :: l
     , _webBlockHeaderStoreMgr :: !HTTP.Manager
     }
 
@@ -306,11 +308,13 @@ instance Exception GetBlockHeaderFailure
 -- iterative algorithm is preferable.
 --
 getBlockHeaderInternal
-    :: HasVersion
+    :: forall l candidateHeaderCas candidatePldTbl
+    . HasVersion
     => BlockHeaderCas candidateHeaderCas
         -- ^ CandidateHeaderCas is a content addressed store for BlockHeaders
     => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
-    => WebBlockHeaderStore
+    => Logger l
+    => WebBlockHeaderStore l
         -- ^ Block Header Store for all Chains
     -> candidateHeaderCas
         -- ^ Ephemeral store for block headers under consideration
@@ -341,7 +345,7 @@ getBlockHeaderInternal
     !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
         -- assertion: h == k
 
-        let taskLog l = logg l . taskMsg k
+        let taskLog = taskLogFun k
 
         -- query BlockHeader via
         --
@@ -512,13 +516,21 @@ getBlockHeaderInternal
     queue = _webBlockHeaderStoreQueue headerStore
     wdb = _webBlockHeaderStoreCas headerStore
 
+    logger = _webBlockHeaderStoreLogger headerStore
+
+    taskLogger :: forall a . Brief a => T.Text -> ChainValue a -> l
+    taskLogger taskType k
+        = addLabel (taskType, brief (_chainValueValue k))
+        . addLabel ("chain", toText (_chainValueChainId k))
+        $ logger
+
+    taskLogFun k = logFunction (taskLogger "header" k)
+
     logfun :: LogFunction
-    logfun = _webBlockHeaderStoreLogFunction headerStore
+    logfun = logFunction logger
 
     logg :: LogFunctionText
     logg = logfun @T.Text
-
-    taskMsg k msg = "header task " <> toText k <> ": " <> msg
 
     traceLabel subfun =
         "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal." <> subfun
@@ -543,14 +555,16 @@ getBlockHeaderInternal
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
-            l @T.Text Debug $ taskMsg ck "query remote block header"
+            l @T.Text Debug $ taskMsg "query remote block header"
             let taskEnv = setResponseTimeout taskResponseTimeout env
             !r <- trace l (traceLabel "queryBlockHeaderTask") k (let Priority i = priority in i)
                 $ TDB.lookupM (rDb cid taskEnv) k `catchAllSynchronous` \e -> do
-                    l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
+                    l @T.Text Debug $ taskMsg $ "failed: " <> sshow e
                     throwM e
-            l @T.Text Debug $ taskMsg ck "received remote block header"
+            l @T.Text Debug $ taskMsg "received remote block header"
             return r
+      where
+        taskMsg msg = "[" <> toText cid <> ":" <> brief k <> "] " <> msg
 
     rDb :: ChainId -> ClientEnv -> RemoteDb
     rDb cid env = RemoteDb
@@ -566,21 +580,23 @@ getBlockHeaderInternal
         -> Maybe PeerInfo
         -> IO (Maybe BlockHeader)
     pullOrigin ck Nothing = do
-        logg Debug $ taskMsg ck "no origin"
+        taskLogFun ck Debug "no origin"
         return Nothing
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
-        logg Debug $ taskMsg ck "lookup origin"
+        tlog Debug "lookup origin"
         !r <- trace logfun (traceLabel "pullOrigin") k 0
             $ TDB.lookup (rDb cid originEnv) k
         case r of
             Nothing -> do
-                logg Warn $ taskMsg k
-                    $ "failed to pull from origin " <> sshow origin <> " key " <> sshow k
+                tlog Warn $ "failed to pull from origin "
+                    <> sshow origin <> " key " <> sshow k
                 return Nothing
             Just !v -> do
-                logg Debug $ taskMsg ck "received from origin"
+                tlog Debug "received from origin"
                 return $ Just v
+      where
+        tlog = taskLogFun ck
 
     -- pullOriginDeps _ Nothing = return ()
     -- pullOriginDeps ck@(ChainValue cid k) (Just origin) = do
@@ -596,14 +612,15 @@ getBlockHeaderInternal
     --     return ()
 
 newWebBlockHeaderStore
-    :: HTTP.Manager
+    :: Logger l
+    => HTTP.Manager
     -> WebBlockHeaderDb
-    -> LogFunction
-    -> IO WebBlockHeaderStore
-newWebBlockHeaderStore mgr wdb logfun = do
+    -> l
+    -> IO (WebBlockHeaderStore l)
+newWebBlockHeaderStore mgr wdb logger = do
     m <- new
     queue <- newEmptyPQueue
-    return $! WebBlockHeaderStore wdb m queue logfun mgr
+    return $! WebBlockHeaderStore wdb m queue logger mgr
 
 newWebPayloadStore
     :: HTTP.Manager
@@ -620,7 +637,8 @@ getBlockHeader
     :: HasVersion
     => BlockHeaderCas candidateHeaderCas
     => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
-    => WebBlockHeaderStore
+    => Logger l
+    => WebBlockHeaderStore l
     -> candidateHeaderCas
     -> candidatePldTbl
     -> ChainMap ConfiguredPayloadProvider

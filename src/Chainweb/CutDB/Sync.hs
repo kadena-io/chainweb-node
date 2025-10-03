@@ -85,7 +85,7 @@ catchupStepSize = 500
 syncSession
     :: HasVersion
     => PeerInfo
-    -> CutDb
+    -> CutDb l
     -> P2pSession
 syncSession p db logg env pinf = do
     race_

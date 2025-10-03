@@ -1,15 +1,13 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Miner.Miners
@@ -89,7 +87,7 @@ localTest
     => HasVersion
     => LogFunction
     -> MiningCoordination logger
-    -> CutDb
+    -> CutDb logger
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
@@ -143,7 +141,7 @@ localPOW
     => HasVersion
     => LogFunctionText
     -> MiningCoordination logger
-    -> CutDb
+    -> CutDb logger
     -> IO ()
 localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb

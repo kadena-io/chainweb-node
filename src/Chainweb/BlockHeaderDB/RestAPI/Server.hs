@@ -312,12 +312,12 @@ someP2pBlockHeaderDbServers = ifoldMap
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someBlockStreamServer :: HasVersion => CutDb -> SomeServer
+someBlockStreamServer :: HasVersion => CutDb l -> SomeServer
 someBlockStreamServer  cdb = runIdentity $ do
     SomeChainwebVersionT @v _ <- return someChainwebVersionVal
     Identity $ SomeServer (Proxy @(BlockStreamApi v)) $ blockStreamHandler cdb
 
-blockStreamHandler :: HasVersion => CutDb -> Tagged Handler Application
+blockStreamHandler :: HasVersion => CutDb l -> Tagged Handler Application
 blockStreamHandler db = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp

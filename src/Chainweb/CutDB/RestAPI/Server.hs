@@ -65,7 +65,7 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
-cutGetHandler :: HasVersion => CutDb -> Maybe MaxRank -> IO CutHashes
+cutGetHandler :: HasVersion => CutDb l -> Maybe MaxRank -> IO CutHashes
 cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
 cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c <- _cut db
@@ -73,7 +73,7 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
     return $! cutToCutHashes Nothing c'
 
-cutPutHandler :: PeerDb -> CutDb -> CutHashes -> Handler NoContent
+cutPutHandler :: PeerDb -> CutDb l -> CutHashes -> Handler NoContent
 cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
     Nothing -> throwError $ setErrText "Cut is missing an origin entry" err400
     Just addr -> do
@@ -86,17 +86,17 @@ cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
 -- Cut API Server
 
 cutServer
-    :: forall (v :: ChainwebVersionT)
+    :: forall (v :: ChainwebVersionT) l
     . HasVersion
     => PeerDb
-    -> CutDbT v
+    -> CutDbT l v
     -> Server (CutApi v)
 cutServer pdb (CutDbT db) = liftIO . cutGetHandler db :<|> cutPutHandler pdb db
 
 cutGetServer
-    :: forall (v :: ChainwebVersionT)
+    :: forall (v :: ChainwebVersionT) l
     . HasVersion
-    => CutDbT v
+    => CutDbT l v
     -> Server (CutGetApi v)
 cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 
@@ -104,21 +104,21 @@ cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 -- Some Cut Server
 
 someCutServerT :: HasVersion => PeerDb -> SomeCutDb -> SomeServer
-someCutServerT pdb (SomeCutDb (db :: CutDbT v)) =
+someCutServerT pdb (SomeCutDb (db :: CutDbT l v)) =
     SomeServer (Proxy @(CutApi v)) (cutServer pdb db)
 
-someCutServer :: HasVersion => PeerDb -> CutDb -> SomeServer
+someCutServer :: HasVersion => PeerDb -> CutDb l -> SomeServer
 someCutServer pdb = someCutServerT pdb . someCutDbVal
 
 someCutGetServerT :: HasVersion => SomeCutDb -> SomeServer
-someCutGetServerT (SomeCutDb (db :: CutDbT v)) =
+someCutGetServerT (SomeCutDb (db :: CutDbT l v)) =
     SomeServer (Proxy @(CutGetApi v)) (cutGetServer db)
 
-someCutGetServer :: HasVersion => CutDb -> SomeServer
+someCutGetServer :: HasVersion => CutDb l -> SomeServer
 someCutGetServer = someCutGetServerT . someCutDbVal
 
 -- -------------------------------------------------------------------------- --
 -- Run Server
 
-serveCutOnPort :: HasVersion => Port -> PeerDb -> CutDb -> IO ()
+serveCutOnPort :: HasVersion => Port -> PeerDb -> CutDb l -> IO ()
 serveCutOnPort p pdb = run (int p) . someServerApplication . someCutServer pdb

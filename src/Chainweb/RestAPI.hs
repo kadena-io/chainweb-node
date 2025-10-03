@@ -133,8 +133,8 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t = ChainwebServerDbs
-    { _chainwebServerCutDb :: !(Maybe CutDb)
+data ChainwebServerDbs l t = ChainwebServerDbs
+    { _chainwebServerCutDb :: !(Maybe (CutDb l))
     , _chainwebServerBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
     , _chainwebServerMempools :: !(ChainMap (MempoolBackend t))
     , _chainwebServerPayloads :: !(ChainMap SomeServer)
@@ -142,7 +142,7 @@ data ChainwebServerDbs t = ChainwebServerDbs
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t
+emptyChainwebServerDbs :: ChainwebServerDbs l t
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = mempty
@@ -201,7 +201,7 @@ someChainwebServer
     :: HasVersion
     => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer cutPeerDb) cuts
@@ -226,7 +226,7 @@ someChainwebServerWithHashesAndSpvApi
     :: HasVersion
     => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> SomeServer
 someChainwebServerWithHashesAndSpvApi config dbs =
     maybe mempty (someCutServer cutPeerDb) cuts
@@ -251,7 +251,7 @@ chainwebApplication
     :: HasVersion
     => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> Application
 chainwebApplication config dbs
     = chainwebP2pMiddlewares
@@ -266,7 +266,7 @@ chainwebApplicationWithHashesAndSpvApi
     :: HasVersion
     => Show t
     => ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> Application
 chainwebApplicationWithHashesAndSpvApi config dbs
     = chainwebP2pMiddlewares
@@ -278,7 +278,7 @@ serveChainwebOnPort
     => Show t
     => Port
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> IO ()
 serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
@@ -287,7 +287,7 @@ serveChainweb
     => Show t
     => Settings
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> IO ()
 serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
@@ -297,7 +297,7 @@ serveChainwebSocket
     => Settings
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> Middleware
     -> IO ()
 serveChainwebSocket settings sock c dbs m =
@@ -311,7 +311,7 @@ serveChainwebSocketTls
     -> X509KeyPem
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
@@ -344,7 +344,7 @@ servePeerDbSocketTls settings certChain key sock nid pdb m =
 someServiceApiServer
     :: Logger logger
     => HasVersion
-    => ChainwebServerDbs t
+    => ChainwebServerDbs l t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
@@ -370,7 +370,7 @@ someServiceApiServer dbs mr (HeaderStream hs) backupEnv pbl =
 serviceApiApplication
     :: Logger logger
     => HasVersion
-    => ChainwebServerDbs t
+    => ChainwebServerDbs l t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
@@ -386,7 +386,7 @@ serveServiceApiSocket
     => HasVersion
     => Settings
     -> Socket
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)

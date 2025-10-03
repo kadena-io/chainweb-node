@@ -203,7 +203,7 @@ runCutMonitor
     :: HasVersion
     => Logger logger
     => logger
-    -> CutDb
+    -> CutDb logger
     -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
@@ -272,17 +272,17 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
             logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
         True -> do
             runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
-                logFunctionText l Debug $ "logging RTS stats"
+                logFunctionText l Debug "logging RTS stats"
                 stats <- getRTSStats
                 logFunctionJson logger Info stats
                 approximateThreadDelay 60_000_000 {- 1 minute -}
 
-runQueueMonitor :: Logger logger => logger -> CutDb -> IO ()
+runQueueMonitor :: Logger logger => logger -> CutDb logger -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
         runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
-            logFunctionText l Debug $ "logging cut queue stats"
+            logFunctionText l Debug "logging cut queue stats"
             stats <- getQueueStats cutDb
             logFunctionJson logger Info stats
             approximateThreadDelay 60_000_000 {- 1 minute -}
@@ -297,7 +297,7 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
   where
     go l = do
         runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
-            logFunctionText l Debug $ "logging database stats"
+            logFunctionText l Debug "logging database stats"
             logFunctionJson l Info . DbStats "rocksDb" =<< sizeOf rocksDbDir
             logFunctionJson l Info . DbStats "pactDb" =<< sizeOf pactDbDir
             approximateThreadDelay 1_200_000_000 {- 20 minutes -}

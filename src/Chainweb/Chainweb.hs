@@ -168,7 +168,7 @@ import P2P.Peer
 data Chainweb logger = Chainweb
     { _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(ChainMap (ChainResources logger))
-    , _chainwebCutResources :: !CutResources
+    , _chainwebCutResources :: !(CutResources logger)
     , _chainwebMiner :: !(Maybe (MinerResources logger))
     , _chainwebCoordinator :: !(Maybe (MiningCoordination logger))
     , _chainwebLogger :: !logger
@@ -579,13 +579,13 @@ runChainweb cw nowServing = do
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do
-            logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
+            logg Warn "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
             mkValidationMiddleware
         else return id
     serviceApiValidationMiddleware <-
         if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
         then do
-            logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
+            logg Warn "OpenAPI spec validation enabled on service API, make sure this is what you want"
             mkValidationMiddleware
         else return id
 
@@ -635,7 +635,7 @@ runChainweb cw nowServing = do
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = chains & mapped . _2 %~ f
+    proj f = chains <&> _2 %~ f
 
     peerDb = _peerResDb (_chainwebPeer cw)
 
@@ -696,7 +696,7 @@ runChainweb cw nowServing = do
             logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
                 roll clientClosedConnectionsCounter
 
-    chainwebServerDbs :: ChainwebServerDbs Pact.Transaction
+    chainwebServerDbs :: ChainwebServerDbs logger Pact.Transaction
     chainwebServerDbs = ChainwebServerDbs
         { _chainwebServerCutDb = Just cutDb
         , _chainwebServerBlockHeaderDbs = chainDbsToServe
@@ -808,7 +808,7 @@ runChainweb cw nowServing = do
 
     -- Cut DB and Miner
 
-    cutDb :: CutDb
+    cutDb :: CutDb logger
     cutDb = _cutResCutDb $ _chainwebCutResources cw
 
     cutPeerDb :: PeerDb

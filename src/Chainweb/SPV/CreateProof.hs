@@ -101,7 +101,7 @@ import Prelude hiding (lookup)
 --
 createTransactionOutputProof
     :: HasCallStack
-    => CutDb
+    => CutDb l
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
