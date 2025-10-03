@@ -143,6 +143,11 @@ instance IsCasValue RankedBlockHeader where
         = RankedBlockHash (view blockHeight bh) (view blockHash bh)
     {-# INLINE casKey #-}
 
+instance HasTextRepresentation RankedBlockHeader where
+    toText= toText
+    fromText = fromText
+    {-# INLINE toText #-}
+
 type RankedBlockHeaderCas tbl = Cas tbl RankedBlockHeader
 
 instance HasVersion => TreeDbEntry RankedBlockHeader where

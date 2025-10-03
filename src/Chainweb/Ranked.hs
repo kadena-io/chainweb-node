@@ -1,16 +1,16 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Ranked
@@ -40,17 +40,16 @@ module Chainweb.Ranked
 import Chainweb.BlockHeight
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
-
 import Data.Aeson
 import Data.Hashable
 import Data.Typeable (Proxy(..), Typeable, typeRep)
-
 import GHC.Generics (Generic)
 import GHC.TypeLits
+import Data.Text qualified as T
+import Control.Monad.Catch
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeight Ranked Data
@@ -83,6 +82,15 @@ decodeRanked decodeA = Ranked
     <$!> decodeBlockHeightBe
     <*> decodeA
 {-# INLINE decodeRanked #-}
+
+instance HasTextRepresentation a => HasTextRepresentation (Ranked a) where
+    toText a = toText (_rankedHeight a) <> "." <> toText (_ranked a)
+    fromText t = case T.break (== '.') t of
+        (h, m)
+            | T.null m -> throwM $ TextFormatException $ "Ranked: failed to parse: " <> t
+            | otherwise -> Ranked <$> fromText h <*> fromText (T.tail m)
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Has Rank Class

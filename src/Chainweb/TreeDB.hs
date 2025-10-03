@@ -208,6 +208,7 @@ instance
 class
     ( Show e
     , Show (Key e)
+    , HasTextRepresentation (Key e)
     , Eq e
     , Eq (Key e)
     , Hashable e
@@ -262,7 +263,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> Natural
         -> DbKey db
         -> IO (Maybe (DbEntry db))
-    lookupRanked db _ k = lookup db k
+    lookupRanked db _ = lookup db
     {-# INLINEABLE lookupRanked #-}
 
     -- ---------------------------------------------------------------------- --
@@ -652,7 +653,7 @@ lookupM
     -> DbKey db
     -> IO (DbEntry db)
 lookupM db k = lookup db k >>= \case
-    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupM: " <> sshow k
+    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupM " <> toText k
     Just !x -> return x
 {-# INLINEABLE lookupM #-}
 
@@ -664,7 +665,7 @@ lookupRankedM
     -> DbKey db
     -> IO (DbEntry db)
 lookupRankedM db r k = lookupRanked db r k >>= \case
-    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM (" <> sshow r <> "): " <> sshow k
+    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM " <> sshow r <> "." <> toText k
     Just !x -> return x
 {-# INLINEABLE lookupRankedM #-}
 
@@ -712,7 +713,7 @@ lookupParentM g db e = case parent e of
         _ -> throwM
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
-        Nothing -> throwM $ TreeDbParentMissing @db e ("lookupParentM: " <> sshow p)
+        Nothing -> throwM $ TreeDbParentMissing @db e ("lookupParentM " <> toText p)
         Just !x -> return x
 
 -- | Replace all entries in the stream by their parent entries.
@@ -732,7 +733,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         GenesisParentThrow -> throwM
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block. Most likely this means that the genesis headers haven't been generated correctly. If you are using a development or testing chainweb version consider resetting the databases."
     Just p -> lookup db p >>= \case
-        Nothing -> throwM $ TreeDbParentMissing @db e $ "lookupParentStreamM: " <> sshow p
+        Nothing -> throwM $ TreeDbParentMissing @db e $ "lookupParentStreamM " <> toText p
         Just !x -> return (Just x)
 
 -- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
