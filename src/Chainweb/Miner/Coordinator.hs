@@ -288,7 +288,7 @@ updateForCut hdb ms c = do
 updateForSolved
     :: HasVersion
     => LogFunction
-    -> CutDb
+    -> CutDb l
     -> PayloadCache
     -> TVar (Maybe ParentState)
     -> SolvedWork
@@ -368,7 +368,7 @@ updateForSolved lf cdb payloadCache var sw = do
 --
 data MiningCoordination logger = MiningCoordination
     { _coordLogger :: !logger
-    , _coordCutDb :: !CutDb
+    , _coordCutDb :: !(CutDb logger)
     , _coordParentState :: !(ChainMap (TVar (Maybe ParentState)))
     , _coordConf :: !CoordinationConfig
     , _coordPayloadCache :: !PayloadCaches
@@ -379,7 +379,7 @@ newMiningCoordination
     => HasVersion
     => logger
     -> CoordinationConfig
-    -> CutDb
+    -> CutDb logger
     -> IO (MiningCoordination logger)
 newMiningCoordination logger conf cdb = do
     state <- newMiningState
@@ -463,7 +463,7 @@ runCoordination mr = do
 --
 eventStream
     :: MonadIO m
-    => CutDb
+    => CutDb l
     -> PayloadCaches
     -> S.Stream (S.Of MiningStateEvent) m r
 eventStream cdb caches = do
@@ -504,7 +504,7 @@ instance Brief MiningStateEvent where
 -- condition and either warn or throttle cut processing if it ever happens.
 --
 awaitEvent
-    :: CutDb
+    :: CutDb l
     -> PayloadCaches
     -> Cut
     -> V.Vector Int
@@ -533,7 +533,7 @@ awaitEvent cdb caches c p =
 randomWork
     :: HasVersion
     => LogFunction
-    -> CutDb
+    -> CutDb l
     -> PayloadCaches
     -> ChainMap (TVar (Maybe ParentState))
     -> IO MiningWork
@@ -762,5 +762,5 @@ logMinedBlock lf bh np = do
         , _minedBlockDiscoveredAt = now
         }
 
-publish :: CutDb -> CutHashes -> IO ()
+publish :: CutDb l -> CutHashes -> IO ()
 publish = addCutHashes

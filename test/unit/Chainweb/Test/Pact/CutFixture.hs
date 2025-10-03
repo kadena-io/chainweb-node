@@ -1,26 +1,24 @@
-{-# language
-    BangPatterns
-    , ConstraintKinds
-    , DataKinds
-    , DeriveAnyClass
-    , DerivingStrategies
-    , FlexibleContexts
-    , FlexibleInstances
-    , ImplicitParams
-    , ImportQualifiedPost
-    , LambdaCase
-    , MultiParamTypeClasses
-    , NumericUnderscores
-    , OverloadedStrings
-    , PackageImports
-    , RankNTypes
-    , RecordWildCards
-    , ScopedTypeVariables
-    , TemplateHaskell
-    , TupleSections
-    , TypeApplications
-    , ViewPatterns
-#-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | A fixture which provides access to the internals of a running node, with
 -- multiple chains. Usually, you initialize it with `mkFixture`, insert
@@ -77,12 +75,12 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Vector (Vector)
 import GHC.Stack
-import qualified Chainweb.Pact.PactService as PactService
-import Chainweb.PayloadProvider.Pact
+import Chainweb.Pact.PactService qualified as PactService
 import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.Pact
 
 data Fixture = Fixture
-    { _fixtureCutDb :: CutDb
+    { _fixtureCutDb :: CutDb GenericLogger
     , _fixturePayloadDb :: PayloadDb RocksDbTable
     , _fixtureWebBlockHeaderDb :: WebBlockHeaderDb
     , _fixtureLogger :: GenericLogger
@@ -98,7 +96,12 @@ instance HasFixture Fixture where
 instance HasFixture a => HasFixture (IO a) where
     cutFixture = (>>= cutFixture)
 
-mkFixture :: HasVersion => (ChainId -> PayloadWithOutputs) -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
+mkFixture
+    :: HasVersion
+    => (ChainId -> PayloadWithOutputs)
+    -> PactServiceConfig
+    -> RocksDb
+    -> ResourceT IO Fixture
 mkFixture genesisPayloadFor pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
     testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
@@ -152,7 +155,7 @@ advanceAllChains fx = do
 
             addNewPayload _fixturePayloadDb latestBlockHeight pwo
 
-            return $ (newCut, (cid, commandResults) : acc)
+            return (newCut, (cid, commandResults) : acc)
         )
         (latestCut, [])
         (HashSet.toList (chainIdsAt (latestBlockHeight + 1)))
@@ -189,7 +192,7 @@ mine
     :: HasCallStack
     => HasVersion
     => ChainId
-    -> CutDb
+    -> CutDb l
     -> Cut
     -> IO (Cut, ChainId, NewPayload)
 mine cid cutDb c = do
@@ -209,7 +212,7 @@ mine cid cutDb c = do
 tryMineForChain
     :: HasCallStack
     => HasVersion
-    => CutDb
+    => CutDb l
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, NewPayload))

@@ -65,9 +65,9 @@ import P2P.Node.PeerDB (PeerDb)
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
 
-data CutResources = CutResources
+data CutResources l = CutResources
     { _cutResPeerDb :: !PeerDb
-    , _cutResCutDb :: !CutDb
+    , _cutResCutDb :: !(CutDb l)
     , _cutResCutP2pNode :: !P2pNode
         -- ^ P2P Network for pushing and synchronizing cuts.
     , _cutResHeaderP2pNode :: !P2pNode
@@ -88,11 +88,11 @@ withCutResources
     -> WebBlockHeaderDb
     -> ChainMap ConfiguredPayloadProvider
     -> HTTP.Manager
-    -> ResourceT IO (Either Cut CutResources)
+    -> ResourceT IO (Either Cut (CutResources logger))
 withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain providers mgr = do
 
     -- initialize blockheader store
-    headerStore <- liftIO $ newWebBlockHeaderStore mgr webchain (logFunction logger)
+    headerStore <- liftIO $ newWebBlockHeaderStore mgr webchain logger
 
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
@@ -128,7 +128,7 @@ withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain provide
 
 -- | The networks that are used by the cut DB.
 --
-cutNetworks :: HasVersion => CutResources -> [IO ()]
+cutNetworks :: HasVersion => CutResources l -> [IO ()]
 cutNetworks cuts =
     [ p2pRunNode (_cutResCutP2pNode cuts)
     , p2pRunNode (_cutResHeaderP2pNode cuts)

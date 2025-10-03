@@ -48,7 +48,7 @@ type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
 someNodeInfoApi :: SomeApi
 someNodeInfoApi = SomeApi (Proxy @NodeInfoApi)
 
-someNodeInfoServer :: HasVersion => CutDb -> SomeServer
+someNodeInfoServer :: HasVersion => CutDb l -> SomeServer
 someNodeInfoServer c =
   SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler $ someCutDbVal c)
 
@@ -83,7 +83,7 @@ data NodeInfo = NodeInfo
   deriving anyclass (ToJSON, FromJSON)
 
 nodeInfoHandler :: HasVersion => SomeCutDb -> Server NodeInfoApi
-nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT v)) = do
+nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT l v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
     let curHeight = maximum $ map _rankedHeight $ HM.elems $ _cutHashes ch
@@ -100,7 +100,7 @@ nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT v)) = do
       , nodeLatestBehaviorHeight = latestBehaviorAt
       , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
       , nodeHistoricalChains =
-        ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs implicitVersion
+        ruleElems $ HM.toList . HM.map HS.toList . toAdjacencySets <$> _versionGraphs implicitVersion
       , nodeServiceDate = T.pack <$> _versionServiceDate implicitVersion
       , nodeBlockDelay = _versionBlockDelay implicitVersion
       , nodePayloadProviders = _versionPayloadProviderTypes implicitVersion <&> \case

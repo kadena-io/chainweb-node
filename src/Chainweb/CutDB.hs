@@ -256,12 +256,12 @@ instance Exception CutDbStopped where
 
 -- | This is a singleton DB that contains the latest chainweb cut as only entry.
 --
-data CutDb = CutDb
+data CutDb l = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
-    , _cutDbHeaderStore :: !WebBlockHeaderStore
+    , _cutDbHeaderStore :: !(WebBlockHeaderStore l)
     , _cutDbPayloadProviders :: !(ChainMap ConfiguredPayloadProvider)
     , _cutDbCutStore :: !(Casify RocksDbTable CutHashes)
     , _cutDbQueueSize :: !Natural
@@ -269,30 +269,30 @@ data CutDb = CutDb
     , _cutDbFastForwardHeightLimit :: !(Maybe BlockHeight)
     }
 
-cutDbPayloadProviders :: Getter CutDb (ChainMap ConfiguredPayloadProvider)
+cutDbPayloadProviders :: Getter (CutDb l) (ChainMap ConfiguredPayloadProvider)
 cutDbPayloadProviders = to _cutDbPayloadProviders
 {-# INLINE cutDbPayloadProviders #-}
 
 -- We export the 'WebBlockHeaderDb' read-only
 --
-cutDbWebBlockHeaderDb :: Getter CutDb WebBlockHeaderDb
+cutDbWebBlockHeaderDb :: Getter (CutDb l) WebBlockHeaderDb
 cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
 {-# INLINE cutDbWebBlockHeaderDb #-}
 
-cutDbWebBlockHeaderStore :: Getter CutDb WebBlockHeaderStore
+cutDbWebBlockHeaderStore :: Getter (CutDb l) (WebBlockHeaderStore l)
 cutDbWebBlockHeaderStore = to _cutDbHeaderStore
 {-# INLINE cutDbWebBlockHeaderStore #-}
 
 -- | Access the blockerheaderdb via the cutdb for a given chain id
 --
-cutDbBlockHeaderDb :: HasChainId cid => cid -> Fold CutDb BlockHeaderDb
+cutDbBlockHeaderDb :: HasChainId cid => cid -> Fold (CutDb l) BlockHeaderDb
 cutDbBlockHeaderDb cid = cutDbWebBlockHeaderDb . ixg (_chainId cid)
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
 -- This the main API method of chainweb-consensus.
 --
-_cut :: CutDb -> IO Cut
+_cut :: CutDb l -> IO Cut
 _cut = readTVarIO . _cutDbCut
 {-# INLINE _cut #-}
 
@@ -300,30 +300,30 @@ _cut = readTVarIO . _cutDbCut
 --
 -- This the main API method of chainweb-consensus.
 --
-cut :: Getter CutDb (IO Cut)
+cut :: Getter (CutDb l) (IO Cut)
 cut = to _cut
 
-addCutHashes :: CutDb -> CutHashes -> IO ()
+addCutHashes :: CutDb l -> CutHashes -> IO ()
 addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) . Down
 
 -- | An 'STM' version of '_cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
 --
-_cutStm :: CutDb -> STM Cut
+_cutStm :: CutDb l -> STM Cut
 _cutStm = readTVar . _cutDbCut
 
 -- | An 'STM' version of 'cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
 --
-cutStm :: Getter CutDb (STM Cut)
+cutStm :: Getter (CutDb l) (STM Cut)
 cutStm = to _cutStm
 
 -- | A common idiom to spin while waiting for a guaranteed new `Cut`, different
 -- from the given one.
 --
-awaitNewCutStm :: CutDb -> Cut -> STM Cut
+awaitNewCutStm :: CutDb l -> Cut -> STM Cut
 awaitNewCutStm cdb c = do
     c' <- _cutStm cdb
     when (c' == c) retry
@@ -332,24 +332,24 @@ awaitNewCutStm cdb c = do
 -- | A common idiom to spin while waiting for a guaranteed new `Cut`, different
 -- from the given one.
 --
-awaitNewCut :: CutDb -> Cut -> IO Cut
+awaitNewCut :: CutDb l -> Cut -> IO Cut
 awaitNewCut cdb c = atomically $ awaitNewCutStm cdb c
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
 --
-awaitNewCutByChainId :: CutDb -> ChainId -> Cut -> IO Cut
+awaitNewCutByChainId :: CutDb l -> ChainId -> Cut -> IO Cut
 awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 {-# INLINE awaitNewCutByChainId #-}
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlock :: CutDb -> ChainId -> BlockHash -> IO BlockHeader
+awaitNewBlock :: CutDb l -> ChainId -> BlockHash -> IO BlockHeader
 awaitNewBlock cdb cid bHash = atomically $ awaitNewBlockStm cdb cid bHash
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlockStm :: CutDb -> ChainId -> BlockHash -> STM BlockHeader
+awaitNewBlockStm :: CutDb l -> ChainId -> BlockHash -> STM BlockHeader
 awaitNewBlockStm cdb cid bHash = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
@@ -359,7 +359,7 @@ awaitNewBlockStm cdb cid bHash = do
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
 --
-awaitNewCutByChainIdStm :: CutDb -> ChainId -> Cut -> STM Cut
+awaitNewCutByChainIdStm :: CutDb l -> ChainId -> Cut -> STM Cut
 awaitNewCutByChainIdStm cdb cid c = do
     c' <- _cutStm cdb
     let !b0 = HM.lookup cid $ _cutMap c
@@ -384,7 +384,7 @@ pruneCuts logfun conf curAvgBlockHeight cutHashesStore = do
     deleteRangeRocksDb (unCasify cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
 
-cutDbQueueSize :: CutDb -> IO Natural
+cutDbQueueSize :: CutDb l -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
 
 withCutDb
@@ -392,10 +392,10 @@ withCutDb
     => Logger logger
     => CutDbParams
     -> logger
-    -> WebBlockHeaderStore
+    -> WebBlockHeaderStore logger
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
-    -> ResourceT IO (Either Cut CutDb)
+    -> ResourceT IO (Either Cut (CutDb logger))
 withCutDb config logger headerStore providers cutHashesStore
     = snd <$> allocate
         (startCutDb config logger headerStore providers cutHashesStore)
@@ -415,10 +415,10 @@ startCutDb
     => HasVersion
     => CutDbParams
     -> logger
-    -> WebBlockHeaderStore
+    -> WebBlockHeaderStore logger
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
-    -> IO (Either Cut CutDb)
+    -> IO (Either Cut (CutDb logger))
 startCutDb config logger headerStore providers cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
     initialCut <- readInitialCut
@@ -580,7 +580,7 @@ readHighestCutHeaders logg wbhdb cutHashesStore = withTableIterator (unCasify cu
             Left e -> throwM e
             Right hm -> return hm
 
-fastForwardCutDb :: HasVersion => CutDb -> IO ()
+fastForwardCutDb :: HasVersion => CutDb l -> IO ()
 fastForwardCutDb cutDb = do
     highestCutHeaders <-
         readHighestCutHeaders (_cutDbLogFunction cutDb) wbhdb (_cutDbCutStore cutDb)
@@ -593,7 +593,7 @@ fastForwardCutDb cutDb = do
 
 -- | Stop the cut validation pipeline.
 --
-stopCutDb :: CutDb -> IO ()
+stopCutDb :: CutDb l -> IO ()
 stopCutDb db = do
     currentCut <- readTVarIO (_cutDbCut db)
     unless (_cutDbReadOnly db) $
@@ -627,9 +627,10 @@ cutAvgBlockHeight = BlockHeight . round . avgBlockHeightAtCutHeight . _cutHeight
 --
 processCuts
     :: HasVersion
+    => Logger l
     => CutDbParams
     -> LogFunction
-    -> WebBlockHeaderStore
+    -> WebBlockHeaderStore l
     -> ChainMap ConfiguredPayloadProvider
     -> Casify RocksDbTable CutHashes
     -> PQueue (Down CutHashes)
@@ -802,7 +803,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPru
 -- produced faster than they are consumed from the stream, the stream skips over
 -- cuts and always returns the latest cut in the db.
 --
-cutStream :: MonadIO m => CutDb -> S.Stream (Of Cut) m r
+cutStream :: MonadIO m => CutDb l -> S.Stream (Of Cut) m r
 cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
   where
     go cur = do
@@ -817,10 +818,10 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
 -- cuts. Blocks of the same chain are sorted by block height.
 --
 cutStreamToHeaderStream
-    :: forall m r
+    :: forall m r l
     . MonadIO m
     => HasVersion
-    => CutDb
+    => CutDb l
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of BlockHeader) m r
 cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
@@ -847,10 +848,10 @@ cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
 -- cuts. Blocks of the same chain are sorted by block height.
 --
 cutStreamToHeaderDiffStream
-    :: forall m r
+    :: forall m r l
     . MonadIO m
     => HasVersion
-    => CutDb
+    => CutDb l
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
@@ -891,17 +892,18 @@ uniqueBlockNumber :: HasVersion => BlockHeader -> Natural
 uniqueBlockNumber bh
     = chainIdInt (_chainId bh) + int (view blockHeight bh) * order (_chainGraph bh)
 
-blockStream :: (MonadIO m, HasVersion) => CutDb -> S.Stream (Of BlockHeader) m r
+blockStream :: (MonadIO m, HasVersion) => CutDb l -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db
 
-blockDiffStream :: (MonadIO m, HasVersion) => CutDb -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
+blockDiffStream :: (MonadIO m, HasVersion) => CutDb l -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
 cutHashesToBlockHeaderMap
     :: HasVersion
+    => Logger l
     => CutDbParams
     -> LogFunction
-    -> WebBlockHeaderStore
+    -> WebBlockHeaderStore l
     -> ChainMap ConfiguredPayloadProvider
     -> CutHashes
     -> IO (Maybe (HM.HashMap ChainId BlockHeader))
@@ -987,7 +989,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
 
 memberOfHeader
     :: HasVersion
-    => CutDb
+    => CutDb l
     -> ChainId
     -> BlockHash
         -- ^ the block hash to look up (the member)
@@ -1005,7 +1007,7 @@ memberOfHeader db cid h ctx = do
 
 member
     :: HasVersion
-    => CutDb
+    => CutDb l
     -> ChainId
     -> BlockHash
     -> IO Bool
@@ -1020,15 +1022,15 @@ member db cid h = do
 
 -- | 'CutDb' with type level 'ChainwebVersionName'
 --
-newtype CutDbT (v :: ChainwebVersionT) = CutDbT CutDb
+newtype CutDbT l (v :: ChainwebVersionT) = CutDbT (CutDb l)
     deriving (Generic)
 
-data SomeCutDb = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT v)
+data SomeCutDb = forall l v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT l v)
 
-someCutDbVal :: HasVersion => CutDb -> SomeCutDb
+someCutDbVal :: HasVersion => CutDb l -> SomeCutDb
 someCutDbVal db = case implicitVersion of
     FromSingChainwebVersion (SChainwebVersion :: Sing v) ->
-        SomeCutDb $ CutDbT @v db
+        SomeCutDb $ CutDbT @_ @v db
 
 -- -------------------------------------------------------------------------- --
 -- Queue Stats
@@ -1041,7 +1043,7 @@ data QueueStats = QueueStats
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData, ToJSON)
 
-getQueueStats :: CutDb -> IO QueueStats
+getQueueStats :: CutDb l -> IO QueueStats
 getQueueStats db = QueueStats
     <$> cutDbQueueSize db
     <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore db)

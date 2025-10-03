@@ -1,11 +1,11 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB.PruneForks
@@ -21,69 +21,53 @@ module Chainweb.Test.BlockHeaderDB.PruneForks
 ) where
 
 import Control.Concurrent.STM
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.Trans.Resource
-import Control.Monad.IO.Class
-
--- import Data.CAS
--- import Data.CAS.RocksDB
-import Data.HashMap.Strict qualified as HM
-import Data.Text qualified as T
-import Data.Tree (Tree)
-import Data.Tree qualified as Tree
-
-import Numeric.Natural
-
-import System.LogLevel
-import System.Random
-
-import Test.Tasty
-import Test.Tasty.HUnit
-
--- internal modules
-
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeaderDB.PruneForks
+import Chainweb.ChainValue
+import Chainweb.Core.Brief
+import Chainweb.Cut (unsafeMkCut, genesisCut)
+import Chainweb.Cut.Create
+import Chainweb.Cut.CutHashes
+import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.Logger
+import Chainweb.Parent
+import Chainweb.PayloadProvider (ConfiguredPayloadProvider(DisabledPayloadProvider))
+import Chainweb.Ranked
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Test.CutDB (withTestCutDb)
+import Chainweb.Test.Pact.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.TreeDB qualified as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.CutDB
-import Chainweb.Test.CutDB (withTestCutDb)
-import Chainweb.PayloadProvider (ConfiguredPayloadProvider(DisabledPayloadProvider))
-import Chainweb.Test.Pact.Utils
-import Chainweb.Storage.Table
-import Chainweb.Cut (unsafeMkCut, genesisCut)
-import Chainweb.Cut.CutHashes
-import Chainweb.Core.Brief
-import Chainweb.Test.TestVersions
-import Chainweb.Graph
-import Chainweb.WebBlockHeaderDB
-import Control.Monad.State.Strict
-import Chainweb.Parent
-import Data.HashMap.Strict (HashMap)
-import Data.Maybe (mapMaybe, catMaybes, fromMaybe)
-import Chainweb.Cut.Create
-import Hedgehog
-import Hedgehog.Gen (shuffle)
-import qualified Data.HashSet as HS
-import System.Random.Shuffle (shuffleM)
-import Streaming.Prelude qualified as S
-import Control.Monad.Except
-import Streaming qualified as S
-import PropertyMatchers qualified as P
-import Chainweb.ChainValue
-import qualified Chainweb.TreeDB as TreeDB
-import Chainweb.Ranked
 import Chainweb.Version.Utils (avgBlockHeightAtCutHeight, chainIdsAt)
+import Chainweb.WebBlockHeaderDB
+import Control.Lens
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Control.Monad.State.Strict
+import Control.Monad.Trans.Resource
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.Maybe (mapMaybe, catMaybes)
+import Data.Text qualified as T
+import Numeric.Natural
+import PropertyMatchers qualified as P
+import Streaming qualified as S
+import Streaming.Prelude qualified as S
+import System.LogLevel
+import System.Random.Shuffle (shuffleM)
+import Test.Tasty
+import Test.Tasty.HUnit
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -102,7 +86,7 @@ testLogLevel = Warn
 withDbs
     :: HasVersion
     => RocksDb
-    -> ResourceT IO CutDb
+    -> ResourceT IO (CutDb GenericLogger)
 withDbs rdb = do
     -- create unique namespace for each test so that they so that test can
     -- run in parallel.
@@ -282,9 +266,7 @@ insert
     -> Nonce
     -> Natural
     -> IO [BlockHeader]
-insert bdb h n l = do
-    hdrs <- insertN_ n l h bdb
-    return hdrs
+insert bdb h n l = insertN_ n l h bdb
 
 cid :: ChainId
 cid = unsafeChainId 0
@@ -408,7 +390,7 @@ failTest rio n step = withVersion (barebonesTestVersion singletonChainGraph) $ r
         let db = cdb ^?! cutDbBlockHeaderDb cid
         let h = genesisBlockHeader cid
         (f0, _) <- createForks db h
-        delHdr db $ f0 !! (int n)
+        delHdr db $ f0 !! int n
         initialCut <- _cut cdb
         let wbhdb = view cutDbWebBlockHeaderDb cdb
         try (pruneForks logg initialCut wbhdb Prune 2) >>= \case

@@ -1,14 +1,9 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Chainweb.MinerResources
@@ -62,14 +57,14 @@ withMiningCoordination
     => HasVersion
     => logger
     -> MiningConfig
-    -> CutDb
+    -> CutDb logger
     -> (Maybe (MiningCoordination logger) -> IO a)
     -> IO a
 withMiningCoordination logger conf cdb inner
     | not (_coordinationEnabled coordConf) = inner Nothing
     | otherwise = do
         coord <- newMiningCoordination logger coordConf cdb
-        fmap snd $ concurrently
+        snd <$> concurrently
             -- maintain mining state
             (runCoordination coord)
             -- run inner computation
@@ -85,7 +80,7 @@ withMiningCoordination logger conf cdb inner
 --
 data MinerResources logger = MinerResources
     { _minerResLogger :: !logger
-    , _minerResCutDb :: !CutDb
+    , _minerResCutDb :: !(CutDb logger)
     , _minerChainResources :: !(ChainMap (ChainResources logger))
     , _minerResConfig :: !NodeMiningConfig
     , _minerResCoordination :: !(Maybe (MiningCoordination logger))
@@ -98,7 +93,7 @@ withMinerResources
     :: logger
     -> NodeMiningConfig
     -> ChainMap (ChainResources logger)
-    -> CutDb
+    -> CutDb logger
     -> Maybe (MiningCoordination logger)
     -> (Maybe (MinerResources logger) -> IO a)
     -> IO a
@@ -139,7 +134,7 @@ runMiner mr
   where
     enabled = _nodeMiningEnabled $ _minerResConfig mr
 
-    cdb :: CutDb
+    cdb :: CutDb logger
     cdb = _minerResCutDb mr
 
     conf :: NodeMiningConfig

@@ -102,7 +102,7 @@ newPool = Pool.newPool $ Pool.defaultPoolConfig
 
 serverMempools
     :: ChainMap (MempoolBackend t)
-    -> ChainwebServerDbs t
+    -> ChainwebServerDbs l t
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

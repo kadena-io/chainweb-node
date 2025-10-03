@@ -201,7 +201,7 @@ multiBootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ testBootstrapPeerConfig $ _configChainwebVersion conf)
+    peerConfig = head (testBootstrapPeerConfig $ _configChainwebVersion conf)
         & set peerConfigPort 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
@@ -486,7 +486,7 @@ pactImportTest logLevel n rocksDb pactDir step = do
               let db = pactCopyConns ^?! ix cid
               getPactStateAtDiffable db snapshotBlockHeight
             let stateDiff = Map.filter (not . P.isSame) (P.diff srcStateAt tgtStateAt)
-            when (not (null stateDiff)) $ do
+            unless (null stateDiff) $ do
               forM_ (Map.toList stateDiff) $ \(tbl, delta) -> do
                 case delta of
                   P.Same _ -> do
@@ -582,9 +582,9 @@ replayTest loglevel n rdb pactDbDir step = do
         let ct = harvestConsensusState (genericLogger loglevel logFun) stateVar
         runNodesForSeconds loglevel logFun (multiConfig n) n 60 rdb pactDbDir ct
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar emptyConsensusState
-        assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
+        assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected 10)
         tastylog $ sshow stats1
-        tastylog $ "phase 3... replaying"
+        tastylog "phase 3... replaying"
         let replayInitialHeight = 5
         firstReplayCompleteRef <- newIORef False
         runNodesForSeconds loglevel logFun
@@ -683,7 +683,7 @@ sampleConsensusState
     => Int
         -- ^ node Id
     -> WebBlockHeaderDb
-    -> CutDb
+    -> CutDb l
     -> Casify RocksDbTable CutHashes
     -> ConsensusState
     -> IO ConsensusState
@@ -712,7 +712,7 @@ consensusStateSummary :: HasVersion => ConsensusState -> Maybe Stats
 consensusStateSummary s
     | HM.null (_stateCutMap s) = Nothing
     | otherwise = Just Stats
-        { _statBlockCount = int $ hashCount
+        { _statBlockCount = int hashCount
         , _statMaxHeight = maxHeight
         , _statMinHeight = minHeight
         , _statMedHeight = medHeight

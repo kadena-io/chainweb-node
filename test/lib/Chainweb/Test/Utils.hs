@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -30,6 +29,7 @@ module Chainweb.Test.Utils
 , withResourceT
 , independentSequentialTestGroup
 , unsafeHeadOf
+, noopLogger
 
 , TestPact5CommandResult
 
@@ -131,54 +131,6 @@ module Chainweb.Test.Utils
 ) where
 
 import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch (finally)
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
-import Control.Retry
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Bifunctor hiding (second)
-import Data.ByteString qualified as B
-import Data.ByteString.Lazy qualified as BL
-import Data.Coerce (coerce)
-import Data.Foldable
-import Data.IORef
-import Data.List (sortOn, isInfixOf)
-import Data.Pool (Pool)
-import Data.Text qualified as T
-import Data.Text.IO qualified as T
-import Data.Tree
-import Data.Tree.Lens qualified as LT
-import Data.Word
-import Network.Connection qualified as HTTP
-import Network.HTTP.Client qualified as HTTP
-import Network.HTTP.Client.TLS qualified as HTTP
-import Network.HTTP.Types qualified as HTTP
-import Network.Socket (close)
-import Network.TLS qualified as HTTP
-import Network.Wai qualified as W
-import Network.Wai.Handler.Warp qualified as W
-import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
-import Numeric.Natural
-import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
-import System.Directory (removeDirectoryRecursive, removeFile)
-import System.Environment (withArgs)
-import System.IO
-import System.IO.Temp qualified as Temp
-import System.LogLevel
-import System.Random (randomIO)
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Gen
-import Test.QuickCheck.Property (Property, (===))
-import Test.QuickCheck.Random (mkQCGen)
-import Test.Tasty
-import Test.Tasty.Golden
-import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck (property, discard, (.&&.))
-import Text.Printf (printf)
-import UnliftIO.Async
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -197,46 +149,94 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Pact.Mempool.Mempool (TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Pact.Backend.Types(SQLiteEnv)
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Mempool.Mempool (TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.Parent
 import Chainweb.PayloadProvider.Pact.Configuration
+import Chainweb.Ranked (Ranked(_rankedHeight))
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Pact.Utils (getTestLogLevel, getTestLogger)
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.P2P.Peer.BootstrapConfig (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
+import Chainweb.Test.Pact.Utils (getTestLogLevel, getTestLogger)
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils.APIValidation
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Test.TestVersions
 import Chainweb.Version
 import Chainweb.Version.Utils
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.RocksDB
+import Control.Concurrent.STM
+import Control.Lens
+import Control.Monad
+import Control.Monad.Catch (finally)
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
+import Control.Retry
+import Data.Aeson (FromJSON, ToJSON)
+import Data.Bifunctor hiding (second)
+import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as BL
+import Data.Coerce (coerce)
+import Data.Foldable
+import Data.IORef
+import Data.List (sortOn, isInfixOf)
+import Data.Pool (Pool)
+import Data.Semigroup
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
+import Data.Tree
+import Data.Tree.Lens qualified as LT
+import Data.Word
 import Database.RocksDB.Internal qualified as R
+import Network.Connection qualified as HTTP
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTP
+import Network.HTTP.Types qualified as HTTP
+import Network.Socket (close)
+import Network.TLS qualified as HTTP
+import Network.Wai qualified as W
+import Network.Wai.Handler.Warp qualified as W
+import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
 import Network.X509.SelfSigned
+import Numeric.Natural
 import P2P.Node.Configuration
 import P2P.Node.PeerDB qualified as P2P
 import P2P.Peer
-import Chainweb.Test.Utils.APIValidation
-import Data.Semigroup
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Errors qualified as Pact5
-import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Gas qualified as Pact
-import Chainweb.Ranked (Ranked(_rankedHeight))
+import Pact.Core.Hash qualified as Pact5
+import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
+import System.Directory (removeDirectoryRecursive, removeFile)
+import System.Environment (withArgs)
+import System.IO
+import System.IO.Temp qualified as Temp
+import System.LogLevel
+import System.Random (randomIO)
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Gen
+import Test.QuickCheck.Property (Property, (===))
+import Test.QuickCheck.Random (mkQCGen)
+import Test.Tasty
+import Test.Tasty.Golden
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck (property, discard, (.&&.))
+import Text.Printf (printf)
+import UnliftIO.Async
 
 -- -------------------------------------------------------------------------- --
 
 type Step = String -> IO ()
 
 withResource' :: IO a -> (IO a -> TestTree) -> TestTree
-withResource' create act = withResource create (\_ -> return ()) act
+withResource' create = withResource create (\_ -> return ())
 
 -- this makes ResourceT general enough to allocate resources both for test
 -- groups and within tests.
@@ -349,6 +349,9 @@ withToyDB db cid
 
 mockBlockFill :: BlockFill
 mockBlockFill = BlockFill mockBlockGasLimit mempty 0
+
+noopLogger :: GenericLogger
+noopLogger = genericLogger Quiet (\_ -> return ())
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
@@ -535,9 +538,9 @@ starBlockHeaderDbs n dbs = do
 testHost :: String
 testHost = "localhost"
 
-data TestClientEnv t = TestClientEnv
+data TestClientEnv l t = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envCutDb :: !(Maybe CutDb)
+    , _envCutDb :: !(Maybe (CutDb l))
     , _envBlockHeaderDbs :: !(ChainMap BlockHeaderDb)
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
@@ -546,21 +549,21 @@ pattern BlockHeaderDbsTestClientEnv
     :: HasVersion
     => ClientEnv
     -> ChainMap BlockHeaderDb
-    -> TestClientEnv t
+    -> TestClientEnv l t
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
     <- TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
-    -> TestClientEnv t
+    -> TestClientEnv l t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
     <- TestClientEnv _pdbEnvClientEnv Nothing _ _pdbEnvPeerDbs
 
 pattern PayloadTestClientEnv
     :: ClientEnv
-    -> CutDb
-    -> TestClientEnv t
+    -> CutDb l
+    -> TestClientEnv l t
 pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb }
     <- TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) _ []
 
@@ -610,7 +613,7 @@ withChainwebTestServer shouldValidateSpec tls app = do
         let
             settings =
                 W.setBeforeMainLoop (putMVar readyVar ()) $
-                W.setOnExceptionResponse verboseOnExceptionResponse $
+                W.setOnExceptionResponse verboseOnExceptionResponse
                 W.defaultSettings
         if
             | tls -> do
@@ -628,15 +631,14 @@ withChainwebTestServer shouldValidateSpec tls app = do
         W.responseLBS HTTP.internalServerError500 [] ("exception: " <> sshow exn)
 
 clientEnvWithChainwebTestServer
-    :: forall t
-    .  Show t
+    :: Show t
     => ToJSON t
     => FromJSON t
     => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> ChainwebServerDbs t
-    -> ResourceT IO (TestClientEnv t)
+    -> ChainwebServerDbs l t
+    -> ResourceT IO (TestClientEnv l t)
 clientEnvWithChainwebTestServer shouldValidateSpec tls dbs = do
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
     -- includes this API for testing. We should create comprehensive tests for the
@@ -662,7 +664,7 @@ withPeerDbsServer
     => ShouldValidateSpec
     -> Bool
     -> [(NetworkId, P2P.PeerDb)]
-    -> ResourceT IO (TestClientEnv t)
+    -> ResourceT IO (TestClientEnv l t)
 withPeerDbsServer shouldValidateSpec tls peerDbs =
     clientEnvWithChainwebTestServer shouldValidateSpec tls
         emptyChainwebServerDbs
@@ -676,8 +678,8 @@ withPayloadServer
     => HasVersion
     => ShouldValidateSpec
     -> Bool
-    -> CutDb
-    -> ResourceT IO (TestClientEnv t)
+    -> CutDb l
+    -> ResourceT IO (TestClientEnv l t)
 withPayloadServer shouldValidateSpec tls cutDb =
     clientEnvWithChainwebTestServer shouldValidateSpec tls
         emptyChainwebServerDbs
@@ -692,7 +694,7 @@ withBlockHeaderDbsServer
     => ShouldValidateSpec
     -> Bool
     -> ChainMap BlockHeaderDb
-    -> ResourceT IO (TestClientEnv t)
+    -> ResourceT IO (TestClientEnv l t)
 withBlockHeaderDbsServer shouldValidateSpec tls chainDbs =
     clientEnvWithChainwebTestServer shouldValidateSpec tls
         emptyChainwebServerDbs

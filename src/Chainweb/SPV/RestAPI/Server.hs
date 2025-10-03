@@ -52,7 +52,7 @@ import Chainweb.MerkleUniverse
 
 spvGetTransactionOutputProofHandler
     :: HasVersion
-    => CutDb
+    => CutDb l
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
@@ -83,7 +83,7 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
 --
 spvGetEventProofHandler
     :: HasVersion
-    => CutDb
+    => CutDb l
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
@@ -101,7 +101,7 @@ spvGetEventProofHandler
         -- ^ The event index in the transaction
     -> Handler FakeEventProof
 spvGetEventProofHandler db tcid scid bh i e = do
-    (try getProof) >>= \case
+    try getProof >>= \case
         Left err -> do
             let msg = BL8.pack (displayException err)
             throwError $ case err of
@@ -136,10 +136,10 @@ spvGetEventProofHandler db tcid scid bh i e = do
 -- SPV API Server
 
 spvServer
-    :: forall v (c :: ChainIdT)
+    :: forall v (c :: ChainIdT) l
     . KnownChainIdSymbol c
     => HasVersion
-    => CutDbT v
+    => CutDbT l v
     -> Server (SpvApi v c)
 spvServer (CutDbT db)
     = spvGetEventProofHandler db tcid
@@ -152,19 +152,19 @@ spvServer (CutDbT db)
 -- Application for a single Chain
 
 spvApp
-    :: forall v c
+    :: forall v c l
     . KnownChainwebVersionSymbol v
     => HasVersion
     => KnownChainIdSymbol c
-    => CutDbT v
+    => CutDbT l v
     -> Application
 spvApp db = serve (Proxy @(SpvApi v c)) (spvServer @v @c db)
 
 spvApiLayout
-    :: forall v c
+    :: forall v c l
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => CutDbT v
+    => CutDbT l v
     -> IO ()
 spvApiLayout _ = T.putStrLn $ layout (Proxy @(SpvApi v c))
 
@@ -174,7 +174,7 @@ someSpvServer
     => HasVersion
     => SomeCutDb
     -> SomeServer
-someSpvServer (SomeCutDb (db :: CutDbT v))
+someSpvServer (SomeCutDb (db :: CutDbT l v))
     = SomeServer (Proxy @(SpvApi v c)) (spvServer @v @c db)
 
 -- -------------------------------------------------------------------------- --
@@ -182,7 +182,7 @@ someSpvServer (SomeCutDb (db :: CutDbT v))
 
 someSpvServers
     :: HasVersion
-    => CutDb
+    => CutDb l
     -> SomeServer
 someSpvServers db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
     someSpvServer @c (someCutDbVal db)

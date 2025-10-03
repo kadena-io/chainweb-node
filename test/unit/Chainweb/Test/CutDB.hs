@@ -114,13 +114,13 @@ withTestCutDb
         -- create blocks with a well-defined set of test transactions.
         --
     -> logger
-    -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb)
+    -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb logger)
 withTestCutDb rdb conf n providers logger = do
     rocksDb <- liftIO $ testRocksDb "withTestCutDb" rdb
     let cutHashesDb = cutHashesTable rocksDb
     webDb <- liftIO $ initWebBlockHeaderDb rocksDb
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
-    headerStore <- withLocalWebBlockHeaderStore mgr webDb
+    headerStore <- withLocalWebBlockHeaderStore logger mgr webDb
     Right cutDb <- withCutDb (conf $ defaultCutDbParams cutFetchTimeout) logger headerStore providers cutHashesDb
     liftIO $ synchronizeProviders webDb genesisCut
 
@@ -130,7 +130,7 @@ withTestCutDb rdb conf n providers logger = do
     where
     synchronizeProviders :: WebBlockHeaderDb -> Cut -> IO ()
     synchronizeProviders wbh c = do
-        let startHeaders = HM.unionWith (\startHeader _genesisHeader -> startHeader)
+        let startHeaders = HM.unionWith const
                 (_cutHeaders c)
                 (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
         mapConcurrently_ syncOne startHeaders
@@ -175,7 +175,7 @@ withTestCutDb rdb conf n providers logger = do
 -- predicate for a given 'Cut' and the results of '_cutStm'.
 --
 awaitCut
-    :: CutDb
+    :: CutDb l
     -> (Cut -> Bool)
     -> IO Cut
 awaitCut cdb k = atomically $ do
@@ -218,7 +218,7 @@ awaitCut cdb k = atomically $ do
 -- id
 --
 awaitBlockHeight
-    :: CutDb
+    :: CutDb l
     -> BlockHeight
     -> ChainId
     -> IO Cut
@@ -243,7 +243,7 @@ withTestCutDbWithoutPact
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> logger
-    -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb)
+    -> ResourceT IO (Casify RocksDbTable CutHashes, CutDb logger)
 withTestCutDbWithoutPact rdb conf n =
     withTestCutDb rdb conf n (onAllChains DisabledPayloadProvider)
 
@@ -255,7 +255,7 @@ withTestPayloadResource
     => RocksDb
     -> Int
     -> logger
-    -> ResourceT IO CutDb
+    -> ResourceT IO (CutDb logger)
 withTestPayloadResource rdb n logger
     = view _2 . snd <$> allocate start stopTestPayload
   where
@@ -270,40 +270,44 @@ startTestPayload
     => RocksDb
     -> logger
     -> Int
-    -> IO (Async (), CutDb)
+    -> IO (Async (), CutDb logger)
 startTestPayload rdb logger n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
     let cutHashesDb = cutHashesTable rocksDb
     webDb <- initWebBlockHeaderDb rocksDb
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
-    (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
+    (hserver, hstore) <- startLocalWebBlockHeaderStore logger mgr webDb
     let disabledPayloadProviders = onAllChains DisabledPayloadProvider
     Right cutDb <- startCutDb (defaultCutDbParams cutFetchTimeout) logger hstore disabledPayloadProviders cutHashesDb
     foldM_ (\c _ -> view _1 <$> mine logger cutDb c) genesisCut [0..n]
     return (hserver, cutDb)
 
-stopTestPayload :: (Async (), CutDb) -> IO ()
+stopTestPayload :: (Async (), CutDb logger) -> IO ()
 stopTestPayload (hserver, cutDb) = do
     stopCutDb cutDb
     cancel hserver
 
 withLocalWebBlockHeaderStore
-    :: HTTP.Manager
+    :: Logger logger
+    => logger
+    -> HTTP.Manager
     -> WebBlockHeaderDb
-    -> ResourceT IO WebBlockHeaderStore
-withLocalWebBlockHeaderStore mgr webDb = do
+    -> ResourceT IO (WebBlockHeaderStore logger)
+withLocalWebBlockHeaderStore logger mgr webDb = do
     queue <- withNoopQueueServer
     mem <- liftIO new
-    return $ WebBlockHeaderStore webDb mem queue (\_ _ -> return ()) mgr
+    return $ WebBlockHeaderStore webDb mem queue logger mgr
 
 startLocalWebBlockHeaderStore
-    :: HTTP.Manager
+    :: Logger logger
+    => logger
+    -> HTTP.Manager
     -> WebBlockHeaderDb
-    -> IO (Async (), WebBlockHeaderStore)
-startLocalWebBlockHeaderStore mgr webDb = do
+    -> IO (Async (), WebBlockHeaderStore logger)
+startLocalWebBlockHeaderStore logger mgr webDb = do
     (server, queue) <- startNoopQueueServer
     mem <- new
-    return (server, WebBlockHeaderStore webDb mem queue (\_ _ -> return ()) mgr)
+    return (server, WebBlockHeaderStore webDb mem queue logger mgr)
 
 -- | Build a linear chainweb (no forks, assuming single threaded use of the
 -- cutDb). No POW or poison delay is applied. Block times are real times.
@@ -313,7 +317,7 @@ mine
     => HasVersion
     => Logger logger
     => logger
-    -> CutDb
+    -> CutDb logger
     -> Cut
     -> IO (Cut, ChainId, NewPayload)
 mine logger cutDb c = do
@@ -351,7 +355,7 @@ getRandomUnblockedChain c = do
     isUnblocked h =
         let bh = view blockHeight h
             cid = view blockChainId h
-        in all (>= bh) $ fmap (view blockHeight) $ toList $ cutAdjs c cid
+        in all ((>= bh) . view blockHeight) $ cutAdjs c cid
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
@@ -361,7 +365,7 @@ tryMineForChain
     => HasVersion
         -- ^ The miner. For testing you may use 'defaultMiner'.
         -- miner.
-    => CutDb
+    => CutDb l
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, NewPayload))
@@ -393,7 +397,7 @@ tryMineForChain cutDb c cid = do
 randomBlockHeader
     :: HasCallStack
     => HasVersion
-    => CutDb
+    => CutDb l
     -> IO BlockHeader
 randomBlockHeader cutDb = do
     curCut <- _cut cutDb
@@ -413,7 +417,7 @@ randomTransaction
     => HasVersion
     => CanReadablePayloadCas tbl
     => PayloadDb tbl
-    -> CutDb
+    -> CutDb l
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction payloadDb cutDb = do
     bh <- randomBlockHeader cutDb
