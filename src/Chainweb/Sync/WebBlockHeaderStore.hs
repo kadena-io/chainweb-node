@@ -341,7 +341,7 @@ getBlockHeaderInternal
     maybeOrigin
     h
   = do
-    logg Debug $ "getBlockHeaderInternal: " <> sshow h
+    logg Debug $ "getBlockHeaderInternal: " <> toText h
     !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
         -- assertion: h == k
 
@@ -563,7 +563,7 @@ getBlockHeaderInternal
     --     addNewPayload (_webBlockPayloadStoreCas payloadStore) (view blockHeight hdr) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
-        = newTask (sshow ck) priority $ \l env -> chainValue <$> do
+        = newTask (TaskId (toText ck)) priority $ \l env -> chainValue <$> do
             l @T.Text Debug $ taskMsg "query remote block header"
             let taskEnv = setResponseTimeout taskResponseTimeout env
             !r <- trace l (traceLabel "queryBlockHeaderTask") k (let Priority i = priority in i)
@@ -599,7 +599,7 @@ getBlockHeaderInternal
         case r of
             Nothing -> do
                 tlog Warn $ "failed to pull from origin "
-                    <> sshow origin <> " key " <> sshow k
+                    <> toText origin <> " key " <> toText k
                 return Nothing
             Just !v -> do
                 tlog Debug "received from origin"
