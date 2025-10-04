@@ -355,3 +355,4 @@ instance FromJSON RankedBlockHash where
         <$> o .: "height"
         <*> o .: "hash"
     {-# INLINE parseJSON #-}
+

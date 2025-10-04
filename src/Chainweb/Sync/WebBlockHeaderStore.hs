@@ -355,6 +355,9 @@ getBlockHeaderInternal
         -- - cut origin, or
         -- - task queue of P2P network
         --
+        -- we inser the header into the candidate cas, so that the
+        -- payload provider can use it.
+        --
         (maybeOrigin', header) <- tableLookup candidateHeaderCas k' >>= \case
             Just !x -> return (maybeOrigin, x)
             Nothing -> pullOrigin k maybeOrigin >>= \case
@@ -362,8 +365,11 @@ getBlockHeaderInternal
                     t <- queryBlockHeaderTask k
                     pQueueInsert queue t
                     (ChainValue _ !x) <- awaitTask t
+                    casInsert candidateHeaderCas x
                     return (Nothing, x)
-                Just !x -> return (maybeOrigin, x)
+                Just !x -> do
+                    casInsert candidateHeaderCas x
+                    return (maybeOrigin, x)
 
         -- Check that the chain id is correct. The candidate cas is indexed just
         -- by the block hash. So, if this fails it is most likely a bug in code
