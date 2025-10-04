@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GADTs #-}
@@ -7,9 +8,8 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider
@@ -106,9 +106,9 @@ import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.MinerReward
 import Chainweb.Parent
+import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Version
-
 import Control.Concurrent.STM
 import Control.DeepSeq (NFData)
 import Control.Lens hiding ((.=))
@@ -117,15 +117,14 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Aeson
 import Data.ByteString qualified as B
+import Data.Function
+import Data.Hashable
+import Data.Maybe
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Numeric.Natural
 import P2P.Peer
 import Streaming.Prelude qualified as S
-import Data.Function
-import Data.Hashable
-import Data.Maybe
-import Chainweb.Ranked
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
