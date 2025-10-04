@@ -48,6 +48,7 @@ import Chainweb.Test.Pact4.RewardsTest qualified
 import Chainweb.Test.Pact4.SQLite qualified
 import Chainweb.Test.Pact4.TransactionTests qualified
 import Chainweb.Test.Pact4.VerifierPluginTest qualified
+import Chainweb.Test.PayloadProvider.StartupTest qualified (tests)
 import Chainweb.Test.RestAPI qualified (tests)
 import Chainweb.Test.Roundtrips qualified (tests)
 import Chainweb.Test.Sync.WebBlockHeaderStore qualified (properties)
@@ -66,6 +67,7 @@ import Test.Chainweb.SPV.Argument qualified
 import Test.Tasty
 import Test.Tasty.JsonReporter
 import Test.Tasty.QuickCheck
+
 
 setTestLogLevel :: LogLevel -> IO ()
 setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
@@ -134,6 +136,7 @@ suite rdb =
         , Chainweb.Test.BlockHeader.Genesis.tests
         , Chainweb.Test.BlockHeader.Validation.tests
         , Chainweb.Test.Version.tests
+        , Chainweb.Test.PayloadProvider.StartupTest.tests
         , testProperties "Chainweb.Test.Chainweb.Utils.Paging" Chainweb.Test.Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
         , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties

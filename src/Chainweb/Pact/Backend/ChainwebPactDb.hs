@@ -818,6 +818,7 @@ getConsensusState db = do
 initSchema :: SQLiteEnv -> IO ()
 initSchema sql =
     withSavepoint sql InitSchemaSavePoint $ throwOnDbError $ do
+        createChainwebMetaTable
         createConsensusStateTable
         createBlockHistoryTable
         createTableCreationTable
@@ -831,6 +832,13 @@ initSchema sql =
     where
     create tablename = do
         createVersionedTable tablename sql
+
+    createChainwebMetaTable :: ExceptT LocatedSQ3Error IO ()
+    createChainwebMetaTable = do
+        exec_ sql
+            "CREATE TABLE IF NOT EXISTS ChainwebMeta \
+            \(minMajorVersion INTEGER NOT NULL, \
+            \ minMinorVersion INTEGER NOT NULL);"
 
     createConsensusStateTable :: ExceptT LocatedSQ3Error IO ()
     createConsensusStateTable = do
