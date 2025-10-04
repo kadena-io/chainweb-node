@@ -101,6 +101,7 @@ module Chainweb.BlockHeader
 
 -- * CAS Constraint
 , I.BlockHeaderCas
+, I.ReadableBlockHeaderCas
 )
 where
 

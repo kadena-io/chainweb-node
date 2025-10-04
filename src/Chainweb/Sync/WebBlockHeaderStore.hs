@@ -500,7 +500,7 @@ getBlockHeaderInternal
         case providers ^?! atChain cid of
             ConfiguredPayloadProvider provider -> do
                 bhdb <- getWebBlockHeaderDb wdb cid
-                resolveForkInfo taskLog bhdb provider hints finfo
+                resolveForkInfo taskLog bhdb candidateHeaderCas provider hints finfo
             DisabledPayloadProvider -> do
                 taskLog Debug "getBlockHeaderInternal: payload provider disabled"
 

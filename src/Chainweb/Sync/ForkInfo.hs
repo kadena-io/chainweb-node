@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- |
 -- Module: Chainweb.Sync.ForkInfo
@@ -35,6 +36,8 @@ import GHC.Generics (Generic)
 import GHC.Stack
 import Streaming.Prelude qualified as S
 import System.LogLevel
+import Control.Applicative
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 
@@ -77,14 +80,16 @@ forkInfoChunkSize = 1000
 resolveForkInfo
     :: HasCallStack
     => HasVersion
+    => ReadableBlockHeaderCas hdrCas
     => PayloadProvider p
     => LogFunctionText
     -> BlockHeaderDb -- FIXME use RankedBlockHeaderDb
+    -> hdrCas
     -> p
     -> Maybe Hints
     -> ForkInfo
     -> IO ()
-resolveForkInfo logg bhdb provider hints finfo = do
+resolveForkInfo logg bhdb candidateHdrs provider hints finfo = do
 
     logg Info $ "resolveForkInfo: starting resolution"
             <> "; target state: " <> brief (_forkInfoTargetState finfo)
@@ -113,7 +118,7 @@ resolveForkInfo logg bhdb provider hints finfo = do
       -- payload provider that is not caught up yet)
       --
       else do
-        resolveForkInfoForProviderState logg bhdb provider hints finfo r
+        resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo r
   where
     h = _latestRankedBlockHash . _forkInfoTargetState $ finfo
 
@@ -128,16 +133,18 @@ resolveForkInfo logg bhdb provider hints finfo = do
 resolveForkInfoForProviderState
     :: HasCallStack
     => HasVersion
+    => ReadableBlockHeaderCas hdrCas
     => PayloadProvider p
     => LogFunctionText
     -> BlockHeaderDb -- FIXME use RankedBlockHeaderDb
+    -> hdrCas
     -> p
     -> Maybe Hints
     -> ForkInfo
     -> ConsensusState
     -> IO ()
-resolveForkInfoForProviderState logg bhdb provider hints finfo ppState
-    | ppRBH == h = do
+resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppState
+    | ppRBH == trgHash = do
         -- nothing to do, we are at the target
         logg Info "resolveForkInfo: payload provider is at target block"
         return ()
@@ -145,11 +152,11 @@ resolveForkInfoForProviderState logg bhdb provider hints finfo ppState
         logg Info $ "resolveForkInfo: payload provider state: " <> brief ppState
             <> "; target state: " <> brief (_forkInfoTargetState finfo)
 
-        -- FIXME this isn't yet available for new blocks that are currently
-        -- being validated. In that case it should be provided by the caller.
-        hdr <- lookupRankedM bhdb (int $ _rankedHeight h) (_ranked h)
+        hdr :: BlockHeader <- do
+            casLookupM candidateHdrs (_ranked trgHash)
+                <|> lookupRankedM bhdb (int $ _rankedHeight trgHash) (_ranked trgHash)
             `catch` \(e :: SomeException) -> do
-                logg Warn $ "validatePayload: target block is missing: " <> brief h
+                logg Warn $ "validatePayload: target block is missing: " <> brief trgHash
                 throwM e
 
         -- Lookup the state of the Payload Provider and query the trace
@@ -241,7 +248,7 @@ resolveForkInfoForProviderState logg bhdb provider hints finfo ppState
         --
         newState <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
             logg Warn $ "getBlockHeaderInternal payload validation retry for "
-                <> brief h <> " failed with: " <> sshow e
+                <> brief trgHash <> " failed with: " <> sshow e
             throwM e
 
         -- check if we made progress
@@ -258,7 +265,7 @@ resolveForkInfoForProviderState logg bhdb provider hints finfo ppState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
             -- continue.
             -- TODO compute the new fork info here.
-            resolveForkInfoForProviderState logg bhdb provider hints newForkInfo newState
+            resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints newForkInfo newState
           else do
             logg Warn $ "resolveForkInfo: no progress"
                 <> "; delta: " <> sshow delta
@@ -276,6 +283,6 @@ resolveForkInfoForProviderState logg bhdb provider hints finfo ppState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
   where
-    h = _latestRankedBlockHash . _forkInfoTargetState $ finfo
+    trgHash = _latestRankedBlockHash . _forkInfoTargetState $ finfo
     ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest ppState
 
