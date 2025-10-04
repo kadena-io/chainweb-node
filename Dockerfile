@@ -46,8 +46,8 @@
 # support this we would have to define dedicated runtime images and build
 # images.
 
-ARG UBUNTU_VERSION=22.04
-ARG GHC_VERSION=9.10.1
+ARG UBUNTU_VERSION=24.04
+ARG GHC_VERSION=9.12.2
 ARG PROJECT_NAME=chainweb
 
 # ############################################################################ #
@@ -68,10 +68,10 @@ RUN <<EOF
         libffi8 \
         libgmp10 \
         liblz4-1 \
-        libncurses5 \
+        libncurses6 \
         libsnappy1v5 \
         libssl3 \
-        libtinfo5 \
+        libtinfo6 \
         locales \
         libmpfr6 \
         zlib1g \
