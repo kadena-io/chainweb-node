@@ -527,11 +527,8 @@ synchronizeProviders logger wbh providers c = do
             finfo <- liftIO $ forkInfoForHeader wbh hdr Nothing Nothing True
             pLog Debug $ "syncToBlock with fork info " <> encodeToText finfo
 
-            -- FIXME does this really cover all failure scenarios? What if
-            -- the payload provider is only slow in syncing? Also the protocol
-            -- allows partial results -- in which case we should retry.
             bhdb <- liftIO $ getWebBlockHeaderDb wbh cid
-            liftIO (resolveForkInfo pLog bhdb provider Nothing finfo) `catch` \(e :: SomeException) -> do
+            liftIO (resolveForkInfo pLog bhdb NullCas provider Nothing finfo) `catch` \(e :: SomeException) -> do
                 pLog Warn $ "resolveFork for failed"
                     <> "; finfo: " <> encodeToText finfo
                     <> "; failure: " <> sshow e
@@ -719,7 +716,7 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPru
                                 -- FIXME: we could we trigger this with only a
                                 -- single node in the system?
                                 clog Info "Syncing paylooad provider with merged cut"
-                                resolveForkInfo clog (hdrStore ^?! ixg cid) provider Nothing finfo `catch`
+                                resolveForkInfo clog (hdrStore ^?! ixg cid) NullCas provider Nothing finfo `catch`
                                     -- FIXME calling error is not OK!
                                     \(e :: SomeException) -> error
                                         $ "Failed to sync to merge cut (on chain " <> sshow cid <> "): " <> sshow e

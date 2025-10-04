@@ -4,6 +4,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -23,9 +24,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveTraversable #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -133,6 +131,7 @@ module Chainweb.BlockHeader.Internal
 , newBlockHeader
 
 -- * CAS Constraint
+, ReadableBlockHeaderCas
 , BlockHeaderCas
 
 -- * Misc
@@ -396,6 +395,7 @@ instance IsCasValue BlockHeader where
     casKey = _blockHash
     {-# INLINE casKey #-}
 
+type ReadableBlockHeaderCas tbl = ReadableCas tbl BlockHeader
 type BlockHeaderCas tbl = Cas tbl BlockHeader
 
 -- | Used for quickly identifying "which block" this is.

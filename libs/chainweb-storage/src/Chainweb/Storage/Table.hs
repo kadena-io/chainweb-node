@@ -49,6 +49,7 @@ module Chainweb.Storage.Table
   , tableLookupM
   , casLookupM
   , TableException (..)
+  , NullCas(..)
   )
 where
 
@@ -76,6 +77,9 @@ class Eq (CasKeyType v) => IsCasValue v where
     type CasKeyType v
     casKey :: v -> CasKeyType v
 
+-- -------------------------------------------------------------------------- --
+-- Readble Stores
+
 -- | Read-Only View of a Key-Value Store
 --
 class ReadableTable t k v | t -> k v where
@@ -100,6 +104,13 @@ class ReadableTable t k v => Table t k v | t -> k v where
     tableDeleteBatch t ks = traverse_ (tableDelete t) ks
 type Table1 t = forall k v. Table (t k v) k v
 
+data NullCas k v = NullCas
+instance ReadableTable (NullCas k v) k v where
+    tableLookup _ _ = return Nothing
+
+-- -------------------------------------------------------------------------- --
+-- Writeable Stores
+
 type Cas t v = Table t (CasKeyType v) v
 
 casInsert :: (IsCasValue v, Cas t v) => t -> v -> IO ()
@@ -113,6 +124,9 @@ casDelete t = tableDelete t . casKey
 
 casDeleteBatch :: (IsCasValue v, Cas t v) => t -> [v] -> IO ()
 casDeleteBatch t = tableDeleteBatch t . fmap casKey
+
+-- -------------------------------------------------------------------------- --
+-- Iterable Stores
 
 class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> i k v where
     -- the created iterator must be positioned at the start of the table.
@@ -140,6 +154,9 @@ class Iterator i k v | i -> k v where
 type Iterator1 i = forall k v. Iterator (i k v) k v
 
 type CasIterator i v = Iterator i (CasKeyType v) v
+
+-- -------------------------------------------------------------------------- --
+-- Utils
 
 -- | A newtype wrapper that takes only a single type constructor. This useful in
 -- situations where a Higher Order type constructor for a CAS is required. A
