@@ -1,13 +1,10 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -112,7 +109,7 @@ account bs
 encodeAccount :: HasCallStack => Account -> Put
 encodeAccount (Account bs) = do
     let l = BS.length bs
-    void $ when (l > int (maxBound @Word16)) $
+    when (l > int (maxBound @Word16)) $
         error "Chainweb.PayloadProvider.Minimal.encodePayload: account is too large"
     putWord16le (int l)
     putShortByteString bs

@@ -126,7 +126,7 @@ payloadDbConfiguration
     -> RocksDb
     -> EVM.Header
     -> EvmDB.Configuration
-payloadDbConfiguration c rdb hdr = EvmDB.configuration c rdb hdr
+payloadDbConfiguration = EvmDB.configuration
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -303,7 +303,7 @@ latestStateIO = fmap (_consensusStateLatest . sfst) . stateIO
 isPayloadRequestedIO :: EvmPayloadProvider logger -> IO Bool
 isPayloadRequestedIO p = case _evmMinerAddress p of
     Nothing -> return False
-    Just _ -> (isJust . ssnd) <$> stateIO p
+    Just _ -> isJust . ssnd <$> stateIO p
 
 newBlockCtxIO :: EvmPayloadProvider logger -> IO (Maybe NewBlockCtx)
 newBlockCtxIO p = case _evmMinerAddress p of
@@ -370,7 +370,7 @@ lookupConsensusState p cs plds = do
     -- Fill in payloads that are missing in the database from the candidate
     -- payloads.
     --
-    case go <$> (zip [lrh, srh, frh] r0) of
+    case go <$> zip [lrh, srh, frh] r0 of
         [Nothing, _, _] -> do
             return Nothing
         [Just l, Just s, Just f] -> return $ Just ForkchoiceStateV1
@@ -399,7 +399,7 @@ loggS
     -> LogLevel
     -> T.Text
     -> IO ()
-loggS p s l t = logFunctionText logger l t
+loggS p s = logFunctionText logger
   where
     logger = _evmLogger p & addLabel ("sub-component", s)
 
@@ -409,7 +409,7 @@ logg
     -> LogLevel
     -> T.Text
     -> IO ()
-logg p l t = logFunctionText (_evmLogger p) l t
+logg p = logFunctionText (_evmLogger p)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -1433,7 +1433,7 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                         -- FIXME FIXME FIXME
                         --
                         -- The follwoing can result in timeouts. Even on empty
-                        -- blocks. But why? Well, see the commant above!
+                        -- blocks. But why? Well, see the comment above!
                         --
                         -- It seems that it is a problem when we have a header
                         -- in the payload db (we know it) but the EVM does not
@@ -1518,7 +1518,7 @@ pruneCandidates p = do
 --     relevant during catchup. Otherwise we anyways go block by block.)
 -- 3.  With the EVM provider we can validate the payloads with respect to the
 --     evaluation contexts in batches before sending them to the execution
---     client.contexts in batches before sending them to the execution client.
+--     client.
 --
 getPayloadForContext
     :: Logger logger

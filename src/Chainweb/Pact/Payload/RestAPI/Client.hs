@@ -55,7 +55,7 @@ payloadClient
     -> Maybe BlockHeight
     -> ClientM PayloadData
 payloadClient c k h = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    SomeChainwebVersionT (_ :: Proxy v) <- return someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ payloadClient_ @v @c k h
 
@@ -79,7 +79,7 @@ payloadBatchClient
     -> BatchBody
     -> ClientM PayloadDataList
 payloadBatchClient c k = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    SomeChainwebVersionT (_ :: Proxy v) <- return someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ payloadBatchClient_ @v @c k
 
@@ -102,7 +102,7 @@ outputsClient
     -> Maybe BlockHeight
     -> ClientM PayloadWithOutputs
 outputsClient c k h = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    SomeChainwebVersionT (_ :: Proxy v) <- return someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ outputsClient_ @v @c k h
 
@@ -123,6 +123,6 @@ outputsBatchClient
     -> BatchBody
     -> ClientM PayloadWithOutputsList
 outputsBatchClient c k = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    SomeChainwebVersionT (_ :: Proxy v) <- return someChainwebVersionVal
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ outputsBatchClient_ @v @c k
