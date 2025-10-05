@@ -47,6 +47,7 @@ module Chainweb.PayloadProvider
 , _evaluationCtxCurrentHeight
 , _evaluationCtxRankedPayloadHash
 , _evaluationCtxRankedParentHash
+, _evaluationCtxRankedPayload
 
 -- * Fork Info
 , ForkInfo(..)
@@ -325,6 +326,13 @@ _evaluationCtxRankedParentHash
 _evaluationCtxRankedParentHash ctx = Parent $ RankedBlockHash
     (unwrapParent $ _evaluationCtxParentHeight ctx)
     (unwrapParent $ _evaluationCtxParentHash ctx)
+
+_evaluationCtxRankedPayload
+    :: EvaluationCtx ConsensusPayload
+    -> Ranked ConsensusPayload
+_evaluationCtxRankedPayload ctx = Ranked
+    (_evaluationCtxCurrentHeight ctx)
+    (_evaluationCtxPayload ctx)
 
 evaluationCtxProperties :: forall e kv p . (KeyValue e kv, ToJSON p) => EvaluationCtx p -> [kv]
 evaluationCtxProperties a =

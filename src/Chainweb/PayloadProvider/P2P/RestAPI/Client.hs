@@ -15,7 +15,7 @@
 --
 module Chainweb.PayloadProvider.P2P.RestAPI.Client
 ( payloadClient
--- , payloadBatchClient
+, payloadBatchClient
 -- , outputsClient
 -- , outputsBatchClient
 ) where
@@ -64,16 +64,19 @@ payloadClient rh = _restPayload <$> client (payloadGetApi @v @c @p) height hash
 --     provider :: PayloadProviderType
 --     provider = payloadProviderTypeForChain v c
 
--- -- -------------------------------------------------------------------------- --
--- -- Post Payload Batch Client
---
--- payloadBatchClient_
---     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (p :: PayloadProvider)
---     . KnownChainwebVersionSymbol v
---     => KnownChainIdSymbol c
---     => BatchBody
---     -> ClientM PayloadDataList
--- payloadBatchClient_ = client (payloadPostApi @v @c)
+-- -------------------------------------------------------------------------- --
+-- Post Payload Batch Client
+
+payloadBatchClient
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (p :: PayloadProviderType)
+    . KnownChainwebVersionSymbol v
+    => IsPayloadProvider p
+    => KnownChainIdSymbol c
+    => [RankedBlockPayloadHash]
+    -> ClientM (PayloadBatchType p)
+payloadBatchClient bb = _restPayload
+    <$> client (payloadPostApi @v @c @p) (BatchBody bb)
+
 --
 -- -- The query may return any number (including none) of the requested payload
 -- -- data. Results are returned in any order.

@@ -433,9 +433,8 @@ getBlockHeaderInternal
         pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
         let prefetchProviderPayloads = case providers ^?! atChain cid of
                 ConfiguredPayloadProvider provider -> do
-                    -- TODO PP
-                    -- prefetchPayloads provider hints
-                    --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
+                    prefetchPayloads provider hints
+                        [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
                     return ()
                 DisabledPayloadProvider -> return ()
 

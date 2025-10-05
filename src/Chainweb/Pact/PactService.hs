@@ -37,35 +37,39 @@ module Chainweb.Pact.PactService
     , withPactService
     , execNewGenesisBlock
     , makeEmptyBlock
+    , getPayloadsForConsensusPayloads
     ) where
 
 import Control.Concurrent.Async
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.BlockPayloadHash
 import Chainweb.ChainId
 import Chainweb.Core.Brief
 import Chainweb.Counter
 import Chainweb.Logger
-import Chainweb.Pact.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils (withTransaction)
+import Chainweb.Pact.Mempool.Mempool as Mempool
 import Chainweb.Pact.NoCoinbase qualified as Pact
 import Chainweb.Pact.PactService.Checkpointer qualified as Checkpointer
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.ExecBlock qualified as Pact
 import Chainweb.Pact.PactService.Pact4.ExecBlock qualified as Pact4
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.RestAPI
+import Chainweb.Pact.Payload.RestAPI.Client
 import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.TransactionExec qualified as Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Validations qualified as Pact
 import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact4
 import Chainweb.Parent
-import Chainweb.Pact.Payload
-import Chainweb.Pact.Payload.PayloadStore
 import Chainweb.PayloadProvider
 import Chainweb.PayloadProvider.P2P
 import Chainweb.Ranked
@@ -74,6 +78,8 @@ import Chainweb.Storage.Table.Map qualified as MapTable
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
+import Chainweb.Version.Guards (pact5)
+import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM
 import Control.Exception.Safe (mask)
 import Control.Lens hiding ((:>))
@@ -113,10 +119,8 @@ import Pact.Core.Hash qualified as Pact
 import Pact.Core.StableEncoding qualified as Pact
 import Pact.JSON.Encode qualified as J
 import Prelude hiding (lookup)
+import Servant.Client (ClientM)
 import System.LogLevel
-import Chainweb.Version.Guards (pact5)
-import Control.Concurrent.MVar (newMVar)
-import Chainweb.Pact.Payload.RestAPI.Client (payloadClient)
 
 withPactService
     :: (Logger logger, CanPayloadCas tbl)
@@ -133,7 +137,13 @@ withPactService
     -> GenesisConfig
     -> ResourceT IO (ServiceEnv tbl)
 withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb readSqlPool readWriteSqlenv config pactGenesis = do
-    payloadStore <- liftIO $ newPayloadStore http (logFunction chainwebLogger) pdb (\rph -> payloadClient cid (_ranked rph) (Just $ rank rph))
+    payloadStore <- liftIO $ newPayloadStore
+        http
+        (logFunction chainwebLogger)
+        pdb
+        (\rph -> payloadClient cid (_ranked rph) (Just $ rank rph))
+        batchClient
+
     (_, miningPayloadVar) <- allocate newEmptyTMVarIO
         (\v -> do
             refresherThread <- fmap (view _1) <$> atomically (tryReadTMVar v)
@@ -175,6 +185,16 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
         GeneratingGenesis -> return ()
         _ -> liftIO $ initialPayloadState chainwebLogger pse
     return pse
+  where
+    batchClient :: [RankedBlockPayloadHash] -> ClientM [Maybe PayloadData]
+    batchClient rhs = do
+        let body = WithHeights
+                [ (_rankedBlockPayloadHashHeight r, _rankedBlockPayloadHashHash r)
+                | r <- rhs
+                ]
+        rs <- _payloadDataList <$> payloadBatchClient cid body
+        let rs' = HM.fromList $ (\pd -> (view payloadDataPayloadHash pd, pd)) <$> rs
+        return $ (\x -> HM.lookup (_rankedBlockPayloadHashHash x) rs') <$> rhs
 
 initialPayloadState
     :: Logger logger
@@ -796,6 +816,39 @@ getPayloadForContext logger serviceEnv h ctx = do
         Right pld -> tableInsert candPdb rh pld
         Left e ->
             logFunctionText logger Warn $ "failed to decode encoded payload from evaluation ctx: " <> sshow e
+
+getPayloadsForConsensusPayloads
+    :: CanReadablePayloadCas tbl
+    => Logger logger
+    => logger
+    -> ServiceEnv tbl
+    -> Maybe Hints
+    -> [Ranked ConsensusPayload]
+    -> IO [(RankedBlockPayloadHash, PayloadData)]
+getPayloadsForConsensusPayloads logger serviceEnv h cps = do
+    insertPayloadDataBatch (view psCandidatePdb serviceEnv)
+    plds <- getPayloads
+        (view psPdb serviceEnv)
+        (view psCandidatePdb serviceEnv)
+        (Priority $ negate $ int $ _rankedHeight $ head cps)
+        (_hintsOrigin <$> h)
+        (fmap _consensusPayloadHash <$> cps)
+    tableInsertBatch (view psCandidatePdb serviceEnv) plds
+    return plds
+  where
+    insertPayloadDataBatch tbl = do
+        plds <- mapM decodePld cps
+        tableInsertBatch tbl $ catMaybes plds
+
+    decodePld rcp@(Ranked _ cp) =
+        case mapM decodePayloadData $ _encodedPayloadData <$> _consensusPayloadData cp of
+            Right pld ->
+                return $ (_consensusPayloadHash <$> rcp,) <$> pld
+            Left e -> do
+                lf Warn $ "failed to decode encoded payloads from evaluation ctx: " <> sshow e
+                return Nothing
+
+    lf = logFunctionText logger
 
 execPreInsertCheckReq
     :: (Logger logger)

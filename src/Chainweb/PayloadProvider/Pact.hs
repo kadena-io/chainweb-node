@@ -61,7 +61,17 @@ instance HasChainId (PactPayloadProvider logger tbl) where
     chainId = _PactPayloadProvider . _2 . chainId
 
 instance (Logger logger, CanPayloadCas tbl) => PayloadProvider (PactPayloadProvider logger tbl) where
-    prefetchPayloads _pp _hints _forkInfo = return ()
+    prefetchPayloads p h ps = do
+        lf Info $ "prefetch: query: " <> sshow (length ps)
+        rs  <- PactService.getPayloadsForConsensusPayloads
+            (pactPayloadProviderLogger p)
+            (pactPayloadProviderServiceEnv p)
+            h
+            ps
+        lf Info $ "prefetch: got: " <> sshow (length rs)
+      where
+        lf = logFunctionText (pactPayloadProviderLogger p)
+
 
     syncToBlock (PactPayloadProvider logger e) = PactService.syncToFork logger e
 
