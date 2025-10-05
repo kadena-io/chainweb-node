@@ -73,6 +73,7 @@ import Chainweb.PayloadProvider.EVM.Utils (decodeRlpM)
 import Chainweb.PayloadProvider.EVM.Utils qualified as EVM
 import Chainweb.PayloadProvider.EVM.Utils qualified as Utils
 import Chainweb.PayloadProvider.P2P
+import Chainweb.PayloadProvider.P2P.RestAPI
 import Chainweb.PayloadProvider.P2P.RestAPI.Client qualified as Rest
 import Chainweb.Ranked
 import Chainweb.Storage.Table
@@ -91,6 +92,7 @@ import Control.Monad
 import Control.Monad.Trans.Resource hiding (throwM)
 import Control.Monad.Writer
 import Data.ByteString.Short qualified as BS
+import Data.HashMap.Strict qualified as HM
 import Data.List qualified as L
 import Data.LogMessage
 import Data.Maybe
@@ -521,13 +523,24 @@ withEvmPayloadProvider logger c rdb mgr conf
 
         SomeChainwebVersionT @v _ <- return someChainwebVersionVal
         SomeChainIdT @c _ <- return $ someChainIdVal c
+
         let pldCli = Rest.payloadClient @v @c @p
+
+        -- FIXME move the following two definitions elsewhere
+        let payloadRankedPayloadHash pld = RankedBlockPayloadHash
+                { _rankedBlockPayloadHashHeight = int $ EVM._hdrNumber $ _payloadHeader pld
+                , _rankedBlockPayloadHashHash = EVM._hdrPayloadHash $ _payloadHeader pld
+                }
+        let pldCliBatch rhs = do
+                rs <- _payloadList <$> Rest.payloadBatchClient @v @c @p rhs
+                let rs' = HM.fromList $ (\pld -> (payloadRankedPayloadHash pld, pld)) <$> rs
+                return $ (`HM.lookup` rs') <$> rhs
 
         genPld <- liftIO $ checkExecutionClient logger c engineCtx (EVM.ChainId (fromSNat ecid))
         liftIO $ logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
         liftIO $ logFunctionText logger Debug $ "genesis payload from execution client: " <> sshow genPld
         pdb <- liftIO $ initPayloadDb $ payloadDbConfiguration c rdb genPld
-        store <- liftIO $ newPayloadStore mgr (logFunction pldStoreLogger) pdb pldCli
+        store <- liftIO $ newPayloadStore mgr (logFunction pldStoreLogger) pdb pldCli pldCliBatch
         pldVar <- liftIO newEmptyTMVarIO
         pldIdVar <- liftIO newEmptyTMVarIO
         candidates <- liftIO emptyTable
@@ -1427,6 +1440,9 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                         _ -> return ()
 
 
+                    -- TODO should be fetch as a batch? we did that already
+                    -- during prefetch. So, not sure if it makes sense to try it
+                    -- here again.
                     plds <- forM unknowns $ \ctx -> do
                         pld <- getPayloadForContext p hints ctx
 
@@ -1547,6 +1563,46 @@ getPayloadForContext p h ctx = do
     lf :: LogFunctionText
     lf = loggS p "getPayloadForContext"
 
+getPayloadForContexts
+    :: Logger logger
+    => EvmPayloadProvider logger
+    -> Maybe Hints
+    -> [EvaluationCtx ConsensusPayload]
+    -> IO [(RankedBlockPayloadHash, Payload)]
+getPayloadForContexts p h ctxs =
+    getPayloadsForConsensusPayloads p h $ _evaluationCtxRankedPayload <$> ctxs
+
+getPayloadsForConsensusPayloads
+    :: Logger logger
+    => EvmPayloadProvider logger
+    -> Maybe Hints
+    -> [Ranked ConsensusPayload]
+    -> IO [(RankedBlockPayloadHash, Payload)]
+getPayloadsForConsensusPayloads p h cps = do
+    insertPayloadDataBatch (_evmCandidatePayloads p)
+    plds <- getPayloads
+        (_evmPayloadStore p)
+        (_evmCandidatePayloads p)
+        (Priority $ negate $ int $ _rankedHeight $ head cps)
+        (_hintsOrigin <$> h)
+        (fmap _consensusPayloadHash <$> cps)
+    tableInsertBatch (_evmCandidatePayloads p) plds
+    return plds
+  where
+    insertPayloadDataBatch tbl = do
+        plds <- mapM decodePld cps
+        tableInsertBatch tbl $ catMaybes plds
+
+    decodePld rcp@(Ranked _ cp) = case mapM decodePayloadData $ _consensusPayloadData cp of
+        Right pld ->
+            return $ (_consensusPayloadHash <$> rcp,) <$> pld
+        Left e -> do
+            lf Warn $ "failed to decode encoded payloads from evaluation ctx: " <> sshow e
+            return Nothing
+
+    lf :: LogFunctionText
+    lf = loggS p "getPayloadsForConsensusPayloads"
+
 newPayloadTimeout :: Micros
 newPayloadTimeout = 30_000_000
 
@@ -1598,12 +1654,24 @@ validatePayload p pld ctx = do
 -- Payload Provider API Instance
 
 instance Logger logger => PayloadProvider (EvmPayloadProvider logger) where
-
-    -- FIXME
-    prefetchPayloads _ _ _ = return ()
+    prefetchPayloads = evmPrefetchPayloads
     syncToBlock = evmSyncToBlock
     latestPayloadSTM p = ssnd <$> readTMVar (_evmPayloadVar p)
     eventProof = getSpvProof
+
+evmPrefetchPayloads
+    :: HasVersion
+    => Logger logger
+    => EvmPayloadProvider logger
+    -> Maybe Hints
+    -> [Ranked ConsensusPayload]
+    -> IO ()
+evmPrefetchPayloads p h ps = do
+    lf Info $ "query: " <> sshow (length ps)
+    rs  <- getPayloadsForConsensusPayloads p h ps
+    lf Info $ "got: " <> sshow (length rs)
+  where
+    lf = loggS p "prefetchPayloads"
 
 -- -------------------------------------------------------------------------- --
 -- SPV

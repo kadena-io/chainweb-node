@@ -9,7 +9,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
@@ -26,6 +25,7 @@ module Chainweb.PayloadProvider.P2P
 ( PayloadStore(..)
 , newPayloadStore
 , getPayload
+, getPayloads
 , getPayloadSimple
 ) where
 
@@ -47,6 +47,9 @@ import Servant.Client
 import System.LogLevel
 import Utils.Logging.Trace
 import Chainweb.Storage.Table.HashMap (emptyTable)
+import Control.Concurrent.Async
+import Control.Exception
+import Chainweb.Core.Brief
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -113,6 +116,7 @@ data PayloadStore tbl a = PayloadStore
         -- the store between payload providers with the same payload type. This
         -- could make it easier to limit concurrency across chains. If this is
         -- needed the ChainId parameter would have to be re-added.
+    , _payloadStoreGetPayloadBatchClient :: !([RankedBlockPayloadHash] -> ClientM [Maybe a])
     }
 
 -- FIXME: not sure whether the following instances are a good idea...
@@ -171,8 +175,9 @@ newPayloadStore
         -- ^ initialized Payload DB. In particular it is expected that genesis
         -- payloads are already available.
     -> (RankedBlockPayloadHash -> ClientM a)
+    -> ([RankedBlockPayloadHash] -> ClientM [Maybe a])
     -> IO (PayloadStore tbl a)
-newPayloadStore mgr logfun payloadDb cli = do
+newPayloadStore mgr logfun payloadDb cli bcli = do
     payloadTaskQueue <- newEmptyPQueue
     payloadMemo <- new
     return $! PayloadStore
@@ -182,6 +187,7 @@ newPayloadStore mgr logfun payloadDb cli = do
         , _payloadStoreLogFunction = logfun
         , _payloadStoreMgr = mgr
         , _payloadStoreGetPayloadClient = cli
+        , _payloadStoreGetPayloadBatchClient = bcli
         }
 
 -- -------------------------------------------------------------------------- --
@@ -223,7 +229,7 @@ getPayload
     -> RankedBlockPayloadHash
     -> IO a
 getPayload s candidateStore priority maybeOrigin payloadHash = do
-    logfun Debug $ "getPayload: " <> sshow payloadHash
+    logfun Debug $ "getPayload: " <> toText payloadHash
     tableLookup candidateStore payloadHash >>= \case
         Just !x -> return x
         Nothing -> tableLookup tbl payloadHash >>= \case
@@ -247,7 +253,7 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
     traceLogfun :: forall m . LogMessage m => LogLevel -> m -> IO ()
     traceLogfun = _payloadStoreLogFunction s
 
-    taskMsg k msg = "payload task " <> sshow k <> " @ " <> sshow payloadHash <> ": " <> msg
+    taskMsg k msg = "payload task " <> toText k <> " @ " <> toText payloadHash <> ": " <> msg
 
     traceLabel subfun =
         "Chainweb.PayloadProvider.P2P.getPayload." <> subfun
@@ -284,7 +290,122 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
     -- | Query a block payload via the task queue
     --
     queryPayloadTask :: RankedBlockPayloadHash -> IO (Task ClientEnv a)
-    queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
+    queryPayloadTask k = newTask (TaskId $ toText k) priority $ \logg env -> do
+        logg @T.Text Debug $ taskMsg k "query remote block payload"
+        let taskEnv = setResponseTimeout taskResponseTimeout env
+        !r <- trace traceLogfun (traceLabel "queryPayloadTask") (rankedHashJson k) (let Priority i = priority in i)
+            $ runClientM (_payloadStoreGetPayloadClient s k) taskEnv
+        case r of
+            (Right !x) -> do
+                logg @T.Text Debug $ taskMsg k "received remote payload"
+                return x
+            Left (e :: ClientError) -> do
+                logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
+                throwM e
+
+-- | Query a payloads either from the local store, or the origin, or P2P network.
+--
+-- The payloads are only queried and not inserted into the local store. We want to
+-- insert it only after it got validate by the payload provider.
+--
+getPayloads
+    :: forall a tbl candidateTbl
+    . ReadableTable tbl RankedBlockPayloadHash a
+    => Table candidateTbl RankedBlockPayloadHash a
+    => PayloadStore tbl a
+    -> candidateTbl
+    -> Priority
+        -- ^ larger values get precedence in the P2P task queue. A good
+        -- heuristics is to use the negated block height.
+    -> Maybe PeerInfo
+        -- ^ Peer from with the BlockPayloadHash originated, if available.
+    -> [RankedBlockPayloadHash]
+    -> IO [(RankedBlockPayloadHash, a)]
+getPayloads s candidateStore priority maybeOrigin payloadHashes = do
+    logfun Debug $ "getPayloads: " <> brief payloadHashes
+    (missing, plds0) <- collect @_ @a payloadHashes <$> tableLookupBatch candidateStore payloadHashes
+    (missing', plds1) <- collect @_ @a missing <$> tableLookupBatch tbl missing
+
+    -- FIXME We do this output of hte memo map, so this is not shared and we
+    -- may call this more than once for the same batch. It's not clear
+    -- whether this can actually happen in practice, since the resolution of
+    -- payloads is implicitely guarded by the resolution of headers.
+    -- But we should double check that.
+    -- Generally, it might be useful to move memoization up to the header
+    -- level, since there should be no sharing below that level.
+    --
+    (missing'', plds2) <- collect @_ @a missing'
+        <$> pullOriginBatch missing' maybeOrigin
+
+    plds3 <- forConcurrently missing'' $ \k -> do
+        v <- memo memoMap k $ \_ -> do
+            t <- queryPayloadTask k
+            pQueueInsert queue t
+            awaitTask t
+        return (k, v)
+    return $! mconcat [plds0, plds1, plds2, plds3]
+
+  where
+    maybeMgr = _payloadStoreMgr s
+    tbl = _payloadStoreTable s
+    memoMap = _payloadStoreMemo s
+    queue = _payloadStoreQueue s
+
+    logfun :: LogLevel -> T.Text -> IO ()
+    logfun = _payloadStoreLogFunction s
+
+    collect :: [k] -> [Maybe v] -> ([k], [(k, v)])
+    collect [] [] = ([], [])
+    collect (k:ks) (v:vs) = case v of
+        Just v' -> (ks, (k, v'):vs')
+        Nothing -> (k:ks', vs')
+      where
+        (ks', vs') = collect ks vs
+    collect _ _ = throw $ InternalInvariantViolation "Chainweb.PayloadProvider.P2P.collect: length mismatch"
+
+    traceLogfun :: forall m . LogMessage m => LogLevel -> m -> IO ()
+    traceLogfun = _payloadStoreLogFunction s
+
+    taskMsg ks msg = "payload task " <> "batch" <> " @ " <> brief payloadHashes <> ": " <> msg
+
+    traceLabel subfun =
+        "Chainweb.PayloadProvider.P2P.getPayload." <> subfun
+
+    -- Only used for logging trace telemetry
+    rankedHashJson rh = object
+        [ "height" .= _rankedBlockPayloadHashHeight rh
+        , "hash" .= _rankedBlockPayloadHashHash rh
+        ]
+
+    -- | Try to pull block payloads from the given origin peer
+    --
+    -- FIXME: respect maximum batch sizes of P2P API.
+    --
+    pullOriginBatch :: [RankedBlockPayloadHash] -> Maybe PeerInfo -> IO [Maybe a]
+    pullOriginBatch ks Nothing = do
+        logfun Debug $ taskMsg ks "no origin"
+        return [Nothing | _ <- ks]
+    pullOriginBatch ks (Just origin)
+        | Nothing <- maybeMgr = do
+            logfun Debug $ taskMsg ks "no origin"
+            return [Nothing | _ <- ks]
+        | Just mgr <- maybeMgr = do
+            let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
+            logfun Debug $ taskMsg ks "lookup origin"
+            !r <- trace traceLogfun (traceLabel "pullOrigin") (rankedHashJson <$> ks) 0
+                $ runClientM (_payloadStoreGetPayloadBatchClient s ks) originEnv
+            case r of
+                (Right !x) -> do
+                    logfun Debug $ taskMsg ks "received from origin"
+                    return x
+                Left (e :: ClientError) -> do
+                    logfun Debug $ taskMsg ks $ "failed to receive from origin: " <> sshow e
+                    return [Nothing | _ <- ks]
+
+    -- | Query a block payload via the task queue
+    --
+    queryPayloadTask :: RankedBlockPayloadHash -> IO (Task ClientEnv a)
+    queryPayloadTask k = newTask (TaskId $ toText k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
         let taskEnv = setResponseTimeout taskResponseTimeout env
         !r <- trace traceLogfun (traceLabel "queryPayloadTask") (rankedHashJson k) (let Priority i = priority in i)

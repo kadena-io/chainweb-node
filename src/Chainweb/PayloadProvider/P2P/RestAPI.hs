@@ -1,16 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeAbstractions #-}
@@ -33,6 +30,7 @@ module Chainweb.PayloadProvider.P2P.RestAPI
 , BatchBody(..)
 , IsPayloadProvider(..)
 , RestPayload(..)
+, PayloadList(..)
 
 -- * Payload API
 , type PayloadApi
@@ -322,7 +320,7 @@ instance IsPayloadProvider (EvmProvider n) where
     p2pPayloadBatchLimit = 20 -- FIXME
     batch = PayloadList . catMaybes
 
-newtype PayloadList = PayloadList { _headerList :: [EVM.Payload] }
+newtype PayloadList = PayloadList { _payloadList :: [EVM.Payload] }
     deriving (Show, Eq, Generic)
     deriving newtype (ToJSON, FromJSON, EVM.RLP)
 

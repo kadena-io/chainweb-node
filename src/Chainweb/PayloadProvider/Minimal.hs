@@ -1,12 +1,10 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -19,6 +17,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.IdleProvider
@@ -84,7 +83,6 @@ module Chainweb.PayloadProvider.Minimal
 , newMinimalPayloadProvider
 ) where
 
-import Configuration.Utils
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
@@ -104,6 +102,7 @@ import Chainweb.Storage.Table.RocksDB
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Configuration.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
@@ -111,6 +110,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Except (throwError)
 import Data.ByteString qualified as B
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.LogMessage (LogFunction, LogFunctionText)
 import Data.PQueue (PQueue)
@@ -121,6 +121,7 @@ import Numeric.Natural
 import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
+import Data.Maybe
 
 -- -------------------------------------------------------------------------- --
 
@@ -221,12 +222,21 @@ newMinimalPayloadProvider logger c rdb mgr conf
     | payloadProviderTypeForChain c /= MinimalProvider =
         error "Chainweb.PayloadProvider.Minimal.configuration: chain does not use minimal provider"
     | otherwise = do
-        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal
+        SomeChainwebVersionT @v _ <- return someChainwebVersionVal
         SomeChainIdT @c _ <- return $ someChainIdVal c
-        let payloadClient h = Rest.payloadClient @v @c @'MinimalProvider h
+        let payloadClient = Rest.payloadClient @v @c @'MinimalProvider
+
+        let payloadRankedPayloadHash pld = RankedBlockPayloadHash
+                { _rankedBlockPayloadHashHeight = view payloadBlockHeight pld
+                , _rankedBlockPayloadHashHash = view payloadHash pld
+                }
+        let payloadBatchClient rhs = do
+                rs <- Rest.payloadBatchClient @v @c @'MinimalProvider rhs
+                let rs' = HM.fromList $ (\pld -> (payloadRankedPayloadHash pld, pld)) <$> rs
+                return $ (`HM.lookup` rs') <$> rhs
 
         pdb <- PDB.initPayloadDb $ PDB.configuration c rdb
-        store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb payloadClient
+        store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb payloadClient payloadBatchClient
         var <- newEmptyTMVarIO
         candidates <- emptyTable
         logFunctionText logger Debug "minimal payload provider started"
@@ -372,8 +382,39 @@ getPayloadForContext p h ctx = do
     lf :: LogFunctionText
     lf = _minimalLogger p
 
--- | Concurrently fetch all payloads in an evaluation context and insert them
--- into the candidate table.
+getPayloadsForConsensusPayloads
+    :: MinimalPayloadProvider
+    -> Maybe Hints
+    -> [Ranked ConsensusPayload]
+    -> IO [(RankedBlockPayloadHash, Payload)]
+getPayloadsForConsensusPayloads p h ctxs = do
+    insertPayloadDataBatch (_minimalCandidatePayloads p)
+    plds <- Rest.getPayloads
+        (_minimalPayloadStore p)
+        (_minimalCandidatePayloads p)
+        (Priority $ negate $ int $ _rankedHeight $ head ctxs)
+        (_hintsOrigin <$> h)
+        (fmap _consensusPayloadHash <$> ctxs)
+    tableInsertBatch (_minimalCandidatePayloads p) plds
+    return plds
+  where
+    insertPayloadDataBatch tbl = do
+        plds <- mapM decodePld ctxs
+        tableInsertBatch tbl $ catMaybes plds
+
+    decodePld rcp@(Ranked _ cp) = case mapM decodePayloadData $ _consensusPayloadData cp of
+        Right pld ->
+            return $ (_consensusPayloadHash <$> rcp,) <$> pld
+        Left e -> do
+            lf Warn $ "failed to decode encoded payloads from evaluation ctx: " <> sshow e
+            return Nothing
+
+    lf :: LogFunctionText
+    lf = _minimalLogger p
+
+
+-- | Fetch all payloads in an evaluation context and insert them into the
+-- candidate table.
 --
 -- This version blocks until all payloads are fetched (or a timeout occurs).
 --
@@ -386,8 +427,10 @@ minimalPrefetchPayloads
     -> [Ranked ConsensusPayload]
     -> IO ()
 minimalPrefetchPayloads p h ps = do
-    logg p Debug "prefetch payloads"
-    mapConcurrently_ (try @_ @TaskException . getPayloadForContext p h) ps
+    logg p Info $ "prefetch payloads: query " <> sshow (length ps)
+    -- mapConcurrently_ (try @_ @TaskException . getPayloadForContext p h) ps
+    rs <- getPayloadsForConsensusPayloads p h ps
+    logg p Info $ "prefetch payloads: got " <> sshow (length rs)
 
 -- |
 --
