@@ -61,7 +61,7 @@ instance FunctorWithIndex ChainId ChainValue
 instance HasTextRepresentation a => HasTextRepresentation (ChainValue a) where
     toText (ChainValue cid a) = toText cid <> ":" <> toText a
     fromText t = case T.breakOn ":" t of
-        (c, r) -> ChainValue <$> fromText c <*> fromText (T.drop 1 r)
+        (c, r) -> ChainValue <$> fromText c <*> fromText (T.tail r)
     {-# INLINE toText #-}
 
 -- | If a type is already an instance of 'IsCasValue', adding the chain does
