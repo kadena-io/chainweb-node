@@ -79,6 +79,10 @@ getCut (CutClientEnv env) h = runClientThrowM (cutGetClientLimit (int h)) env
 -- This number MUST BE STRICTLY SMALLER than 'Chainweb.CutDB.farAheadThreshold'
 -- times the number of chains.
 --
+-- FIXME FIXME FIXME:
+-- The current number works for at least 25 chains. It does not work on current
+-- mainet. The type should be changed to BlockHeight to avoid these issues.
+--
 catchupStepSize :: CutHeight
 catchupStepSize = 500
 

@@ -98,10 +98,10 @@ type ReadableTable1 t = forall k v. ReadableTable (t k v) k v
 class ReadableTable t k v => Table t k v | t -> k v where
     tableInsert :: t -> k -> v -> IO ()
     tableInsertBatch :: t -> [(k, v)] -> IO ()
-    tableInsertBatch t kvs = traverse_ (uncurry (tableInsert t)) kvs
+    tableInsertBatch t = traverse_ (uncurry (tableInsert t))
     tableDelete :: t -> k -> IO ()
     tableDeleteBatch :: t -> [k] -> IO ()
-    tableDeleteBatch t ks = traverse_ (tableDelete t) ks
+    tableDeleteBatch t = traverse_ (tableDelete t)
 type Table1 t = forall k v. Table (t k v) k v
 
 data NullCas k v = NullCas
@@ -146,9 +146,9 @@ class Iterator i k v | i -> k v where
     iterPrev :: i -> IO ()
     iterEntry :: i -> IO (Maybe (Entry k v))
     iterKey :: i -> IO (Maybe k)
-    iterKey i = (fmap . fmap) (\(Entry k _) -> k) $ iterEntry i
+    iterKey i = fmap (\(Entry k _) -> k) <$> iterEntry i
     iterValue :: i -> IO (Maybe v)
-    iterValue i = (fmap . fmap) (\(Entry _ v) -> v) $ iterEntry i
+    iterValue i = fmap (\(Entry _ v) -> v) <$> iterEntry i
     iterValid :: i -> IO Bool
     iterValid i = isJust <$> iterKey i
 type Iterator1 i = forall k v. Iterator (i k v) k v

@@ -342,6 +342,7 @@ instance PayloadProvider MinimalPayloadProvider where
     syncToBlock = minimalSyncToBlock
     latestPayloadSTM = minimalLatestPayloadStm
     latestPayloadIO = minimalLatestPayloadIO
+    eventProof = error "Chainweb.PayloadProvider.Minimal.eventProof: not implemented"
 
 -- | Fetch a payload for an evaluation context and insert it into the candidate
 -- table.
@@ -437,7 +438,7 @@ minimalSyncToBlock p h i = do
     latestState = _consensusStateLatest $ _forkInfoTargetState i
 
 logg :: MinimalPayloadProvider -> LogLevel -> T.Text -> IO ()
-logg p l t = _minimalLogger p l t
+logg = _minimalLogger
 
 makeNewPayload
     :: HasVersion

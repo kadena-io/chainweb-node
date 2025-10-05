@@ -1,21 +1,21 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE TypeAbstractions #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -779,22 +779,22 @@ getPayloadForContext
 getPayloadForContext logger serviceEnv h ctx = do
     mapM_ insertPayloadData (_consensusPayloadData $ _evaluationCtxPayload ctx)
 
-    pld <- liftIO $ getPayload
+    pld <- getPayload
         pdb
         candPdb
         (Priority $ negate $ int $ _evaluationCtxCurrentHeight ctx)
         (_hintsOrigin <$> h)
         (_evaluationCtxRankedPayloadHash ctx)
-    liftIO $ tableInsert candPdb rh pld
+    tableInsert candPdb rh pld
     return pld
-    where
+  where
     rh = _evaluationCtxRankedPayloadHash ctx
     pdb = view psPdb serviceEnv
     candPdb = view psCandidatePdb serviceEnv
 
     insertPayloadData (EncodedPayloadData epld) = case decodePayloadData epld of
-        Right pld -> liftIO $ tableInsert candPdb rh pld
-        Left e -> do
+        Right pld -> tableInsert candPdb rh pld
+        Left e ->
             logFunctionText logger Warn $ "failed to decode encoded payload from evaluation ctx: " <> sshow e
 
 execPreInsertCheckReq
