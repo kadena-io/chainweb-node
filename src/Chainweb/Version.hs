@@ -566,7 +566,7 @@ instance Ord ChainwebVersion where
 
 instance Eq ChainwebVersion where
     v == v' = and
-        [ compare v v' == EQ
+        [ v == v'
         , _versionUpgrades v == _versionUpgrades v'
         , _versionGenesis v == _versionGenesis v'
         ]
@@ -706,7 +706,7 @@ payloadProviderTypeForChain c = implicitVersion
     ^?! versionPayloadProviderTypes . atChain c
 
 instance (HasVersion, HasChainId p) => HasPayloadProviderType p where
-    _payloadProviderType p = payloadProviderTypeForChain p
+    _payloadProviderType = payloadProviderTypeForChain
     {-# INLINE _payloadProviderType #-}
 
 -------------------------------------------------------------------------- --
@@ -760,7 +760,7 @@ genesisHeightAndGraph c =
         -- the chain was in every graph down to the bottom,
         -- so the bottom has the genesis graph
         (False, z) -> ruleZipperHere z
-        (True, (BetweenZipper _ above))
+        (True, BetweenZipper _ above)
             -- the chain is not in this graph, and there is no graph above
             -- which could have it
             | [] <- above -> missingChainError
@@ -813,7 +813,7 @@ latestBehaviorAt = foldlOf' behaviorChanges max 0 implicitVersion + 1
         ]
 
 onAllChains :: HasVersion => a -> ChainMap a
-onAllChains a = tabulateChains (\_ -> a)
+onAllChains a = tabulateChains (const a)
 
 tabulateChains :: HasVersion => (ChainId -> a) -> ChainMap a
 tabulateChains f = runIdentity $ tabulateChainsM (Identity . f)
