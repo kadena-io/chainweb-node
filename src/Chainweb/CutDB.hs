@@ -490,8 +490,7 @@ synchronizeProviders
     -> Cut
     -> IO Cut
 synchronizeProviders logger wbh providers c = do
-    let startHeaders = HM.unionWith
-            const
+    let startHeaders = HM.union
             (_cutHeaders c)
             (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
     syncsSuccessful <- mapConcurrently (runMaybeT . syncOne) startHeaders
@@ -508,8 +507,7 @@ synchronizeProviders logger wbh providers c = do
         let recoveryHeight =
                 max (int (diameter (chainGraphAt maxBound))) (_cutMinHeight c) - int (diameter (chainGraphAt maxBound))
         recoveryCut <- limitCut wbh recoveryHeight c
-        let recoveryHeaders = HM.unionWith
-                const
+        let recoveryHeaders = HM.union
                 (_cutHeaders recoveryCut)
                 (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
         mapConcurrently_ (runMaybeT . syncOne) recoveryHeaders
