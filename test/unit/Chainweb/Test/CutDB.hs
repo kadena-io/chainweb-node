@@ -130,7 +130,7 @@ withTestCutDb rdb conf n providers logger = do
     where
     synchronizeProviders :: WebBlockHeaderDb -> Cut -> IO ()
     synchronizeProviders wbh c = do
-        let startHeaders = HM.unionWith const
+        let startHeaders = HM.union
                 (_cutHeaders c)
                 (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
         mapConcurrently_ syncOne startHeaders
