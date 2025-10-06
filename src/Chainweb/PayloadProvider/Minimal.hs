@@ -526,10 +526,18 @@ validatePayloads
     -> ForkInfo
     -> IO ()
 validatePayloads p h i = do
-    -- First try to fetch all payloads in a batch. This will insert them into
-    -- the candidate table. Afet this the getPayloadForContext call below should
-    -- be not hit the network any more.
-    void $ getPayloadsForConsensusPayloads p h (_evaluationCtxRankedPayload <$> _forkInfoTrace i)
+
+    -- If the trace is larger than one we first try to fetch all payloads in a
+    -- batch and insert them into the candidate store. This will insert them
+    -- into the candidate table. After this the getPayloadForContext call below
+    -- should be not hit the network any more. This is currently only beneficial
+    -- when synchronizing long forks or a with a consensus that is ahead, like
+    -- during replay or reinitialization of the payload provider.
+    --
+    when (length (_forkInfoTrace i) > 1) $
+        void $ getPayloadsForConsensusPayloads p h
+            (_evaluationCtxRankedPayload <$> _forkInfoTrace i)
+
     mapConcurrently_ go (_forkInfoTrace i)
   where
     go ctx = do
