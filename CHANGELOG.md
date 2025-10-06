@@ -7,7 +7,7 @@ occur at block height 6269344 which is estimated to be mined at **2025-10-16T00-
 
 ### Changes
 - Upgrade to Pact 5.4 [`937b13a`](https://github.com/kadena-io/chainweb-node/commit/937b13ae8b9624df03b8f850baab3bbfaf35a598)
-- Implement expiration for cross-chain transfers [`138578c`](https://github.com/kadena-io/chainweb-node/commit/138578cf9a40b0593ee15fb2adc74500991eafd6)
+- SPV Proof roots now expire after 20,000 blocks. [`138578c`](https://github.com/kadena-io/chainweb-node/commit/138578cf9a40b0593ee15fb2adc74500991eafd6)
 
 --------------------------------------------------------------------------------
 
