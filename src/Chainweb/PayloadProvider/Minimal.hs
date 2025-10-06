@@ -525,7 +525,12 @@ validatePayloads
     -> Maybe Hints
     -> ForkInfo
     -> IO ()
-validatePayloads p h i = mapConcurrently_ go (_forkInfoTrace i)
+validatePayloads p h i = do
+    -- First try to fetch all payloads in a batch. This will insert them into
+    -- the candidate table. Afet this the getPayloadForContext call below should
+    -- be not hit the network any more.
+    void $ getPayloadsForConsensusPayloads p h (_evaluationCtxRankedPayload <$> _forkInfoTrace i)
+    mapConcurrently_ go (_forkInfoTrace i)
   where
     go ctx = do
         pld <- getPayloadForContext p h

@@ -431,10 +431,32 @@ getBlockHeaderInternal
         -- Get the Payload Provider and
         let hints = Hints <$> maybeOrigin'
         pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
+
         let prefetchProviderPayloads = case providers ^?! atChain cid of
                 ConfiguredPayloadProvider provider -> do
-                    prefetchPayloads provider hints
-                        [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
+
+                    -- FIXME:
+                    -- It is is not clear if this is useful, since we prefetch
+                    -- just a single payload here. It would be more useful to
+                    -- do this after we discover the fork point and have a
+                    -- longer list of payloads to prefetch.
+                    --
+                    -- In theory we could make an educated guess here about what
+                    -- else might be missing. But there might be better
+                    -- strategies for that.
+                    --
+                    -- FIXME: at the moment we fetch payloads in batches during
+                    -- fork info resolution. This would be redudant and probably
+                    -- not beneficial if we already scheduled individual
+                    -- prefetches here.
+                    --
+                    -- An alternative would be if prefetch would trigger full
+                    -- fork info resultion. But at the moment it can't because
+                    -- we don't yet have th required consensus headers
+                    -- available.
+                    --
+                    -- prefetchPayloads provider hints
+                    --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
                     return ()
                 DisabledPayloadProvider -> return ()
 
