@@ -117,7 +117,7 @@ instance Brief BlockHeader where
     brief bh =
         brief (view chainId bh) <> "@"
         <> brief (view blockHeight bh)
-        <> ":" <> brief (view blockHash bh)
+        <> "." <> brief (view blockHash bh)
 instance Brief (Parent BlockHeader) where brief = brief . unwrapParent
 deriving
     via (CryptoHash AdjacentsHashAlgorithm)
@@ -127,32 +127,28 @@ instance Brief ConsensusPayload where
 instance Brief p => Brief (EvaluationCtx p) where
     brief ec =
         "payload:" <> brief (_evaluationCtxPayload ec)
-        <> ":parent:" <> brief (_evaluationCtxRankedParentHash ec)
+        <> "/parent:" <> brief (_evaluationCtxRankedParentHash ec)
 
 deriving
     via (BriefText (CryptoHash a))
     instance (IncrementalHash a, Coercible a BS.ShortByteString) => Brief (CryptoHash a)
 
 instance Brief CutHashes where
-    brief c = T.intercalate ":"
-        [ brief (_cutHashesId c)
-        , brief (_cutHashesHeight c)
-        , brief (L.sort $ HM.toList $ _cutHashes c)
-        ]
+    brief c = brief (_cutHashesHeight c)
+        <> "." <> brief (_cutHashesId c)
+        <> ":" <> brief (L.sort $ HM.toList $ _cutHashes c)
 
 instance Brief Cut where
     brief = brief . cutToCutHashes Nothing
 
 instance Brief NewPayload where
     brief np = brief (_newPayloadChainId np)
-        <> ":" <> brief (_newPayloadRankedParentHash np)
+        <> "@" <> brief (_newPayloadRankedParentHash np)
 
 instance Brief SyncState where
-    brief ss = T.intercalate ":"
-        [ brief (_syncStateHeight ss)
-        , brief (_syncStateBlockHash ss)
-        , brief (_syncStateBlockPayloadHash ss)
-        ]
+    brief ss = brief (_syncStateHeight ss)
+        <> "." <> brief (_syncStateBlockHash ss)
+        <> "." <> brief (_syncStateBlockPayloadHash ss)
 
 instance Brief ConsensusState where
     brief cs =
@@ -188,8 +184,7 @@ instance Show a => Brief (ShowBrief a) where
 newtype BriefBase64ByteString = BriefBase64ByteString B.ByteString
 instance Brief BriefBase64ByteString where
     brief (BriefBase64ByteString bytes) = T.take 6
-        $ encodeB64UrlNoPaddingText
-        $ bytes
+        $ encodeB64UrlNoPaddingText bytes
 
 newtype BriefBase64ShortByteString = BriefBase64ShortByteString BS.ShortByteString
 instance Brief BriefBase64ShortByteString where

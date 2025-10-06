@@ -32,11 +32,12 @@ module Chainweb.ChainValue
 import Control.DeepSeq
 import Chainweb.ChainId
 import Chainweb.Storage.Table
-import Chainweb.Utils (HasTextRepresentation(..))
+import Chainweb.Utils (HasTextRepresentation(..), EncodingException (TextFormatException))
 import Control.Lens
+import Control.Monad.Catch
 import Data.Hashable
-import GHC.Generics
 import Data.Text qualified as T
+import GHC.Generics
 
 -- -------------------------------------------------------------------------- --
 -- Tag Values With a ChainId
@@ -59,10 +60,14 @@ instance FoldableWithIndex ChainId ChainValue
 instance FunctorWithIndex ChainId ChainValue
 
 instance HasTextRepresentation a => HasTextRepresentation (ChainValue a) where
-    toText (ChainValue cid a) = toText cid <> ":" <> toText a
-    fromText t = case T.breakOn ":" t of
-        (c, r) -> ChainValue <$> fromText c <*> fromText (T.tail r)
+    toText (ChainValue cid a) = toText cid <> "@" <> toText a
+    fromText t = case T.breakOn "@" t of
+        (c, r)
+            | T.null r -> throwM $
+                TextFormatException $ "ChainValue: faialed to parse: " <> t
+            | otherwise -> ChainValue <$> fromText c <*> fromText (T.tail r)
     {-# INLINE toText #-}
+    {-# INLINE fromText #-}
 
 -- | If a type is already an instance of 'IsCasValue', adding the chain does
 -- preserve this property. By also wrapping the key it is possible to shard

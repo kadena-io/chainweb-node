@@ -143,11 +143,6 @@ instance IsCasValue RankedBlockHeader where
         = RankedBlockHash (view blockHeight bh) (view blockHash bh)
     {-# INLINE casKey #-}
 
-instance HasTextRepresentation RankedBlockHeader where
-    toText= toText
-    fromText = fromText
-    {-# INLINE toText #-}
-
 type RankedBlockHeaderCas tbl = Cas tbl RankedBlockHeader
 
 instance HasVersion => TreeDbEntry RankedBlockHeader where
@@ -387,7 +382,7 @@ getRankedKey db h = do
 instance HasVersion => TreeDb RankedBlockHeaderDb where
     type DbEntry RankedBlockHeaderDb = RankedBlockHeader
 
-    lookup db h = tableLookup (_chainDbCas $ _rankedBlockHeaderDb db) h
+    lookup db = tableLookup (_chainDbCas $ _rankedBlockHeaderDb db)
     {-# INLINEABLE lookup #-}
 
     -- If the rank is inconsistent with the height in the key 'Nothing' is

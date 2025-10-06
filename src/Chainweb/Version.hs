@@ -545,6 +545,8 @@ withVersion = withDict @HasVersion
 instance Show ChainwebVersion where
     show = show . _versionName
 
+-- FIXME: why not compare on the version code? That should be unique!
+-- Otherwise, at least the genesis hashes should be unique.
 instance Ord ChainwebVersion where
     v `compare` v' = fold
         [ _versionCode v `compare` _versionCode v'
@@ -564,9 +566,10 @@ instance Ord ChainwebVersion where
         , _versionVerifierPluginNames v `compare` _versionVerifierPluginNames v'
         ]
 
+-- FIXME this instance is not consistent with the Ord instance above
 instance Eq ChainwebVersion where
     v == v' = and
-        [ v == v'
+        [ compare v v' == EQ
         , _versionUpgrades v == _versionUpgrades v'
         , _versionGenesis v == _versionGenesis v'
         ]
