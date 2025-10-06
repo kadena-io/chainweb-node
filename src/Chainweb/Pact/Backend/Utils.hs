@@ -273,11 +273,10 @@ collapseFlags xs =
     if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
     else Prelude.foldr1 (.|.) xs
 
-sqlite_open_readwrite, sqlite_open_readonly, sqlite_open_create, sqlite_open_fullmutex, sqlite_open_nomutex :: SQLiteFlag
+sqlite_open_readwrite, sqlite_open_readonly, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readonly = 0x00000001
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
-sqlite_open_nomutex = 0x00008000
 sqlite_open_fullmutex = 0x00010000
 
 tbl :: HasCallStack => Utf8 -> Utf8
