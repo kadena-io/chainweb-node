@@ -4,6 +4,7 @@
 {-# language PatternSynonyms #-}
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
+{-# language ImportQualifiedPost #-}
 
 module Chainweb.Version.Testnet04(testnet04, pattern Testnet04) where
 
@@ -16,32 +17,29 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Graph
+import Chainweb.Pact.Transactions.CoinV3Transactions qualified as CoinV3
+import Chainweb.Pact.Transactions.CoinV4Transactions qualified as CoinV4
+import Chainweb.Pact.Transactions.CoinV5Transactions qualified as CoinV5
+import Chainweb.Pact.Transactions.CoinV6Transactions qualified as CoinV6
+import Chainweb.Pact.Transactions.Mainnet0Transactions qualified as MN0
+import Chainweb.Pact.Transactions.Mainnet1Transactions qualified as MN1
+import Chainweb.Pact.Transactions.Mainnet2Transactions qualified as MN2
+import Chainweb.Pact.Transactions.Mainnet3Transactions qualified as MN3
+import Chainweb.Pact.Transactions.Mainnet4Transactions qualified as MN4
+import Chainweb.Pact.Transactions.Mainnet5Transactions qualified as MN5
+import Chainweb.Pact.Transactions.Mainnet6Transactions qualified as MN6
+import Chainweb.Pact.Transactions.Mainnet7Transactions qualified as MN7
+import Chainweb.Pact.Transactions.Mainnet8Transactions qualified as MN8
+import Chainweb.Pact.Transactions.Mainnet9Transactions qualified as MN9
+import Chainweb.Pact.Transactions.MainnetKADTransactions qualified as MNKAD
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
 
-import Pact.Types.Runtime (Gas(..))
-import Pact.Types.Verifier
-
-import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
-import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
-import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
-import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
-import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
-import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1
-import qualified Chainweb.Pact.Transactions.Mainnet2Transactions as MN2
-import qualified Chainweb.Pact.Transactions.Mainnet3Transactions as MN3
-import qualified Chainweb.Pact.Transactions.Mainnet4Transactions as MN4
-import qualified Chainweb.Pact.Transactions.Mainnet5Transactions as MN5
-import qualified Chainweb.Pact.Transactions.Mainnet6Transactions as MN6
-import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
-import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
-import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
-import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
-import qualified Chainweb.BlockHeader.Genesis.Testnet040Payload as PN0
-import qualified Chainweb.BlockHeader.Genesis.Testnet041to19Payload as PNN
+import Pact.Core.Gas (Gas(..))
+import Pact.Core.Names
 
 -- | Initial hash target for testnet04 20-chain transition. Based on the following
 -- header from recap devnet running with 5 GPUs hash power. Using this target unchanged
@@ -93,49 +91,50 @@ pattern Testnet04 <- ((== testnet04) -> True) where
     Testnet04 = testnet04
 
 testnet04 :: ChainwebVersion
-testnet04 = ChainwebVersion
+testnet04 = withVersion testnet04 $ ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000007
     , _versionName = ChainwebVersionName "testnet04"
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> AllChains ForkAtGenesis
-        Vuln797Fix -> AllChains ForkAtGenesis
+        SlowEpoch -> onAllChains ForkAtGenesis
+        Vuln797Fix -> onAllChains ForkAtGenesis
         CoinV2 -> onChains $ concat
             [ [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 1) | i <- [0..9]]
             , [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 337_000) | i <- [10..19]]
             ]
-        PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-        SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-        OldTargetGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
-        ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 289_966 -- ~ 2020-07-13
-        OldDAGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 318_204 -- ~ 2020-07-23 16:00:00
-        PactEvents -> AllChains $ ForkAtBlockHeight $ BlockHeight 660_000
-        SPVBridge -> AllChains $ ForkAtBlockHeight $ BlockHeight 820_000 -- 2021-01-14T17:12:02
-        Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_261_000  -- 2021-06-17T15:54:14
-        EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_701_000 -- 2021-11-18T17:54:36
-        Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_862_000  -- 2021-06-19T03:34:05
-        CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_889_000 -- 2022-01-24T04:19:24
-        Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_974_556  -- 2022-02-25 00:00:00
-        Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_134_331  -- 2022-04-21T12:00:00Z
-        Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_295_437  -- 2022-06-16T12:00:00+00:00
-        Pact44NewTrans -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_500_369 -- Todo: add date
-        Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_516_739 -- 2022-09-01 12:00:00+00:00
-        Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_777_367 -- 2022-12-01 12:00:00+00:00
-        Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_038_343 -- 2023-03-02 12:00:00+00:00
-        Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_299_753 -- 2023-06-01 12:00:00+00:00
-        Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_580_964 -- 2023-09-08 12:00:00+00:00
-        Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_702_250 -- 2023-10-19 12:00:00+00:00
-        Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_859_808 -- 2023-12-13 12:00:00+00:00
-        Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_100_681 -- 2024-03-06 12:00:00+00:00
-        Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_333_587 -- 2024-05-29 12:00:00+00:00
-        Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_575_072 -- 2024-08-21 12:00:00+00:00
-        Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_816_925 -- 2024-11-13 12:00:00+00:00
-        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_058_738       -- 2025-02-05 12:00:00+00:00
-        Chainweb228Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_155_146 -- 2025-03-11 00:00:00+00:00
-        Chainweb229Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
-        Chainweb230Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5_542_190 -- 2025-07-23 12:00:00+00:00
-        Chainweb231Pact -> AllChains ForkNever
+        PactBackCompat_v16 -> onAllChains $ ForkAtBlockHeight $ BlockHeight 0
+        ModuleNameFix -> onAllChains $ ForkAtBlockHeight $ BlockHeight 2
+        SkipTxTimingValidation -> onAllChains $ ForkAtBlockHeight $ BlockHeight 1
+        OldTargetGuard -> onAllChains $ ForkAtBlockHeight $ BlockHeight 0
+        SkipFeatureFlagValidation -> onAllChains $ ForkAtBlockHeight $ BlockHeight 0
+        ModuleNameFix2 -> onAllChains $ ForkAtBlockHeight $ BlockHeight 289_966 -- ~ 2020-07-13
+        OldDAGuard -> onAllChains $ ForkAtBlockHeight $ BlockHeight 318_204 -- ~ 2020-07-23 16:00:00
+        PactEvents -> onAllChains $ ForkAtBlockHeight $ BlockHeight 660_000
+        SPVBridge -> onAllChains $ ForkAtBlockHeight $ BlockHeight 820_000 -- 2021-01-14T17:12:02
+        Pact4Coin3 -> onAllChains $ ForkAtBlockHeight $ BlockHeight 1_261_000  -- 2021-06-17T15:54:14
+        EnforceKeysetFormats -> onAllChains $ ForkAtBlockHeight $ BlockHeight 1_701_000 -- 2021-11-18T17:54:36
+        Pact42 -> onAllChains $ ForkAtBlockHeight $ BlockHeight 1_862_000  -- 2021-06-19T03:34:05
+        CheckTxHash -> onAllChains $ ForkAtBlockHeight $ BlockHeight 1_889_000 -- 2022-01-24T04:19:24
+        Chainweb213Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 1_974_556  -- 2022-02-25 00:00:00
+        Chainweb214Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 2_134_331  -- 2022-04-21T12:00:00Z
+        Chainweb215Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 2_295_437  -- 2022-06-16T12:00:00+00:00
+        Pact44NewTrans -> onAllChains $ ForkAtBlockHeight $ BlockHeight 2_500_369 -- Todo: add date
+        Chainweb216Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 2_516_739 -- 2022-09-01 12:00:00+00:00
+        Chainweb217Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 2_777_367 -- 2022-12-01 12:00:00+00:00
+        Chainweb218Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 3_038_343 -- 2023-03-02 12:00:00+00:00
+        Chainweb219Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 3_299_753 -- 2023-06-01 12:00:00+00:00
+        Chainweb220Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 3_580_964 -- 2023-09-08 12:00:00+00:00
+        Chainweb221Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 3_702_250 -- 2023-10-19 12:00:00+00:00
+        Chainweb222Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 3_859_808 -- 2023-12-13 12:00:00+00:00
+        Chainweb223Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 4_100_681 -- 2024-03-06 12:00:00+00:00
+        Chainweb224Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 4_333_587 -- 2024-05-29 12:00:00+00:00
+        Chainweb225Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 4_575_072 -- 2024-08-21 12:00:00+00:00
+        Chainweb226Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 4_816_925 -- 2024-11-13 12:00:00+00:00
+        Pact5Fork -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_058_738       -- 2025-02-05 12:00:00+00:00
+        Chainweb228Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_155_146 -- 2025-03-11 00:00:00+00:00
+        Chainweb229Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
+        Chainweb230Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_542_190 -- 2025-07-23 12:00:00+00:00
+        Chainweb231Pact -> onAllChains ForkNever
+        HashedAdjacentRecord -> onAllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
@@ -148,19 +147,37 @@ testnet04 = ChainwebVersion
         Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo testnet04BootstrapHosts
     , _versionGenesis = VersionGenesis
-        { _genesisBlockTarget = OnChains $ HM.fromList $ concat
+        { _genesisBlockTarget = ChainMap $ HM.fromList $ concat
             [ [(unsafeChainId i, maxTarget) | i <- [0..9]]
             , [(unsafeChainId i, testnet20InitialHashTarget) | i <- [10..19]]
             ]
-        , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-        , _genesisBlockPayload = OnChains $ HM.fromList $ concat
-            [ [(unsafeChainId 0, PN0.payloadBlock)]
-            , [(unsafeChainId i, PNN.payloadBlock) | i <- [1..19]]
+        , _genesisTime = onAllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+        , _genesisBlockPayload = onChains
+            [ (unsafeChainId 0, unsafeFromText "nfYm3e_fk2ICws0Uowos6OMuqfFg5Nrl_zqXVx9v_ZQ")
+            , (unsafeChainId 1, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 2, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 3, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 4, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 5, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 6, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 7, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 8, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 9, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 10, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 11, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 12, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 13, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 14, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 15, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 16, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 17, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 18, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
+            , (unsafeChainId 19, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
             ]
         }
     , _versionUpgrades = chainZip HM.union
-        (indexByForkHeights testnet04
-        [ (CoinV2, onChains $
+        (indexByForkHeights
+        [ (CoinV2, onChains
             [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
             , (unsafeChainId 1, pact4Upgrade MN1.transactions)
             , (unsafeChainId 2, pact4Upgrade MN2.transactions)
@@ -172,10 +189,10 @@ testnet04 = ChainwebVersion
             , (unsafeChainId 8, pact4Upgrade MN8.transactions)
             , (unsafeChainId 9, pact4Upgrade MN9.transactions)
             ])
-        , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-        , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-        , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
-        , (Chainweb223Pact, AllChains (pact4Upgrade CoinV6.transactions))
+        , (Pact4Coin3, onAllChains (Pact4Upgrade CoinV3.transactions True))
+        , (Chainweb214Pact, onAllChains (Pact4Upgrade CoinV4.transactions True))
+        , (Chainweb215Pact, onAllChains (Pact4Upgrade CoinV5.transactions True))
+        , (Chainweb223Pact, onAllChains (pact4Upgrade CoinV6.transactions))
         ])
         (onChains [(unsafeChainId 0, HM.singleton to20ChainsTestnet (pact4Upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
@@ -187,7 +204,7 @@ testnet04 = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ (4_100_681, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+    , _versionVerifierPluginNames = onAllChains $ (4_100_681, Set.fromList $ [VerifierName "hyperlane_v3_message"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = onChains
@@ -196,4 +213,5 @@ testnet04 = ChainwebVersion
             ]
         }
     , _versionServiceDate = Just "2025-10-15T00:00:00Z"
+    , _versionPayloadProviderTypes = onAllChains PactProvider
     }

@@ -10,7 +10,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ImportQualifiedPost #-}
--- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -34,9 +33,12 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , cpLookupProcessedTx
 , callDb
 , BlockEnv(..)
+, benvDbEnv
+, benvBlockCtx
+, BlockDbEnv(..)
 , blockHandlerEnv
 , benvBlockState
-, runBlockEnv
+, runBlockDbEnv
 , BlockState(..)
 , bsPendingBlock
 , bsTxId
@@ -49,7 +51,6 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , blockHandlerModuleNameFix
 , blockHandlerSortedKeys
 , blockHandlerLowerCaseTables
-, blockHandlerPersistIntraBlockWrites
 , mkBlockHandlerEnv
 
 , domainTableName
@@ -60,6 +61,8 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , convPactId
 
 , commitBlockStateToDatabase
+
+, headerOracleForBlock
 ) where
 
 import Control.Applicative
@@ -69,7 +72,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 
-import Data.Aeson hiding ((.=))
+import Data.Aeson hiding ((.=), Error)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
@@ -84,6 +87,7 @@ import qualified Data.Set as Set
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import System.LogLevel
 
 import Database.SQLite3.Direct as SQ3
 
@@ -108,8 +112,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
-import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Types
+-- import Chainweb.Pact.Backend.Utils hiding (SType(..), RType(..), bindParams, qry)
+import Chainweb.Pact4.Types
 import Chainweb.Utils
 import Chainweb.Version
 import Pact.Interpreter (PactDbEnv)
@@ -119,9 +123,13 @@ import Control.Concurrent
 import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Pact.Types.Command (RequestKey)
-import Chainweb.Pact.Backend.Types
 import Chainweb.Utils.Serialization (runPutS)
 import Data.Foldable
+import Chainweb.Pact.Backend.Types (SQLiteEnv, HeaderOracle (..))
+import Chainweb.Pact.Backend.Utils (toUtf8, asStringUtf8, tbl, fromUtf8)
+import Chainweb.BlockPayloadHash (BlockPayloadHash, encodeBlockPayloadHash)
+import Chainweb.Pact.Types (BlockCtx)
+import Chainweb.Parent
 
 execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> IO ()
 execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
@@ -175,41 +183,41 @@ data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
     , _blockHandlerLogger :: !logger
     , _blockHandlerBlockHeight :: !BlockHeight
+    , _blockHandlerChainId :: !ChainId
     , _blockHandlerModuleNameFix :: !Bool
     , _blockHandlerSortedKeys :: !Bool
     , _blockHandlerLowerCaseTables :: !Bool
-    , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
     }
 
 mkBlockHandlerEnv
-  :: ChainwebVersion -> ChainId -> BlockHeight
-  -> SQLiteEnv -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
-mkBlockHandlerEnv v cid bh sql p logger = BlockHandlerEnv
+  :: HasVersion => ChainId -> BlockHeight
+  -> SQLiteEnv -> logger -> BlockHandlerEnv logger
+mkBlockHandlerEnv cid bh sql logger = BlockHandlerEnv
     { _blockHandlerDb = sql
     , _blockHandlerLogger = logger
     , _blockHandlerBlockHeight = bh
-    , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
-    , _blockHandlerSortedKeys = pact42 v cid bh
-    , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
-    , _blockHandlerPersistIntraBlockWrites = p
+    , _blockHandlerChainId = cid
+    , _blockHandlerModuleNameFix = enableModuleNameFix cid bh
+    , _blockHandlerSortedKeys = pact42 cid bh
+    , _blockHandlerLowerCaseTables = chainweb217Pact cid bh
     }
 
 makeLenses ''BlockHandlerEnv
 
-data BlockEnv logger =
-  BlockEnv
+data BlockDbEnv logger =
+  BlockDbEnv
     { _blockHandlerEnv :: !(BlockHandlerEnv logger)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
-runBlockEnv :: MVar (BlockEnv logger) -> BlockHandler logger a -> IO a
-runBlockEnv e m = modifyMVar e $
-  \(BlockEnv dbenv bs) -> do
+runBlockDbEnv :: MVar (BlockDbEnv logger) -> BlockHandler logger a -> IO a
+runBlockDbEnv e m = modifyMVar e $
+  \(BlockDbEnv dbenv bs) -> do
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
-    return (BlockEnv dbenv s, a)
+    return (BlockDbEnv dbenv s, a)
 
 -- this monad allows access to the database environment "at" a particular block.
--- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
+-- unfortunately, this is tied to a useless MVar via runBlockDbEnv, which will
 -- be deleted with pact 5.
 newtype BlockHandler logger a = BlockHandler
     { runBlockHandler :: ReaderT (BlockHandlerEnv logger) (StateT BlockState IO) a
@@ -232,8 +240,8 @@ newtype BlockHandler logger a = BlockHandler
 -- on tx failure.
 data BlockState = BlockState
     { _bsTxId :: !TxId
-    , _bsPendingBlock :: !(SQLitePendingData (PendingWrites Pact4))
-    , _bsPendingTx :: !(Maybe (SQLitePendingData (PendingWrites Pact4)))
+    , _bsPendingBlock :: !SQLitePendingData
+    , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
     }
@@ -246,52 +254,51 @@ initBlockState
 initBlockState cl txid = BlockState
     { _bsTxId = txid
     , _bsMode = Nothing
-    , _bsPendingBlock = emptySQLitePendingData mempty
+    , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
     , _bsModuleCache = emptyDbCache cl
     }
 
-makeLenses ''BlockEnv
+makeLenses ''BlockDbEnv
 makeLenses ''BlockState
 
 
 -- this is effectively a read-write snapshot of the Pact state at a block.
 data CurrentBlockDbEnv logger = CurrentBlockDbEnv
-    { _cpPactDbEnv :: !(PactDbEnv (BlockEnv logger))
+    { _cpPactDbEnv :: !(PactDbEnv (BlockDbEnv logger))
     , _cpRegisterProcessedTx :: !(RequestKey -> IO ())
     , _cpLookupProcessedTx ::
         !(Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash)))
+    , _cpHeaderOracle :: !HeaderOracle
     }
 makeLenses ''CurrentBlockDbEnv
 
-type instance PactDbFor logger Pact4 = CurrentBlockDbEnv logger
-
 -- | Pact DB which reads from the tip of the checkpointer
-chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger)
+chainwebPactDb :: (Logger logger) => PactDb (BlockDbEnv logger)
 chainwebPactDb = PactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow Nothing d k
-    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow Nothing wt d k v
-    , _keys = \d e -> runBlockEnv e $ doKeys Nothing d
-    , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
-    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable Nothing tn mn
+    { _readRow = \d k e -> runBlockDbEnv e $ doReadRow Nothing d k
+    , _writeRow = \wt d k v e -> runBlockDbEnv e $ doWriteRow Nothing wt d k v
+    , _keys = \d e -> runBlockDbEnv e $ doKeys Nothing d
+    , _txids = \t txid e -> runBlockDbEnv e $ doTxIds t txid
+    , _createUserTable = \tn mn e -> runBlockDbEnv e $ doCreateUserTable Nothing tn mn
     , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
-    , _beginTx = \m e -> runBlockEnv e $ doBegin m
-    , _commitTx = \e -> runBlockEnv e doCommit
-    , _rollbackTx = \e -> runBlockEnv e doRollback
-    , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
+    , _beginTx = \m e -> runBlockDbEnv e $ doBegin m
+    , _commitTx = \e -> runBlockDbEnv e doCommit
+    , _rollbackTx = \e -> runBlockDbEnv e doRollback
+    , _getTxLog = \d tid e -> runBlockDbEnv e $ doGetTxLog d tid
     }
 
 -- | Pact DB which reads from some past block height, instead of the tip of the checkpointer
-rewoundPactDb :: (Logger logger) => BlockHeight -> TxId -> PactDb (BlockEnv logger)
+rewoundPactDb :: (Logger logger) => BlockHeight -> TxId -> PactDb (BlockDbEnv logger)
 rewoundPactDb bh endTxId = chainwebPactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just (bh, endTxId)) d k
-    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow (Just (bh, endTxId)) wt d k v
-    , _keys = \d e -> runBlockEnv e $ doKeys (Just (bh, endTxId)) d
-    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable (Just bh) tn mn
+    { _readRow = \d k e -> runBlockDbEnv e $ doReadRow (Just (bh, endTxId)) d k
+    , _writeRow = \wt d k v e -> runBlockDbEnv e $ doWriteRow (Just (bh, endTxId)) wt d k v
+    , _keys = \d e -> runBlockDbEnv e $ doKeys (Just (bh, endTxId)) d
+    , _createUserTable = \tn mn e -> runBlockDbEnv e $ doCreateUserTable (Just bh) tn mn
     }
 
 -- returns pending writes in the reverse order they were made
-getPendingData :: BlockHandler logger [SQLitePendingData (PendingWrites Pact4)]
+getPendingData :: BlockHandler logger [SQLitePendingData]
 getPendingData = do
     pb <- use bsPendingBlock
     ptx <- maybeToList <$> use bsPendingTx
@@ -349,7 +356,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     lookupInPendingData
         :: forall logger v . FromJSON v
         => Utf8
-        -> SQLitePendingData (PendingWrites Pact4)
+        -> SQLitePendingData
         -> MaybeT (BlockHandler logger) v
     lookupInPendingData (Utf8 rowkey) p = do
         -- we get the latest-written value at this rowkey
@@ -616,7 +623,7 @@ recordTxLog tt d k v = do
     !txlogs = DL.singleton $! encodeTxLog $ TxLog (asString d) (asString k) v
 
 modifyPendingData
-    :: (SQLitePendingData (PendingWrites Pact4) -> SQLitePendingData (PendingWrites Pact4))
+    :: (SQLitePendingData -> SQLitePendingData)
     -> BlockHandler logger ()
 modifyPendingData f = do
     m <- use bsPendingTx
@@ -678,37 +685,35 @@ doCommit :: BlockHandler logger [TxLogJson]
 doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
-        txrs <- if m == Transactional
-          then do
-              modify' $ over bsTxId succ
-              -- merge pending tx into block data
-              pending <- use bsPendingTx
-              persistIntraBlockWrites <- view blockHandlerPersistIntraBlockWrites
-              modify' $ over bsPendingBlock (merge persistIntraBlockWrites pending)
-              -- this is mostly a lie; the previous `merge` call has already replaced the tx
-              -- logs from bsPendingBlock with those of the transaction.
-              -- from what I can tell, it's impossible for `pending` to be `Nothing` here,
-              -- but we don't throw an error for it.
-              blockLogs <- use $ bsPendingBlock . pendingTxLogMap
-              modify' $ set bsPendingTx Nothing
-              resetTemp
-              return blockLogs
-          else doRollback >> return mempty
+        txrs <-
+            if m == Transactional
+            then do
+                modify' $ over bsTxId succ
+                -- merge pending tx into block data
+                pending <- use bsPendingTx
+                modify' $ over bsPendingBlock (merge pending)
+                -- this is mostly a lie; the previous `merge` call has already replaced the tx
+                -- logs from bsPendingBlock with those of the transaction.
+                -- from what I can tell, it's impossible for `pending` to be `Nothing` here,
+                -- but we don't throw an error for it.
+                blockLogs <- use $ bsPendingBlock . pendingTxLogMap
+                modify' $ set bsPendingTx Nothing
+                resetTemp
+                return blockLogs
+            else doRollback >> return mempty
         return $! concatMap (reverse . DL.toList) txrs
-  where
-    merge _ Nothing a = a
-    merge persistIntraBlockWrites (Just txPending) blockPending = SQLitePendingData
+    where
+    merge Nothing a = a
+    merge (Just txPending) blockPending = SQLitePendingData
         { _pendingTableCreation = HashSet.union (_pendingTableCreation txPending) (_pendingTableCreation blockPending)
         , _pendingWrites = HashMap.unionWith (HashMap.unionWith mergeAtRowKey) (_pendingWrites txPending) (_pendingWrites blockPending)
         , _pendingTxLogMap = _pendingTxLogMap txPending
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs blockPending
         }
         where
-        mergeAtRowKey txWrites blockWrites =
+        mergeAtRowKey txWrites _ =
             let lastTxWrite = NE.head txWrites
-            in case persistIntraBlockWrites of
-                PersistIntraBlockWrites -> lastTxWrite `NE.cons` blockWrites
-                DoNotPersistIntraBlockWrites -> lastTxWrite :| []
+            in lastTxWrite :| []
 {-# INLINE doCommit #-}
 
 -- | Begin a Pact transaction
@@ -717,13 +722,13 @@ doBegin m = do
     logger <- view blockHandlerLogger
     use bsMode >>= \case
         Just {} -> do
-            logError_ logger "PactDb.beginTx: In transaction, rolling back"
+            liftIO $ logFunctionText logger Error "PactDb.beginTx: In transaction, rolling back"
             doRollback
         Nothing -> return ()
     resetTemp
     modify'
         $ set bsMode (Just m)
-        . set bsPendingTx (Just $ emptySQLitePendingData mempty)
+        . set bsPendingTx (Just emptySQLitePendingData)
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
@@ -798,16 +803,17 @@ indexPactTransaction h = modify' $
 vacuumDb :: BlockHandler logger ()
 vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")
 
-commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle Pact4 -> IO ()
-commitBlockStateToDatabase db hsh bh blockHandle = do
-  let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockPayloadHash -> BlockHeight -> BlockState -> IO ()
+commitBlockStateToDatabase db blockHash payloadHash bh blockState = do
+  let newTables = _pendingTableCreation $ pendingBlock
   mapM_ (\tn -> createUserTable tn) newTables
-  let writeV = toChunks $ _pendingWrites (_blockHandlePending blockHandle)
+  let writeV = toChunks $ _pendingWrites pendingBlock
   backendWriteUpdateBatch writeV
   indexPendingPactTransactions
-  let nextTxId = _blockHandleTxId blockHandle
+  let nextTxId = _bsTxId blockState
   blockHistoryInsert nextTxId
   where
+    pendingBlock = _bsPendingBlock blockState
     toChunks writes =
       over _2 (concatMap toList . HashMap.elems) .
       over _1 toUtf8 <$> HashMap.toList writes
@@ -841,12 +847,13 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
     blockHistoryInsert t =
         exec' db stmt
             [ SInt (fromIntegral bh)
-            , SBlob (runPutS (encodeBlockHash hsh))
+            , SBlob (runPutS (encodeBlockHash blockHash))
+            , SBlob (runPutS (encodeBlockPayloadHash payloadHash))
             , SInt (fromIntegral t)
             ]
       where
         stmt =
-          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+          "INSERT INTO BlockHistory2 ('blockheight','hash','payloadhash','endingtxid') VALUES (?,?,?,?);"
 
     createUserTable :: Text -> IO ()
     createUserTable (toUtf8 -> tablename) = do
@@ -864,7 +871,7 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
     -- | Commit the index of pending successful transactions to the database
     indexPendingPactTransactions :: IO ()
     indexPendingPactTransactions = do
-        let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
+        let txs = _pendingSuccessfulTxs pendingBlock
         dbIndexTransactions txs
 
       where
@@ -889,3 +896,27 @@ createVersionedTable tablename db = do
                 \, UNIQUE (rowkey, txid));"
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
+
+data BlockEnv logger = BlockEnv
+    { _benvBlockCtx :: !BlockCtx
+    , _benvDbEnv :: !(CurrentBlockDbEnv logger)
+    }
+makeLenses ''BlockEnv
+
+lookupBlockHash :: SQ3.Database -> BlockHash -> IO (Maybe BlockHeight)
+lookupBlockHash db hash = do
+    qry db qtext [SBlob (runPutS (encodeBlockHash hash))] [RInt] >>= \case
+        [[SInt n]] -> return $! Just $! int n
+        [] -> return $ Nothing
+        res -> error $ "Invalid result, " <> sshow res
+    where
+    qtext = "SELECT blockheight FROM BlockHistory2 WHERE hash = ?;"
+
+headerOracleForBlock :: BlockHandlerEnv logger -> HeaderOracle
+headerOracleForBlock env = HeaderOracle
+    { consult = \(Parent blkHash) -> do
+        lookupBlockHash (_blockHandlerDb env) blkHash <&> \case
+            Nothing -> False
+            Just rootHeight -> rootHeight < _blockHandlerBlockHeight env
+    , chain = _blockHandlerChainId env
+    }

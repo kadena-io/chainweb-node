@@ -20,9 +20,9 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.Mempool.InMem
-import Chainweb.Mempool.InMemTypes
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.InMem
+import Chainweb.Pact.Mempool.InMemTypes
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
@@ -30,14 +30,14 @@ import Chainweb.Utils (Codec(..))
 
 
 tests :: TestTree
-tests = testGroup "Chainweb.Mempool.sync"
+tests = testGroup "Chainweb.Pact.Mempool.sync"
     [ mempoolProperty "Mempool.syncMempools" gen propSync $ MempoolWithFunc wf
     ]
   where
     wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
         mv <- newMVar (pure . V.map Right)
-        let cfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMv mv) (1024 * 10)
+        let cfg = InMemConfig txcfg mockBlockGasLimit (GasPrice 0) 2048 Right (checkMv mv) (1024 * 10)
         f mv =<< startInMemoryMempoolTest cfg
 
     checkMv :: MVar (t -> IO b) -> t -> IO b
@@ -65,7 +65,7 @@ txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
 
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg =
-    InMemConfig txcfg mockBlockGasLimit 0 2048 Right (pure . V.map Right) (1024 * 10)
+    InMemConfig txcfg mockBlockGasLimit (GasPrice 0) 2048 Right (pure . V.map Right) (1024 * 10)
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)

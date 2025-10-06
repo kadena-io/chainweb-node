@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -29,13 +30,13 @@ import Control.Monad.Trans.Except
 import Data.Bifunctor (bimap)
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Function (on)
-import qualified Data.HashSet as HashSet
+import Data.HashSet qualified as HashSet
 import Data.IORef
 import Data.List (sort, sortBy)
-import qualified Data.List.Ordered as OL
+import Data.List.Ordered qualified as OL
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Stack
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
@@ -44,16 +45,17 @@ import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
-
--- internal modules
-
-import Pact.Parse (ParsedDecimal(..))
-
+import Pact.Core.Gas.Types
 import Chainweb.BlockHash
-import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Test.Utils
-import qualified Chainweb.Time as Time
+import Chainweb.Time qualified as Time
+import Chainweb.BlockCreationTime
+import Chainweb.MinerReward
+import Chainweb.Parent
+import Chainweb.PayloadProvider
 import Chainweb.Utils (T2(..))
+import Control.Lens (view)
 
 ------------------------------------------------------------------------------
 -- | Several operations (reintroduce, validate, confirm) can only be performed
@@ -116,13 +118,13 @@ arbitraryDecimal = do
     return $! Decimal places mantissa
 
 arbitraryGasPrice :: Gen GasPrice
-arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
+arbitraryGasPrice = GasPrice . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
   arbitrary = MockTx
       <$> chooseAny
       <*> arbitraryGasPrice
-      <*> pure (mockBlockGasLimit `div` 50_000)
+      <*> pure (GasLimit $ Gas $ view (_GasLimit . _Gas) mockBlockGasLimit `div` 50_000)
       <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
@@ -187,7 +189,7 @@ propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
-    setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
+    setOverlarge = map (\x -> x { mockGasLimit = GasLimit $ Gas $ view (_GasLimit . _Gas) mockBlockGasLimit + 100 })
 
 propBadlistPreblock
     :: ([MockTx], [MockTx])
@@ -202,7 +204,8 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
 
     -- once we call mempoolGetBlock, the bad txs should be badlisted
-    liftIO $ void $ mempoolGetBlock mempool mockBlockFill preblockCheck 1 nullBlockHash
+    liftIO $ void $ mempoolGetBlock mempool mockBlockFill preblockCheck
+      (EvaluationCtx (Parent $ BlockCreationTime Time.epoch) (Parent nullBlockHash) (Parent 1) (MinerReward 0) ())
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     liftIO $ insert badTxs
@@ -211,7 +214,7 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
   where
     badHashes = HashSet.fromList $ map hash badTxs
 
-    preblockCheck _ _ ts = return $
+    preblockCheck _ ts = return $
       V.map
         (\tx -> if hash tx `HashSet.member` badHashes then Left InsertErrorBadlisted else Right tx)
         ts
@@ -246,7 +249,8 @@ propAddToBadList tx _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     getBlock = liftIO
-      $ V.toList <$> mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck 1 nullBlockHash
+      $ V.toList <$> mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck
+        (EvaluationCtx (Parent $ BlockCreationTime Time.epoch) (Parent nullBlockHash) (Parent 1) (MinerReward 0) ())
 
 -- TODO Does this need to be updated?
 propPreInsert
@@ -303,7 +307,8 @@ propTrivial txs _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck 0 nullBlockHash
+    getBlock = mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck
+        (EvaluationCtx (Parent $ BlockCreationTime Time.epoch) (Parent nullBlockHash) (Parent 0) (MinerReward 0) ())
     onFees x = (Down (mockGasPrice x))
 
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,35 +15,25 @@ module Chainweb.Test.Utils.APIValidation
 ) where
 
 import Control.Exception (Exception, evaluate)
-import Control.Monad
-
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Lazy as BL
-import Data.Foldable
-import qualified Data.HashSet as HashSet
-import Data.IORef
-import qualified Data.Map as Map
-import qualified Data.Text.Encoding as T
-import Data.Typeable
-import qualified Data.Yaml as Yaml
-
-import GHC.Stack
-
-import qualified Network.HTTP.Client as HTTP
-import Network.HTTP.Types
-import qualified Network.Wai as W
-import Network.Wai.Middleware.OpenApi(OpenApi)
-import qualified Network.Wai.Middleware.Validation as WV
-
-import System.IO.Unsafe(unsafePerformIO)
-
-import Text.Show.Pretty
-
--- internal modules
-
-import Chainweb.ChainId
 import Chainweb.Utils
 import Chainweb.Version
+import Control.Monad
+import Data.ByteString.Char8 qualified as B8
+import Data.ByteString.Lazy qualified as BL
+import Data.Foldable
+import Data.HashSet qualified as HashSet
+import Data.IORef
+import Data.Map qualified as Map
+import Data.Text.Encoding qualified as T
+import Data.Yaml qualified as Yaml
+import GHC.Stack
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Types
+import Network.Wai qualified as W
+import Network.Wai.Middleware.OpenApi(OpenApi)
+import Network.Wai.Middleware.Validation qualified as WV
+import System.IO.Unsafe(unsafePerformIO)
+import Text.Show.Pretty
 
 -- -------------------------------------------------------------------------- --
 -- Validation Exception
@@ -53,7 +43,7 @@ data ValidationException = ValidationException
     , vResp :: (ResponseHeaders, Status, BL.ByteString)
     , vErr :: WV.TopLevelError
     }
-    deriving (Show, Typeable)
+    deriving (Show)
 
 instance Exception ValidationException
 
@@ -77,13 +67,13 @@ pactOpenApiSpec = unsafePerformIO $ do
 -- -------------------------------------------------------------------------- --
 -- API Validation Middleware
 
-mkApiValidationMiddleware :: HasCallStack => ChainwebVersion -> IO W.Middleware
-mkApiValidationMiddleware v = do
+mkApiValidationMiddleware :: (HasCallStack, HasVersion) => IO W.Middleware
+mkApiValidationMiddleware = do
     coverageRef <- newIORef $ WV.CoverageMap Map.empty
     _ <- evaluate chainwebOpenApiSpec
     _ <- evaluate pactOpenApiSpec
     return $ WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
-  where
+    where
     lg (_, req) (respBody, resp) err = do
         let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
         error $ "Chainweb.Test.Utils.APIValidation.mkApValidationMiddleware: validation error. " <> ppShow ex
@@ -91,11 +81,14 @@ mkApiValidationMiddleware v = do
         [ case B8.split '/' path of
             ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
                 let reqVersion = T.decodeUtf8 rawVersion
-                guard (reqVersion == getChainwebVersionName (_versionName v))
-                reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                guard (HashSet.member reqChainId (chainIds v))
+                guard (reqVersion == getChainwebVersionName (_versionName implicitVersion))
+                reqChainId <- fromTextM (T.decodeUtf8 rawChainId)
+                guard (HashSet.member reqChainId chainIds)
                 return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
             _ -> Nothing
-        , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> getChainwebVersionName (_versionName v)) path
+        , (,chainwebOpenApiSpec) <$>
+            B8.stripPrefix
+                (T.encodeUtf8 $ "/chainweb/0.0/" <> getChainwebVersionName (_versionName implicitVersion))
+                path
         , Just (path,chainwebOpenApiSpec)
         ]

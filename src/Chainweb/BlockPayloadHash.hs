@@ -8,6 +8,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingVia #-}
 
 -- |
 -- Module: Chainweb.BlockPayloadHash
@@ -36,7 +38,6 @@ import Control.DeepSeq
 import Control.Monad
 
 import Data.Aeson
-import Data.ByteArray qualified as BA
 import Data.Hashable
 
 import GHC.Generics (Generic)
@@ -84,30 +85,18 @@ type BlockPayloadHash = BlockPayloadHash_ ChainwebMerkleHashAlgorithm
 newtype BlockPayloadHash_ a = BlockPayloadHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (BA.ByteArrayAccess)
-    deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving newtype (Bytes, Hashable, ToJSON, FromJSON)
     deriving newtype (ToJSONKey, FromJSONKey)
+    deriving newtype (HasTextRepresentation)
+    deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockPayloadHashTag
 
-encodeBlockPayloadHash :: BlockPayloadHash_ a -> Put
+encodeBlockPayloadHash :: MerkleHashAlgorithm a => BlockPayloadHash_ a -> Put
 encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
 
 decodeBlockPayloadHash
     :: MerkleHashAlgorithm a
     => Get (BlockPayloadHash_ a)
 decodeBlockPayloadHash = BlockPayloadHash <$!> decodeMerkleLogHash
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPayloadHash_ a) where
-    type Tag (BlockPayloadHash_ a) = 'BlockPayloadHashTag
-    toMerkleNode = encodeMerkleTreeNode
-    fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-instance HasTextRepresentation BlockPayloadHash where
-  toText (BlockPayloadHash h) = toText h
-  fromText = fmap BlockPayloadHash . fromText
-  {-# INLINE toText #-}
-  {-# INLINE fromText #-}
 
 nullBlockPayloadHash :: MerkleHashAlgorithm a => BlockPayloadHash_ a
 nullBlockPayloadHash = BlockPayloadHash nullHashBytes

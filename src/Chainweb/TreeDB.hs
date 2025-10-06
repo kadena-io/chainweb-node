@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -62,7 +63,6 @@ module Chainweb.TreeDB
 , lookupM
 , lookupRankedM
 , lookupStreamM
-, lookupParentM
 
 -- * Misc Utils
 , forkEntry
@@ -120,14 +120,14 @@ import Chainweb.Utils.Paging
 -- Exceptions
 
 data TreeDbException db
-    = TreeDbParentMissing (DbEntry db)
-    | TreeDbKeyNotFound (DbKey db)
+    = TreeDbParentMissing (DbEntry db) T.Text
+    | TreeDbKeyNotFound (DbKey db) T.Text
     | TreeDbInvalidRank (DbEntry db)
     | TreeDbAncestorMissing (DbEntry db) Natural T.Text
 
 instance (Show (DbEntry db), Show (DbKey db)) => Show (TreeDbException db) where
-    show (TreeDbParentMissing e) = "TreeDbParentMissing: " ++ show e
-    show (TreeDbKeyNotFound e) = "TreeDbKeyNotFound: " ++ show e
+    show (TreeDbParentMissing e msg) = "TreeDbParentMissing: " ++ show e ++ ". " ++ T.unpack msg
+    show (TreeDbKeyNotFound e msg) = "TreeDbKeyNotFound: " ++ show e <> ". " ++ T.unpack msg
     show (TreeDbInvalidRank e) = "TreeDbInvalidRank: " ++ show e
     show (TreeDbAncestorMissing e r msg) = "TreeDbAncestorMissing: entry "
         ++ show e
@@ -172,10 +172,12 @@ _getMaxRank (MaxRank (Max r)) = r
 newtype LowerBound k = LowerBound { _getLowerBound :: k }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
+    deriving (Functor, Foldable, Traversable)
 
 newtype UpperBound k = UpperBound { _getUpperBound :: k }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
+    deriving (Functor, Foldable, Traversable)
 
 data BranchBounds db = BranchBounds
     { _branchBoundsLower :: !(HS.HashSet (LowerBound (DbKey db)))
@@ -206,6 +208,7 @@ instance
 class
     ( Show e
     , Show (Key e)
+    , HasTextRepresentation (Key e)
     , Eq e
     , Eq (Key e)
     , Hashable e
@@ -235,6 +238,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
     -- | Lookup a single entry by its key.
     --
+    -- A missing key is reported by returning 'Nothing'. Database errors are
+    -- reported as exceptions.
+    --
     -- Implementations are expected to provide \(\mathcal{O}(1)\) performance.
     --
     -- prop> lookup db k == S.head_ (entries db k 1 Nothing Nothing)
@@ -248,6 +254,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- the lookup can be implemented more efficiently when the rank is know.
     -- Otherwise the default implementation just ignores the rank parameter
     -- falls back to 'lookup'.
+    --
+    -- A missing key is reported by returning 'Nothing'. Database errors are
+    -- reported as exceptions.
     --
     lookupRanked
         :: db
@@ -523,26 +532,30 @@ getBranch
     -> HS.HashSet (UpperBound (DbKey db))
     -> S.Stream (Of (DbEntry db)) IO ()
 getBranch db lowerBounds upperBounds = do
-    lowers <- getEntriesHs $ HS.map _getLowerBound lowerBounds
-    uppers <- getEntriesHs $ HS.map _getUpperBound upperBounds
+    lowers <- liftIO $ getEntriesHs _getLowerBound lowerBounds
+    uppers <- liftIO $ getEntriesHs _getUpperBound upperBounds
 
-    let mar = L.maximum $ HS.map rank (lowers <> uppers)
+    let mar = getMax $ fromJuste $
+            foldMap' (foldMap' (Just . Max . rank)) [lowers, uppers]
 
-    go mar (active mar lowers mempty) (active mar uppers mempty)
+    go mar (activate mar lowers mempty) (activate mar uppers mempty)
   where
-    getEntriesHs = lift . streamToHashSet_ . lookupStream db . S.each
-    getParentsHs = lift . streamToHashSet_ . lookupParentStreamM GenesisParentNone db . S.each
+    getEntriesHs :: (a -> Key (DbEntry db)) -> HS.HashSet a -> IO (HS.HashSet (DbEntry db))
+    getEntriesHs f = streamToHashSet_ . lookupStream db . S.map f . S.each
+    getParentsHs = streamToHashSet_ . lookupParentStreamM GenesisParentNone db . S.each
 
+    -- The newly active members of the set after advancing the highest ones
+    -- downwards.
     -- prop> all ((==) r . rank) $ snd (active r s c)
     --
-    active
+    activate
         :: Natural
         -> HS.HashSet (DbEntry db)
         -> HS.HashSet (DbEntry db)
         -> (HS.HashSet (DbEntry db), HS.HashSet (DbEntry db))
-    active r s c =
-        let (a, b) = hsPartition (\x -> rank x < r) s
-        in (a, c <> b)
+    activate r inactive active =
+        let (stillInactive, newlyActive) = hsPartition (\x -> rank x < r) inactive
+        in (stillInactive, active <> newlyActive)
 
     -- | The size of the input sets decreases monotonically. Space complexity is
     -- linear in the input and constant in the output size.
@@ -552,15 +565,15 @@ getBranch db lowerBounds upperBounds = do
         -> (HS.HashSet (DbEntry db), HS.HashSet (DbEntry db))
         -> (HS.HashSet (DbEntry db), HS.HashSet (DbEntry db))
         -> S.Stream (Of (DbEntry db)) IO ()
-    go r (ls0, ls1) (us0, us1)
-        | HS.null us0 && HS.null us1 = return ()
+    go r (lowerInactive, lowerActive) (upperInactive, upperActive)
+        | HS.null upperInactive && HS.null upperActive = return ()
         | otherwise = do
-            let us1' = us1 `HS.difference` ls1
-            mapM_ S.yield us1'
-            us1p <- getParentsHs us1'
-            ls1p <- getParentsHs ls1
+            let upperActiveFiltered = upperActive `HS.difference` lowerActive
+            mapM_ S.yield upperActiveFiltered
+            upperActive' <- liftIO $ getParentsHs upperActiveFiltered
+            lowerActive' <- liftIO $ getParentsHs lowerActive
             let r' = pred r
-            go r' (active r' ls0 ls1p) (active r' us0 us1p)
+            go r' (activate r' lowerInactive lowerActive') (activate r' upperInactive upperActive')
 
     hsPartition
         :: Hashable a
@@ -640,8 +653,8 @@ lookupM
     -> DbKey db
     -> IO (DbEntry db)
 lookupM db k = lookup db k >>= \case
-    Nothing -> throwM $ TreeDbKeyNotFound @db k
-    (Just !x) -> return x
+    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupM " <> toText k
+    Just !x -> return x
 {-# INLINEABLE lookupM #-}
 
 lookupRankedM
@@ -652,8 +665,8 @@ lookupRankedM
     -> DbKey db
     -> IO (DbEntry db)
 lookupRankedM db r k = lookupRanked db r k >>= \case
-    Nothing -> throwM $ TreeDbKeyNotFound @db k
-    (Just !x) -> return x
+    Nothing -> throwM $ TreeDbKeyNotFound @db k $ "lookupRankedM " <> sshow r <> "." <> toText k
+    Just !x -> return x
 {-# INLINEABLE lookupRankedM #-}
 
 -- | Lookup all entries in a stream of database keys and return the stream
@@ -700,8 +713,8 @@ lookupParentM g db e = case parent e of
         _ -> throwM
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
-        Nothing -> throwM $ TreeDbParentMissing @db e
-        (Just !x) -> return x
+        Nothing -> throwM $ TreeDbParentMissing @db e ("lookupParentM " <> toText p)
+        Just !x -> return x
 
 -- | Replace all entries in the stream by their parent entries.
 -- If the genesis block is part of the stream it is replaced by itself.
@@ -720,8 +733,8 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         GenesisParentThrow -> throwM
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block. Most likely this means that the genesis headers haven't been generated correctly. If you are using a development or testing chainweb version consider resetting the databases."
     Just p -> lookup db p >>= \case
-        Nothing -> throwM $ TreeDbParentMissing @db e
-        (Just !x) -> return (Just x)
+        Nothing -> throwM $ TreeDbParentMissing @db e $ "lookupParentStreamM " <> toText p
+        Just !x -> return (Just x)
 
 -- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
 -- used only for debugging purposes.
@@ -809,7 +822,7 @@ collectForkBlocks
     -> IO (DbEntry db, Vector (DbEntry db), Vector (DbEntry db))
 collectForkBlocks db lastHeader newHeader = do
     (oldL, newL) <- go (branchDiff db lastHeader newHeader) ([], [])
-    when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader
+    when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader "collectForkBlocks: no fork point"
     let !common = unsafeHead "Chainweb.TreeDB.collectForkBlocks.common" oldL
     let !old = V.fromList $ unsafeTail "Chainweb.TreeDB.collectForkBlocks.old" oldL
     let !new = V.fromList $ unsafeTail "Chainweb.TreeDB.collectForkBlocks.new" newL
@@ -1042,9 +1055,9 @@ ancestorOfEntry
     -> IO Bool
 ancestorOfEntry db h ctx = lookup db h >>= \case
     Nothing -> return False
-    Just lh -> seekAncestor db ctx (rank lh) >>= \case
+    Just !lh -> seekAncestor db ctx (rank lh) >>= \case
         Nothing -> return False
-        Just x -> return $ key x == h
+        Just !x -> return $ key x == h
 
 -- | @ancestorOfEntry db h ctx@ returns @True@ if @h@ is an ancestor of @ctx@
 -- in @db@.

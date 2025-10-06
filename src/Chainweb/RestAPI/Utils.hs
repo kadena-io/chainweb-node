@@ -22,6 +22,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE RankNTypes #-}
 
 #ifndef CURRENT_PACKAGE_VERSION
 #define CURRENT_PACKAGE_VERSION "UNKNOWN"
@@ -42,6 +43,7 @@ module Chainweb.RestAPI.Utils
   Reassoc
 , setErrText
 , setErrJSON
+, setErrJSONPact
 
 -- * API Version
 , Version
@@ -98,10 +100,13 @@ module Chainweb.RestAPI.Utils
 , SupportedRespBodyContentType
 , SetRespBodyContentType
 
+-- * Debugging Tools
+, Traced(..)
 ) where
 
 import Control.Exception (Exception, throw)
 import Control.Monad.Catch (bracket)
+import Control.Monad.IO.Class
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
@@ -124,6 +129,8 @@ import Network.Wai.Handler.Warp (HostPreference)
 import Servant.API hiding (addHeader)
 import Servant.Client
 import Servant.Server
+import Servant.Server.Internal.Delayed
+import Servant.Server.Internal.DelayedIO
 
 -- internal modules
 import Chainweb.ChainId
@@ -133,6 +140,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import qualified Pact.JSON.Encode as J
 
 -- -------------------------------------------------------------------------- --
 -- Servant Utils
@@ -165,6 +173,12 @@ setErrText m e = e
 setErrJSON :: ToJSON a => a -> ServerError -> ServerError
 setErrJSON m e = e
     { errBody = encode m
+    , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
+    }
+
+setErrJSONPact :: J.Encode a => a -> ServerError -> ServerError
+setErrJSONPact m e = e
+    { errBody = J.encode m
     , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
     }
 
@@ -452,6 +466,11 @@ instance Semigroup SomeServer where
     SomeServer (Proxy :: Proxy a) a <> SomeServer (Proxy :: Proxy b) b
         = SomeServer (Proxy @(a :<|> b)) (a :<|> b)
 
+    -- SomeServer (Proxy :: Proxy a) (a :: Server a) <> SomeServer (Proxy :: Proxy b) (b :: Server b)
+    --     = SomeServer
+    --         (Proxy @(Traced "left" a :<|> Traced "right" b))
+    --         (a :<|> b)
+
 instance Monoid SomeServer where
     mappend = (<>)
     mempty = SomeServer (Proxy @EmptyAPI) emptyServer
@@ -532,3 +551,29 @@ deallocateSocket (_, sock) = N.close sock
 withSocket :: Port -> HostPreference -> ((Port, N.Socket) -> IO a) -> IO a
 withSocket port interface = bracket (allocateSocket port interface) deallocateSocket
 
+-- -------------------------------------------------------------------------- --
+-- Debugging
+
+-- | Quick And Dirty runtime debugging of Servant routing
+--
+-- FIXME: it may be cleaner to use annotations in the style of Servant's
+-- 'Summary' API feature.
+--
+newtype Traced (s :: Symbol) api = Traced api
+
+enabledTraced :: Bool
+enabledTraced = False
+
+instance (KnownSymbol s, HasServer api ctx) => HasServer (Traced s api) ctx where
+    type ServerT (Traced s api) m = ServerT api m
+    hoistServerWithContext _ pctx f s = hoistServerWithContext (Proxy @api) pctx f s
+    route _ ctx dl
+        | enabledTraced = route (Proxy @api) ctx $ addParameterCheck
+            (const <$> dl)
+            (DelayedIO $ liftIO $ putStrLn (symbolVal @s Proxy))
+        | otherwise = route (Proxy @api) ctx dl
+
+instance HasClient m api => HasClient m (Traced s api) where
+    type Client m (Traced s api) = Client m api
+    clientWithRoute pm _ r = clientWithRoute pm (Proxy @api) r
+    hoistClientMonad pm _ f c = hoistClientMonad pm (Proxy @api) f c

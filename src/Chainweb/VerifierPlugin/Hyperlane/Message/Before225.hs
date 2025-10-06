@@ -15,12 +15,13 @@
 --
 module Chainweb.VerifierPlugin.Hyperlane.Message.Before225 (runPlugin) where
 
-import Control.Error
+-- import Control.Error
 import Control.Monad (unless)
 import Control.Monad.Except
 import Control.Monad.ST
 
 import qualified Data.ByteString as BS
+import Data.Maybe
 import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
 import qualified Data.Set as Set
@@ -28,9 +29,12 @@ import Data.STRef
 
 import Ethereum.Misc hiding (Word256)
 
-import Pact.Types.Runtime hiding (ChainId)
-import Pact.Types.PactValue
-import Pact.Types.Capability
+import Pact.Core.Capabilities
+import Pact.Core.Errors (VerifierError(..))
+import Pact.Core.Gas
+import Pact.Core.Literal
+import Pact.Core.PactValue
+import Pact.Core.Signer
 
 import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be)
 
@@ -38,10 +42,9 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
-import Pact.Core.Errors (VerifierError(..))
 
 base64DecodeGasCost :: Gas
-base64DecodeGasCost = 5
+base64DecodeGasCost = Gas 5
 
 runPlugin :: forall s
         . PactValue
@@ -50,11 +53,11 @@ runPlugin :: forall s
         -> ExceptT VerifierError (ST s) ()
 runPlugin proof caps gasRef = do
   -- extract capability values
-  SigCapability{..} <- case Set.toList caps of
+  SigCapability (CapToken {..}) <- case Set.toList caps of
     [cap] -> return cap
     _ -> throwError $ VerifierError "Expected one capability."
 
-  (capMessageBody, capRecipient, capSigners) <- case _scArgs of
+  (capMessageBody, capRecipient, capSigners) <- case _ctArgs of
       [mb, r, sigs] -> return (mb, r, sigs)
       _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageBody, recipient, signers."
 
@@ -111,7 +114,7 @@ runPlugin proof caps gasRef = do
           putRawByteString messageId
 
   -- 16250 is a gas cost of the address recovery
-  addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef 16250 >> recoverAddress digest sig) mmimSignatures
+  addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef (Gas 16250) >> recoverAddress digest sig) mmimSignatures
   let addressesVals = PList $ V.fromList $ map (PLiteral . LString . encodeHex) addresses
 
   -- Note, that we check the signers for the full equality including their order and amount.

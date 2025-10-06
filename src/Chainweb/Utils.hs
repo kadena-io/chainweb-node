@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -17,11 +18,13 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
@@ -85,9 +88,6 @@ module Chainweb.Utils
 , interleaveIO
 , mutableVectorFromList
 , timeoutYield
-, showClientError
-, showHTTPRequestException
-, matchOrDisplayException
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -100,7 +100,7 @@ module Chainweb.Utils
 , tread
 , treadM
 , HasTextRepresentation(..)
-, eitherFromText
+, fromTextM
 , unsafeFromText
 , parseM
 , parseText
@@ -113,6 +113,7 @@ module Chainweb.Utils
 , decodeB64UrlText
 , encodeB64UrlNoPadding
 , encodeB64UrlNoPaddingText
+, b64UrlNoPaddingPrism
 , b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
 
@@ -182,6 +183,7 @@ module Chainweb.Utils
 , reverseStream
 , foldChunksM
 , foldChunksM_
+, mergeN
 , progress
 
 -- * Type Level
@@ -191,8 +193,10 @@ module Chainweb.Utils
 , intVal_
 
 -- * Resource Management
-, concurrentWith
+, allocateConcurrently
 , withLink
+, withAsyncR
+, resourceToBracket
 , concurrentlies
 , concurrentlies_
 
@@ -238,10 +242,34 @@ module Chainweb.Utils
 , unsafeHead
 , unsafeTail
 , withEarlyReturn
+
+-- * Bits and Bytes
+, Bytes(..)
+, fromByteString
+, toByteString
+, buildByteString
+, ByteSwap(..)
+, be
+, le
+, peekByteString
+, peekByteArray16
+, peekByteArray32
+, peekByteArray64
+
+-- * Exception Rendering
+, PureHandler(..)
+, handleException
+, type Renderer
+, pattern Renderer
+, renderException
+, renderExceptionJson
+, displayExceptionText
+, showClientError
+, showHTTPRequestException
+, matchOrDisplayException
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
-
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -255,9 +283,10 @@ import Control.Monad.Cont
 import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
-
+import Control.Monad.Trans.Resource
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types qualified as Aeson
+import Data.Array.Byte
 import Data.Attoparsec.Text qualified as A
 import Data.Bifunctor
 import Data.Bool (bool)
@@ -268,12 +297,18 @@ import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short qualified as BS
+import Data.ByteString.Unsafe qualified as B
+import Data.Coerce
 import Data.Csv qualified as CSV
-import Data.Decimal
+import Data.Decimal hiding (allocate)
+import Data.DoubleWord
 import Data.Functor.Of
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Hashable
+import Data.IORef
+import Data.Int
 import Data.String (IsString(..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -283,36 +318,32 @@ import Data.Time
 import Data.Vector qualified as V
 import Data.Vector.Mutable qualified as MV
 import Data.Word
-
-import GHC.Exts (proxy#)
+import Foreign (Storable (sizeOf), peek, castPtr)
+import GHC.ByteOrder
+import GHC.Exts (proxy#, byteSwap#, indexWord64Array#, indexWord16Array#, indexWord32Array#)
 import GHC.Generics
 import GHC.Stack (HasCallStack, callStack, prettyCallStack)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal')
 import GHC.TypeLits qualified as Int (KnownNat, natVal')
 import GHC.TypeNats qualified as Nat (KnownNat, natVal')
-
+import GHC.Word (Word(W#), Word64 (W64#), Word16 (..), Word32 (..))
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS qualified as HTTP
 import Network.HTTP.Types qualified as HTTP
 import Network.Socket hiding (Debug)
 import Network.TLS qualified as HTTP
-
+import Network.URI
 import Numeric.Natural
-
 import Options.Applicative qualified as O
-
 import Servant.Client qualified
-
 import Streaming qualified as S (concats, effect, inspect)
 import Streaming.Prelude qualified as S
-
-import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO, unsafeDupablePerformIO)
 import System.LogLevel
 import System.Random.MWC qualified as Prob
 import System.Random.MWC.Probability qualified as Prob
 import System.Timeout qualified as Timeout
-
 import Text.Printf (printf)
 import Text.Read (readEither)
 
@@ -486,7 +517,7 @@ class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
-    ixg i = ix i
+    ixg = ix
     {-# INLINE ixg #-}
 
 -- | A strict version of 'ix'. It requires a 'Monad' constraint on the context.
@@ -536,21 +567,25 @@ sshow = fromString . show
 -- | Read a value from a textual encoding using its 'Read' instance. Returns and
 -- textual error message if the operation fails.
 --
-tread :: Read a => T.Text -> Either T.Text a
-tread = first T.pack . readEither . T.unpack
+tread :: Read a => T.Text -> Either SomeException a
+tread = first (toException . TextFormatException . T.pack) . readEither . T.unpack
 {-# INLINE tread #-}
 
 -- | Throws 'TextFormatException' on failure.
 --
 treadM :: MonadThrow m => Read a => T.Text -> m a
-treadM = fromEitherM . first TextFormatException . tread
+treadM = fromEitherM . tread
 {-# INLINE treadM #-}
 
 -- | Class of types that have an textual representation.
 --
 class HasTextRepresentation a where
     toText :: a -> T.Text
-    fromText :: MonadThrow m => T.Text -> m a
+    fromText :: T.Text -> Either SomeException a
+
+fromTextM :: MonadThrow m => HasTextRepresentation a => T.Text -> m a
+fromTextM = fromEitherM . fromText
+{-# INLINE fromTextM #-}
 
 instance HasTextRepresentation T.Text where
     toText = id
@@ -567,31 +602,73 @@ instance HasTextRepresentation [Char] where
 instance HasTextRepresentation Int where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Integer where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Natural where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Word where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word8 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word16 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word32 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Word64 where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int8 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int16 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int32 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int64 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation UTCTime where
@@ -599,31 +676,35 @@ instance HasTextRepresentation UTCTime where
     {-# INLINE toText #-}
 
     fromText d = case parseTimeM False defaultTimeLocale fmt (T.unpack d) of
-        Nothing -> throwM $ TextFormatException $ "failed to parse utc date " <> sshow d
+        Nothing -> throwM $ TextFormatException ("failed to parse utc date " <> d)
         Just x -> return x
       where
         fmt = iso8601DateTimeFormat
     {-# INLINE fromText #-}
 
--- | Decode a value from its textual representation.
+-- | Textual representation for /absolute/ URIs.
 --
-eitherFromText
-    :: HasTextRepresentation a
-    => T.Text
-    -> Either String a
-eitherFromText = either f return . fromText
-  where
-    f e = Left $ case fromException e of
-        Just (TextFormatException err) -> T.unpack err
-        _ -> displayException e
-{-# INLINE eitherFromText #-}
+instance HasTextRepresentation URI where
+    toText uri = T.pack $ uriToString id uri ""
+    fromText t = case parseAbsoluteURI (T.unpack t) of
+        Nothing -> throwM $ TextFormatException ("failed to parse URI " <> t)
+        Just u -> return u
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
 
 -- | Unsafely decode a value rom its textual representation. It is an program
 -- error if decoding fails.
+-- Marked NOINLINE heuristically, because usually the runtime performance is not
+-- very important and if applied to a lot of literals at once (as in the
+-- *Payload files) it can result in severe code blowup, slowing compilation.
 --
 unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
-unsafeFromText = fromJuste . fromText
-{-# INLINE unsafeFromText #-}
+unsafeFromText t = case fromText t of
+    Right a -> a
+    Left e -> error $ "Chainweb.Utils.unsafeFromText"
+        <> ": failed to parse" <> T.unpack t
+        <> "; " <> displayException e
+{-# NOINLINE unsafeFromText #-}
 
 -- | Run a 'A.Parser' on a text input. All input must be consume by the parser.
 -- A 'TextFormatException' is thrown if parsing fails.
@@ -707,6 +788,11 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | A prism for encoding/decoding unpadded base64-url as/from text.
+--
+b64UrlNoPaddingPrism :: Prism' T.Text B.ByteString
+b64UrlNoPaddingPrism = prism' encodeB64UrlNoPaddingText decodeB64UrlNoPaddingText
 
 -- | Encode a binary value to a textual base64-url without padding
 -- representation.
@@ -806,7 +892,7 @@ parseJsonFromText
     => String
     -> Value
     -> Aeson.Parser a
-parseJsonFromText l = withText l $! either fail return . eitherFromText
+parseJsonFromText l = withText l $! either (fail . displayException) return . fromText
 
 -- | A newtype wrapper for derving ToJSON and FromJSON instances via
 -- a 'HasTextRepresentation' instance
@@ -824,7 +910,7 @@ instance
     ( KnownSymbol s
     , HasTextRepresentation a
     )
-     => FromJSON (JsonTextRepresentation s a)
+    => FromJSON (JsonTextRepresentation s a)
   where
     parseJSON = fmap JsonTextRepresentation . parseJsonFromText (symbolVal_ @s)
     {-# INLINE parseJSON #-}
@@ -837,7 +923,7 @@ newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
 
 instance CSV.FromField CsvDecimal where
     parseField s = do
-        cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
+        cs <- either (fail . show) (pure . T.unpack) (T.decodeUtf8' s)
         either fail pure $ readEither cs
     {-# INLINE parseField #-}
 
@@ -1030,14 +1116,14 @@ tryAllSynchronous = trySynchronous
 --
 -- An info-level message is logged when processing starts and stops.
 --
-runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
+runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO a
 runForever logfun name a = mask $ \umask -> do
     logfun Debug $ "start " <> name
     let go = do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Info (name <> " stopped")
+    go `finally` logfun Debug (name <> " stopped")
 
 -- | Repeatedly run a computation 'forever' at the given rate until it is
 -- stopped by receiving 'SomeAsyncException'.
@@ -1056,7 +1142,7 @@ runForeverThrottled
     -> Word64
         -- ^ rate limit (usec / call)
     -> IO ()
-    -> IO ()
+    -> IO a
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     tokenBucket <- newTokenBucket
     logfun Debug $ "start " <> name
@@ -1065,7 +1151,7 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
-    void go `finally` logfun Info (name <> " stopped")
+    go `finally` logfun Debug (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
@@ -1247,6 +1333,19 @@ foldChunksM_
 foldChunksM_ f seed = fmap (fst . S.lazily) . foldChunksM f seed
 {-# INLINE foldChunksM_ #-}
 
+-- | Left-biased k-way merge of streams, using a binary tree of merges. O(n log k) where k
+-- is the number of streams and n is the total elements.
+mergeN :: forall m k a. (Monad m, Ord k) => (a -> k) -> [S.Stream (S.Of a) m ()] -> S.Stream (S.Of a) m ()
+mergeN f = go
+    where
+    go [strm] = strm
+    go strms = go (mergePairs strms)
+        where
+        mergePairs (a:b:xs) =
+            let !x = () <$ S.mergeOn f a b
+            in x : mergePairs xs
+        mergePairs xs = xs
+
 -- | Progress reporting for long-running streams. I calls an action
 -- every @n@ streams items.
 --
@@ -1278,42 +1377,28 @@ data Codec t = Codec
 -- -------------------------------------------------------------------------- --
 -- Resource Management
 
--- | Bracket style resource managment uses CPS style which only supports
--- sequential componsition of different allocation functions.
+-- | Concurrently initializes resources.
 --
--- This function is a hack that allows to allocate and deallocate several
--- resources concurrently and provide them to a single inner computation.
+-- This function is a bit of a hack that allows allocating several resources
+-- concurrently and providing them to a single inner computation.
 --
-concurrentWith
-    :: forall a b t d
+allocateConcurrently
+    :: forall a t
     . Traversable t
-    => (forall c . a -> (b -> IO c) -> IO c)
-        -- concurrent resource allocation brackets. Given a value of type @a@,
-        -- allocates a resource of type @b@, it provides the inner function with
-        -- that value, and returns the result of the inner computation.
-    -> (t b -> IO d)
-        -- inner computation
-    -> t a
-        -- traversable that provides parameters to instantiate the resource
-        -- allocation bracktes.
-        --
-        -- The value must be finite and is traversed twiced!
-        --
-    -> IO d
-concurrentWith alloc inner params = do
-    doneVar <- newEmptyMVar
-    paramsWithVar <- traverse (\p -> (p,) <$> newEmptyMVar) params
-    results <- concurrently (mapConcurrently (concAlloc doneVar) paramsWithVar) $ do
-        resources <- traverse (takeMVar . snd) paramsWithVar
-        result <- inner resources
-        putMVar doneVar ()
-        return result
-    return $ snd results
-  where
-    concAlloc :: MVar () -> (a, MVar b) -> IO ()
-    concAlloc doneVar (p, var) = alloc p $ \b -> do
-        putMVar var b
-        readMVar doneVar
+    => t (ResourceT IO a)
+    -> ResourceT IO (t a)
+allocateConcurrently mkResources = do
+    (_, resourcesAndInternalStates) <- allocate (
+        -- threads inherit masking state, and allocate runs initializers masked.
+        forConcurrently mkResources $ \mkResource -> do
+            internalState <- createInternalState
+            -- runInternalState doesn't actually clean up the resources.
+            resource <- runInternalState mkResource internalState
+            return (resource, internalState)
+        )
+        -- likewise finalizers are run masked.
+        (mapConcurrently_ (closeInternalState . snd))
+    return $ fst <$> resourcesAndInternalStates
 
 -- | Run an async IO action, link it back to the main thread, and return
 -- the async result
@@ -1323,6 +1408,28 @@ withLink act = do
   a <- async act
   link a
   return a
+
+-- | Spawn a thread to do the input action and kill it on exit.
+withAsyncR :: IO a -> ResourceT IO (Async a)
+withAsyncR act = snd <$> allocate (async act) uninterruptibleCancel
+
+-- | Use a ResourceT-allocated resource from @bracket@.
+resourceToBracket
+    :: ResourceT IO a
+    -> (IO (a, InternalState)
+        , (a, InternalState) -> IO ())
+resourceToBracket res = do
+    let prime = do
+            r <- res
+            uninterruptibleMask_ $ do
+                s <- getInternalState
+                releaseMap <- liftIO $ readIORef s
+                s' <- createInternalState
+                liftIO $ writeIORef s =<< readIORef s'
+                liftIO $ writeIORef s' releaseMap
+                return (r, s')
+
+    (runResourceT prime, \(_, s) -> closeInternalState s)
 
 -- | Like `sequence` for IO but concurrent
 concurrentlies :: forall a. [IO a] -> IO [a]
@@ -1343,7 +1450,7 @@ thd (_,_,c) = c
 -- Strict Tuple
 
 data T2 a b = T2 !a !b
-    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+    deriving (Show, Eq, Ord, Generic, NFData, Functor, Foldable, Traversable)
 
 instance (Semigroup a, Semigroup b) => Semigroup (T2 a b) where
     T2 a b <> T2 a' b' = T2 (a <> a') (b <> b')
@@ -1435,8 +1542,7 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager
-    $ setManagerRequestTimeout micros
-    $ HTTP.tlsManagerSettings
+    $ setManagerRequestTimeout micros HTTP.tlsManagerSettings
 
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
@@ -1501,6 +1607,146 @@ hostArch = "unknown"
 #endif
 
 -- -------------------------------------------------------------------------- --
+-- Bits and Bytes
+
+-- | Class of types that can be coerced to ByteArray
+--
+-- Morally this should have Coercible ByteArray as superclass. However,
+-- Coercible dictionaries are not propagated by GHC in the same way like oher
+-- constraints. In particular, it is available only if the constructor for the
+-- respective type is brought into scope.
+--
+class Bytes a where
+    byteArray :: a -> ByteArray
+
+    default byteArray :: Coercible a ByteArray => a -> ByteArray
+    byteArray = coerce
+    {-# INLINE byteArray #-}
+
+instance Bytes ByteArray where
+instance Bytes BS.ShortByteString where
+
+bytes :: Coercible ByteArray b => Bytes a => a -> b
+bytes = coerce . byteArray
+{-# INLINE bytes #-}
+
+class ByteSwap a where swap :: a -> a
+instance ByteSwap Word where swap (W# w#) = W# (byteSwap# w#)
+instance ByteSwap Word16 where swap = byteSwap16
+instance ByteSwap Word32 where swap = byteSwap32
+instance ByteSwap Word64 where swap = byteSwap64
+instance ByteSwap Word128 where swap (Word128 a b) = Word128 (swap b) (swap a)
+instance ByteSwap Word256 where swap (Word256 a b) = Word256 (swap b) (swap a)
+
+toByteString :: Bytes a => a -> B.ByteString
+toByteString = BS.fromShort . bytes
+{-# INLINE toByteString #-}
+
+fromByteString :: Coercible ByteArray a => B.ByteString -> a
+fromByteString = coerce . BS.toShort
+{-# INLINE fromByteString #-}
+
+be :: ByteSwap a => a -> a
+be
+    | targetByteOrder == BigEndian = id
+    | otherwise = swap
+{-# INLINE be #-}
+
+le :: ByteSwap a => a -> a
+le
+    | targetByteOrder == LittleEndian = id
+    | otherwise = swap
+{-# INLINE le #-}
+
+buildByteString :: BB.Builder -> B.ByteString
+buildByteString = BL.toStrict . BB.toLazyByteString
+{-# INLINE buildByteString #-}
+
+peekByteString
+    :: forall w
+    . Storable w
+    => B.ByteString
+    -> Either T.Text w
+peekByteString bs
+    | l < s = Left $ "peekByteString: size of input bytestring to small"
+        <> ". Expected: " <> sshow s
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ unsafeDupablePerformIO $
+        B.unsafeUseAsCStringLen bs $ peek . castPtr . fst
+  where
+    l = B.length bs
+    s = sizeOf @w undefined
+
+peekByteArray16
+    :: Bytes b
+    => b
+    -> Either T.Text Word16
+peekByteArray16 b
+    | l < 2 = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: 2"
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ W16# (indexWord16Array# s# 0#)
+  where
+    s = bytes b
+    !(BS.SBS s#) = coerce s
+    l = BS.length s
+
+peekByteArray32
+    :: Bytes b
+    => b
+    -> Either T.Text Word32
+peekByteArray32 b
+    | l < 4 = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: 4"
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ W32# (indexWord32Array# s# 0#)
+  where
+    s = bytes b
+    !(BS.SBS s#) = coerce s
+    l = BS.length s
+
+peekByteArray64
+    :: Bytes b
+    => b
+    -> Either T.Text Word64
+peekByteArray64 b
+    | l < 8 = Left $ "toWordBe: size of input bytestring to small"
+        <> ". Expected: 8"
+        <> ". Actual: " <> sshow l
+    | otherwise = Right $ W64# (indexWord64Array# s# 0#)
+  where
+    s = bytes b
+    !(BS.SBS s#) = coerce s
+    l = BS.length s
+
+-- -- | Convert a 'Word64' to a 'ByteArray'.
+-- --
+-- word64ToByteArray :: Word64 -> ByteArray
+-- word64ToByteArray !(W64# h) = ByteArray $ runRW# $ \s0 -> do
+--     case newByteArray# 8# s0 of
+--         (# s1, mba #) -> case writeWord64Array# mba 0# h s1 of
+--             s2 -> case unsafeFreezeByteArray# mba s2 of
+--                 (# _, ba #) -> ba
+--
+-- -- | Convert a 'Word32' to a 'ByteArray'.
+-- --
+-- word32ToByteArray :: Word32 -> ByteArray
+-- word32ToByteArray !(W32# h) = ByteArray $ runRW# $ \s0 -> do
+--     case newByteArray# 4# s0 of
+--         (# s1, mba #) -> case writeWord32Array# mba 0# h s1 of
+--             s2 -> case unsafeFreezeByteArray# mba s2 of
+--                 (# _, ba #) -> ba
+--
+-- -- | Convert a 'Word' to a 'ByteArray'.
+-- --
+-- wordToByteArray :: Word -> ByteArray
+-- wordToByteArray !(W# h) = ByteArray $ runRW# $ \s0 -> do
+--     case newByteArray# (wordS s0 of
+--         (# s1, mba #) -> case writeWord32Array# mba 0# h s1 of
+--             s2 -> case unsafeFreezeByteArray# mba s2 of
+--                 (# _, ba #) -> ba
+
+-- -------------------------------------------------------------------------- --
 -- Debugging Tools
 
 -- | Given the current block height and the block rate, returns the estimate
@@ -1534,6 +1780,86 @@ timeoutYield :: Int -> IO a -> IO (Maybe a)
 timeoutYield time act =
     Timeout.timeout time (act <* threadDelay 1)
 
+unsafeHead :: HasCallStack => String -> [a] -> a
+unsafeHead msg = \case
+    x : _ -> x
+    [] -> error $ "unsafeHead: empty list: " <> msg
+
+unsafeTail :: HasCallStack => String -> [a] -> [a]
+unsafeTail msg = \case
+    _ : xs -> xs
+    [] -> error $ "unsafeTail: empty list: " <> msg
+
+-- this is callCC but with a more permissive type signature, allowing the early return to
+-- "return" values of any type, whenever it's used
+withEarlyReturn :: ((forall b. a -> ContT r m b) -> ContT r m a) -> ContT r m a
+withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
+{-# INLINE withEarlyReturn #-}
+
+-- -------------------------------------------------------------------------- --
+-- Exception rendering
+
+data PureHandler c a = forall e . (c e, Exception e) => PureHandler (e -> a)
+
+handlePure
+    :: (SomeException -> a)
+    -> [PureHandler c a]
+    -> SomeException
+    -> a
+handlePure fallback handlers e = case asum $ apply <$> handlers of
+    Just r -> r
+    Nothing -> fallback e
+  where
+    apply (PureHandler f) = case fromException e of
+        Just e' -> Just $ f e'
+        Nothing -> Nothing
+
+-- | A pure exception handler, that holds a pure function that can be applied to
+-- an exception of a specific type.
+--
+-- Note, that unlike the handlers in `Control.Exception`, this handler does not
+-- not catch exceptions.
+--
+type ExceptionHandler a = PureHandler Exception a
+
+pattern ExceptionHandler :: () => (c e, Exception e) => (e -> a) -> PureHandler c a
+pattern ExceptionHandler f = PureHandler f
+
+-- | Handle a given exception using a list of pure exception handlers.
+--
+-- The first matching handler is applied to the exception. If no handler matches
+-- the given fallback function is applied to cocmpute the result.
+--
+handleException
+    :: (SomeException -> a)
+    -> [ExceptionHandler a]
+    -> SomeException
+    -> a
+handleException = handlePure
+
+-- | An exception handler for rendering exceptions as 'T.Text'.
+--
+type Renderer = ExceptionHandler T.Text
+
+-- | Pattern synonym for creating a 'Renderer'.
+--
+pattern Renderer :: () => Exception e => (e -> a) -> ExceptionHandler a
+pattern Renderer f = ExceptionHandler f
+{-# COMPLETE Renderer #-}
+
+-- | Render an exception using a list of 'Renderer's. The first matching
+-- renderer is used. If no renderer matches the exception the default
+-- 'displayException' function is used to render the exception.
+--
+renderException :: [Renderer] -> SomeException -> T.Text
+renderException = handleException displayExceptionText
+
+renderExceptionJson :: [ExceptionHandler Value] -> SomeException -> Value
+renderExceptionJson = handleException (String . displayExceptionText)
+
+displayExceptionText :: SomeException -> T.Text
+displayExceptionText = T.pack . displayException
+
 showClientError :: Servant.Client.ClientError -> T.Text
 showClientError (Servant.Client.FailureResponse _ resp) =
     "Error code " <> sshow (HTTP.statusCode $ Servant.Client.responseStatusCode resp)
@@ -1565,18 +1891,3 @@ matchOrDisplayException display anyException
     | otherwise
     = T.pack $ displayException anyException
 
-unsafeHead :: HasCallStack => String -> [a] -> a
-unsafeHead msg = \case
-    x : _ -> x
-    [] -> error $ "unsafeHead: empty list: " <> msg
-
-unsafeTail :: HasCallStack => String -> [a] -> [a]
-unsafeTail msg = \case
-    _ : xs -> xs
-    [] -> error $ "unsafeTail: empty list: " <> msg
-
--- this is callCC but with a more permissive type signature, allowing the early return to
--- "return" values of any type, whenever it's used
-withEarlyReturn :: ((forall b. a -> ContT r m b) -> ContT r m a) -> ContT r m a
-withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
-{-# INLINE withEarlyReturn #-}

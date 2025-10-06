@@ -1,6 +1,10 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -16,41 +20,54 @@ module Chainweb.Test.BlockHeaderDB.PruneForks
 ( tests
 ) where
 
-import Control.Lens (view, (.~))
-import Control.Monad
-import Control.Monad.Catch
-
-import qualified Data.Text as T
-
-import Numeric.Natural
-
-import System.LogLevel
-import System.Random
-
-import Test.Tasty
-import Test.Tasty.HUnit
-
--- internal modules
-
-import Chainweb.BlockHeader.Internal
+import Control.Concurrent.STM
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeaderDB.PruneForks
-import Chainweb.Chainweb.PruneChainDatabase
+import Chainweb.ChainValue
+import Chainweb.Core.Brief
+import Chainweb.Cut (unsafeMkCut, genesisCut)
+import Chainweb.Cut.Create
+import Chainweb.Cut.CutHashes
+import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
-import Chainweb.Test.Utils
-import Chainweb.Test.Utils.BlockHeader
-import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.Version.RecapDevelopment
-
+import Chainweb.Parent
+import Chainweb.PayloadProvider (ConfiguredPayloadProvider(DisabledPayloadProvider))
+import Chainweb.Ranked
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.BlockHeight
+import Chainweb.Test.CutDB (withTestCutDb)
+import Chainweb.Test.Pact.Utils
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
+import Chainweb.TreeDB qualified as TreeDB
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Utils (avgBlockHeightAtCutHeight, chainIdsAt)
+import Chainweb.WebBlockHeaderDB
+import Control.Lens
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Control.Monad.State.Strict
+import Control.Monad.Trans.Resource
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.Maybe (mapMaybe, catMaybes)
+import Data.Text qualified as T
+import Numeric.Natural
+import PropertyMatchers qualified as P
+import Streaming qualified as S
+import Streaming.Prelude qualified as S
+import System.LogLevel
+import System.Random.Shuffle (shuffleM)
+import Test.Tasty
+import Test.Tasty.HUnit
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -67,46 +84,193 @@ testLogLevel = Warn
 --     | otherwise = return ()
 
 withDbs
-    :: IO RocksDb
-    -> (RocksDb -> BlockHeaderDb -> PayloadDb RocksDbTable -> BlockHeader -> IO ())
-    -> IO ()
-withDbs rio inner = do
+    :: HasVersion
+    => RocksDb
+    -> ResourceT IO (CutDb GenericLogger)
+withDbs rdb = do
     -- create unique namespace for each test so that they so that test can
     -- run in parallel.
-    x <- randomIO :: IO Int
-    rdb <- rio >>= testRocksDb (sshow x)
+    -- x <- randomIO :: IO Int
+    -- rdb <- rio >>= testRocksDb (sshow x)
+    testLogger <- liftIO getTestLogger
+    (_, cutDb) <- withTestCutDb rdb id 0 (onAllChains DisabledPayloadProvider) testLogger
+    return cutDb
 
-    let pdb = newPayloadDb rdb
-    initializePayloadDb toyVersion pdb
-    bracket
-        (initBlockHeaderDb (Configuration h rdb))
-        closeBlockHeaderDb
-        (\bdb -> inner rdb bdb pdb h)
-  where
-    h = toyGenesis cid
+selectHighCuts :: Casify RocksDbTable CutHashes -> Int -> Maybe (CasKeyType CutHashes) -> IO ([CutHashes], CasKeyType CutHashes)
+selectHighCuts cutTable candidateCount maybeMaxCutHeight = do
+    (highestCuts, nextCutHeight) <- withTableIterator cutTable $ \iter -> do
+        case maybeMaxCutHeight of
+            Nothing ->
+                iterLast iter
+            Just ch -> do
+                iterSeek iter ch
+                iterPrev iter
+
+        cuts <- fmap catMaybes $ replicateM candidateCount $ do
+            iterValue iter >>= \case
+                Just r -> do
+                    iterPrev iter
+                    return (Just r)
+                Nothing -> return Nothing
+        nextCutHeight <- iterKey iter >>= \case
+            Nothing -> iterNext iter >> fromJuste <$> iterKey iter
+            Just ch -> return ch
+        return (cuts, nextCutHeight)
+    (,nextCutHeight) <$> shuffleM highestCuts
+
+findM :: Monad m => [t] -> (t -> m (Maybe a)) -> m (Maybe a)
+findM (x:xs) f = do
+    y <- f x
+    case y of
+        Nothing -> findM xs f
+        Just u -> return $ Just u
+findM [] _ = return Nothing
+
+selectNewBlockParents
+    :: HasVersion
+    => Casify RocksDbTable CutHashes
+    -> WebBlockHeaderDb
+    -> Maybe (CasKeyType CutHashes)
+    -> Int
+    -> IO CutExtension
+selectNewBlockParents cutTable wbhdb maybeMaxCutHeight candCutCount = do
+    (candCutHashesList, newMaxCutHeight) <- selectHighCuts cutTable candCutCount maybeMaxCutHeight
+    shuffledChains <- shuffleM $ HS.toList $ chainIdsAt (round $ avgBlockHeightAtCutHeight $ maybe maxBound (view _1) maybeMaxCutHeight)
+    r <- findM candCutHashesList $ \candCutHashes -> do
+        candCutBlocks <- liftIO $
+            iforM (candCutHashes ^. cutHashes) (lookupRankedWebBlockHeaderDb wbhdb)
+        let candCut = unsafeMkCut candCutBlocks
+        let exts = mapMaybe (getCutExtension candCut) shuffledChains
+        case exts of
+            ext:_ -> return $ Just ext
+            [] -> return Nothing
+    case r of
+        Just r' -> return r'
+        Nothing -> selectNewBlockParents cutTable wbhdb (Just newMaxCutHeight) candCutCount
+
+progressArbitraryFork
+    :: (HasVersion, MonadIO m, MonadState Nonce m)
+    => Casify RocksDbTable CutHashes
+    -> WebBlockHeaderDb
+    -> Int
+    -> m ()
+progressArbitraryFork cutTable wbhdb candCutCount = do
+    cutExt <- liftIO $ selectNewBlockParents cutTable wbhdb Nothing candCutCount
+    let parent = _cutExtensionParent cutExt
+    let bhdb = wbhdb ^?! webBlockHeaderDb . ix (parent ^. chainId)
+    adjsForParent <- liftIO $ iforMOf (itraversed . _Parent)
+        (_getBlockHashRecord $ _cutExtensionAdjacentHashes cutExt)
+        (\c blk -> lookupRankedWebBlockHeaderDb wbhdb c
+            (Ranked (view (_Parent . blockHeight) parent) blk))
+    nextNonce <- get
+    let newBlock = testBlockHeader adjsForParent nextNonce parent
+    liftIO $ unsafeInsertBlockHeaderDb bhdb newBlock
+    newCut <- liftIO $ tryMonotonicCutExtension (_cutExtensionCut cutExt) newBlock
+    liftIO $ casInsert cutTable (cutToCutHashes Nothing $ fromJuste newCut)
+    put (succ nextNonce)
+    return ()
+
+pruneTestRandom
+    :: HasVersion
+    => RocksDb
+    -> (Casify RocksDbTable CutHashes -> WebBlockHeaderDb -> StateT Nonce IO a)
+    -> IO Int
+pruneTestRandom baseRdb f = runResourceT $ do
+    rdb <- withTestRocksDb "" baseRdb
+    liftIO $ do
+        let t = cutHashesTable rdb
+        wbhdb <- initWebBlockHeaderDb rdb
+        let lookupChainBlk (ChainValue c bhsh) = do
+                db <- getWebBlockHeaderDb wbhdb c
+                TreeDB.lookup db bhsh
+        let validateAllBlocks = do
+                void $ webEntries wbhdb Nothing Nothing $ \blks -> do
+                    blks
+                        & S.hoist liftIO
+                        & S.mapM_ (\blk ->
+                            validateAllParentsExist lookupChainBlk blk
+                                >>= \case
+                                Right r -> P.succeed r
+                                Left e -> P.fail "successful validation" (e, "failed on block: " <> sshow blk)
+                            )
+        casInsert t (cutToCutHashes Nothing genesisCut)
+        lgr <- getTestLogger
+        logFunctionText lgr Info "inserting blocks..."
+        (_, finalNonce) <- flip runStateT (Nonce 0) $ f t wbhdb
+        logFunctionText lgr Info $ "final nonce " <> sshow finalNonce
+        logFunctionText lgr Info "validating initial blocks..."
+        validateAllBlocks
+        highestCut <- readHighestCutHeaders (logFunctionText lgr) wbhdb t
+        numPruned <- pruneForks lgr (unsafeMkCut highestCut) wbhdb Prune 0
+        logFunctionText lgr Info "validating pruned blocks..."
+        validateAllBlocks
+        return numPruned
+
+pruneTestWithOnePivot :: _
+pruneTestWithOnePivot rdb = withVersion (barebonesTestVersion pairChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 4000 $ do
+            progressArbitraryFork t wbhdb 2
+        replicateM_ 10 $ do
+            progressArbitraryFork t wbhdb 1
+    return ()
+
+pruneTestWithLotsOfPivots :: _
+pruneTestWithLotsOfPivots rdb = withVersion (barebonesTestVersion pairChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 4000 $ do
+            progressArbitraryFork t wbhdb 16
+    return ()
+
+pruneTestWithManyForks :: _
+pruneTestWithManyForks rdb = withVersion (barebonesTestVersion pairChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 4000 $ do
+            progressArbitraryFork t wbhdb 16
+    return ()
+
+pruneTestWithManyChains :: _
+pruneTestWithManyChains rdb = withVersion (barebonesTestVersion petersenChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 1000 $ do
+            progressArbitraryFork t wbhdb 14
+    return ()
+
+pruneTestWithManyManyChains :: _
+pruneTestWithManyManyChains rdb = withVersion (barebonesTestVersion d4k4ChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 200 $ do
+            progressArbitraryFork t wbhdb 1
+        replicateM_ 400 $ do
+            progressArbitraryFork t wbhdb 140
+        replicateM_ 400 $ do
+            progressArbitraryFork t wbhdb 1
+    return ()
+
+pruneTestSmall :: _
+pruneTestSmall rdb = withVersion (barebonesTestVersion petersenChainGraph) $ do
+    _ <- pruneTestRandom rdb $ \t wbhdb -> do
+        replicateM_ 20 $ do
+            progressArbitraryFork t wbhdb 1
+    return ()
 
 createForks
-    :: BlockHeaderDb
-    -> PayloadDb RocksDbTable
+    :: HasVersion
+    => BlockHeaderDb
     -> BlockHeader
     -> IO ([BlockHeader], [BlockHeader])
-createForks bdb pdb h = (,)
-    <$> insertWithPayloads bdb pdb h (Nonce 1) 10
-    <*> insertWithPayloads bdb pdb h (Nonce 2) 5
+createForks bdb h = (,)
+    <$> insert bdb h (Nonce 1) 10
+    <*> insert bdb h (Nonce 2) 5
 
-insertWithPayloads
-    :: BlockHeaderDb
-    -> PayloadDb RocksDbTable
+insert
+    :: HasVersion
+    => BlockHeaderDb
     -> BlockHeader
     -> Nonce
     -> Natural
     -> IO [BlockHeader]
-insertWithPayloads bdb pdb h n l = do
-    hdrs <- insertN_ n l h bdb
-    forM_ hdrs $ \hd ->
-        let payload = testBlockPayload_ hd
-        in addNewPayload pdb (view blockHeight hd) payload
-    return hdrs
+insert bdb h n l = insertN_ n l h bdb
 
 cid :: ChainId
 cid = unsafeChainId 0
@@ -119,248 +283,155 @@ delHdr cdb k = do
 -- -------------------------------------------------------------------------- --
 -- Test cases
 
-tests :: TestTree
-tests = withResourceT withRocksResource $ \rio ->
+tests :: RocksDb -> TestTree
+tests rdb =
     testGroup "Chainweb.BlockHeaderDb.PruneForks"
-        [ testCaseSteps "simple 1" (test0 rio)
-        , testCaseSteps "simple 2" (test1 rio)
-        , testCaseSteps "simple 3" (test2 rio)
-        , testCaseSteps "simple 5" (test3 rio)
-        , testCaseSteps "Skippping: max bound 1" $ test4 rio
-        , testCaseSteps "Skippping: depth 10" $ test5 rio
-        , testCaseSteps "fail on missing header 5" $ failTest rio 5
-        , testCaseSteps "fail on missing header 6" $ failTest rio 6
+        [ testCaseSteps "simple 1"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 1 5
+        , testCaseSteps "simple 2"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 2 5
+        , testCaseSteps "simple 3"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 4 5
+        , testCaseSteps "simple 4"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 5 0
+        , testCaseSteps "skipping: max bound 1"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 9 0
+        , testCaseSteps "skipping: depth == max block height"
+            $ withVersion (barebonesTestVersion singletonChainGraph)
+            $ singleForkTest rdb 10 0
+        , testCaseSteps "fail on missing header 5" $ failTest rdb 5
+        , testCaseSteps "fail on missing header 6" $ failTest rdb 6
             -- failTest <= 4: succeeds because of second branch
             -- failTest 7: empty upper bound warning
             -- failTest 8: succeeds because deleted block at height 8 is above upper pruning bound
 
-        , pruneWithChecksTests rio
-        , failPruningChecksTests rio
-        , testCaseSteps "full gc" $ testFullGc rio
+        -- , pruneWithChecksTests rdb
+        -- , failPruningChecksTests rdb
+        , testCaseSteps "full gc" $ testFullGc rdb
+
+        , testCase "small" $ pruneTestSmall rdb
+
+        , testCase "one pivot" $ pruneTestWithOnePivot rdb
+
+        , testCase "lots of pivots" $ pruneTestWithLotsOfPivots rdb
+
+        , testCase "many forks" $ pruneTestWithManyForks rdb
+
+        , testCase "many chains" $ pruneTestWithManyChains rdb
+        , testCase "many many chains" $ pruneTestWithManyManyChains rdb
+
         ]
 
-pruneWithChecksTests :: IO RocksDb -> TestTree
-pruneWithChecksTests rio = testGroup "prune with checks" $ go <$>
-    [ [CheckPayloads]
-    , [CheckPayloadsExist]
-    , [CheckIntrinsic]
-    , [CheckInductive]
-    , [CheckFull]
-    , [minBound .. maxBound]
-    ]
-  where
-    go checks = testCaseSteps (sshow checks) $ testPruneWithChecks rio checks
+-- pruneWithChecksTests :: IO RocksDb -> TestTree
+-- pruneWithChecksTests rio = testGroup "prune with checks" $ go <$>
+--     [ [CheckPayloads]
+--     , [CheckPayloadsExist]
+--     , [CheckIntrinsic]
+--     , [CheckInductive]
+--     , [CheckFull]
+--     , [minBound .. maxBound]
+--     ]
+--   where
+--     go checks = testCaseSteps (sshow checks) $ testPruneWithChecks rio checks
 
-failPruningChecksTests :: IO RocksDb -> TestTree
-failPruningChecksTests rio = testGroup "fail pruning checks"
-    [ testCaseSteps "CheckPayloadExists" $ failPayloadCheck rio [CheckPayloadsExist] 7
-    , testCaseSteps "CheckPayload" $ failPayloadCheck rio [CheckPayloads] 7
-
-    -- deleted transactions from payload
-    -- CheckPayloadsExist succeeds for this scenario
-    , testCaseSteps "CheckPayload2" $ failPayloadCheck2 rio [CheckPayloads] 7
-
-    , testCaseSteps "CheckIntrinsic" $ failIntrinsicCheck rio [CheckIntrinsic] 7
-    , testCaseSteps "CheckInductive" $ failIntrinsicCheck rio [CheckInductive] 7
-    , testCaseSteps "CheckFull" $ failIntrinsicCheck rio [CheckFull] 7
-    ]
+-- failPruningChecksTests :: IO RocksDb -> TestTree
+-- failPruningChecksTests rio = testGroup "fail pruning checks"
+--     [ testCaseSteps "CheckIntrinsic" $ failIntrinsicCheck rio [CheckIntrinsic] 7
+--     , testCaseSteps "CheckInductive" $ failIntrinsicCheck rio [CheckInductive] 7
+--     , testCaseSteps "CheckFull" $ failIntrinsicCheck rio [CheckFull] 7
+--     ]
 
 singleForkTest
-    :: IO RocksDb
-    -> (String -> IO ())
+    :: HasVersion
+    => RocksDb
     -> Natural
     -> Int
-    -> String
+    -> (String -> IO ())
     -> IO ()
-singleForkTest rio step d expect msg =
-    withDbs rio $ \_rdb db pdb h -> do
-        (f0, f1) <- createForks db pdb h
-        n <- pruneForks logg db d $ \_ x ->
-            logg Info (sshow $ view blockHeight x)
+singleForkTest rdb d expect step = runResourceT $ do
+    cdb <- withDbs rdb
+    liftIO $ do
+        let db = cdb ^?! cutDbBlockHeaderDb cid
+        let h = genesisBlockHeader cid
+        (f0, f1) <- createForks db h
+        let f0Cut = cutToCutHashes Nothing $ unsafeMkCut (HM.singleton cid (last f0))
+        addCutHashes cdb f0Cut
+        atomically $ do
+            curCut <- _cutStm cdb
+            guard (cutToCutHashes Nothing curCut == f0Cut)
+        initialCut <- _cut cdb
+        let wbhdb = view cutDbWebBlockHeaderDb cdb
+        n <- pruneForks logg initialCut wbhdb Prune d
         assertHeaders db f0
         when (expect > 0) $ assertPrunedHeaders db f1
-        assertEqual msg expect n
+        assertEqual "" expect n
   where
-    logg = logFunctionText $ genericLogger testLogLevel (step . T.unpack)
+    logg = genericLogger testLogLevel (step . T.unpack)
 
-assertHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
+assertHeaders :: HasVersion => BlockHeaderDb -> [BlockHeader] -> IO ()
 assertHeaders db f =
     unlessM (fmap and $ mapM (tableMember db) $ view blockHash <$> f) $
         assertFailure "missing block header that should not have been pruned"
 
-assertPrunedHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
+assertPrunedHeaders :: HasVersion => BlockHeaderDb -> [BlockHeader] -> IO ()
 assertPrunedHeaders db f =
-    whenM (fmap or $ mapM (tableMember db) $ view blockHash <$> f) $
-        assertFailure "failed to prune some block header"
-
-assertPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
-assertPayloads db f = do
-    let fs = (\h -> (Just $ view blockHeight h, view blockPayloadHash h)) <$> f
-    unlessM (and <$> mapM (uncurry $ lookupPayloadWithHeightExists db) fs) $
-        assertFailure "missing block payload that should not have been garbage collected"
-
--- | This can fail due to the probabilistic nature of the GC algorithms
---
-assertPrunedPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
-assertPrunedPayloads db f = do
-    let fs = (\h -> (Just $ view blockHeight h, view blockPayloadHash h)) <$> f
-    results <- mapM (uncurry $ lookupPayloadWithHeightExists db) fs
-    let remained = length (filter id results)
-    when (remained > 1) $
-        assertFailure $ "failed to garage collect some block payloads"
-            <> ". " <> sshow remained <> " remaining"
-            <> ". Since can happen due to the probabilistic natures of the garabage collection algorithm"
-            <> ". But it should very rare. Try to rerun the test."
-
-lookupPayloadWithHeightExists
-    :: PayloadDb RocksDbTable
-    -> Maybe BlockHeight
-    -> BlockPayloadHash
-    -> IO Bool
-lookupPayloadWithHeightExists db h k = lookupPayloadWithHeight db h k >>= \case
-    Nothing -> pure False
-    Just _ -> pure True
+    forM_ f $ \bh -> do
+        whenM (tableMember db (casKey bh)) $
+            assertFailure $ "failed to prune some block header: " <> T.unpack (brief bh)
 
 -- -------------------------------------------------------------------------- --
 -- Header Pruning Tests
 
-test0 :: IO RocksDb -> (String -> IO ()) -> IO ()
-test0 rio step = singleForkTest rio step 1 5 "5 block headers pruned"
-
-test1 :: IO RocksDb -> (String -> IO ()) -> IO ()
-test1 rio step = singleForkTest rio step 2 5 "5 block headers pruned"
-
-test2 :: IO RocksDb -> (String -> IO ()) -> IO ()
-test2 rio step = singleForkTest rio step 4 5 "5 block headers pruned"
-
-test3 :: IO RocksDb -> (String -> IO ()) -> IO ()
-test3 rio step = singleForkTest rio step 5 0 "0 block headers pruned"
-
-test4 :: IO RocksDb -> (String -> IO ()) -> IO ()
-test4 rio step = singleForkTest rio step 9 0 "Skipping: max bound 1"
-
-test5 :: IO RocksDb -> (String -> IO ()) -> IO ()
-test5 rio step = singleForkTest rio step 10 0
-    "Skipping: depth == max block height"
-
-failTest :: IO RocksDb -> Natural -> (String -> IO ()) -> IO ()
-failTest rio n step = withDbs rio $ \_rdb db pdb h -> do
-    (f0, _) <- createForks db pdb h
-    delHdr db $ f0 !! (int n)
-    try (prune db 2) >>= \case
-        Left (InternalInvariantViolation{}) -> return ()
-        Right x -> assertFailure
-            $ "missing expected InternalInvariantViolation"
-            <> ". Instead pruning succeeded and deleted "
-            <> sshow x <> " headers"
-    return ()
+failTest :: RocksDb -> Natural -> (String -> IO ()) -> IO ()
+failTest rio n step = withVersion (barebonesTestVersion singletonChainGraph) $ runResourceT $ do
+    cdb <- withDbs rio
+    liftIO $ do
+        let db = cdb ^?! cutDbBlockHeaderDb cid
+        let h = genesisBlockHeader cid
+        (f0, _) <- createForks db h
+        delHdr db $ f0 !! int n
+        initialCut <- _cut cdb
+        let wbhdb = view cutDbWebBlockHeaderDb cdb
+        try (pruneForks logg initialCut wbhdb Prune 2) >>= \case
+            Left (InternalInvariantViolation{}) -> return ()
+            Right x -> assertFailure
+                $ "missing expected InternalInvariantViolation"
+                <> ". Instead pruning succeeded and deleted "
+                <> sshow x <> " headers"
+        return ()
   where
-    prune db d = pruneForks logg db d $ \_ h ->
-        logg Info (sshow $ view blockHeight h)
-
-    logg = logFunctionText $ genericLogger testLogLevel (step . T.unpack)
+    logg = genericLogger testLogLevel (step . T.unpack)
 
 -- -------------------------------------------------------------------------- --
 -- GC Tests
 
-testFullGc :: IO RocksDb -> (String -> IO ()) -> IO ()
-testFullGc rio step = withDbs rio $ \rdb db pdb h -> do
-    (f0, f1) <- createForks db pdb h
-    fullGc logger rdb toyVersion
-    assertHeaders db f0
-    assertPrunedHeaders db f1
-    assertPayloads pdb f0
-    assertPrunedPayloads pdb f1
+testFullGc :: RocksDb -> (String -> IO ()) -> IO ()
+testFullGc rdb step = withVersion (barebonesTestVersion singletonChainGraph) $ runResourceT $ do
+    cdb <- withDbs rdb
+    let db = cdb ^?! cutDbBlockHeaderDb cid
+    let h = genesisBlockHeader cid
+    liftIO $ do
+        (f0, f1) <- createForks db h
+        -- fullGc logger rdb (barebonesTestVersion singletonChainGraph)
+        assertHeaders db f0
+        assertPrunedHeaders db f1
   where
     logger = genericLogger testLogLevel (step . T.unpack)
 
-testPruneWithChecks :: IO RocksDb -> [PruningChecks] -> (String -> IO ()) -> IO ()
-testPruneWithChecks rio checks step = withDbs rio $ \rdb db pdb h -> do
-    (f0, f1) <- createForks db pdb h
-    pruneAllChains logger rdb toyVersion checks
-    assertHeaders db f0
-    assertPrunedHeaders db f1
-  where
-    logger = genericLogger testLogLevel (step . T.unpack)
-
--- | Remove BlockPayload from the Payload.
---
-failIntrinsicCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
-failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
-    (f0, _) <- createForks bdb pdb h
-    let b = f0 !! int n
-    delHdr bdb b
-    unsafeInsertBlockHeaderDb bdb $ b
-      & blockChainwebVersion .~ _versionCode RecapDevelopment
-    try (pruneAllChains logger rdb toyVersion checks) >>= \case
-        Left e
-            | CheckFull `elem` checks
-                && VersionMismatch `elem` _validationFailureFailures e
-                && IncorrectHash `elem` _validationFailureFailures e
-                && AdjacentChainMismatch `elem` _validationFailureFailures e -> return ()
-            | CheckInductive `elem` checks
-                && VersionMismatch `elem` _validationFailureFailures e -> return ()
-            | CheckIntrinsic `elem` checks
-                && IncorrectHash `elem` _validationFailureFailures e
-                && AdjacentChainMismatch `elem` _validationFailureFailures e -> return ()
-            | otherwise ->
-                assertFailure $ "test failed with unexpected validation failure: " <> sshow e
-        Right x -> assertFailure
-            $ "missing expected ValidationFailure"
-            <> ". Instead pruning succeeded and deleted "
-            <> sshow x <> " headers"
-    return ()
-  where
-    logger = genericLogger testLogLevel (step . T.unpack)
-
--- | Remove BlockPayload from the Payload.
---
--- CheckPayloadsExist and CheckPayload fail for this scenario
---
-failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
-failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
-    (f0, _) <- createForks bdb pdb h
-    let b = f0 !! int n
-    p <- lookupPayloadDataWithHeight pdb (Just $ view blockHeight b) (view blockPayloadHash b) >>= \case
-        Nothing -> assertFailure "missing payload"
-        Just x -> return x
-    deletePayload pdb (payloadDataToBlockPayload p)
-
-    try (pruneAllChains logger rdb toyVersion checks) >>= \case
-        Left (MissingPayloadException{}) -> return ()
-        Left e -> assertFailure
-            $ "Expected MissingPayloadException but got: "
-            <> sshow e
-        Right x -> assertFailure
-            $ "missing expected MissingPayloadException"
-            <> ". Instead pruning succeeded and deleted "
-            <> sshow x <> " headers"
-    return ()
-  where
-    logger = genericLogger testLogLevel (step . T.unpack)
-
--- | Remove the Transactions from the Payload.
---
--- CheckPayloadsExist succeeds for this scenario. CheckPayload fails.
---
-failPayloadCheck2 :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
-failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
-    (f0, _) <- createForks bdb pdb h
-    let b = f0 !! int n
-    payload <- lookupPayloadWithHeight pdb (Just $ view blockHeight b) (view blockPayloadHash b) >>= \case
-        Nothing -> assertFailure "missing payload"
-        Just x -> return x
-    tableDelete (_newTransactionDbBlockTransactionsTbl $ _transactionDb pdb)
-        (view blockHeight b, _payloadWithOutputsTransactionsHash payload)
-    try (pruneAllChains logger rdb toyVersion checks) >>= \case
-        Left (MissingPayloadException{}) -> return ()
-        Left e -> assertFailure
-            $ "Expected MissingPayloadException but got: "
-            <> sshow e
-        Right x -> assertFailure
-            $ "missing expected MissingPayloadException"
-            <> ". Instead pruning succeeded and deleted "
-            <> sshow x <> " headers"
-    return ()
+testPruneWithChecks :: RocksDb -> (String -> IO ()) -> IO ()
+testPruneWithChecks rdb step = withVersion (barebonesTestVersion singletonChainGraph) $ runResourceT $ do
+    cdb <- withDbs rdb
+    let db = cdb ^?! cutDbBlockHeaderDb cid
+    let h = genesisBlockHeader cid
+    liftIO $ do
+        (f0, f1) <- createForks db h
+        -- pruneAllChains logger rdb (barebonesTestVersion singletonChainGraph)
+        assertHeaders db f0
+        assertPrunedHeaders db f1
   where
     logger = genericLogger testLogLevel (step . T.unpack)

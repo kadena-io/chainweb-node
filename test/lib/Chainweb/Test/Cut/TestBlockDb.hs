@@ -30,22 +30,23 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import qualified Data.HashMap.Strict as HM
 
-import Chainweb.Block
+import Chainweb.Pact.Block
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Test.Utils
 import Chainweb.Test.Cut (GenBlockTime, testMine', MineFailure(BadAdjacents))
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Pact.Payload
+import Chainweb.Pact.Payload.PayloadStore
+import Chainweb.Pact.Payload.PayloadStore.RocksDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.BlockHeight
+import Chainweb.Parent
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
@@ -53,18 +54,14 @@ data TestBlockDb = TestBlockDb
   , _bdbCut :: MVar Cut
   }
 
-instance HasChainwebVersion TestBlockDb where
-  _chainwebVersion = _chainwebVersion . _bdbWebBlockHeaderDb
-
 -- | Initialize TestBlockDb.
-mkTestBlockDb :: ChainwebVersion -> RocksDb -> ResourceT IO TestBlockDb
-mkTestBlockDb cv rdb = do
+mkTestBlockDb :: HasVersion => RocksDb -> ResourceT IO TestBlockDb
+mkTestBlockDb rdb = do
   testRdb <- withTestRocksDb "mkTestBlockDb" rdb
   liftIO $ do
-    wdb <- initWebBlockHeaderDb testRdb cv
+    wdb <- initWebBlockHeaderDb testRdb
     let pdb = newPayloadDb testRdb
-    initializePayloadDb cv pdb
-    initCut <- newMVar $ genesisCut cv
+    initCut <- newMVar genesisCut
     return $! TestBlockDb wdb pdb initCut
 
 -- | Initialize TestBlockDb in 'IO'. This is discouraged in most test environments.
@@ -72,13 +69,12 @@ mkTestBlockDb cv rdb = do
 --
 --   Take care to call 'deleteNamespaceRocksDb' on the 'RocksDb' that this returns
 --   in between test runs.
-mkTestBlockDbIO :: ChainwebVersion -> RocksDb -> IO (T2 TestBlockDb RocksDb)
-mkTestBlockDbIO v rdb = do
+mkTestBlockDbIO :: HasVersion => RocksDb -> IO (T2 TestBlockDb RocksDb)
+mkTestBlockDbIO rdb = do
   testRdb <- testRocksDb "mkTestBlockDbIO" rdb
-  wdb <- initWebBlockHeaderDb testRdb v
+  wdb <- initWebBlockHeaderDb testRdb
   let pdb = newPayloadDb testRdb
-  initializePayloadDb v pdb
-  initCut <- newMVar $ genesisCut v
+  initCut <- newMVar genesisCut
   return $! T2 (TestBlockDb wdb pdb initCut) testRdb
 
 -- | Add a block.
@@ -87,7 +83,8 @@ mkTestBlockDbIO v rdb = do
 -- the chain is blocked. Retry with another chain!
 --
 addTestBlockDb
-    :: TestBlockDb
+    :: HasVersion
+    => TestBlockDb
     -> BlockHeight
     -> Nonce
     -> GenBlockTime
@@ -113,18 +110,18 @@ addTestBlockDb (TestBlockDb wdb pdb cmv) bh n gbt cid outs = do
     Left e -> throwM $ userError ("addTestBlockDb: " <> show e)
 
 -- | Get header for chain on current cut.
-getParentTestBlockDb :: TestBlockDb -> ChainId -> IO BlockHeader
+getParentTestBlockDb :: TestBlockDb -> ChainId -> IO (Parent BlockHeader)
 getParentTestBlockDb (TestBlockDb _ _ cmv) cid = do
   c <- readMVar cmv
   fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $
-    HM.lookup cid $ _cutMap c
+    Parent <$> HM.lookup cid (_cutMap c)
 
 -- | Get header for chain on current cut.
-getParentBlockTestBlockDb :: TestBlockDb -> ChainId -> IO Block
+getParentBlockTestBlockDb :: TestBlockDb -> ChainId -> IO (Parent Block)
 getParentBlockTestBlockDb tdb cid = do
-  bh <- getParentTestBlockDb tdb cid
+  Parent bh <- getParentTestBlockDb tdb cid
   pwo <- fromJuste <$> lookupPayloadWithHeight (_bdbPayloadDb tdb) (Just $ view blockHeight bh) (view blockPayloadHash bh)
-  return Block
+  return $ Parent Block
     { _blockHeader = bh
     , _blockPayloadWithOutputs = pwo
     }
@@ -136,6 +133,6 @@ setCutTestBlockDb :: TestBlockDb -> Cut -> IO ()
 setCutTestBlockDb (TestBlockDb _ _ cmv) c = void $ swapMVar cmv c
 
 -- | Convenience accessor
-getBlockHeaderDb :: MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb
+getBlockHeaderDb :: HasVersion => MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb
 getBlockHeaderDb cid (TestBlockDb wdb _ _) =
   getWebBlockHeaderDb wdb cid

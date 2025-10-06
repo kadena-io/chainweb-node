@@ -73,6 +73,7 @@ import Data.LogMessage
 import Data.PQueue
 
 import P2P.Peer
+import P2P.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -204,8 +205,10 @@ session_ limit q logFun env = E.mask $ \restore -> do
                 return False
             | otherwise -> do
                 logg task' Warn
-                    $ "task finally failed: " <> sshow attempts
-                    <> ", limit: " <> sshow limit
+                    $ "task finally failed"
+                    <> "; attempts: " <> sshow attempts
+                    <> "; limit: " <> sshow limit
+                    <> "; failure: " <> displayClientError e
                 putResult (_taskResult task') $! Left $! _taskFailures task'
 
     logg task l m = logFun @T.Text l $ sshow (_taskId task) <> ": " <> m
@@ -217,3 +220,4 @@ session_ limit q logFun env = E.mask $ \restore -> do
         True -> return True
         False -> isRight <$> awaitIVar var
             -- note that the var won't change it's value once it is filled
+

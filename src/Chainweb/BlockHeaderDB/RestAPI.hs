@@ -84,14 +84,11 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
-, BlocksApi
-, BranchBlocksApi
 ) where
 
 import Data.Aeson
 import Data.Bifunctor
 import Data.ByteString.Lazy qualified as L
-import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 
@@ -100,12 +97,12 @@ import Network.HTTP.Media ((//), (/:))
 import Servant.API
 
 -- internal modules
-import Chainweb.Block
+import Chainweb.Pact.Block
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
@@ -122,19 +119,19 @@ type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 
 -- because this endpoint is only used on the service API, we assume clients
 -- want object-encoded block headers.
-blockProperties :: KeyValue e kv => Block -> [kv]
+blockProperties :: (HasVersion, KeyValue e kv) => Block -> [kv]
 blockProperties o =
     [ "header"  .= ObjectEncoded (_blockHeader o)
     , "payloadWithOutputs" .= _blockPayloadWithOutputs o
     ]
 
-instance ToJSON Block where
+instance HasVersion => ToJSON Block where
     toJSON = object . blockProperties
     toEncoding = pairs . mconcat . blockProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON Block where
+instance HasVersion => FromJSON Block where
     parseJSON = withObject "Block" $ \o -> Block
         <$> (_objectEncoded <$> o .: "header")
         <*> o .: "payloadWithOutputs"
@@ -158,7 +155,7 @@ instance MimeRender OctetStream BlockHeader where
     {-# INLINE mimeRender #-}
 
 -- | Orphan instance to encode pages of blocks as JSON
-instance MimeRender JSON BlockPage where
+instance HasVersion => MimeRender JSON BlockPage where
     mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
@@ -175,23 +172,24 @@ data JsonBlockHeaderObject
 instance Accept JsonBlockHeaderObject where
     contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeader where
+instance HasVersion => MimeUnrender JsonBlockHeaderObject BlockHeader where
     mimeUnrender _ = second _objectEncoded . eitherDecode
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender JsonBlockHeaderObject BlockHeader where
+instance HasVersion => MimeRender JsonBlockHeaderObject BlockHeader where
     mimeRender _ = encode . ObjectEncoded
     {-# INLINE mimeRender #-}
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
+instance HasVersion => MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
     mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
+instance HasVersion => MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
     {-# INLINE mimeRender #-}
 
 -- -------------------------------------------------------------------------- --
+-- TODO: this instance do *not* belong here
 
 instance MimeRender OctetStream BlockPayload where
     mimeRender _ = L.fromStrict . encodeBlockPayloads
@@ -274,10 +272,10 @@ data SomeBlockHeaderDb = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => SomeBlockHeaderDb (BlockHeaderDb_ v c)
 
-someBlockHeaderDbVal :: ChainwebVersion -> ChainId -> BlockHeaderDb -> SomeBlockHeaderDb
-someBlockHeaderDbVal v cid db = case someChainwebVersionVal v of
-     (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
-         (SomeChainIdT (Proxy :: Proxy cidt)) -> SomeBlockHeaderDb (BlockHeaderDb_ @vt @cidt db)
+someBlockHeaderDbVal :: HasVersion => ChainId -> BlockHeaderDb -> SomeBlockHeaderDb
+someBlockHeaderDbVal cid db = case someChainwebVersionVal of
+    SomeChainwebVersionT (Proxy :: Proxy vt) -> case someChainIdVal cid of
+        SomeChainIdT (Proxy :: Proxy cidt) -> SomeBlockHeaderDb (BlockHeaderDb_ @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Query Parameters
@@ -468,47 +466,14 @@ p2pHeaderApi
 p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type BlocksApi_
-    = "block"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockPage
-
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/block@
---
--- Returns blocks in the block header tree database in ascending order
--- with respect to the children relation.
---
--- Note that for blocks on different branches, the order isn't determined.
--- Therefore a block of higher block height can be returned before a block of
--- lower block height.
---
-type BlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BlocksApi_
-
--- -------------------------------------------------------------------------- --
-type BranchBlocksApi_
-    = "block" :> "branch"
-    :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] BlockPage
-
-type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchBlocksApi_
-
--- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
-    :<|> BlocksApi v c
     :<|> HeaderApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
-    :<|> BranchBlocksApi v c
 
 -- | Restricted P2P BlockHeader DB API
 --
@@ -522,41 +487,37 @@ type P2pBlockHeaderDbApi v c
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
-    , _huPayloadWithOutputs :: !(Maybe PayloadWithOutputs)
-    , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
     }
     deriving (Show, Eq)
 
-headerUpdateProperties :: KeyValue e kv => HeaderUpdate -> [kv]
+headerUpdateProperties :: HasVersion => KeyValue e kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
     [ "header"  .= _huHeader o
-    , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
-    ] <> concatMap maybeToList
-    [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
 
-instance ToJSON HeaderUpdate where
+instance HasVersion => ToJSON HeaderUpdate where
     toJSON = object . headerUpdateProperties
     toEncoding = pairs . mconcat . headerUpdateProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON HeaderUpdate where
+instance HasVersion => FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
-        <*> o .:? "payloadWithOutputs"
-        <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
 type BlockStreamApi_ =
-    "block" :> "updates" :> Raw :<|>
+    -- FIXME: the block API endpoint should be part of the payload provider.
+    -- Consensus has no access to the payload data
+    -- "block" :> "updates" :> Raw :<|>
+
     "header" :> "updates" :> Raw
 
 -- | A stream of all new blocks that are accepted into the true `Cut`.

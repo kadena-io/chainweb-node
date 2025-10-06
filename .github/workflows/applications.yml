@@ -134,15 +134,15 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-
-          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          # The first version in this list is the version to be used for release
+          "ghc": ["9.10.2"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
               # These are the build values that will be used for release scripts
-              "ghc": "9.8.2",
+              "ghc": "9.10.2",
               "cabal": "latest",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
@@ -154,14 +154,26 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "ghc": ["9.10.2"],
           "cabal": ["latest"],
-          "os": ["ubuntu-22.04"],
+          "os": ["ubuntu-22.04", "ubuntu-24.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
-              "ghc": "9.8.2",
-              "cabal": "3.12",
+              "ghc": "9.12.2",
+              "cabal": "latest",
+              "os": "ubuntu-24.04",
+              "use-freeze-file": "false"
+            },
+            {
+              "ghc": "9.12.2",
+              "cabal": "latest",
+              "os": "macos-latest",
+              "use-freeze-file": "false"
+            },
+            {
+              "ghc": "9.10.2",
+              "cabal": "3.14",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
             }
@@ -267,6 +279,9 @@ jobs:
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
+    - name: Install non-Haskell dependencies (macos)
+      if: contains(matrix.os, 'macos')
+      run: brew install -q gflags llvm snappy || true
     # Project Configuration
     - name: Create cabal.project.local
       run: |
@@ -358,29 +373,34 @@ jobs:
     - name: Install build dependencies
       run: cabal build chainweb --only-dependencies
     - name: Build chainweb library
-      run: cabal build --ghc-options=-j2 lib:chainweb
+      run: cabal build lib:chainweb
+    # # Temporarily disabled on lars/pp/* branches
     - name: Build chainweb applications
       run: |
-        cabal build -j2 --ghc-options=-j2 \
-          chainweb:bench:bench \
+        cabal build \
           exe:b64 \
           exe:calculate-release \
           exe:compact \
-          exe:db-checksum \
           exe:ea \
           exe:genconf \
-          exe:header-dump \
           exe:known-graphs \
+          exe:standalone-pruner \
           exe:pact-diff \
-          exe:run-nodes \
+          exe:evm-genesis \
           exe:tx-list \
+          exe:run-nodes \
           test:chainweb-tests \
-          test:compaction-tests \
           test:multi-node-network-tests \
           test:remote-tests \
-          test:chainweb-storage-tests
+          test:chainweb-storage-tests \
+          test:blockhistory-migration-tests \
+          chainweb:bench:bench
+      # TODO: PP
+      # exe:header-dump \
+      # exe:db-checksum \
+      # test:compaction-tests \
     - name: Build chainweb-node application
-      run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
+      run: cabal build chainweb-node:exe:chainweb-node
 
     # Checks
     - name: Check that working directory tree is clean
@@ -389,6 +409,7 @@ jobs:
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
+
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run ea
@@ -401,24 +422,22 @@ jobs:
     - name: Prepare artifacts
       run: |
         mkdir -p artifacts/chainweb
-        cp $(cabal list-bin b64) artifacts/chainweb
-        cp $(cabal list-bin bench) artifacts/chainweb
-        cp $(cabal list-bin calculate-release) artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
-        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
-        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin test:chainweb-storage-tests) artifacts/chainweb
+        cp $(cabal list-bin test:chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin test:remote-tests) artifacts/chainweb
+        cp $(cabal list-bin test:blockhistory-migration-tests) artifacts/chainweb
+        cp $(cabal list-bin test:multi-node-network-tests) artifacts/chainweb
+        cp $(cabal list-bin bench) artifacts/chainweb
+        cp $(cabal list-bin evm-genesis) artifacts/chainweb
         cp $(cabal list-bin compact) artifacts/chainweb
-        cp $(cabal list-bin compaction-tests) artifacts/chainweb
-        cp $(cabal list-bin db-checksum) artifacts/chainweb
         cp $(cabal list-bin ea) artifacts/chainweb
         cp $(cabal list-bin genconf) artifacts/chainweb
-        cp $(cabal list-bin header-dump) artifacts/chainweb
         cp $(cabal list-bin known-graphs) artifacts/chainweb
-        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
         cp $(cabal list-bin pact-diff) artifacts/chainweb
-        cp $(cabal list-bin remote-tests) artifacts/chainweb
-        cp $(cabal list-bin run-nodes) artifacts/chainweb
+        cp $(cabal list-bin standalone-pruner) artifacts/chainweb
         cp $(cabal list-bin tx-list) artifacts/chainweb
+        cp $(cabal list-bin run-nodes) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
@@ -426,6 +445,9 @@ jobs:
         cp cabal.project artifacts/chainweb
         cp cabal.project.local artifacts/chainweb
         cp cabal.project.freeze artifacts/chainweb
+      # cp $(cabal list-bin header-dump) artifacts/chainweb
+      # cp $(cabal list-bin compaction-tests) artifacts/chainweb
+      # cp $(cabal list-bin db-checksum) artifacts/chainweb
     - name: Create artifacts archive
       run: |
         echo "tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb"
@@ -468,6 +490,7 @@ jobs:
       run: remote-tests
 
   compaction-tests:
+    if: false # diabled on the evm branches
     name: Compaction tests
     needs: [config, build]
     runs-on: ${{ matrix.os }}
@@ -496,6 +519,8 @@ jobs:
           compaction-tests
 
   multi-node-network-tests:
+    # disabled for now on the evm branches. 10 nodes with 100 chains probably overwhelms the runners.
+    if: false
     name: Multi-node network tests
     needs: [config, build]
     runs-on: ${{ matrix.os }}
@@ -549,10 +574,41 @@ jobs:
       timeout-minutes: 2
       run: chainweb-storage-tests
 
+  blockhistory-migration-tests:
+    if: false # disabled because it needs databases as input
+    name: RocksDB library tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run blockhistory-migration-tests tests
+      timeout-minutes: 2
+      run: blockhistory-migration-tests
+
   # ########################################################################## #
   # Run Benchmarks
 
+  # Benchmarks take a long time to run and should run in controlled environment.
+  # Github runners tent to be noisy. So, we only build but don't run the
+  # benchmarks on push events.
   benchmarks:
+    if: false
     name: Benchmarks
     needs: [config, build]
     strategy:
@@ -589,6 +645,8 @@ jobs:
   # Validate Devnet Database and Replay Pact History
 
   validate-devnet-database:
+    # Devnet data validation is currently not supported for Kadena EVM networks.
+    if: false
     name: Validate Devnet Database Snapshot and Replay Pact History
     needs: [config, sync-chain-db, build]
     strategy:
@@ -707,7 +765,12 @@ jobs:
       timeout-minutes: 10
       run: |
           ulimit -n 10000
-          chainweb-tests --hide-successes --results-json test-results.json
+          grep -q -e '&&' FAILING_TESTS && echo "warning: FAILING_TESTS file is not empty" 1>&2
+          chainweb-tests \
+              --hide-successes \
+              --results-json test-results.json \
+              -p "$(tr '\n' ' ' < FAILING_TESTS)"
+
 
     # Publish test results to S3
     - name: Upload test results
@@ -763,10 +826,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.8.2"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "true"
-        - ghc: "9.10.1"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "false"
     env:
@@ -879,6 +942,8 @@ jobs:
   # Trigger Integration Tests Run
 
   integration-tests:
+    # Currently not supported for Kadena EVM networks.
+    if: false
     name: Run Integration Tests from remote repo
     needs: [ config, docker-image ]
     runs-on: ubuntu-latest

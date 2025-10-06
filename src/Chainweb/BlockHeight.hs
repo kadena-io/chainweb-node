@@ -37,19 +37,14 @@ module Chainweb.BlockHeight
 ) where
 
 import Control.DeepSeq
-
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
+import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Data.Aeson
 import Data.Hashable
 import Data.Word
-
 import GHC.Generics (Generic)
-
--- Internal imports
-
-import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
-import Chainweb.Utils.Serialization
-
 import Numeric.Additive
 
 -- -------------------------------------------------------------------------- --
@@ -62,7 +57,9 @@ newtype BlockHeight = BlockHeight { getBlockHeight :: Word64 }
         ( Hashable, ToJSON, FromJSON
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , Num, Integral, Real, Enum, Bounded
+        , HasTextRepresentation
         )
+
 instance Show BlockHeight where show (BlockHeight b) = show b
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockHeight where

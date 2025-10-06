@@ -66,13 +66,8 @@ import Utils.Logging.Config
 --
 newtype ClusterId = ClusterId T.Text
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (IsString, ToJSON, FromJSON)
+    deriving newtype (IsString, ToJSON, FromJSON, HasTextRepresentation)
     deriving anyclass (NFData)
-
-instance HasTextRepresentation ClusterId where
-    toText (ClusterId t) = t
-    fromText = return . ClusterId
-
 
 -- | General logging config
 --

@@ -49,6 +49,7 @@ module Chainweb.Storage.Table
   , tableLookupM
   , casLookupM
   , TableException (..)
+  , NullCas(..)
   )
 where
 
@@ -76,6 +77,9 @@ class Eq (CasKeyType v) => IsCasValue v where
     type CasKeyType v
     casKey :: v -> CasKeyType v
 
+-- -------------------------------------------------------------------------- --
+-- Readble Stores
+
 -- | Read-Only View of a Key-Value Store
 --
 class ReadableTable t k v | t -> k v where
@@ -94,11 +98,18 @@ type ReadableTable1 t = forall k v. ReadableTable (t k v) k v
 class ReadableTable t k v => Table t k v | t -> k v where
     tableInsert :: t -> k -> v -> IO ()
     tableInsertBatch :: t -> [(k, v)] -> IO ()
-    tableInsertBatch t kvs = traverse_ (uncurry (tableInsert t)) kvs
+    tableInsertBatch t = traverse_ (uncurry (tableInsert t))
     tableDelete :: t -> k -> IO ()
     tableDeleteBatch :: t -> [k] -> IO ()
-    tableDeleteBatch t ks = traverse_ (tableDelete t) ks
+    tableDeleteBatch t = traverse_ (tableDelete t)
 type Table1 t = forall k v. Table (t k v) k v
+
+data NullCas k v = NullCas
+instance ReadableTable (NullCas k v) k v where
+    tableLookup _ _ = return Nothing
+
+-- -------------------------------------------------------------------------- --
+-- Writeable Stores
 
 type Cas t v = Table t (CasKeyType v) v
 
@@ -113,6 +124,9 @@ casDelete t = tableDelete t . casKey
 
 casDeleteBatch :: (IsCasValue v, Cas t v) => t -> [v] -> IO ()
 casDeleteBatch t = tableDeleteBatch t . fmap casKey
+
+-- -------------------------------------------------------------------------- --
+-- Iterable Stores
 
 class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> i k v where
     -- the created iterator must be positioned at the start of the table.
@@ -132,14 +146,17 @@ class Iterator i k v | i -> k v where
     iterPrev :: i -> IO ()
     iterEntry :: i -> IO (Maybe (Entry k v))
     iterKey :: i -> IO (Maybe k)
-    iterKey i = (fmap . fmap) (\(Entry k _) -> k) $ iterEntry i
+    iterKey i = fmap (\(Entry k _) -> k) <$> iterEntry i
     iterValue :: i -> IO (Maybe v)
-    iterValue i = (fmap . fmap) (\(Entry _ v) -> v) $ iterEntry i
+    iterValue i = fmap (\(Entry _ v) -> v) <$> iterEntry i
     iterValid :: i -> IO Bool
     iterValid i = isJust <$> iterKey i
 type Iterator1 i = forall k v. Iterator (i k v) k v
 
 type CasIterator i v = Iterator i (CasKeyType v) v
+
+-- -------------------------------------------------------------------------- --
+-- Utils
 
 -- | A newtype wrapper that takes only a single type constructor. This useful in
 -- situations where a Higher Order type constructor for a CAS is required. A
