@@ -1363,46 +1363,25 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                     -- validate all payloads together before sending them to the
                     -- EVM and inserting them into the DB.
 
-                    -- FIXME FIXME FIXME
-                    -- We also must make sure that the EVM has synced all
-                    -- payloads that are known to the payload provider. Normally
-                    -- that happens at startup. However, at startup that happens
-                    -- only up to the latest. But there is no guarantee that the
-                    -- latest cut isn't behind the latest known payload of the
-                    -- provider (e.g. when the cut got reset). In those cases it
-                    -- can happen that during catchup we encounter blocks that
-                    -- are known to the provider but not yet to the EVM.
-                    --
-                    -- What can we do?
-                    -- - We can just proceed and update the evm (updateEvm) in
-                    --   case validatePayload times out (SYNCING).
-                    -- - We can keep track of the latest state of the EVM.
-                    -- - We can check each time the latest state of the EVM.
-                    -- - We can always update the the EVM, which should be fast
-                    --   if is is already in sync, though it would still be a
-                    --   network roundtrip.
-                    -- - Altenatively, we can make sure that the forkpoint
-                    --   reflects the state of the EVM and not the state of the
-                    --   payload provider. However, that could mean that we
-                    --   revalidate blocks that we did validate before.
-                    --
-                    -- The first option is somewhat inefficient on long catchups
-                    -- with small per chain chunks sizes.
-                    --
-                    -- For now we try the second option:
 
-                    -- Check that the last known is known to the EVM according
-                    -- to the current EVM state.
-
-                    -- FIXME: the ForkInfo trace is based on the forkpoint with
-                    -- the payload provider (and not the EVM state). Therefore
-                    -- the knowns may not contain what we expect, in particular
-                    -- they are likely just empty (because the forkpoint is the
-                    -- last known payload provider block).
+                    -- Before we proceed to the validation we need to make sure
+                    -- that the EVM has synced all payloads that are known to
+                    -- the payload provider. Normally that happens at startup.
+                    -- However, at startup that happens only up to the latest
+                    -- cut. But there is no guarantee that the latest cut isn't
+                    -- behind the latest known payload of the provider (e.g.
+                    -- when the cut got reset). In those cases it can happen
+                    -- that during catchup we encounter blocks that are known to
+                    -- the provider but not yet to the EVM. To resolve this we
+                    -- check that the last known payload is known to the EVM
+                    -- according to the current EVM state.
                     --
-                    -- So, this check fails and we skip the updateEvm call. The
-                    -- correct approach is to call evmUpdate whenever the first
+                    -- The ForkInfo trace is based on the forkpoint with the
+                    -- payload provider and not the EVM state. Therefore when
+                    -- the EVM state is behind we need to advance the EVM to the
+                    -- fork point first. We call evmUpdate whenever the first
                     -- trace entry is ahead of the evm state.
+                    --
                     case unknowns of
                         (firstUnknown:_) -> do
                             let lastKnownPayloadHash = case reverse knowns of
@@ -1439,38 +1418,52 @@ evmSyncToBlock p hints forkInfo = withLock (_evmLock p) $ do
                                 updateEvm p lastKnownConsensusState Nothing []
                         _ -> return ()
 
+                    -- If we have more than one unknown we first try to fetch
+                    -- all payloads in a batch and inject them into the
+                    -- candidate store. This will insert them into the candidate
+                    -- table. After this the getPayloadForContext call below
+                    -- should be not hit the network any more. This is currently
+                    -- only beneficial when synchronizing long forks or a with a
+                    -- consensus that is ahead, like during replay or
+                    -- reinitialization of the payload provider.
+                    --
+                    when (length unknowns > 1) $
+                        void $ getPayloadsForConsensusPayloads p hints
+                            (_evaluationCtxRankedPayload <$> unknowns)
 
-                    -- TODO should be fetch as a batch? we did that already
-                    -- during prefetch. So, not sure if it makes sense to try it
-                    -- here again.
                     plds <- forM unknowns $ \ctx -> do
                         pld <- getPayloadForContext p hints ctx
 
-                        -- FIXME FIXME FIXME
-                        --
                         -- The follwoing can result in timeouts. Even on empty
-                        -- blocks. But why? Well, see the comment above!
+                        -- blocks. But why? Well, see the comment about
+                        -- synchronizing the EVM with the payload provider
+                        -- above!
                         --
-                        -- It seems that it is a problem when we have a header
-                        -- in the payload db (we know it) but the EVM does not
-                        -- yet know about it. That's a corner case that can
-                        -- happen when syncing after the EVM and the payload
-                        -- provider got out of sync. In those cases it is
-                        -- probably the best to update the EVM first. Normally,
-                        -- that happens at startup, but iwhen the cut got reset,
-                        -- the payload provider may know validated blocks beyond
-                        -- the latest cut. Whe consensus moves the cut beyond
-                        -- the latest block that is known to the EVM, but the
-                        -- payload provider already knows those blocks we get
-                        -- into situation where the blocks in the fork info
-                        -- trace do not cover the missing blocks in the EVM.
+                        -- The issue is when we have a header in the payload db
+                        -- (we know it) but the EVM does not yet know about it.
+                        -- That's a corner case that can happen when syncing
+                        -- after the EVM and the payload provider got out of
+                        -- sync. In those cases it is the best to update the EVM
+                        -- first. Normally, that happens at startup, but when
+                        -- the cut got reset, the payload provider may know
+                        -- validated blocks beyond the latest cut. Whe consensus
+                        -- moves the cut beyond the latest block that is known
+                        -- to the EVM, but the payload provider already knows
+                        -- those blocks we get into a situation where the blocks
+                        -- in the fork info trace do not cover the missing
+                        -- blocks in the EVM.
                         --
-                        -- Can we skip the newPayload call in it -- at least
-                        -- sometimes? If we instruct the EVM to just go to those
-                        -- blocks it will sync all by itself. However, we still
-                        -- must guarantee that we validated the Chainweb Merkle
-                        -- root of all payloads that the payload provider knows
-                        -- about.
+                        -- At the moment this is solved by the code above that
+                        -- calls updateEvm to move the EVM state up to the last
+                        -- unknown block in the trace.
+                        --
+                        -- Can we skip the newPayload call during validation --
+                        -- at least sometimes? If we instruct the EVM to just go
+                        -- to those blocks it will sync all by itself. However,
+                        -- we still must guarantee that we validated the
+                        -- Chainweb Merkle root of all payloads that the payload
+                        -- provider knows about.
+                        --
                         validatePayload p pld ctx
                         return (_evaluationCtxRankedPayloadHash ctx, pld)
 

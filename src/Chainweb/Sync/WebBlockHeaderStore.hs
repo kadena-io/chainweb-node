@@ -436,27 +436,28 @@ getBlockHeaderInternal
                 ConfiguredPayloadProvider provider -> do
 
                     -- FIXME:
-                    -- It is is not clear if this is useful, since we prefetch
-                    -- just a single payload here. It would be more useful to
-                    -- do this after we discover the fork point and have a
-                    -- longer list of payloads to prefetch.
+                    -- It is is not clear how useful this is, since we prefetch
+                    -- just a single payload here. In theory we could make an
+                    -- educated guess here about what else might be missing. But
+                    -- there are better strategies for that.
                     --
-                    -- In theory we could make an educated guess here about what
-                    -- else might be missing. But there might be better
-                    -- strategies for that.
+                    -- For an efficient prefetch we would have to do a full fork
+                    -- resolution. After we discover the fork point we would
+                    -- have the full list of payloads to prefetch. But at the
+                    -- moment we cannot do that because we don't yet have the
+                    -- required consensus headers available.
                     --
-                    -- FIXME: at the moment we fetch payloads in batches during
-                    -- fork info resolution. This would be redudant and probably
-                    -- not beneficial if we already scheduled individual
-                    -- prefetches here.
+                    -- So, the proper solution is to implement batched header
+                    -- prefetching based on the current fork height and the
+                    -- height of the target header. After that we can also
+                    -- prefetch the payloads of those headers in a single batch.
                     --
-                    -- An alternative would be if prefetch would trigger full
-                    -- fork info resultion. But at the moment it can't because
-                    -- we don't yet have th required consensus headers
-                    -- available.
+                    -- Another option would be to provide an API that allows
+                    -- fetching payloads from the canonical chain based on
+                    -- height.
                     --
-                    -- prefetchPayloads provider hints
-                    --     [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
+                    prefetchPayloads provider hints
+                        [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
                     return ()
                 DisabledPayloadProvider -> return ()
 
