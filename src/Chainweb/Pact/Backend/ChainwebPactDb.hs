@@ -131,7 +131,7 @@ import Pact.Core.Serialise qualified as Pact
 import Pact.Core.StableEncoding (encodeStable)
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (encodeBlockPayloadHash, decodeBlockPayloadHash, BlockPayloadHash)
+import Chainweb.BlockHeader (encodeBlockPayloadHash, BlockPayloadHash)
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
@@ -139,9 +139,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.SPV (pactSPV)
 import Chainweb.Parent
-import Chainweb.PayloadProvider (ConsensusState (..), SyncState (..))
-import Chainweb.Utils (sshow, int, unsafeHead)
-import Chainweb.Utils.Serialization (runPutS, runGetEitherS)
+import Chainweb.Utils (sshow, unsafeHead)
+import Chainweb.Utils.Serialization (runPutS)
 import Chainweb.Version
 import Chainweb.Version.Guards (pact5Serialiser, chainweb230Pact)
 import Chainweb.Ranked
