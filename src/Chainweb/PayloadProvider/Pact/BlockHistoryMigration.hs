@@ -25,7 +25,6 @@ import Chainweb.Pact.Backend.PactState (qryStream)
 import Streaming qualified as S
 import Streaming.Prelude qualified as S
 import Chainweb.Utils (sshow, whenM)
-import Control.Exception.Safe
 import Chainweb.Utils.Serialization (runPutS, runGetS)
 import Data.IORef (newIORef, readIORef, modifyIORef')
 import Control.Monad

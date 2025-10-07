@@ -293,13 +293,7 @@ type AdjacentsHashSize = DigestSize AdjacentsHashAlgorithm
 newtype AdjacentsHash = AdjacentsHash (CryptoHash Sha2_512_256)
     deriving stock (Show, Generic)
     deriving anyclass (NFData)
-    deriving newtype (Eq, Ord, Hashable, ToJSON, FromJSON)
-
-instance HasTextRepresentation AdjacentsHash where
-    toText (AdjacentsHash h) = toText h
-    fromText = fmap AdjacentsHash . fromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+    deriving newtype (Eq, Ord, Hashable, ToJSON, FromJSON, HasTextRepresentation)
 
 encodeAdjacentsHash :: AdjacentsHash -> Put
 encodeAdjacentsHash (AdjacentsHash w) = encodeCryptoHash w

@@ -186,7 +186,7 @@ type BlockTransactionsHash = BlockTransactionsHash_ ChainwebMerkleHashAlgorithm
 newtype BlockTransactionsHash_ a = BlockTransactionsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving newtype (Hashable, ToJSON, FromJSON, HasTextRepresentation)
     deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockTransactionsHashTag
 
 encodeBlockTransactionsHash :: MerkleHashAlgorithm a => BlockTransactionsHash_ a -> Put
@@ -197,12 +197,6 @@ decodeBlockTransactionsHash
     => Get (BlockTransactionsHash_ a)
 decodeBlockTransactionsHash = BlockTransactionsHash <$!> decodeMerkleLogHash
 
-instance HasTextRepresentation BlockTransactionsHash where
-  toText (BlockTransactionsHash h) = toText h
-  fromText = fmap BlockTransactionsHash . fromText
-  {-# INLINE toText #-}
-  {-# INLINE fromText #-}
-
 -- -------------------------------------------------------------------------- --
 -- Block Outputs Hash
 
@@ -211,7 +205,7 @@ type BlockOutputsHash = BlockOutputsHash_ ChainwebMerkleHashAlgorithm
 newtype BlockOutputsHash_ a = BlockOutputsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving newtype (Hashable, ToJSON, FromJSON, HasTextRepresentation)
 
 encodeBlockOutputsHash :: MerkleHashAlgorithm a => BlockOutputsHash_ a -> Put
 encodeBlockOutputsHash (BlockOutputsHash w) = encodeMerkleLogHash w
@@ -227,12 +221,6 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutpu
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
-
-instance HasTextRepresentation BlockOutputsHash where
-  toText (BlockOutputsHash h) = toText h
-  fromText = fmap BlockOutputsHash . fromText
-  {-# INLINE toText #-}
-  {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Transaction

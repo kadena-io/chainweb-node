@@ -246,11 +246,11 @@ crosschainTest baseRdb step = withVersion v $ runResourceT $ do
                         [ PString "sender00"
                         , PString "sender01"
                         , PDecimal 1.0
-                        , PString (chainIdToText targetChain)
+                        , PString (toText targetChain)
                         ]
                     ]
                 ]
-            $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
+            $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> toText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
             $ defaultCmd srcChain
 
         send fx srcChain [initiator]
@@ -310,7 +310,7 @@ crosschainTest baseRdb step = withVersion v $ runResourceT $ do
                     , P.checkAll
                         [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
                         , P.fun _peArgs ? P.equals
-                            [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
+                            [PString "", PString "sender01", PDecimal 1.0, PString (toText srcChain)]
                         ]
                     , P.fun _peName ? P.equals "X_RESUME"
                     , P.succeed

@@ -99,8 +99,7 @@ deriving instance Functor HexBytes
 -- The implementation should be moved to the Ethereum.Utils
 instance HasTextRepresentation (HexQuantity Natural) where
     toText (HexQuantity a) = T.pack $ printf @(Natural -> String) "0x%x" a
-    fromText t = do
-        T.hexadecimal <$> strip0x t >>= \case
+    fromText t = T.hexadecimal <$> strip0x t >>= \case
             Right (x, "") -> return $ HexQuantity x
             Right (x, _) -> throwM $ TextFormatException
                 $ "pending characters after parsing " <> sshow x
@@ -218,12 +217,7 @@ newtype Address32 = Address32 (E.BytesN 32)
     deriving (Show, Eq, Ord)
     deriving newtype (RLP, E.Bytes, Storable)
     deriving (FromJSON, ToJSON) via (HexBytes (E.BytesN 32))
-
-instance HasTextRepresentation Address32 where
-    toText = toText . HexBytes . E.bytes
-    fromText = fmap (Address32 . fromHexBytes) . fromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+    deriving HasTextRepresentation via (HexBytes (E.BytesN 32))
 
 toAddress32
     :: E.Address
@@ -271,8 +265,8 @@ _blockValueStu (BlockValue (Wei v)) = Stu (int v)
 newtype ExecutionRequest = ExecutionRequest BS.ShortByteString
     deriving (Show, Eq, Ord)
     deriving newtype (RLP, E.Bytes, Hashable)
-    deriving ToJSON via (HexBytes (SB.ShortByteString))
-    deriving FromJSON via (HexBytes (SB.ShortByteString))
+    deriving ToJSON via (HexBytes SB.ShortByteString)
+    deriving FromJSON via (HexBytes SB.ShortByteString)
 
 -- -------------------------------------------------------------------------- --
 -- Default Block Parameter

@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Pact.Validations
 -- Copyright: Copyright © 2018,2019,2020,2021,2022 Kadena LLC.
@@ -34,32 +36,27 @@ module Chainweb.Pact.Validations
 ) where
 
 import Control.Lens
-
-import Data.Decimal (decimalPlaces)
-import Data.Maybe
-import Data.Either (isRight)
-import Data.List.NonEmpty (NonEmpty, nonEmpty)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.ByteString.Short as SBS
-import Data.Word (Word8)
-
--- internal modules
-
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
+import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Pact.Types
 import Chainweb.Parent
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
+import Chainweb.Utils (ebool_, int, HasTextRepresentation (toText))
 import Chainweb.Version
-
-import qualified Pact.Core.Command.Types as Pact
-import qualified Pact.Core.ChainData as Pact
-import qualified Pact.Core.Gas.Types as Pact
-import qualified Pact.Core.Hash as Pact
-import qualified Chainweb.Pact.Transaction as Pact
-import Chainweb.Utils (ebool_, int)
 import Chainweb.Version.Guards (maxBlockGasLimit)
+import Data.ByteString.Short qualified as SBS
+import Data.Decimal (decimalPlaces)
+import Data.Either (isRight)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.Maybe
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Word (Word8)
 import Numeric.Natural
+import Pact.Core.ChainData qualified as Pact
+import Pact.Core.Command.Types qualified as Pact
+import Pact.Core.Gas.Types qualified as Pact
+import Pact.Core.Hash qualified as Pact
 
 
 -- | Check whether a local Api request has valid metadata
@@ -115,7 +112,7 @@ assertPreflightMetadata env cmd@(Pact.Command pay sigs hsh) blockCtx sigVerify =
 -- chainweb node structure
 --
 assertChainId :: ChainId -> Pact.ChainId -> Bool
-assertChainId cid0 cid1 = chainIdToText cid0 == Pact._chainId cid1
+assertChainId cid0 cid1 = toText cid0 == Pact._chainId cid1
 
 -- | Check and assert that 'GasPrice' is rounded to at most 12 decimal
 -- places.

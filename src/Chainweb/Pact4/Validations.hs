@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,37 +43,32 @@ module Chainweb.Pact4.Validations
 , defaultLenientTimeSlop
 ) where
 
-import Control.Lens
-
-import Data.Decimal (decimalPlaces)
-import Data.Bifunctor (first)
-import Data.Maybe (isJust, catMaybes, fromMaybe)
-import Data.Either (isRight)
-import Data.List.NonEmpty (NonEmpty, nonEmpty)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.ByteString.Short as SBS
-import Data.Word (Word8)
-
--- internal modules
-
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
-import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Pact4.Transaction
+import Chainweb.Parent
+import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
+import Chainweb.Utils (ebool_, int, fromTextM, HasTextRepresentation (toText))
 import Chainweb.Version
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
-
-import qualified Pact.Types.Gas as P
-import qualified Pact.Types.Hash as P
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Types.KeySet as P
-import qualified Pact.Parse as P
-import Chainweb.Utils (ebool_, int)
-import Chainweb.Parent
-import qualified Pact.Core.Gas.Types as Pact5
+import Control.Lens
+import Data.Bifunctor (first)
+import Data.ByteString.Short qualified as SBS
+import Data.Decimal (decimalPlaces)
+import Data.Either (isRight)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.Maybe (isJust, catMaybes, fromMaybe)
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Word (Word8)
+import Pact.Core.Gas.Types qualified as Pact5
+import Pact.Parse qualified as P
+import Pact.Types.ChainId qualified as P
+import Pact.Types.ChainMeta qualified as P
+import Pact.Types.Command qualified as P
+import Pact.Types.Gas qualified as P
+import Pact.Types.Hash qualified as P
+import Pact.Types.KeySet qualified as P
 
 
 -- | Check whether a local Api request has valid metadata
@@ -125,7 +121,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) bctx sigVerify serviceEnv =
 -- | Check whether a particular Pact chain id is parseable
 --
 assertParseChainId :: P.ChainId -> Bool
-assertParseChainId (P.ChainId cid) = isJust $ chainIdFromText cid
+assertParseChainId (P.ChainId cid) = isJust $ fromTextM @_ @ChainId cid
 
 -- | Check whether the chain id defined in the metadata of a Pact/Chainweb
 -- command payload matches a given chain id.
@@ -134,7 +130,7 @@ assertParseChainId (P.ChainId cid) = isJust $ chainIdFromText cid
 -- chainweb node structure
 --
 assertChainId :: ChainId -> P.ChainId -> Bool
-assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
+assertChainId cid0 cid1 = toText cid0 == P._chainId cid1
 
 -- | Check and assert that 'GasPrice' is rounded to at most 12 decimal
 -- places.

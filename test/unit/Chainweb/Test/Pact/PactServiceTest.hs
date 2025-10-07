@@ -327,7 +327,7 @@ testNewBlockExcludesInvalid baseRdb = withVersion v $ runResourceT $ do
                 ]
             }
 
-        badChain <- buildCwCmd $ transferCmd 1.0 & set cbChainId (chainIdToText $ unsafeChainId 1)
+        badChain <- buildCwCmd $ transferCmd 1.0 & set cbChainId (toText $ unsafeChainId 1)
 
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph -> do
             mempoolInsert fixture chain0 Mempool.CheckedInsert [regularTx1]

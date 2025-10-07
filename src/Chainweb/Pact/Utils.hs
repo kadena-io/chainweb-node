@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -29,31 +30,21 @@ module Chainweb.Pact.Utils
     ) where
 
 import Data.Aeson
-import qualified Data.Text as T
-
+import Data.Text qualified as T
 import Control.Monad.Catch
-
--- import Pact.Parse
--- import qualified Pact.Types.ChainId as P
--- import qualified Pact.Types.Term as P
--- import Pact.Types.ChainMeta
--- import Pact.Types.KeySet (ed25519HexFormat)
-
-import qualified Pact.JSON.Encode as J
-
--- Internal modules
-
+import Pact.JSON.Encode qualified as J
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Payload
 import Chainweb.Time
-import qualified Pact.Core.ChainData as P
-import qualified Pact.Core.Guards as P
+import Pact.Core.ChainData qualified as P
+import Pact.Core.Guards qualified as P
 import Pact.Core.Guards (ed25519HexFormat)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
+import Chainweb.Utils (fromTextM)
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
-fromPactChainId (P.ChainId t) = chainIdFromText t
+fromPactChainId (P.ChainId t) = fromTextM t
 
 -- | This is the recursion principle of an 'Aeson' 'Result' of type 'a'.
 -- Similar to 'either', 'maybe', or 'bool' combinators

@@ -28,12 +28,13 @@ import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.Logger (logFunctionText, logFunctionJson)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, doesPactDbExist, withChainDb, allChains)
-import Chainweb.Utils (fromText, toText)
-import Chainweb.Version (ChainwebVersion(..), withVersion, ChainId, chainIdToText)
+import Chainweb.Utils (fromTextM, toText)
+import Chainweb.Version (ChainwebVersion(..), withVersion, ChainId)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (findKnownVersion)
 import Control.Monad (forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Trans.Resource (runResourceT)
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
@@ -50,7 +51,6 @@ import Options.Applicative
 import Streaming.Prelude (Stream, Of)
 import System.Exit (exitFailure)
 import System.LogLevel (LogLevel(..))
-import Control.Monad.Trans.Resource (runResourceT)
 
 data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
@@ -114,7 +114,7 @@ main = do
                 logText Info $ case isDifferent of
                   Difference -> "[Non-empty diff]"
                   NoDifference -> "[Empty diff]"
-                logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
+                logText Info $ "[Finished chain " <> toText cid <> "]"
 
                 atomicModifyIORef' isDifferentRef $ \m -> (M.insert cid isDifferent m, ())
 
@@ -139,7 +139,7 @@ main = do
       <*> strOption (long "log-dir" <> help "Directory where logs will be placed" <> value ".")
 
     parseChainwebVersion :: Text -> ChainwebVersion
-    parseChainwebVersion = fromMaybe (error "ChainwebVersion parse failed") . (>>= findKnownVersion) . fromText
+    parseChainwebVersion = fromMaybe (error "ChainwebVersion parse failed") . (>>= findKnownVersion) . fromTextM
 
 -- | We don't include the entire rowdata in the diff, only the rowkey.
 --   This is just a space-saving measure.

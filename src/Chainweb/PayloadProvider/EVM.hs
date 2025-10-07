@@ -25,6 +25,7 @@
 
 {-# OPTIONS_GHC -Wprepositive-qualified-module #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM
@@ -148,10 +149,7 @@ pMinerAddress cid = textOption
 newtype EngineUri = EngineUri { _engineUri :: URI }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON) via (JsonTextRepresentation "EngineUri" EngineUri)
-
-instance HasTextRepresentation EngineUri where
-    toText (EngineUri u) = toText u
-    fromText = fmap EngineUri . fromText
+    deriving newtype (HasTextRepresentation)
 
 pEngineUri :: ChainId -> OptionParser EngineUri
 pEngineUri cid = textOption

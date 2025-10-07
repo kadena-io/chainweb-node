@@ -55,7 +55,7 @@ module Chainweb.Pact.Backend.PactState
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Utils (T2(..), int)
+import Chainweb.Utils (T2(..), int, HasTextRepresentation (toText))
 import Chainweb.Version
 import Chainweb.Version.Utils (chainIdsAt)
 import Control.Exception (bracket)
@@ -402,7 +402,7 @@ addChainIdLabel :: (Logger logger)
   => ChainId
   -> logger
   -> logger
-addChainIdLabel cid = addLabel ("chainId", chainIdToText cid)
+addChainIdLabel cid = addLabel ("chainId", toText cid)
 
 allChains :: HasVersion => [ChainId]
 allChains = List.sort $ F.toList $ chainIdsAt (BlockHeight maxBound)

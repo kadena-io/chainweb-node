@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,23 +43,16 @@ module Chainweb.RestAPI.NetworkID
 ) where
 
 import Configuration.Utils
-
-import Control.DeepSeq
-import Control.Monad.Catch
-
-import Data.Hashable
-import Data.Proxy
-import qualified Data.Text as T
-
-import GHC.Generics (Generic)
-import GHC.Stack (HasCallStack)
-
--- Internal imports
-
 import Chainweb.ChainId
 import Chainweb.Utils hiding (check)
-
+import Control.DeepSeq
+import Control.Monad.Catch
+import Data.Hashable
+import Data.Proxy
 import Data.Singletons
+import Data.Text qualified as T
+import GHC.Generics (Generic)
+import GHC.Stack (HasCallStack)
 
 -- -------------------------------------------------------------------------- --
 -- Network ID
@@ -77,15 +71,15 @@ data NetworkId
 --
 networkIdToText :: NetworkId -> T.Text
 networkIdToText CutNetwork = "cut"
-networkIdToText (ChainNetwork cid) = "chain/" <> chainIdToText cid
-networkIdToText (MempoolNetwork cid) = "chain/" <> chainIdToText cid <> "/mempool"
+networkIdToText (ChainNetwork cid) = "chain/" <> toText cid
+networkIdToText (MempoolNetwork cid) = "chain/" <> toText cid <> "/mempool"
 {-# INLINE networkIdToText #-}
 
 networkIdFromText :: MonadThrow m => T.Text -> m NetworkId
 networkIdFromText t = case T.split (== '/') t of
     ["cut"] -> return CutNetwork
-    ["chain", a, "mempool"] -> MempoolNetwork <$> chainIdFromText a
-    ["chain", a] -> ChainNetwork <$> chainIdFromText a
+    ["chain", a, "mempool"] -> MempoolNetwork <$> fromTextM a
+    ["chain", a] -> ChainNetwork <$> fromTextM a
     _ -> throwM $ TextFormatException $ "unrecognized network id: \"" <> t <> "\"."
 
 unsafeNetworkIdFromText :: HasCallStack => T.Text -> NetworkId

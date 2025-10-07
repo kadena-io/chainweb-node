@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,7 +18,12 @@ module Chainweb.Backup
     ) where
 
 import Control.Lens
-
+import Chainweb.ChainId
+import Chainweb.Logger
+import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Utils
+import Chainweb.Version (HasVersion)
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
@@ -25,24 +31,15 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Data.HashSet(HashSet)
 import Data.String
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Encoding qualified as TL
+import Pact.Types.SQLite
+import Servant
 import System.Directory
 import System.FilePath
 import System.LogLevel
-
-import Pact.Types.SQLite
-import Servant
-
-import Chainweb.ChainId
-import Chainweb.Logger
-import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
-import Chainweb.Utils
-
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Version (HasVersion)
 
 data BackupOptions = BackupOptions
     { _backupIdentifier :: !FilePath
@@ -103,10 +100,10 @@ makeBackup env options = do
             forConcurrently_ (_backupChainIds env) $ \cid -> runResourceT $ do
                 db <- withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False
                 liftIO $ void $ qry db
-                    ("VACUUM main INTO ?")
+                    "VACUUM main INTO ?"
                     [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
                     []
-            logCr Info $ "pact databases backed up"
+            logCr Info "pact databases backed up"
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
 checkBackup env name = do
@@ -115,6 +112,6 @@ checkBackup env name = do
     exists <- doesFileExist (thisBackup </> "status")
     if exists
     then
-        fmap Just . fromText =<< T.readFile (thisBackup </> "status")
+        fmap Just . fromTextM =<< T.readFile (thisBackup </> "status")
     else
         return Nothing

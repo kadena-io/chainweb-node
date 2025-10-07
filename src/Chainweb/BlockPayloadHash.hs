@@ -87,6 +87,7 @@ newtype BlockPayloadHash_ a = BlockPayloadHash (MerkleLogHash a)
     deriving anyclass (NFData)
     deriving newtype (Bytes, Hashable, ToJSON, FromJSON)
     deriving newtype (ToJSONKey, FromJSONKey)
+    deriving newtype (HasTextRepresentation)
     deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockPayloadHashTag
 
 encodeBlockPayloadHash :: MerkleHashAlgorithm a => BlockPayloadHash_ a -> Put
@@ -96,12 +97,6 @@ decodeBlockPayloadHash
     :: MerkleHashAlgorithm a
     => Get (BlockPayloadHash_ a)
 decodeBlockPayloadHash = BlockPayloadHash <$!> decodeMerkleLogHash
-
-instance MerkleHashAlgorithm a => HasTextRepresentation (BlockPayloadHash_ a) where
-  toText (BlockPayloadHash h) = toText h
-  fromText = fmap BlockPayloadHash . fromText
-  {-# INLINE toText #-}
-  {-# INLINE fromText #-}
 
 nullBlockPayloadHash :: MerkleHashAlgorithm a => BlockPayloadHash_ a
 nullBlockPayloadHash = BlockPayloadHash nullHashBytes

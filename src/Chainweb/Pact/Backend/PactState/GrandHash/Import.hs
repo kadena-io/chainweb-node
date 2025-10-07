@@ -53,6 +53,21 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Import
   where
 
 import Control.Applicative (optional)
+import Chainweb.BlockHeader (blockHash, rankedBlockHash)
+import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.ChainId (ChainId)
+import Chainweb.Logger (Logger, logFunctionText)
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState (addChainIdLabel, allChains)
+import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
+import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
+import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils qualified as PactDb
+import Chainweb.Parent
+import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
+import Chainweb.Utils (sshow, HasTextRepresentation (toText))
+import Chainweb.Version (ChainwebVersion(..), HasVersion, withVersion)
 import Control.Lens ((^?!), ix, view)
 import Control.Monad (forM_, when)
 import Data.HashMap.Strict (HashMap)
@@ -69,22 +84,6 @@ import Patience.Map qualified as P
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.Environment (setEnv)
 import System.LogLevel (LogLevel(..))
-import qualified Chainweb.Pact.Backend.Utils as PactDb
-
-import Chainweb.BlockHeader (blockHash, rankedBlockHash)
-import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
-import Chainweb.Logger (Logger, logFunctionText)
-import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (addChainIdLabel, allChains)
-import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
-import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
-import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
-import Chainweb.Pact.Backend.Types
-import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Chainweb.Utils (sshow)
-import Chainweb.Version (ChainwebVersion(..), HasVersion, withVersion)
-import Chainweb.Parent
 
 -- | Verifies that the hashes and headers match @grands@.
 --
@@ -133,7 +132,7 @@ pactVerify logger pactConns rocksDb grands = do
       P.Delta (Snapshot eHash eHeader) (Snapshot hash header) -> do
         when (header /= eHeader) $ do
           logFunctionText logger' Error $ Text.unlines
-            [ "Chain " <> chainIdToText cid
+            [ "Chain " <> toText cid
             , "Block Header mismatch"
             , "  Expected: " <> sshow (view blockHash eHeader)
             , "  Actual:   " <> sshow (view blockHash header)
@@ -141,7 +140,7 @@ pactVerify logger pactConns rocksDb grands = do
 
         when (hash /= eHash) $ do
           logFunctionText logger' Error $ Text.unlines
-            [ "Chain " <> chainIdToText cid
+            [ "Chain " <> toText cid
             , "Grand Hash mismatch"
             , "  Expected: " <> sshow eHash
             , "  Actual:   " <> sshow hash

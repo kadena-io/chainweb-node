@@ -162,5 +162,5 @@ instance MerkleHashAlgorithm a => FromJSON (MerkleLogHash a) where
 
 instance MerkleHashAlgorithm a => FromJSONKey (MerkleLogHash a) where
     fromJSONKey = FromJSONKeyTextParser
-        $ either fail return . eitherFromText
+        $ either (fail . displayException) return . fromText
     {-# INLINE fromJSONKey #-}

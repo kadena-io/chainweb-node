@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -17,24 +18,22 @@ module Chainweb.RestAPI.Backup
     ) where
 
 import Control.Concurrent.Async
+import Chainweb.Backup qualified as Backup
+import Chainweb.Logger
+import Chainweb.RestAPI.Utils
+import Chainweb.Time
+import Chainweb.Utils
+import Chainweb.Version
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Proxy
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Servant
 import System.IO.Unsafe
 import System.LogLevel
-
-import Servant
-
-import qualified Chainweb.Backup as Backup
-import Chainweb.Logger
-import Chainweb.Time
-
-import Chainweb.RestAPI.Utils
-import Chainweb.Version
 
 type BackupApi_
   =    "make-backup" :> QueryFlag "backupPact" :> PostAccepted '[PlainText] Text
@@ -87,4 +86,4 @@ someBackupServer backupEnv = case implicitVersion of
 getNextBackupIdentifier :: IO Text
 getNextBackupIdentifier = do
     Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
-    return $ microsToText (timeSpanToMicros epochToNow)
+    return $ toText (timeSpanToMicros epochToNow)

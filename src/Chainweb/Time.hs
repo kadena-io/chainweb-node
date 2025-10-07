@@ -73,15 +73,11 @@ module Chainweb.Time
 , Seconds(..)
 , secondsToTimeSpan
 , timeSpanToSeconds
-, secondsToText
-, secondsFromText
 
 -- * Micros
 , Micros(..)
 , microsToTimeSpan
 , timeSpanToMicros
-, microsToText
-, microsFromText
 
 -- * Math, constants
 , add
@@ -97,7 +93,6 @@ module Chainweb.Time
 
 import Control.DeepSeq
 import Control.Monad ((<$!>))
-import Control.Monad.Catch
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Data
@@ -105,7 +100,6 @@ import Data.Hashable (Hashable)
 import Data.Int
 import qualified Data.Memory.Endian as BA
 import Data.Ratio
-import qualified Data.Text as T
 import Data.Time
 import Data.Time.Clock.POSIX
 import Data.Time.Clock.System
@@ -179,7 +173,7 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 {-# INLINE addTimeSpan #-}
 
 divTimeSpan :: Integral a => Integral b => TimeSpan b -> a -> TimeSpan b
-divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
+divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` int s
 {-# INLINE divTimeSpan #-}
 
 -- -------------------------------------------------------------------------- --
@@ -323,6 +317,7 @@ newtype Seconds = Seconds Int64
     deriving anyclass (Hashable, NFData)
     deriving newtype (FromJSON, ToJSON)
     deriving newtype (Num, Enum, Real, Integral)
+    deriving newtype (HasTextRepresentation)
     deriving J.Encode via (J.Aeson Int64)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
@@ -332,20 +327,6 @@ secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
 timeSpanToSeconds :: Integral a => TimeSpan a -> Seconds
 timeSpanToSeconds (TimeSpan us) = Seconds $! int $ us `div` 1000000
 {-# INLINE timeSpanToSeconds #-}
-
-secondsToText :: Seconds -> T.Text
-secondsToText (Seconds s) = sshow s
-{-# INLINE secondsToText #-}
-
-secondsFromText :: MonadThrow m => T.Text -> m Seconds
-secondsFromText = fmap Seconds . treadM
-{-# INLINABLE secondsFromText #-}
-
-instance HasTextRepresentation Seconds where
-    toText = secondsToText
-    {-# INLINE toText #-}
-    fromText = secondsFromText
-    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Microseconds
@@ -357,6 +338,7 @@ newtype Micros = Micros Int64
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (ToJSON, FromJSON)
+    deriving newtype (HasTextRepresentation)
     deriving J.Encode via (J.Aeson Int64)
 
 microsToTimeSpan :: Num a => Micros -> TimeSpan a
@@ -364,19 +346,6 @@ microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond
 {-# INLINE microsToTimeSpan #-}
 
 timeSpanToMicros :: Integral a => TimeSpan a -> Micros
-timeSpanToMicros (TimeSpan us) = Micros $! int $ us
+timeSpanToMicros (TimeSpan us) = Micros $! int us
 {-# INLINE timeSpanToMicros #-}
 
-microsToText :: Micros -> T.Text
-microsToText (Micros us) = sshow us
-{-# INLINE microsToText #-}
-
-microsFromText :: MonadThrow m => T.Text -> m Micros
-microsFromText = fmap Micros . treadM
-{-# INLINABLE microsFromText #-}
-
-instance HasTextRepresentation Micros where
-    toText = microsToText
-    {-# INLINE toText #-}
-    fromText = microsFromText
-    {-# INLINABLE fromText #-}
