@@ -82,6 +82,8 @@ module Chainweb.PayloadProvider.EVM.ExecutionPayload
 , pldExpectedBlobVersionedHashes
 , _pldRequests
 , pldRequests
+, _pldRankedBlockPayloadHash
+, pldRankedBlockPayloadHash
 ) where
 
 import Chainweb.PayloadProvider.EVM.EngineAPI
@@ -98,6 +100,7 @@ import Data.Word
 import Ethereum.Misc
 import Ethereum.RLP
 import GHC.Generics (Generic)
+import Chainweb.Utils (int)
 
 -- -------------------------------------------------------------------------- --
 -- | Execution Payload Data
@@ -576,3 +579,13 @@ pldRequests :: Getter Payload (Maybe [EVM.ExecutionRequest])
 pldRequests = to _pldRequests
 {-# INLINE pldRequests #-}
 
+_pldRankedBlockPayloadHash :: Payload -> RankedBlockPayloadHash
+_pldRankedBlockPayloadHash pld = RankedBlockPayloadHash
+    { _rankedBlockPayloadHashHeight = int $ EVM._hdrNumber $ _payloadHeader pld
+    , _rankedBlockPayloadHashHash = EVM._hdrPayloadHash $ _payloadHeader pld
+    }
+{-# INLINE _pldRankedBlockPayloadHash #-}
+
+pldRankedBlockPayloadHash :: Getter Payload RankedBlockPayloadHash
+pldRankedBlockPayloadHash = to _pldRankedBlockPayloadHash
+{-# INLINE pldRankedBlockPayloadHash #-}
