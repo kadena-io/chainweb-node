@@ -193,7 +193,7 @@ module Chainweb.Utils
 , intVal_
 
 -- * Resource Management
-, concurrentWith
+, allocateConcurrently
 , withLink
 , withAsyncR
 , resourceToBracket
@@ -1377,42 +1377,28 @@ data Codec t = Codec
 -- -------------------------------------------------------------------------- --
 -- Resource Management
 
--- | Bracket style resource managment uses CPS style which only supports
--- sequential componsition of different allocation functions.
+-- | Concurrently initializes resources.
 --
--- This function is a hack that allows to allocate and deallocate several
--- resources concurrently and provide them to a single inner computation.
+-- This function is a bit of a hack that allows allocating several resources
+-- concurrently and providing them to a single inner computation.
 --
-concurrentWith
-    :: forall a b t d
+allocateConcurrently
+    :: forall a t
     . Traversable t
-    => (forall c . a -> (b -> IO c) -> IO c)
-        -- concurrent resource allocation brackets. Given a value of type @a@,
-        -- allocates a resource of type @b@, it provides the inner function with
-        -- that value, and returns the result of the inner computation.
-    -> (t b -> IO d)
-        -- inner computation
-    -> t a
-        -- traversable that provides parameters to instantiate the resource
-        -- allocation bracktes.
-        --
-        -- The value must be finite and is traversed twiced!
-        --
-    -> IO d
-concurrentWith alloc inner params = do
-    doneVar <- newEmptyMVar
-    paramsWithVar <- traverse (\p -> (p,) <$> newEmptyMVar) params
-    results <- concurrently (mapConcurrently (concAlloc doneVar) paramsWithVar) $ do
-        resources <- traverse (takeMVar . snd) paramsWithVar
-        result <- inner resources
-        putMVar doneVar ()
-        return result
-    return $ snd results
-  where
-    concAlloc :: MVar () -> (a, MVar b) -> IO ()
-    concAlloc doneVar (p, var) = alloc p $ \b -> do
-        putMVar var b
-        readMVar doneVar
+    => t (ResourceT IO a)
+    -> ResourceT IO (t a)
+allocateConcurrently mkResources = do
+    (_, resourcesAndInternalStates) <- allocate (
+        -- threads inherit masking state, and allocate runs initializers masked.
+        forConcurrently mkResources $ \mkResource -> do
+            internalState <- createInternalState
+            -- runInternalState doesn't actually clean up the resources.
+            resource <- runInternalState mkResource internalState
+            return (resource, internalState)
+        )
+        -- likewise finalizers are run masked.
+        (mapConcurrently_ (closeInternalState . snd))
+    return $ fst <$> resourcesAndInternalStates
 
 -- | Run an async IO action, link it back to the main thread, and return
 -- the async result
