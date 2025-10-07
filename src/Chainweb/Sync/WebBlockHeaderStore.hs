@@ -84,6 +84,7 @@ import System.LogLevel
 import Utils.Logging.Trace
 import Chainweb.Logger
 import Chainweb.Core.Brief
+import Data.Maybe
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -456,9 +457,11 @@ getBlockHeaderInternal
                     -- fetching payloads from the canonical chain based on
                     -- height.
                     --
-                    prefetchPayloads provider hints
-                        [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
-                    return ()
+                    -- FIXME: ensure that we do not prefetch locally mined blocks
+                    -- can we check the origin hints for that?
+                    when (isJust maybeOrigin && isNothing pld) $ do
+                        prefetchPayloads provider hints
+                            [flip ConsensusPayload Nothing <$> view rankedBlockPayloadHash header]
                 DisabledPayloadProvider -> return ()
 
         parentHdr <- runConcurrently
