@@ -209,6 +209,17 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
                 -- error.
 
                 (forkBlocksDescendingStream S.:> forkPoint) <- S.toList
+
+                    -- Note that this assumes that the parent of hdr is in the
+                    -- block header DB. With the current cut pipeline that is
+                    -- always the case, because we never validate a header for
+                    -- which the parent hasn't already been validated. In case
+                    -- that this changes in the future we need to adjust the
+                    -- branch diff to start from parent of the lowest processed
+                    -- block. That block would certainly be on the canonical
+                    -- chain, since we wouldn't validate block that aren't
+                    -- extending the current head.
+                    --
                     $ branchDiff_ bhdb ppBlock hdr
 
                 let forkBlocksAscending = reverse

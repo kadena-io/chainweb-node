@@ -530,7 +530,6 @@ synchronizeProviders logger wbh providers c = do
                 pLog Warn $ "resolveFork for failed"
                     <> "; finfo: " <> encodeToText finfo
                     <> "; failure: " <> sshow e
-                -- pLog Error "It is recommend using --initial-block-height-limit to recover from fork manually."
                 empty
             pLog Info $ "payload provider synced to "
                 <> sshow (view blockHeight hdr)
@@ -707,17 +706,21 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPru
                                 -- During this final sync we also enable payload production.
                                 finfo <- forkInfoForHeader hdrStore bh Nothing Nothing True
 
-                                -- Note, that this really should be super quick and
+                                -- Note, that this sync really should be super quick and
                                 -- should never fail.
-                                --
-                                -- FIXME: Can't we go to the merge cut directly?
-                                -- FIXME: we could we trigger this with only a
-                                -- single node in the system?
+                                -- TODO: It would be nicer to go to the merge cut directly.
                                 clog Info "Syncing paylooad provider with merged cut"
                                 resolveForkInfo clog (hdrStore ^?! ixg cid) NullCas provider Nothing finfo `catch`
-                                    -- FIXME calling error is not OK!
-                                    \(e :: SomeException) -> error
-                                        $ "Failed to sync to merge cut (on chain " <> sshow cid <> "): " <> sshow e
+                                    \(e :: SomeException) -> do
+                                        clog Error
+                                            $ "Failed to sync payload provider to the merge cut."
+                                            <> " This should never happen. It may indicated a broken payload provider or a corrupted database."
+                                            <> " Fork info: " <> encodeToText finfo
+                                            <> " Failure: " <> sshow e
+                                        throwM $ InternalInvariantViolation
+                                            $ "Failed to sync payload provider to the merge cut."
+                                            <> " This should never happen. It may indicated a broken payload provider or a corrupted database."
+                                            <> " Failure: " <> sshow e
                             _ -> return ()
                 let cutDiff = cutDiffToTextShort curCut resultCut
                 let currentCutIdMsg = T.unwords
