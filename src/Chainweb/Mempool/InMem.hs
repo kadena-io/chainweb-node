@@ -127,6 +127,7 @@ toMempoolBackend logger mempool = do
       , mempoolLookup = lookupInMem tcfg lockMVar
       , mempoolLookupEncoded = lookupEncodedInMem lockMVar
       , mempoolInsert = insertInMem logger cfg lockMVar
+      , mempoolInsertEncoded = insertEncodedInMem logger tcfg cfg lockMVar
       , mempoolInsertCheck = insertCheckInMem cfg lockMVar
       , mempoolInsertCheckVerbose = insertCheckVerboseInMem cfg lockMVar
       , mempoolMarkValidated = markValidatedInMem logger tcfg lockMVar
@@ -206,16 +207,15 @@ lookupInMem :: NFData t
             -> IO (Vector (LookupResult t))
 lookupInMem txcfg lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
-    v <- V.mapM (evaluate . force . fromJuste . lookupOne q) txs
-    return $! v
+    v <- V.mapM (evaluate . fromMaybe Missing . lookupQ q) txs
+    return v
   where
-    lookupOne q txHash = lookupQ q txHash <|> pure Missing
     codec = txCodec txcfg
     fixup pe =
         let bs = _inmemPeBytes pe
         in either (const Missing) Pending
-               $! codecDecode codec
-               $! SB.fromShort bs
+               $ codecDecode codec
+               $ SB.fromShort bs
     lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
 ------------------------------------------------------------------------------
@@ -525,10 +525,11 @@ insertInMem
     -> InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> InsertType
+    -> HashMap TransactionHash ByteString -- ^ byte-encodings of new transactions if possible
     -> Vector t  -- ^ new transactions
     -> IO ()
-insertInMem logger cfg lock runCheck txs0 = do
-    logFunctionText logger Debug $ "insertInMem: " <> sshow (runCheck, V.length txs0)
+insertInMem logger cfg lock runCheck txsBytes txsDecoded = do
+    logFunctionText logger Debug $ "insertInMem: " <> sshow (runCheck, V.length txsDecoded)
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         pending <- readIORef (_inmemPending mdata)
@@ -544,8 +545,8 @@ insertInMem logger cfg lock runCheck txs0 = do
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = case runCheck of
-      CheckedInsert -> insertCheckInMem' cfg lock txs0
-      UncheckedInsert -> return $! V.map (\tx -> T2 (hasher tx) tx) txs0
+      CheckedInsert -> insertCheckInMem' cfg lock txsDecoded
+      UncheckedInsert -> return $! V.map (\tx -> T2 (hasher tx) tx) txsDecoded
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
@@ -555,11 +556,28 @@ insertInMem logger cfg lock runCheck txs0 = do
     insOne (T2 pending soFar) (T2 txhash tx) =
         let !gp = txGasPrice txcfg tx
             !gl = txGasLimit txcfg tx
-            !bytes = SB.toShort $! encodeTx tx
+            !bytes = SB.toShort $! fromMaybe (encodeTx tx) (HashMap.lookup txhash txsBytes)
             !expTime = txMetaExpiryTime $ txMetadata txcfg tx
             !x = PendingEntry gp gl bytes expTime
         in T2 (HashMap.insert txhash x pending) (soFar . (txhash:))
 
+insertEncodedInMem
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> TransactionConfig t
+    -> InMemConfig t    -- ^ in-memory config
+    -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> InsertType
+    -> Vector ByteString  -- ^ new transactions
+    -> IO ()
+insertEncodedInMem logger tcfg cfg lock runCheck txsBytes = do
+  Right newTxsDecoded <- return $
+    traverse (\bytes -> (bytes,) <$> codecDecode (txCodec tcfg) bytes) txsBytes
+  let txBytesByHash = HashMap.fromList
+        [ (txHasher tcfg tx, bytes)
+        | (bytes, tx) <- V.toList newTxsDecoded
+        ]
+  insertInMem logger cfg lock runCheck txBytesByHash (snd <$> newTxsDecoded)
 
 ------------------------------------------------------------------------------
 getBlockInMem
