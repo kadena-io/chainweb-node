@@ -61,6 +61,7 @@ module Chainweb.PayloadProvider
 , assertForkInfoInvariants
 , _forkInfoBaseHeight
 , _forkInfoBaseRankedPayloadHash
+, _forkInfoTraceBlockHashes
 
 -- * New Payload
 , NewPayload(..)
@@ -533,6 +534,23 @@ _forkInfoBaseRankedPayloadHash :: ForkInfo -> Parent RankedBlockPayloadHash
 _forkInfoBaseRankedPayloadHash fi = RankedBlockPayloadHash
     <$> _forkInfoBaseHeight fi
     <*> _forkInfoBasePayloadHash fi
+
+
+-- | Return the block hashes of the block in a fork info trace.
+--
+_forkInfoTraceBlockHashes :: ForkInfo -> [RankedBlockHash]
+_forkInfoTraceBlockHashes forkInfo =
+    -- The trace entries contain the respective parent block hashes. So, in
+    -- order to get the block hashes we need to shift the trace by one and add
+    -- the hash of the last block in the trace. The hash of the last block in
+    -- the trace can be found in the target state
+    drop 1 trace <> [top]
+  where
+    trace = unwrapParent . _evaluationCtxRankedParentHash <$> _forkInfoTrace forkInfo
+    top = _syncStateRankedBlockHash
+        . _consensusStateLatest
+        . _forkInfoTargetState
+        $ forkInfo
 
 assertForkInfoInvariants :: MonadThrow m => ForkInfo -> m ()
 assertForkInfoInvariants forkInfo = do
