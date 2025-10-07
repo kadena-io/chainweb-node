@@ -540,11 +540,7 @@ syncToFork logger serviceEnv hints forkInfo = do
             Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
             return (mempty, mempty, forkInfo._forkInfoTargetState)
           else do
-            -- check if some past block had the target as its parent; if so, that
-            -- means we can rewind to it
-            --
-            -- FIXME: why the parent? Why not the block itself?
-            --
+            -- check if the target is in our history
             latestBlockRewindable <-
                 isJust <$> Checkpointer.lookupBlockHash sql (_latestBlockHash forkInfo._forkInfoTargetState)
 
@@ -558,18 +554,11 @@ syncToFork logger serviceEnv hints forkInfo = do
                 Checkpointer.setConsensusState sql forkInfo._forkInfoTargetState
                 return (rewoundTxs, mempty, forkInfo._forkInfoTargetState)
               else do
-                let traceBlockHashesAscending =
+                let traceBlockHashesAscending = _forkInfoTraceBlockHashes forkInfo
 
-                        -- Why do we drop the first entry? That seems fishy.
-                        drop 1 (unwrapParent . _evaluationCtxRankedParentHash <$> forkInfo._forkInfoTrace) <>
-                        [_syncStateRankedBlockHash forkInfo._forkInfoTargetState._consensusStateLatest]
-
-                -- FIXME: we sometimes get stuck in a loop with a fork into trace
-                -- that is too short, i.e. the forkpoint is too far ahead.
-
-                logFunctionText logger Debug $ "playing blocks"
+                logFunctionText logger Debug $ "playing blocks from fork info trace"
                     <> "; from: " <> brief pactConsensusState
-                    <> "; target: " <> brief forkInfo._forkInfoTargetState
+                    <> "; target: " <> brief (_forkInfoTargetState forkInfo)
                     <> "; trace: " <> brief traceBlockHashesAscending
 
                 findForkChainAscending (reverse $ zip forkInfo._forkInfoTrace traceBlockHashesAscending) >>= \case
@@ -595,7 +584,9 @@ syncToFork logger serviceEnv hints forkInfo = do
 
                         let unknownPayloads = NEL.filter (isNothing . snd) knownPayloads
                         unless (null unknownPayloads)
-                            $ logFunctionText logger Debug $ "unknown blocks in context: " <> sshow (length unknownPayloads)
+                            $ logFunctionText logger Debug $ "unknown blocks in context"
+                                <> "; count: " <> sshow (length unknownPayloads)
+                                <> "; hashes: " <> brief (snd . fst <$> unknownPayloads)
 
                         runnableBlocks <- forM knownPayloads $ \((evalCtx, rankedBHash), maybePayload) -> do
                             logFunctionText logger Debug $ "running block: " <> brief rankedBHash

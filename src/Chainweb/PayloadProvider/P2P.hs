@@ -117,6 +117,14 @@ data PayloadStore tbl a = PayloadStore
         -- could make it easier to limit concurrency across chains. If this is
         -- needed the ChainId parameter would have to be re-added.
     , _payloadStoreGetPayloadBatchClient :: !([RankedBlockPayloadHash] -> ClientM [Maybe a])
+        -- ^ HTTP client for querying payloads in batches (provided by the
+        -- PayloadProvider)
+        --
+        -- There is a default Payload REST API in
+        -- "Chainweb.PayloadProvider.P2P.RestAPI" that can be used in common
+        -- cases.
+        --
+        -- The same considerations apply as for '_payloadStoreGetPayloadClient'.
     }
 
 -- FIXME: not sure whether the following instances are a good idea...

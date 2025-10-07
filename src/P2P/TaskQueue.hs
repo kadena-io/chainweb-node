@@ -204,8 +204,10 @@ session_ limit q logFun env = E.mask $ \restore -> do
                 return False
             | otherwise -> do
                 logg task' Warn
-                    $ "task finally failed with: " <> sshow e <> " after " <> sshow attempts <> " attempts, limit: "
-                    <> sshow limit
+                    $ "task finally failed"
+                    <> "; attempts: " <> sshow attempts
+                    <> "; limit: " <> sshow limit
+                    <> "; failure: " <> sshow e
                 putResult (_taskResult task') $! Left $! _taskFailures task'
 
     logg task l m = logFun @T.Text l $ sshow (_taskId task) <> ": " <> m

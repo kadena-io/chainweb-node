@@ -24,6 +24,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -Wprepositive-qualified-module #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM
@@ -112,6 +113,7 @@ import Network.URI.Static
 import P2P.Session (ClientEnv)
 import P2P.TaskQueue
 import System.LogLevel
+import Servant.Client (ClientM)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Database
@@ -525,16 +527,7 @@ withEvmPayloadProvider logger c rdb mgr conf
         SomeChainIdT @c _ <- return $ someChainIdVal c
 
         let pldCli = Rest.payloadClient @v @c @p
-
-        -- FIXME move the following two definitions elsewhere
-        let payloadRankedPayloadHash pld = RankedBlockPayloadHash
-                { _rankedBlockPayloadHashHeight = int $ EVM._hdrNumber $ _payloadHeader pld
-                , _rankedBlockPayloadHashHash = EVM._hdrPayloadHash $ _payloadHeader pld
-                }
-        let pldCliBatch rhs = do
-                rs <- _payloadList <$> Rest.payloadBatchClient @v @c @p rhs
-                let rs' = HM.fromList $ (\pld -> (payloadRankedPayloadHash pld, pld)) <$> rs
-                return $ (`HM.lookup` rs') <$> rhs
+        let pldCliBatch = mkPayloadBatchClient @v @c
 
         genPld <- liftIO $ checkExecutionClient logger c engineCtx (EVM.ChainId (fromSNat ecid))
         liftIO $ logFunctionText logger Info $ "genesis payload block hash: " <> sshow (EVM._hdrPayloadHash genPld)
@@ -570,6 +563,17 @@ withEvmPayloadProvider logger c rdb mgr conf
         error "Chainweb.PayloadProvider.Evm.configuration: chain does not use EVM provider"
   where
     pldStoreLogger = addLabel ("sub-component", "payloadStore") logger
+
+mkPayloadBatchClient
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => [RankedBlockPayloadHash]
+    -> ClientM [Maybe Payload]
+mkPayloadBatchClient rhs = do
+    rs <- _payloadList <$> Rest.payloadBatchClient @v @c @(EvmProvider _) rhs
+    let rs' = HM.fromList $ (\pld -> (_pldRankedBlockPayloadHash pld, pld)) <$> rs
+    return $ (`HM.lookup` rs') <$> rhs
 
 -- | Checks the availability of the Execution Client
 --
