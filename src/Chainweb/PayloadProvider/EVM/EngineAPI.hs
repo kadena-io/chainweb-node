@@ -877,10 +877,7 @@ instance FromJSON PayloadAttributesV3 where
 newtype PayloadId = PayloadId { _payloadId :: E.BytesN 8 }
     deriving (Show, Eq, Ord, Generic)
     deriving (ToJSON, FromJSON) via JsonTextRepresentation "PayloadId" PayloadId
-
-instance HasTextRepresentation PayloadId where
-    toText = toText . HexBytes . _payloadId
-    fromText = fmap (PayloadId . fromHexBytes) . fromText
+    deriving (HasTextRepresentation) via HexBytes (E.BytesN 8)
 
 -- -------------------------------------------------------------------------- --
 -- Errors

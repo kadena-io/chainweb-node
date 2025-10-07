@@ -24,7 +24,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Calc
   where
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
+import Chainweb.ChainId (ChainId)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (allChains)
@@ -34,7 +34,7 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeights, computeGrandHashesAt, withConnections, hex, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (sshow, toText)
 import Chainweb.Version (ChainwebVersion(..), HasVersion, ChainwebVersionName(..), withVersion)
 import Chainweb.Version.Development (devnet)
 import Chainweb.Version.Mainnet (mainnet)
@@ -101,7 +101,7 @@ pactCalc logger pactConns rocksDb targets = do
       resolveCutHeadersAtHeights logger pactConns rocksDb ts
 
   pooledForConcurrently chainTargets $ \(b, cutHeader) -> do
-    fmap (b,) $ computeGrandHashesAt pactConns cutHeader
+    (b,) <$> computeGrandHashesAt pactConns cutHeader
 
 data PactCalcConfig = PactCalcConfig
   { pactDir :: FilePath
@@ -150,7 +150,7 @@ pactCalcMain = do
                           let msg = Text.concat
                                 [ "Hash mismatch when attempting to regenerate snapshot: "
                                 , "blockheight = ", sshow height, "; "
-                                , "chainId = ", chainIdToText cid, "; "
+                                , "chainId = ", toText cid, "; "
                                 ]
                           logFunctionText logger Error msg
                         _ -> do
@@ -215,7 +215,7 @@ grandsToJson chainHashes =
                       [ "hash" J..= hex (getChainGrandHash hash)
                       , "header" J..= J.encodeWithAeson header
                       ]
-                in (chainIdToText cid, o)
+                in (toText cid, o)
     in (key J..= val)
 
 -- | Output a Haskell module with the embedded hashes. This module is produced
@@ -287,7 +287,7 @@ chainHashesToModule v input = prefix
       let
         jsonDecode j = "unsafeDecodeBlockHeader " ++ j
         fromHex b = "unsafeBase16Decode " ++ b
-        sCid = Text.unpack (chainIdToText cid)
+        sCid = Text.unpack (toText cid)
         sHash = inQuotes $ Text.unpack (hex (getChainGrandHash hash))
         sHeader = embedQuotes $ Text.unpack (J.encodeText (J.encodeWithAeson header))
       in

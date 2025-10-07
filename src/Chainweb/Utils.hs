@@ -101,7 +101,7 @@ module Chainweb.Utils
 , tread
 , treadM
 , HasTextRepresentation(..)
-, eitherFromText
+, fromTextM
 , unsafeFromText
 , parseM
 , parseText
@@ -345,6 +345,7 @@ import System.Timeout qualified as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
+import Data.Int
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -516,7 +517,7 @@ class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
-    ixg i = ix i
+    ixg = ix
     {-# INLINE ixg #-}
 
 -- | A strict version of 'ix'. It requires a 'Monad' constraint on the context.
@@ -566,21 +567,25 @@ sshow = fromString . show
 -- | Read a value from a textual encoding using its 'Read' instance. Returns and
 -- textual error message if the operation fails.
 --
-tread :: Read a => T.Text -> Either T.Text a
-tread = first T.pack . readEither . T.unpack
+tread :: Read a => T.Text -> Either SomeException a
+tread = first (toException . TextFormatException . T.pack) . readEither . T.unpack
 {-# INLINE tread #-}
 
 -- | Throws 'TextFormatException' on failure.
 --
 treadM :: MonadThrow m => Read a => T.Text -> m a
-treadM = fromEitherM . first TextFormatException . tread
+treadM = fromEitherM . tread
 {-# INLINE treadM #-}
 
 -- | Class of types that have an textual representation.
 --
 class HasTextRepresentation a where
     toText :: a -> T.Text
-    fromText :: MonadThrow m => T.Text -> m a
+    fromText :: T.Text -> Either SomeException a
+
+fromTextM :: MonadThrow m => HasTextRepresentation a => T.Text -> m a
+fromTextM = fromEitherM . fromText
+{-# INLINE fromTextM #-}
 
 instance HasTextRepresentation T.Text where
     toText = id
@@ -597,31 +602,73 @@ instance HasTextRepresentation [Char] where
 instance HasTextRepresentation Int where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Integer where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Natural where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Word where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word8 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word16 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word32 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation Word64 where
     toText = sshow
     {-# INLINE toText #-}
-    fromText = treadM
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int8 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int16 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int32 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Int64 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = tread
     {-# INLINE fromText #-}
 
 instance HasTextRepresentation UTCTime where
@@ -629,7 +676,7 @@ instance HasTextRepresentation UTCTime where
     {-# INLINE toText #-}
 
     fromText d = case parseTimeM False defaultTimeLocale fmt (T.unpack d) of
-        Nothing -> throwM $ TextFormatException $ "failed to parse utc date " <> sshow d
+        Nothing -> throwM $ TextFormatException ("failed to parse utc date " <> d)
         Just x -> return x
       where
         fmt = iso8601DateTimeFormat
@@ -640,23 +687,10 @@ instance HasTextRepresentation UTCTime where
 instance HasTextRepresentation URI where
     toText uri = T.pack $ uriToString id uri ""
     fromText t = case parseAbsoluteURI (T.unpack t) of
-        Nothing -> throwM $ TextFormatException $ "failed to parse URI " <> t
+        Nothing -> throwM $ TextFormatException ("failed to parse URI " <> t)
         Just u -> return u
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
-
--- | Decode a value from its textual representation.
---
-eitherFromText
-    :: HasTextRepresentation a
-    => T.Text
-    -> Either String a
-eitherFromText = either f return . fromText
-  where
-    f e = Left $ case fromException e of
-        Just (TextFormatException err) -> T.unpack err
-        _ -> displayException e
-{-# INLINE eitherFromText #-}
 
 -- | Unsafely decode a value rom its textual representation. It is an program
 -- error if decoding fails.
@@ -665,7 +699,11 @@ eitherFromText = either f return . fromText
 -- *Payload files) it can result in severe code blowup, slowing compilation.
 --
 unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
-unsafeFromText = fromJuste . fromText
+unsafeFromText t = case fromText t of
+    Right a -> a
+    Left e -> error $ "Chainweb.Utils.unsafeFromText"
+        <> ": failed to parse" <> T.unpack t
+        <> "; " <> displayException e
 {-# NOINLINE unsafeFromText #-}
 
 -- | Run a 'A.Parser' on a text input. All input must be consume by the parser.
@@ -854,7 +892,7 @@ parseJsonFromText
     => String
     -> Value
     -> Aeson.Parser a
-parseJsonFromText l = withText l $! either fail return . eitherFromText
+parseJsonFromText l = withText l $! either (fail . displayException) return . fromText
 
 -- | A newtype wrapper for derving ToJSON and FromJSON instances via
 -- a 'HasTextRepresentation' instance
@@ -872,7 +910,7 @@ instance
     ( KnownSymbol s
     , HasTextRepresentation a
     )
-     => FromJSON (JsonTextRepresentation s a)
+    => FromJSON (JsonTextRepresentation s a)
   where
     parseJSON = fmap JsonTextRepresentation . parseJsonFromText (symbolVal_ @s)
     {-# INLINE parseJSON #-}
@@ -885,7 +923,7 @@ newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
 
 instance CSV.FromField CsvDecimal where
     parseField s = do
-        cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
+        cs <- either (fail . show) (pure . T.unpack) (T.decodeUtf8' s)
         either fail pure $ readEither cs
     {-# INLINE parseField #-}
 
@@ -1405,7 +1443,7 @@ resourceToBracket res = do
                 liftIO $ writeIORef s' releaseMap
                 return (r, s')
 
-    (runResourceT prime, (\(_, s) -> closeInternalState s))
+    (runResourceT prime, \(_, s) -> closeInternalState s)
 
 -- | Like `sequence` for IO but concurrent
 concurrentlies :: forall a. [IO a] -> IO [a]
@@ -1518,8 +1556,7 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager
-    $ setManagerRequestTimeout micros
-    $ HTTP.tlsManagerSettings
+    $ setManagerRequestTimeout micros HTTP.tlsManagerSettings
 
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith

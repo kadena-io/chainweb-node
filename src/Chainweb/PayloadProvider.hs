@@ -938,19 +938,11 @@ renderPayloadSpvException (ProofPending e curHeight) =
 
 newtype TransactionIndex = TransactionIndex Natural
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral)
-
-instance HasTextRepresentation TransactionIndex where
-    toText (TransactionIndex n) = toText n
-    fromText = fmap TransactionIndex <$> fromText
+    deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral, HasTextRepresentation)
 
 newtype EventIndex = EventIndex Natural
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral)
-
-instance HasTextRepresentation EventIndex where
-    toText (EventIndex n) = toText n
-    fromText = fmap EventIndex <$> fromText
+    deriving newtype (FromJSON, ToJSON, Num, Enum, Real, Integral, HasTextRepresentation)
 
 -- | A way to identify cross chain events.
 --

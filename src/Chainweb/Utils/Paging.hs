@@ -156,7 +156,7 @@ nextItemToText :: HasTextRepresentation k => NextItem k -> T.Text
 nextItemToText (Inclusive k) = "inclusive:" <> toText k
 nextItemToText (Exclusive k) = "exclusive:" <> toText k
 
-nextItemFromText :: MonadThrow m => HasTextRepresentation k => T.Text -> m (NextItem k)
+nextItemFromText :: HasTextRepresentation k => T.Text -> Either SomeException (NextItem k)
 nextItemFromText t = case T.break (== ':') t of
     (a, b)
         | a == "inclusive" -> Inclusive <$> fromText (T.drop 1 b)

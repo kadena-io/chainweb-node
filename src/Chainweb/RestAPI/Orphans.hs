@@ -59,6 +59,7 @@ import P2P.Peer
 import Pact.Parse (ParsedInteger(..))
 import Pact.Server.API ()
 import Pact.Types.Gas (GasLimit(..))
+import Control.Monad.Catch
 
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
@@ -73,7 +74,7 @@ instance ToHttpApiData PeerId where
     toUrlPiece = toText
 
 instance FromHttpApiData PeerId where
-    parseUrlPiece = first T.pack . eitherFromText
+    parseUrlPiece = first (T.pack . displayException) . fromText
 
 instance FromHttpApiData HostAddress where
     parseUrlPiece = first sshow . readHostAddressBytes . T.encodeUtf8
@@ -93,16 +94,16 @@ instance ToHttpApiData BlockPayloadHash where
     toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash
 
 instance FromHttpApiData ChainwebVersionName where
-    parseUrlPiece = first T.pack . eitherFromText
+    parseUrlPiece = first (T.pack . displayException) . fromText
 
 instance ToHttpApiData ChainwebVersionName where
     toUrlPiece = toText
 
 instance FromHttpApiData ChainId where
-    parseUrlPiece = first sshow . chainIdFromText
+    parseUrlPiece = first sshow . fromText
 
 instance ToHttpApiData ChainId where
-    toUrlPiece = chainIdToText
+    toUrlPiece = toText
 
 deriving newtype instance FromHttpApiData BlockHeight
 

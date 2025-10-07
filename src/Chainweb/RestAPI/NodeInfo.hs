@@ -98,7 +98,7 @@ nodeInfoHandler (SomeCutDb (CutDbT db :: CutDbT l v)) = do
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
       , nodeLatestBehaviorHeight = latestBehaviorAt
-      , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
+      , nodeGenesisHeights = map (\c -> (toText c, genesisHeight c)) $ HS.toList chainIds
       , nodeHistoricalChains =
         ruleElems $ HM.toList . HM.map HS.toList . toAdjacencySets <$> _versionGraphs implicitVersion
       , nodeServiceDate = T.pack <$> _versionServiceDate implicitVersion

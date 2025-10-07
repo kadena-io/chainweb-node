@@ -440,7 +440,7 @@ validateParsedChainwebTx _logger blockEnv tx
 
     checkChain :: ExceptT InsertError IO ()
     checkChain = unless (Pact.assertChainId cid txCid) $
-        throwError $ InsertErrorWrongChain (chainIdToText cid) (Pact._chainId txCid)
+        throwError $ InsertErrorWrongChain (toText cid) (Pact._chainId txCid)
       where
       txCid = view (Pact.cmdPayload . Pact.payloadObj . Pact.pMeta . Pact.pmChainId) tx
 

@@ -22,10 +22,9 @@ import Chainweb.ChainId
 import Chainweb.MerkleUniverse
 import Chainweb.Parent
 import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Utils (HasTextRepresentation(..))
+import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Control.Concurrent (threadDelay)
-import Control.Lens
 import Control.Scheduler (Comp(..), scheduleWork, terminateWith, withScheduler)
 import Data.HashMap.Strict qualified as HM
 import PropertyMatchers qualified as P
@@ -93,7 +92,7 @@ propPayloadWithOutputsEncoding pwo
 hashedAdjacentBlockHashRecordSmokeTest :: IO ()
 hashedAdjacentBlockHashRecordSmokeTest = do
     -- smoke test
-    blockHashHash <- fromText "rxPASJkSJKXkxmREa2iKr0j7VFbbNilgGwDsFgx05VQ"
+    blockHashHash <- fromTextM "rxPASJkSJKXkxmREa2iKr0j7VFbbNilgGwDsFgx05VQ"
     let hashRecord = BlockHashRecord (HM.fromList [(unsafeChainId 0, Parent nullBlockHash)])
     encodeAdjacentsHash (adjacentsHash hashRecord)
         & runPutS

@@ -267,7 +267,7 @@ instance Arbitrary NodeInfo where
                 , nodeNumberOfChains = length curChains
                 , nodeGraphHistory = graphs
                 , nodeLatestBehaviorHeight = latestBehaviorAt
-                , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight c)) $ HS.toList chainIds
+                , nodeGenesisHeights = map (\c -> (toText c, genesisHeight c)) $ HS.toList chainIds
                 , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
                 , nodeServiceDate = T.pack <$> _versionServiceDate v
                 , nodeBlockDelay = _versionBlockDelay v

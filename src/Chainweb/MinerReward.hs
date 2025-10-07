@@ -110,13 +110,7 @@ import Numeric.Natural
 --
 newtype Stu = Stu { _stu :: Natural }
     deriving stock (Show, Generic)
-    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData)
-
-instance HasTextRepresentation Stu where
-    toText = toText . _stu
-    fromText = fmap Stu . fromText
-    {-# INLINEABLE toText #-}
-    {-# INLINEABLE fromText #-}
+    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData, HasTextRepresentation)
 
 instance ToJSON Stu where
     toJSON = toJSON . toText
@@ -147,13 +141,7 @@ divideStu s n = round $ s % fromIntegral n
 --
 newtype MStu = MStu { _mstu :: Natural }
     deriving stock (Show, Generic)
-    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData)
-
-instance HasTextRepresentation MStu where
-    toText = toText . _mstu
-    fromText = fmap MStu . fromText
-    {-# INLINEABLE toText #-}
-    {-# INLINEABLE fromText #-}
+    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData, HasTextRepresentation)
 
 instance ToJSON MStu where
     toJSON = toJSON . toText
@@ -185,13 +173,7 @@ divideMStu s n = round $ s % fromIntegral n
 --
 newtype GStu = GStu { _gstu :: Natural }
     deriving stock (Show, Generic)
-    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData)
-
-instance HasTextRepresentation GStu where
-    toText = toText . _gstu
-    fromText = fmap GStu . fromText
-    {-# INLINEABLE toText #-}
-    {-# INLINEABLE fromText #-}
+    deriving newtype (Eq, Ord, Enum, Num, Real, Integral, NFData, HasTextRepresentation)
 
 instance ToJSON GStu where
     toJSON = toJSON . toText
@@ -278,13 +260,7 @@ kdaToGStu (Kda { _kda = s }) = GStu $ round (s * 1e9)
 newtype MinerReward = MinerReward { _minerReward :: GStu }
     deriving (Show, Eq, Ord, Generic)
     deriving (ToJSON, FromJSON) via JsonTextRepresentation "MinerReward" MinerReward
-
-instance HasTextRepresentation MinerReward where
-    toText (MinerReward (GStu n)) = toText n
-    fromText t = MinerReward . GStu <$> fromText t
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
-
+    deriving newtype (HasTextRepresentation)
 
 minerRewardKda :: MinerReward -> Kda
 minerRewardKda (MinerReward d) = gstuToKda d
@@ -370,7 +346,7 @@ mkMinerRewards =
             let rewards = M.fromList . V.toList . V.map formatRow $ vs
             in if minerRewardsHash rewards == expectedMinerRewardsHash
                 then rewards
-                else error $ "hash of miner rewards table does not match expected hash"
+                else error "hash of miner rewards table does not match expected hash"
   where
     formatRow :: (Word64, CsvDecimal) -> (BlockHeight, GStu)
     formatRow (a, b) = (BlockHeight $ int a, kdaToGStu (Kda $ _csvDecimal b))

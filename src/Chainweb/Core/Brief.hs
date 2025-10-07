@@ -195,3 +195,4 @@ instance Brief BriefBase64ShortByteString where
 newtype BriefText a = BriefText a
 instance HasTextRepresentation a => Brief (BriefText a) where
     brief (BriefText t) = toTextShort t
+

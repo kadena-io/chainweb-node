@@ -3,10 +3,13 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -17,8 +20,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.ChainId
@@ -35,8 +36,6 @@ module Chainweb.ChainId
 , pattern ChainId
 , HasChainId(..)
 , checkChainId
-, chainIdToText
-, chainIdFromText
 
 -- * Serialization
 , encodeChainId
@@ -76,32 +75,25 @@ module Chainweb.ChainId
 ) where
 
 import Control.DeepSeq
-import Control.Lens hiding ((.=))
-import Control.Monad.Catch (Exception, MonadThrow)
-
-import Data.Aeson
-import Data.Aeson.Types (toJSONKeyText)
-import Data.Hashable (Hashable(..))
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
-import Data.Kind
-import Data.Proxy
-import Data.Semialign
-import qualified Data.Text as T
-import Data.Word (Word32)
-
-import GHC.Generics (Generic)
-import GHC.TypeLits hiding (Mod)
-
--- internal imports
-
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-
-import Data.Singletons hiding (Index)
 import Configuration.Utils hiding (Lens')
+import Control.Lens hiding ((.=))
+import Control.Monad.Catch (Exception, MonadThrow, displayException)
+import Data.Aeson.Types (toJSONKeyText)
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.Hashable (Hashable(..))
+import Data.Kind
+import Data.Proxy
+import Data.Semialign
+import Data.Singletons hiding (Index)
+import Data.Text qualified as T
+import Data.Word (Word32)
+import GHC.Generics (Generic)
+import GHC.TypeLits hiding (Mod)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -134,7 +126,7 @@ instance Exception ChainIdException
 newtype ChainId :: Type where
     ChainId' :: Word32 -> ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving newtype (Hashable, ToJSON, FromJSON, NFData)
+    deriving newtype (Hashable, ToJSON, FromJSON, NFData, HasTextRepresentation)
 
 pattern ChainId :: Word32 -> ChainId
 pattern ChainId n <- ChainId' n
@@ -145,7 +137,7 @@ instance ToJSONKey ChainId where
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey ChainId where
-    fromJSONKey = FromJSONKeyTextParser (either fail return . eitherFromText)
+    fromJSONKey = FromJSONKeyTextParser (either (fail . displayException) return . fromText)
     {-# INLINE fromJSONKey #-}
 
 class HasChainId a where
@@ -188,20 +180,6 @@ checkChainId
 checkChainId expected actual = _chainId
     <$> check ChainIdMismatch (_chainId <$> expected) (_chainId <$> actual)
 {-# INLINE checkChainId #-}
-
-chainIdToText :: ChainId -> T.Text
-chainIdToText (ChainId' i) = sshow i
-{-# INLINE chainIdToText #-}
-
-chainIdFromText :: MonadThrow m => T.Text -> m ChainId
-chainIdFromText = fmap ChainId' . treadM
-{-# INLINE chainIdFromText #-}
-
-instance HasTextRepresentation ChainId where
-    toText = chainIdToText
-    {-# INLINE toText #-}
-    fromText = chainIdFromText
-    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Serialization
@@ -294,7 +272,7 @@ newtype ChainMap a = ChainMap (HashMap ChainId a)
     deriving stock (Traversable, Generic)
     deriving newtype (Eq, Hashable, Functor, Foldable, NFData, Ord, Show)
 instance Semigroup (ChainMap a) where
-    (<>) = chainZip (\f _s -> f)
+    (<>) = chainZip const
 instance Monoid (ChainMap a) where
     mempty = ChainMap mempty
 instance FunctorWithIndex ChainId ChainMap where
@@ -361,7 +339,7 @@ suffixHelpCid cid = suffixHelp (Just s)
   where
     s = "chain-" <> T.unpack (toText cid)
 
-helpCid :: ChainId -> String -> (Mod f a)
+helpCid :: ChainId -> String -> Mod f a
 helpCid cid t = suffixHelp (Just "the respective chain") t
     <> mconcat [ hidden <> internal | chainIdInt @Int cid /= 0 ]
 

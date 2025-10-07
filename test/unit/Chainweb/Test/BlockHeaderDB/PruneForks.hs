@@ -170,7 +170,11 @@ progressArbitraryFork cutTable wbhdb candCutCount = do
     put (succ nextNonce)
     return ()
 
-pruneTestRandom :: (HasVersion, _) => _
+pruneTestRandom
+    :: HasVersion
+    => RocksDb
+    -> (Casify RocksDbTable CutHashes -> WebBlockHeaderDb -> StateT Nonce IO a)
+    -> IO Int
 pruneTestRandom baseRdb f = runResourceT $ do
     rdb <- withTestRocksDb "" baseRdb
     liftIO $ do

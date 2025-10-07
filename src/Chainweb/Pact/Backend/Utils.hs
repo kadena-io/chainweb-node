@@ -227,7 +227,7 @@ startSqliteDb cid logger dbDir doResetDb = do
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
     [ "pact-v1-chain-"
-    , T.unpack (chainIdToText cid)
+    , T.unpack (toText cid)
     , ".sqlite"
     ]
 

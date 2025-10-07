@@ -27,7 +27,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Utils
 
 import Chainweb.BlockHeader (BlockHeader, blockHeight)
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
+import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.PactState (getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
@@ -37,7 +37,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.TreeDB (seekAncestor)
-import Chainweb.Utils (fromText, toText, sshow)
+import Chainweb.Utils (fromTextM, toText, sshow)
 import Chainweb.Version (ChainwebVersion(..), HasVersion(..))
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry
@@ -176,13 +176,13 @@ checkPactDbsExist :: FilePath -> [ChainId] -> IO ()
 checkPactDbsExist dbDir cids = pooledForConcurrently_ cids $ \cid -> do
   e <- doesFileExist (chainwebDbFilePath cid dbDir)
   when (not e) $ do
-    error $ "Pact database doesn't exist for expected chain id " <> Text.unpack (chainIdToText cid)
+    error $ "Pact database doesn't exist for expected chain id " <> Text.unpack (toText cid)
 
 chainwebDbFilePath :: ChainId -> FilePath -> FilePath
 chainwebDbFilePath cid dbDir =
   let fileName = mconcat
         [ "pact-v1-chain-"
-        , Text.unpack (chainIdToText cid)
+        , Text.unpack (toText cid)
         , ".sqlite"
         ]
   in dbDir </> fileName
@@ -220,8 +220,8 @@ hex :: ByteString -> Text
 hex = Text.decodeUtf8 . Base16.encode
 
 cwvParser :: O.Parser ChainwebVersion
-cwvParser = fmap (fromMaybe (error "ChainwebVersion parse failed") . (>>= findKnownVersion) . fromText)
-  $ O.strOption
+cwvParser = fromMaybe (error "ChainwebVersion parse failed") . (>>= findKnownVersion) . fromTextM
+  <$> O.strOption
       (O.long "graph-version"
         <> O.short 'v'
         <> O.metavar "CHAINWEB_VERSION"

@@ -92,7 +92,7 @@ mkApiValidationMiddleware = do
             ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
                 let reqVersion = T.decodeUtf8 rawVersion
                 guard (reqVersion == getChainwebVersionName (_versionName implicitVersion))
-                reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
+                reqChainId <- fromTextM (T.decodeUtf8 rawChainId)
                 guard (HashSet.member reqChainId chainIds)
                 return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
             _ -> Nothing

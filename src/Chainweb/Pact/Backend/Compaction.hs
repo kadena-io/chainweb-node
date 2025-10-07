@@ -1,21 +1,20 @@
-{-# language
-    BangPatterns
-  , CPP
-  , DeriveAnyClass
-  , DeriveGeneric
-  , DerivingStrategies
-  , DuplicateRecordFields
-  , FlexibleContexts
-  , GeneralizedNewtypeDeriving
-  , ImportQualifiedPost
-  , LambdaCase
-  , NumericUnderscores
-  , OverloadedRecordDot
-  , OverloadedStrings
-  , PackageImports
-  , ScopedTypeVariables
-  , TypeApplications
-#-}
+{-# LANGUAGE BangPatterns#-}
+{-# LANGUAGE CPP#-}
+{-# LANGUAGE DeriveAnyClass#-}
+{-# LANGUAGE DeriveGeneric#-}
+{-# LANGUAGE DerivingStrategies#-}
+{-# LANGUAGE DuplicateRecordFields#-}
+{-# LANGUAGE FlexibleContexts#-}
+{-# LANGUAGE GeneralizedNewtypeDeriving#-}
+{-# LANGUAGE ImportQualifiedPost#-}
+{-# LANGUAGE LambdaCase#-}
+{-# LANGUAGE NumericUnderscores#-}
+{-# LANGUAGE OverloadedRecordDot#-}
+{-# LANGUAGE OverloadedStrings#-}
+{-# LANGUAGE PackageImports#-}
+{-# LANGUAGE ScopedTypeVariables#-}
+{-# LANGUAGE TypeApplications#-}
+
 
 module Chainweb.Pact.Backend.Compaction
   (
@@ -50,8 +49,8 @@ import Chainweb.Pact.Payload.PayloadStore (addNewPayload, lookupPayloadWithHeigh
 import Chainweb.Pact.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Chainweb.Utils (sshow, fromText, toText, int)
-import Chainweb.Version (ChainId, HasVersion(..), withVersion, ChainwebVersion(..), chainIdToText)
+import Chainweb.Utils (sshow, fromTextM, toText, int)
+import Chainweb.Version (ChainId, HasVersion(..), withVersion, ChainwebVersion(..))
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (findKnownVersion)
 import Chainweb.Version.Testnet04 (testnet04)
@@ -118,11 +117,11 @@ withPerChainFileLogger ld chainId ll f = do
     IO.hSetBuffering h IO.LineBuffering
     withLogger defaultLoggerConfig b $ \l -> do
       let logger = setComponent "compaction"
-            $ over setLoggerScope (("chain", chainIdToText chainId) :)
+            $ over setLoggerScope (("chain", toText chainId) :)
             $ set setLoggerLevel (l2l ll) l
       f logger
   where
-    cid = Text.unpack (chainIdToText chainId)
+    cid = Text.unpack (toText chainId)
 
 withHandleBackend_' :: (MonadIO m, MonadBaseControl IO m)
   => (msg -> Text)
@@ -193,7 +192,7 @@ getConfig = do
     parseVersion =
       fromMaybe (error "ChainwebVersion parse failed")
       . (>>= findKnownVersion)
-      . fromText
+      . fromTextM
 
 main :: IO ()
 main = do
@@ -738,7 +737,7 @@ compactRocksDb logger cids minBlockHeight srcDb targetDb = do
   targetWbhdb <- initWebBlockHeaderDb targetDb
   forM_ cids $ \cid -> do
     let log' = logFunctionText (addChainIdLabel cid logger)
-    log' LL.Info $ "Starting chain " <> chainIdToText cid
+    log' LL.Info $ "Starting chain " <> toText cid
     srcBlockHeaderDb <- getWebBlockHeaderDb srcWbhdb cid
     targetBlockHeaderDb <- getWebBlockHeaderDb targetWbhdb cid
 

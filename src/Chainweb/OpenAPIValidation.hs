@@ -45,7 +45,7 @@ mkValidationMiddleware logger mgr = do
     findPact pactSpec rawVersion rawChainId rest = do
         let reqVersion = ChainwebVersionName (T.decodeUtf8 rawVersion)
         guard (reqVersion == _versionName implicitVersion)
-        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
+        reqChainId <- fromTextM (T.decodeUtf8 rawChainId)
         guard (HS.member reqChainId chainIds)
         return (BS8.intercalate "/" ("":rest), pactSpec)
 

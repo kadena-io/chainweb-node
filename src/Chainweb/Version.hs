@@ -3,25 +3,25 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeAbstractions #-}
-{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -152,29 +152,23 @@ module Chainweb.Version
 import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>), index)
 import Control.Monad.Catch
-
 import Data.Aeson hiding (pairs)
 import Data.Aeson.Types
 import Data.Foldable
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Set(Set)
 import Data.Proxy
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Word
-
 import GHC.Generics(Generic)
 import GHC.TypeLits hiding (Nat, fromSNat, withSomeSNat)
 import GHC.TypeNats
 import GHC.Stack
-
--- internal modules
-
 import Pact.Core.Gas (Gas)
 import Pact.Core.Names (VerifierName)
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -188,12 +182,11 @@ import Chainweb.Pact.Transaction qualified as Pact
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
-
 import Data.Singletons
-
 import P2P.Peer
 import GHC.Exts (WithDict(..))
-import qualified Chainweb.Pact4.Transaction as Pact4
+import Chainweb.Pact4.Transaction qualified as Pact4
+import Data.Bifunctor
 
 -- -------------------------------------------------------------------------- --
 -- Forks
@@ -330,7 +323,7 @@ instance ToJSONKey Fork where
 instance FromJSON Fork where
     parseJSON = parseJsonFromText "Fork"
 instance FromJSONKey Fork where
-    fromJSONKey = FromJSONKeyTextParser $ either fail return . eitherFromText
+    fromJSONKey = FromJSONKeyTextParser $ either fail return . first displayException . fromText
 
 data ForkHeight = ForkAtBlockHeight BlockHeight | ForkAtGenesis | ForkNever
     deriving stock (Generic, Eq, Ord, Show)
@@ -344,14 +337,10 @@ makePrisms ''ForkHeight
 newtype ChainwebVersionName =
     ChainwebVersionName { getChainwebVersionName :: T.Text }
     deriving stock (Generic, Eq, Ord)
-    deriving newtype (ToJSON, FromJSON)
+    deriving newtype (ToJSON, FromJSON, HasTextRepresentation)
     deriving anyclass (Hashable, NFData)
 
 instance Show ChainwebVersionName where show = T.unpack . getChainwebVersionName
-
-instance HasTextRepresentation ChainwebVersionName where
-    toText = getChainwebVersionName
-    fromText = pure . ChainwebVersionName
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Version Code

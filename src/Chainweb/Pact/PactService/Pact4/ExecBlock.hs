@@ -1,20 +1,20 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.Pact4.ExecBlock
@@ -254,7 +254,7 @@ checkChain
   :: ChainId -> Pact4.Transaction -> ExceptT InsertError IO ()
 checkChain cid tx =
   unless (Pact4.assertChainId cid txCid) $
-    throwError $ InsertErrorWrongChain (chainIdToText cid) (Pact4._chainId txCid)
+    throwError $ InsertErrorWrongChain (toText cid) (Pact4._chainId txCid)
   where
   txCid = view (Pact4.cmdPayload . to Pact4.payloadObj . Pact4.pMeta . Pact4.pmChainId) tx
 

@@ -411,12 +411,8 @@ type BlockEventsHash = BlockEventsHash_ ChainwebMerkleHashAlgorithm
 newtype BlockEventsHash_ a = BlockEventsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving newtype (Hashable, ToJSON, FromJSON, HasTextRepresentation)
     deriving (IsMerkleLogEntry a ChainwebHashTag) via MerkleRootLogEntry a 'BlockEventsHashTag
-
-instance MerkleHashAlgorithm a => HasTextRepresentation (BlockEventsHash_ a) where
-    toText (BlockEventsHash h) = toText h
-    fromText t = BlockEventsHash <$> fromText t
 
 encodeBlockEventsHash :: MerkleHashAlgorithm  a => BlockEventsHash_ a -> Put
 encodeBlockEventsHash (BlockEventsHash w) = encodeMerkleLogHash w
