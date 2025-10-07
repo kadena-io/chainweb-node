@@ -274,34 +274,28 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                     roll txFailuresCounter
     logg Debug "start initializing chain resources"
     logFunctionText logger Info $ "opening pact db in directory " <> sshow defaultPactDbDir
-    withAsync monitorTxFailuresCounter $ \_ ->
-        concurrentWith
+    runResourceT $ do
+        _ <- withAsyncR monitorTxFailuresCounter
+        allChainResources <- allocateConcurrently
+            (tabulateChains $ \cid ->
             -- initialize chains concurrently
-            (\cid x -> do
-                -- Initialize all chain resources, including payload providers
-                runResourceT $ do
-                    cr <- withChainResources
-                        (chainLogger cid)
-                        cid
-                        rocksDb
-                        (_peerResManager peerRes)
-                        defaultPactDbDir
-                        (_peerResConfig peerRes)
-                        (_configServiceApi conf)
-                        myInfo
-                        peerDb
-                        (_configReorgLimit conf)
-                        initialUnlimitedRewind
-                        (_configPayloadProviders conf)
-                    liftIO $ x cr
+            -- Initialize all chain resources, including payload providers
+                withChainResources
+                    (chainLogger cid)
+                    cid
+                    rocksDb
+                    (_peerResManager peerRes)
+                    defaultPactDbDir
+                    (_peerResConfig peerRes)
+                    (_configServiceApi conf)
+                    myInfo
+                    peerDb
+                    (_configReorgLimit conf)
+                    initialUnlimitedRewind
+                    (_configPayloadProviders conf)
             )
-
-            -- initialize global resources after all chain resources are initialized
-            (\cs -> do
-                logg Debug "finished initializing chain resources"
-                global cs
-            )
-            (onChains [(cid, cid) | cid <- cidsList])
+        liftIO $ logg Debug "finished initializing chain resources"
+        liftIO $ global allChainResources
   where
     cids :: HS.HashSet ChainId
     cids = chainIds
