@@ -4,9 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -43,10 +41,8 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Control.Monad.Catch
 import Data.Aeson
 import Data.Hashable
-import Data.Text qualified as T
 import Data.Word
 import GHC.Generics (Generic)
 import Numeric.Additive
@@ -66,10 +62,8 @@ newtype BlockHeight = BlockHeight { getBlockHeight :: Word64 }
 instance Show BlockHeight where show (BlockHeight b) = show b
 
 instance HasTextRepresentation BlockHeight where
-    toText = sshow
-    fromText t = case reads (T.unpack t) of
-        [(h, "")] -> return (BlockHeight h)
-        _         -> throwM $ TextFormatException $ "BlockHeight: failed to parse: " <> t
+    toText = toText . getBlockHeight
+    fromText = fmap BlockHeight . fromText
 
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
