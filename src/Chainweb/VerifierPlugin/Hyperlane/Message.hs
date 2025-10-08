@@ -1,5 +1,8 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Chainweb.VerifierPlugin.Hyperlane.Message
@@ -11,9 +14,13 @@
 --
 module Chainweb.VerifierPlugin.Hyperlane.Message (plugin) where
 
+import Chainweb.Version.Guards
 import Chainweb.VerifierPlugin
-import Chainweb.VerifierPlugin.Hyperlane.Message.After225 qualified as After225
+import qualified Chainweb.VerifierPlugin.Hyperlane.Message.After225 as After225
+import qualified Chainweb.VerifierPlugin.Hyperlane.Message.Before225 as Before225
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \(_cid, _bh) proof caps gasRef ->
-  After225.runPlugin proof caps gasRef
+plugin = VerifierPlugin $ \(cid, bh) proof caps gasRef ->
+  if chainweb225Pact cid bh
+  then After225.runPlugin proof caps gasRef
+  else Before225.runPlugin proof caps gasRef
