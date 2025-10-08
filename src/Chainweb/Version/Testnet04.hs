@@ -4,6 +4,7 @@
 {-# language PatternSynonyms #-}
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
+{-# language ImportQualifiedPost #-}
 
 module Chainweb.Version.Testnet04(testnet04, pattern Testnet04) where
 
@@ -16,6 +17,23 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Graph
+import Chainweb.Pact.Transactions.CoinV3Transactions qualified as CoinV3
+import Chainweb.Pact.Transactions.CoinV4Transactions qualified as CoinV4
+import Chainweb.Pact.Transactions.CoinV5Transactions qualified as CoinV5
+import Chainweb.Pact.Transactions.CoinV6Transactions qualified as CoinV6
+import Chainweb.Pact.Transactions.Mainnet0Transactions qualified as MN0
+import Chainweb.Pact.Transactions.Mainnet1Transactions qualified as MN1
+import Chainweb.Pact.Transactions.Mainnet2Transactions qualified as MN2
+import Chainweb.Pact.Transactions.Mainnet3Transactions qualified as MN3
+import Chainweb.Pact.Transactions.Mainnet4Transactions qualified as MN4
+import Chainweb.Pact.Transactions.Mainnet5Transactions qualified as MN5
+import Chainweb.Pact.Transactions.Mainnet6Transactions qualified as MN6
+import Chainweb.Pact.Transactions.Mainnet7Transactions qualified as MN7
+import Chainweb.Pact.Transactions.Mainnet8Transactions qualified as MN8
+import Chainweb.Pact.Transactions.Mainnet9Transactions qualified as MN9
+import Chainweb.Pact.Transactions.MainnetKADTransactions qualified as MNKAD
+import Chainweb.BlockHeader.Genesis.Testnet040Payload qualified as PN0
+import Chainweb.BlockHeader.Genesis.Testnet041to19Payload qualified as PNN
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
@@ -159,8 +177,26 @@ testnet04 = withVersion testnet04 $ ChainwebVersion
             , (unsafeChainId 19, unsafeFromText "HU-ZhdfsQCiTrfxjtbkr5MHmjoukOt6INqB2vuYiF3g")
             ]
         }
-    -- all upgrades have been removed due to the removal of Pact 4
-    , _versionUpgrades = onChains []
+    , _versionUpgrades = chainZip HM.union
+        (indexByForkHeights
+        [ (CoinV2, onChains $
+            [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
+            , (unsafeChainId 1, pact4Upgrade MN1.transactions)
+            , (unsafeChainId 2, pact4Upgrade MN2.transactions)
+            , (unsafeChainId 3, pact4Upgrade MN3.transactions)
+            , (unsafeChainId 4, pact4Upgrade MN4.transactions)
+            , (unsafeChainId 5, pact4Upgrade MN5.transactions)
+            , (unsafeChainId 6, pact4Upgrade MN6.transactions)
+            , (unsafeChainId 7, pact4Upgrade MN7.transactions)
+            , (unsafeChainId 8, pact4Upgrade MN8.transactions)
+            , (unsafeChainId 9, pact4Upgrade MN9.transactions)
+            ])
+        , (Pact4Coin3, onAllChains (Pact4Upgrade CoinV3.transactions True))
+        , (Chainweb214Pact, onAllChains (Pact4Upgrade CoinV4.transactions True))
+        , (Chainweb215Pact, onAllChains (Pact4Upgrade CoinV5.transactions True))
+        , (Chainweb223Pact, onAllChains (pact4Upgrade CoinV6.transactions))
+        ])
+        (onChains [(unsafeChainId 0, HM.singleton to20ChainsTestnet (pact4Upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = False
