@@ -101,8 +101,8 @@ instance HasTextRepresentation (HexQuantity Natural) where
     toText (HexQuantity a) = T.pack $ printf @(Natural -> String) "0x%x" a
     fromText t = T.hexadecimal <$> strip0x t >>= \case
             Right (x, "") -> return $ HexQuantity x
-            Right (x, _) -> throwM $ TextFormatException
-                $ "pending characters after parsing " <> sshow x
+            Right (x, p) -> throwM $ TextFormatException
+                $ sshow (T.length p) <> " pending characters after parsing " <> sshow x
             Left e -> throwM $ TextFormatException (T.pack e)
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
