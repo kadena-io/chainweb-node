@@ -1,3 +1,12 @@
+## 2.31.1 (2025-10-09)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Properly update service date in mainnet and testnet. [`0abf6e3`](https://github.com/kadena-io/chainweb-node/commit/0abf6e3df6f8c02ff084a4f07cf6f8f09e5d64e4)
+
 ## 2.31 (2025-10-06)
 This is a major version update. This release replaces all previous versions.
 
@@ -8,9 +17,6 @@ occur at block height 6269344 which is estimated to be mined at **2025-10-16T00-
 ### Changes
 - Upgrade to Pact 5.4 [`937b13a`](https://github.com/kadena-io/chainweb-node/commit/937b13ae8b9624df03b8f850baab3bbfaf35a598)
 - SPV Proof roots now expire after 20,000 blocks. [`138578c`](https://github.com/kadena-io/chainweb-node/commit/138578cf9a40b0593ee15fb2adc74500991eafd6)
-
---------------------------------------------------------------------------------
-
 
 ## 2.30 (2025-07-07)
 This is a major version update. This release replaces all previous versions.
