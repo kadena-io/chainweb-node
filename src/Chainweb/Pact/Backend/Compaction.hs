@@ -1,19 +1,19 @@
-{-# LANGUAGE BangPatterns#-}
-{-# LANGUAGE CPP#-}
-{-# LANGUAGE DeriveAnyClass#-}
-{-# LANGUAGE DeriveGeneric#-}
-{-# LANGUAGE DerivingStrategies#-}
-{-# LANGUAGE DuplicateRecordFields#-}
-{-# LANGUAGE FlexibleContexts#-}
-{-# LANGUAGE GeneralizedNewtypeDeriving#-}
-{-# LANGUAGE ImportQualifiedPost#-}
-{-# LANGUAGE LambdaCase#-}
-{-# LANGUAGE NumericUnderscores#-}
-{-# LANGUAGE OverloadedRecordDot#-}
-{-# LANGUAGE OverloadedStrings#-}
-{-# LANGUAGE PackageImports#-}
-{-# LANGUAGE ScopedTypeVariables#-}
-{-# LANGUAGE TypeApplications#-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 
 module Chainweb.Pact.Backend.Compaction
