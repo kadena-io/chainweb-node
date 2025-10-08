@@ -288,6 +288,7 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Binary
         , Chainweb.VerifierPlugin.Hyperlane.Message
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
+        , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
