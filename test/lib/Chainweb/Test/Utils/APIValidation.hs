@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,35 +15,25 @@ module Chainweb.Test.Utils.APIValidation
 ) where
 
 import Control.Exception (Exception, evaluate)
-import Control.Monad
-
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Lazy as BL
-import Data.Foldable
-import qualified Data.HashSet as HashSet
-import Data.IORef
-import qualified Data.Map as Map
-import qualified Data.Text.Encoding as T
-import Data.Typeable
-import qualified Data.Yaml as Yaml
-
-import GHC.Stack
-
-import qualified Network.HTTP.Client as HTTP
-import Network.HTTP.Types
-import qualified Network.Wai as W
-import Network.Wai.Middleware.OpenApi(OpenApi)
-import qualified Network.Wai.Middleware.Validation as WV
-
-import System.IO.Unsafe(unsafePerformIO)
-
-import Text.Show.Pretty
-
--- internal modules
-
-import Chainweb.ChainId
 import Chainweb.Utils
 import Chainweb.Version
+import Control.Monad
+import Data.ByteString.Char8 qualified as B8
+import Data.ByteString.Lazy qualified as BL
+import Data.Foldable
+import Data.HashSet qualified as HashSet
+import Data.IORef
+import Data.Map qualified as Map
+import Data.Text.Encoding qualified as T
+import Data.Yaml qualified as Yaml
+import GHC.Stack
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Types
+import Network.Wai qualified as W
+import Network.Wai.Middleware.OpenApi(OpenApi)
+import Network.Wai.Middleware.Validation qualified as WV
+import System.IO.Unsafe(unsafePerformIO)
+import Text.Show.Pretty
 
 -- -------------------------------------------------------------------------- --
 -- Validation Exception
@@ -53,7 +43,7 @@ data ValidationException = ValidationException
     , vResp :: (ResponseHeaders, Status, BL.ByteString)
     , vErr :: WV.TopLevelError
     }
-    deriving (Show, Typeable)
+    deriving (Show)
 
 instance Exception ValidationException
 
