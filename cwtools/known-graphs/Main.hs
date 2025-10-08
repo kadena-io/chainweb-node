@@ -24,7 +24,7 @@ import System.Environment
 main :: IO ()
 main = do
     args <- getArgs
-    graphs <- traverse (fromText . T.pack) args
+    graphs <- traverse (fromTextM . T.pack) args
     BL8.putStrLn $ encode $ knownChainGraph <$> graphs
 
 instance ToJSON KnownGraph where

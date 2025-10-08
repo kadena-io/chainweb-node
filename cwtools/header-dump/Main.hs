@@ -246,9 +246,9 @@ validateConfig o = do
     checkIfValidChain (_configChainId o)
     mapM_ (validateDirectory "database") (_configDatabasePath o)
     when (_configValidate o && isJust (_configChainId o))
-        $ throwError $ "validation (--validate) can only be used if no particular chain is selected"
+        $ throwError "validation (--validate) can only be used if no particular chain is selected"
   where
-    chains = chainIds $ _configChainwebVersion o
+    chains = withVersion (_configChainwebVersion o) chainIds
 
     checkIfValidChain Nothing = return ()
     checkIfValidChain (Just cid) = unless (HS.member cid chains)
