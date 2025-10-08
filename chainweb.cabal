@@ -323,6 +323,7 @@ library
         , P2P.Peer
         , P2P.Session
         , P2P.TaskQueue
+        , P2P.Utils
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
@@ -469,6 +470,7 @@ library
         , semigroupoids >= 5.3.7
         , servant >= 0.20.1
         , servant-client >= 0.20
+        , servant-client-core >= 0.20.3.0
         , servant-server >= 0.20
         , stm >= 2.4
         , stopwatch >= 0.1

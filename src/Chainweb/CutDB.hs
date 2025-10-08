@@ -529,7 +529,7 @@ synchronizeProviders logger wbh providers c = do
             liftIO (resolveForkInfo pLog bhdb NullCas provider Nothing finfo) `catch` \(e :: SomeException) -> do
                 pLog Warn $ "resolveFork for failed"
                     <> "; finfo: " <> encodeToText finfo
-                    <> "; failure: " <> sshow e
+                    <> "; failure: " <> T.pack (displayException e)
                 empty
             pLog Info $ "payload provider synced to "
                 <> sshow (view blockHeight hdr)
@@ -567,7 +567,7 @@ readHighestCutHeaders logg wbhdb cutHashesStore = withTableIterator (unCasify cu
                 logg Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
                     <> " from database."
-                    <> " Error: " <> sshow e <> "."
+                    <> " Error: " <> T.pack (displayException e) <> "."
                     <> " The database might be corrupted. Falling back to previous cut."
                 iterPrev it
                 go it
@@ -716,11 +716,11 @@ processCuts conf logFun headerStore providers cutHashesStore queue cutVar cutPru
                                             $ "Failed to sync payload provider to the merge cut."
                                             <> " This should never happen. It may indicated a broken payload provider or a corrupted database."
                                             <> " Fork info: " <> encodeToText finfo
-                                            <> " Failure: " <> sshow e
+                                            <> " Failure: " <> T.pack (displayException e)
                                         throwM $ InternalInvariantViolation
                                             $ "Failed to sync payload provider to the merge cut."
                                             <> " This should never happen. It may indicated a broken payload provider or a corrupted database."
-                                            <> " Failure: " <> sshow e
+                                            <> " Failure: " <> T.pack (displayException e)
                             _ -> return ()
                 let cutDiff = cutDiffToTextShort curCut resultCut
                 let currentCutIdMsg = T.unwords

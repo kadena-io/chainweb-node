@@ -104,7 +104,7 @@ resolveForkInfo logg bhdb candidateHdrs provider hints finfo = do
     --
     r <- syncToBlock provider hints finfo `catch` \(e :: SomeException) -> do
         logg Warn $ "getBlockHeaderInternal payload validation for "
-            <> toText h <> " failed with: " <> sshow e
+            <> toText h <> " failed with: " <> T.pack (displayException e)
         throwM e
 
     -- Check result of syncToBlock
@@ -259,7 +259,7 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
         --
         newState <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
             logg Warn $ "getBlockHeaderInternal payload validation retry for "
-                <> brief trgHash <> " failed with: " <> sshow e
+                <> brief trgHash <> " failed with: " <> T.pack (displayException e)
             throwM e
 
         -- check if we made progress

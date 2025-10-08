@@ -593,7 +593,7 @@ getBlockHeaderInternal
             let taskEnv = setResponseTimeout taskResponseTimeout env
             !r <- trace l (traceLabel "queryBlockHeaderTask") k (let Priority i = priority in i)
                 $ TDB.lookupM (rDb cid taskEnv) k `catchAllSynchronous` \e -> do
-                    l @T.Text Debug $ taskMsg $ "failed: " <> sshow e
+                    l @T.Text Debug $ taskMsg $ "failed: " <> T.pack (displayException e)
                     throwM e
             l @T.Text Debug $ taskMsg "received remote block header"
             return r
@@ -684,7 +684,8 @@ getBlockHeader
     -> IO BlockHeader
 getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
-        `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h (sshow es)
+        `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
+            $ T.intercalate ", " $ T.pack . displayException <$> es
   where
     go = getBlockHeaderInternal
         headerStore
