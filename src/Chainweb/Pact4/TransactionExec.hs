@@ -134,12 +134,14 @@ import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Text (Text)
 import Data.Text qualified as T
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Command.RPC qualified as Pact5
 import Pact.Core.Errors (VerifierError(..))
 import Pact.Core.Gas qualified as Pact5
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
-import Pact.JSON.Encode (toJsonViaEncode)
+import Pact.JSON.Encode qualified as J
 import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
 import Pact.Native.Internal (appToCap)
@@ -426,13 +428,16 @@ applyCmd logger blockEnv miner gasModel txIdxInBlock spv cmd initialGas mcache0 
       then do
         gasUsed <- use txGasUsed
         let initGasRemaining = fromIntegral gasLimit - gasUsed
+        let p5Cmd =
+              either error id (fromJSON' @(Pact5.Command (Pact5.Payload Value Value))
+                (J.toJsonViaEncode (cmd & cmdPayload . mapped %~ _pcCode)))
+        let p5Verifiers = p5Cmd ^. Pact5.cmdPayload . Pact5.pVerifiers
         verifierResult <-
           liftIO $ runVerifierPlugins
             (cid, currHeight)
             logger allVerifiers (convertGasFeeToPact5 initGasRemaining)
-            -- FIXME
-            []
-            -- (fromMaybe [] (cmd ^. cmdPayload . pVerifiers))
+            -- don't do this conversion work if there are no verifiers (the usual case)
+            (fromMaybe [] (fromJuste p5Verifiers <$ cmd ^. cmdPayload . pVerifiers))
         case verifierResult of
           Left err -> do
             let errMsg = "Tx verifier error: " <> _verifierError err
@@ -1158,11 +1163,11 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
            , "exec-user-data" A..= pactFriendlyUserData (_getLegacyValue userData) ]
   Continuation (ContMsg pid step isRollback userData proof) ->
     object [ "tx-type" A..= ("cont" :: Text)
-           , "cont-pact-id" A..= toJsonViaEncode pid
-           , "cont-step" A..= toJsonViaEncode (LInteger $ toInteger step)
-           , "cont-is-rollback" A..= toJsonViaEncode (LBool isRollback)
+           , "cont-pact-id" A..= J.toJsonViaEncode pid
+           , "cont-step" A..= J.toJsonViaEncode (LInteger $ toInteger step)
+           , "cont-is-rollback" A..= J.toJsonViaEncode (LBool isRollback)
            , "cont-user-data" A..= pactFriendlyUserData (_getLegacyValue userData)
-           , "cont-has-proof" A..= toJsonViaEncode (isJust proof)
+           , "cont-has-proof" A..= J.toJsonViaEncode (isJust proof)
            ]
   where
     pactFriendlyUserData Null = object []
@@ -1211,7 +1216,7 @@ redeemGas bctx cmd (Miner mid mks) = do
         Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
         Just g -> return g
       let redeemGasCmd =
-            ContMsg gid 1 False (toLegacyJson $ object [ "fee" A..= toJsonViaEncode fee ]) Nothing
+            ContMsg gid 1 False (toLegacyJson $ object [ "fee" A..= J.toJsonViaEncode fee ]) Nothing
 
       fmap _crEvents $ locally txQuirkGasFee (const Nothing) $
         applyContinuation 0 (initState mcache) redeemGasCmd
