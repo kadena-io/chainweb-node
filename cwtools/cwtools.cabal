@@ -147,6 +147,7 @@ executable compact
 executable db-checksum
     import: warning-flags, debugging-flags
     default-language: Haskell2010
+    buildable: False
     ghc-options:
         -threaded
         -rtsopts
@@ -232,6 +233,7 @@ executable genconf
 executable header-dump
     import: warning-flags, debugging-flags
     default-language: Haskell2010
+    buildable: False
     ghc-options:
         -threaded
         -rtsopts

@@ -96,8 +96,7 @@ main = do
 queryNode :: Natural -> FilePath -> IO E.Header
 queryNode cid spec = withRethNode cid spec $ \uri -> do
     ctx <- mkRpcCtx uri
-    hdr <- getBlockAtNumber ctx 0
-    return hdr
+    getBlockAtNumber ctx 0
 
 -- | Run reth node with chain-spec file at default port 8545 and execute an
 -- action with the node URI.
@@ -107,7 +106,7 @@ withRethNode cid specfile act =
     withCreateProcess runProc $ \_stdin _stdout _stderr _ph -> do
         recoverAll policy $ \_ -> do
             hPutStrLn stderr $ "Waiting for reth node for chain " <> show cid <> " to start..."
-            uri <- fromText (fromString ("http://localhost:" <> rethPort))
+            uri <- fromTextM (fromString ("http://localhost:" <> rethPort))
             r <- act uri
             hFlush stdout
             return r

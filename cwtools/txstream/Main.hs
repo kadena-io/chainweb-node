@@ -26,6 +26,7 @@
 --
 module Main (main) where
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.RemoteDB
 import Chainweb.BlockHeight
@@ -85,7 +86,7 @@ defaultConfig = Config
     { _configLogHandle = Y.StdOut
     , _configLogLevel = Y.Info
     , _configChainwebVersion = RecapDevelopment
-    , _configChainId = someChainId RecapDevelopment
+    , _configChainId = withVersion RecapDevelopment someChainId
     , _configNode = HostAddress (unsafeHostnameFromText "us1.tn1.chainweb.com") 443
     , _configPretty = True
     , _configOutputs = True
@@ -151,7 +152,6 @@ hostAddressBaseUrl h = BaseUrl
 
 devNetDb :: Config -> Manager -> LogFunction -> IO RemoteDb
 devNetDb c mgr l = mkDb
-    (_configChainwebVersion c)
     (_configChainId c)
     mgr
     l
@@ -160,25 +160,22 @@ devNetDb c mgr l = mkDb
 -- TreeDB
 
 mkDb
-    :: HasChainwebVersion v
-    => HasChainId cid
-    => v
-    -> cid
+    :: HasChainId cid
+    => cid
     -> Manager
     -> LogFunction
     -> HostAddress
     -> IO RemoteDb
-mkDb v c mgr logg h = do
+mkDb c mgr logg h = do
     return $ RemoteDb
         (env mgr h)
         (ALogFunction logg)
-        (_chainwebVersion v)
         (_chainId c)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Data
 
-run :: Config -> LogFunction -> IO ()
+run :: HasVersion => Config -> LogFunction -> IO ()
 run config logg = do
     mgr <- newTlsManager
     txStream config mgr logg
@@ -215,11 +212,12 @@ prettyCommand p (bh, c) = T.decodeUtf8
         , "payload" .= either
             (const $ String $ _cmdPayload c)
             (id @Value)
-            (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
+            (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
         ]
 
 txStream
-    :: Config
+    :: HasVersion
+    => Config
     -> Manager
     -> LogFunction
     -> S.Stream (Of (BlockHeight, Command T.Text)) IO ()
@@ -227,7 +225,7 @@ txStream config mgr logg = do
         hdb <- liftIO $ devNetDb config mgr logg
 
         c <- liftIO $ devNetCut config mgr
-        let h = _bhwhHash $ _cutHashes c ^?! ix (_configChainId config)
+        let h = _rankedBlockHashHash $ _cutHashes c ^?! ix (_configChainId config)
 
         getBranch hdb mempty (HS.singleton (UpperBound h))
             & S.chain (logg @T.Text Debug . sshow)
@@ -243,7 +241,7 @@ txStream config mgr logg = do
 -- -------------------------------------------------------------------------- --
 -- PayloadWithOutputs
 
-runOutputs :: Config -> LogFunction -> IO ()
+runOutputs :: HasVersion => Config -> LogFunction -> IO ()
 runOutputs config logg = do
     mgr <- newTlsManager
     txOutputsStream config mgr logg
@@ -269,12 +267,13 @@ prettyCommandWithOutputs p (bh, c, o) = T.decodeUtf8
         , "payload" .= either
             (const $ String $ _cmdPayload c)
             (id @Value)
-            (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
+            (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
         , "output" .= J.toJsonViaEncode o
         ]
 
 txOutputsStream
-    :: Config
+    :: HasVersion
+    => Config
     -> Manager
     -> LogFunction
     -> S.Stream (Of (BlockHeight, Command T.Text, CommandResult T.Text)) IO ()
@@ -282,7 +281,7 @@ txOutputsStream config mgr logg = do
         hdb <- liftIO $ devNetDb config mgr logg
 
         cut <- liftIO $ devNetCut config mgr
-        let h = _bhwhHash $ _cutHashes cut ^?! ix (_configChainId config)
+        let h = _rankedBlockHashHash $ _cutHashes cut ^?! ix (_configChainId config)
 
         getBranch hdb mempty (HS.singleton (UpperBound h))
             & S.chain (logg @T.Text Debug . sshow)
@@ -303,55 +302,64 @@ txOutputsStream config mgr logg = do
 -- -------------------------------------------------------------------------- --
 -- Cut
 
-devNetCut :: Config -> Manager -> IO CutHashes
-devNetCut config mgr = runClientM (cutGetClient ver) (env mgr node) >>= \case
+devNetCut :: HasVersion => Config -> Manager -> IO CutHashes
+devNetCut config mgr = runClientM cutGetClient (env mgr node) >>= \case
     Left e -> error (show e)
     Right x -> return x
   where
-    ver = _configChainwebVersion config
     node = _configNode config
 
 -- -------------------------------------------------------------------------- --
 -- Payloads
 
-devNetPayload :: Config -> Manager -> BlockHeight -> BlockPayloadHash -> IO PayloadData
-devNetPayload config mgr h x = runClientM (payloadClient ver cid x (Just h)) (env mgr node) >>= \case
+devNetPayload
+    :: HasVersion
+    => Config
+    -> Manager
+    -> BlockHeight
+    -> BlockPayloadHash
+    -> IO PayloadData
+devNetPayload config mgr h x = runClientM (payloadClient cid x (Just h)) (env mgr node) >>= \case
     Left e -> error (show e)
     Right a -> return a
   where
     cid = _configChainId config
-    ver = _configChainwebVersion config
     node = _configNode config
 
-devNetPayloadWithOutput :: Config -> Manager -> BlockHeight -> BlockPayloadHash -> IO PayloadWithOutputs
+devNetPayloadWithOutput
+    :: HasVersion
+    => Config
+    -> Manager
+    -> BlockHeight
+    -> BlockPayloadHash
+    -> IO PayloadWithOutputs
 devNetPayloadWithOutput config mgr h x
-    = runClientM (outputsClient ver cid x (Just h)) (env mgr node) >>= \case
+    = runClientM (outputsClient cid x (Just h)) (env mgr node) >>= \case
         Left e -> error (show e)
         Right a -> return a
   where
     cid = _configChainId config
-    ver = _configChainwebVersion config
     node = _configNode config
 
 -- -------------------------------------------------------------------------- --
 -- Main
 
 mainWithConfig :: Config -> IO ()
-mainWithConfig config = withLog $ \logger -> do
+mainWithConfig config = withLog $ \logger -> withVersion ver $ do
     let logg :: LogFunction
         logg = logFunction $ logger
             & addLabel ("host", toText $ _configNode config)
             & addLabel ("version", toText $ _versionName $ _configChainwebVersion config)
             & addLabel ("chain", toText $ _configChainId config)
     liftIO $ do
-        registerVersion (_configChainwebVersion config)
         if _configOutputs config
         then runOutputs config logg
         else run config logg
 
   where
+    ver = _configChainwebVersion config
     logconfig = Y.defaultLogConfig
-        & Y.logConfigLogger . Y.loggerConfigThreshold .~ (_configLogLevel config)
+        & Y.logConfigLogger . Y.loggerConfigThreshold .~ _configLogLevel config
         & Y.logConfigBackend . Y.handleBackendConfigHandle .~ _configLogHandle config
     withLog inner = Y.withHandleBackend_ logText (logconfig ^. Y.logConfigBackend)
         $ \backend -> Y.withLogger (logconfig ^. Y.logConfigLogger) backend inner

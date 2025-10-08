@@ -43,7 +43,7 @@ pNodes = option auto
 pVersion :: Parser ChainwebVersion
 pVersion = option (findKnownVersion =<< textReader)
   (long "chainweb-version" <> metavar "CHAINWEB_VERSION"
-   <> value (fastForkingCpmTestVersion petersenChainGraph)
+   <> value (barebonesTestVersion petersenChainGraph)
    <> help "Chainweb Version to run the Nodes with (default: timedCPM-petersen)")
 
 pConfig :: Parser FilePath
