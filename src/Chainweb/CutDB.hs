@@ -693,7 +693,7 @@ processCuts conf logger headerStore providers cutHashesStore queue cutVar cutPru
 
                 -- ensure that payload providers are in sync with the *merged*
                 -- cut, so that they produce payloads on the correct parents.
-                iforM_ (_cutMap resultCut) $ \cid bh -> do
+                forConcurrently_ (HM.toList (_cutMap resultCut)) $ \(cid, bh) -> do
                     -- avoid asking for syncToBlock when we know that we're already
                     -- in sync, otherwise some payload providers misbehave.
                     when (Just bh /= curCut ^? ixg cid) $
@@ -1089,4 +1089,3 @@ cutIdLogFunctionText
     -> logger
     -> LogFunctionText
 cutIdLogFunctionText = cutIdLogFunction
-
