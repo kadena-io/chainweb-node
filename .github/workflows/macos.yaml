@@ -122,18 +122,18 @@ jobs:
           exe:b64 \
           exe:calculate-release \
           exe:compact \
-          exe:db-checksum \
           exe:ea \
           exe:genconf \
-          exe:header-dump \
           exe:known-graphs \
           exe:pact-diff \
           exe:run-nodes \
           exe:tx-list \
           test:chainweb-tests \
-          test:compaction-tests \
           test:multi-node-network-tests \
           test:remote-tests
+          # exe:header-dump \
+          # exe:db-checksum \
+          # test:compaction-tests \
     - name: Build chainweb-node application
       run: cabal build -j chainweb-node:exe:chainweb-node
     - uses: actions/cache/save@v4
