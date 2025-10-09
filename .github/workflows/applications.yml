@@ -156,9 +156,21 @@ jobs:
         {
           "ghc": ["9.10.2"],
           "cabal": ["latest"],
-          "os": ["ubuntu-22.04"],
+          "os": ["ubuntu-22.04", "ubuntu-24.04"],
           "use-freeze-file": ["false"],
           "include" : [
+            {
+              "ghc": "9.12.2",
+              "cabal": "latest",
+              "os": "ubuntu-24.04",
+              "use-freeze-file": "false"
+            },
+            {
+              "ghc": "9.12.2",
+              "cabal": "latest",
+              "os": "macos-latest",
+              "use-freeze-file": "false"
+            },
             {
               "ghc": "9.10.2",
               "cabal": "3.14",
@@ -267,6 +279,9 @@ jobs:
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
+    - name: Install non-Haskell dependencies (macos)
+      if: contains(matrix.os, 'macos')
+      run: brew update && brew install gflags llvm snappy || true
     # Project Configuration
     - name: Create cabal.project.local
       run: |
