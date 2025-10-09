@@ -29,7 +29,7 @@ runs:
           sudo apt-get install -u libgflags2.2
           ;;
         mac*)
-          brew update && brew install gnu-tar || true
+          brew update && brew install gflags llvm snappy || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
