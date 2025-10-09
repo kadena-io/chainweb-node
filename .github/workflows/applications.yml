@@ -712,7 +712,12 @@ jobs:
       timeout-minutes: 10
       run: |
           ulimit -n 10000
-          chainweb-tests --hide-successes --results-json test-results.json
+          grep -q -e '&&' FAILING_TESTS && echo "warning: FAILING_TESTS file is not empty" 1>&2
+          chainweb-tests \
+              --hide-successes \
+              --results-json test-results.json \
+              -p "$(cat FAILING_TESTS | tr '\n' ' ')"
+
 
     # Publish test results to S3
     - name: Upload test results
