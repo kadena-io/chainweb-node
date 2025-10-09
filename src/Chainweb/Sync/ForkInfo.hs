@@ -27,6 +27,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Control.Lens
 import Control.Monad.Catch
+import Control.Monad.Trans.Maybe
 import Data.List qualified as L
 import Data.LogMessage
 import Data.Maybe
@@ -152,12 +153,13 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
         logg Info $ "resolveForkInfo: payload provider state: " <> brief ppState
             <> "; target state: " <> brief (_forkInfoTargetState finfo)
 
-        hdr :: BlockHeader <- do
-            casLookupM candidateHdrs (_ranked trgHash)
-                <|> lookupRankedM bhdb (int $ _rankedHeight trgHash) (_ranked trgHash)
-            `catch` \(e :: SomeException) -> do
-                logg Warn $ "validatePayload: target block is missing: " <> brief trgHash
-                throwM e
+        hdr :: BlockHeader <- runMaybeT
+            (MaybeT (tableLookup candidateHdrs (_ranked trgHash))
+                <|> MaybeT (lookupRanked bhdb (int $ _rankedHeight trgHash) (_ranked trgHash)))
+                >>= \case
+                    Nothing -> do
+                        throwM $ InternalInvariantViolation $ "validatePayload: target block is missing: " <> brief trgHash
+                    Just hdr -> return hdr
 
         -- Lookup the state of the Payload Provider and query the trace
         -- from the fork point to the target block.
@@ -184,11 +186,9 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
                     }
             Nothing -> do
                 logg Info "resolveForkInfo: payload provider state not in trace, computing fork point"
-                ppBlock <- lookupRankedM bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) `catch` \case
-                    e@(TreeDbKeyNotFound {} :: TreeDbException BlockHeaderDb) -> do
-                        logg Warn $ "Payload provider block is missing: " <> brief ppRBH
-                        throwM e
-                    e -> throwM e
+                ppBlock <- lookupRanked bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) >>= \case
+                    Nothing -> throwM $ InternalInvariantViolation $ "Payload provider block is missing: " <> brief ppRBH
+                    Just ppBlock -> return ppBlock
 
                 -- FIXME: this stream can be very long if the payload provider
                 -- is out of sync. We should limit it and proceed iteratively if
@@ -296,4 +296,3 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
   where
     trgHash = _latestRankedBlockHash . _forkInfoTargetState $ finfo
     ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest ppState
-
