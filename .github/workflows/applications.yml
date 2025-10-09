@@ -724,7 +724,7 @@ jobs:
           chainweb-tests \
               --hide-successes \
               --results-json test-results.json \
-              -p "$(cat FAILING_TESTS | tr '\n' ' ')"
+              -p "$(tr '\n' ' ' < FAILING_TESTS)"
 
 
     # Publish test results to S3
