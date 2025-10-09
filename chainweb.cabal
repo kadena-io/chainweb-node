@@ -921,7 +921,7 @@ benchmark bench
         , lens >= 4.17
         , pact-tng
         , pact-tng:pact-request-api
-        , property-matchers ^>= 0.7
+        , property-matchers >= 0.7
         , text >= 2.0
         , vector >= 0.12.2
 
