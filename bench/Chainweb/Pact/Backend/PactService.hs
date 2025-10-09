@@ -1,26 +1,24 @@
-{-# language
-    BangPatterns
-    , DataKinds
-    , FlexibleContexts
-    , ImpredicativeTypes
-    , ImportQualifiedPost
-    , LambdaCase
-    , NumericUnderscores
-    , OverloadedRecordDot
-    , OverloadedStrings
-    , PackageImports
-    , ScopedTypeVariables
-    , TypeApplications
-    , TemplateHaskell
-    , RecordWildCards
-    , TupleSections
-#-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# options_ghc -fno-warn-orphans #-}
 
 module Chainweb.Pact.Backend.PactService
-    ( bench
-    ) where
+( bench
+) where
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
@@ -112,8 +110,8 @@ bench rdb = do
 data Fixture = Fixture
     { _fixtureBlockDb :: !TestBlockDb
     , _fixtureBlockDbRocksDb :: !RocksDb
-    , _fixtureMempools :: !(ChainMap (MempoolBackend Pact4.UnparsedTransaction))
-    , _fixturePactQueues :: !(ChainMap PactQueue)
+    -- , _fixtureMempools :: !(ChainMap (MempoolBackend Pact4.UnparsedTransaction))
+    -- , _fixturePactQueues :: !(ChainMap PactQueue)
     , _fixturePactServiceThreads :: !(ChainMap ThreadId)
     , _fixturePactServiceSqls :: !(ChainMap SQLiteEnv)
     }
@@ -141,8 +139,8 @@ createFixture rdb pactServiceConfig = do
     let fixture = Fixture
             { _fixtureBlockDb = tdb
             , _fixtureBlockDbRocksDb = tdbRdb
-            , _fixtureMempools = OnChains $ view _1 <$> perChain
-            , _fixturePactQueues = OnChains $ view _2 <$> perChain
+            -- , _fixtureMempools = OnChains $ view _1 <$> perChain
+            -- , _fixturePactQueues = OnChains $ view _2 <$> perChain
             , _fixturePactServiceThreads = OnChains $ view _3 <$> perChain
             , _fixturePactServiceSqls = OnChains $ view _4 <$> perChain
             }
