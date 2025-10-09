@@ -534,9 +534,10 @@ validatePayloads p h i = do
     -- when synchronizing long forks or a with a consensus that is ahead, like
     -- during replay or reinitialization of the payload provider.
     --
-    when (length (_forkInfoTrace i) > 1) $
-        void $ getPayloadsForConsensusPayloads p h
-            (_evaluationCtxRankedPayload <$> _forkInfoTrace i)
+    -- FIXME: seems to time out for some reason
+    -- when (length (_forkInfoTrace i) > 1) $
+    --     void $ getPayloadsForConsensusPayloads p h
+    --         (_evaluationCtxRankedPayload <$> _forkInfoTrace i)
 
     mapConcurrently_ go (_forkInfoTrace i)
   where
