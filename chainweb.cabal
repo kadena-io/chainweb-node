@@ -288,6 +288,7 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Binary
         , Chainweb.VerifierPlugin.Hyperlane.Message
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
+        , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
@@ -375,6 +376,16 @@ library
         , Chainweb.Pact4.TransactionExec
         , Chainweb.Pact4.Types
         , Chainweb.Pact4.Validations
+        , Chainweb.Pact.Transactions.Mainnet0Transactions
+        , Chainweb.Pact.Transactions.Mainnet1Transactions
+        , Chainweb.Pact.Transactions.Mainnet2Transactions
+        , Chainweb.Pact.Transactions.Mainnet3Transactions
+        , Chainweb.Pact.Transactions.Mainnet4Transactions
+        , Chainweb.Pact.Transactions.Mainnet5Transactions
+        , Chainweb.Pact.Transactions.Mainnet6Transactions
+        , Chainweb.Pact.Transactions.Mainnet7Transactions
+        , Chainweb.Pact.Transactions.Mainnet8Transactions
+        , Chainweb.Pact.Transactions.Mainnet9Transactions
 
         -- utils
         , Utils.Logging

@@ -181,6 +181,8 @@ withPactService cid http memPoolAccess chainwebLogger txFailuresCounter pdb read
             , _psModuleInitCacheVar = moduleInitCacheVar
             }
 
+    liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
+
     case pactGenesis of
         GeneratingGenesis -> return ()
         _ -> liftIO $ initialPayloadState chainwebLogger pse
@@ -215,8 +217,8 @@ runGenesisIfNeeded
     -> ServiceEnv tbl
     -> IO ()
 runGenesisIfNeeded logger serviceEnv = do
-    withTransaction (_psReadWriteSql serviceEnv) $ do
-        latestBlock <- fmap _consensusStateLatest <$> Checkpointer.getConsensusState (_psReadWriteSql serviceEnv)
+    withTransaction rwSql $ do
+        latestBlock <- Checkpointer.getLatestBlock rwSql
         when (maybe True (isGenesisBlockHeader' cid . Parent . _syncStateBlockHash) latestBlock) $ do
             logFunctionText logger Debug "running genesis"
             let genesisBlockHash = genesisBlockHeader cid ^. blockHash
@@ -231,7 +233,7 @@ runGenesisIfNeeded logger serviceEnv = do
                     Just p -> p
 
             maybeErr <- runExceptT
-                $ Checkpointer.restoreAndSave logger cid (_psReadWriteSql serviceEnv) (genesisRankedParentBlockHash cid)
+                $ Checkpointer.restoreAndSave logger cid rwSql (genesisRankedParentBlockHash cid)
                 $ NEL.singleton
                 $ (
                 if pact5 cid (genesisHeight cid)
@@ -253,7 +255,7 @@ runGenesisIfNeeded logger serviceEnv = do
                         (_payloadStoreTable $ _psPdb serviceEnv)
                         (genesisHeight cid)
                         genesisPayload
-                    Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
+                    Checkpointer.setConsensusState rwSql targetSyncState
                     -- we can't produce pact 4 blocks anymore, so don't make
                     -- payloads if pact 4 is on
                     when (pact5 cid (succ $ genesisHeight cid)) $
@@ -272,6 +274,7 @@ runGenesisIfNeeded logger serviceEnv = do
                             startPayloadRefresher logger serviceEnv emptyBlock
 
     where
+    rwSql = _psReadWriteSql serviceEnv
     cid = _chainId serviceEnv
 
 -- | only for use in generating genesis blocks in tools.
@@ -336,39 +339,35 @@ execReadOnlyReplay
     => HasVersion
     => logger
     -> ServiceEnv tbl
-    -> [EvaluationCtx BlockPayloadHash]
-    -> IO [BlockInvalidError]
-execReadOnlyReplay logger serviceEnv blocks = do
+    -> EvaluationCtx BlockPayloadHash
+    -> IO (Maybe BlockInvalidError)
+execReadOnlyReplay logger serviceEnv evalCtx = do
     let readSqlPool = view psReadSqlPool serviceEnv
     let cid = view chainId serviceEnv
     let pdb = view psPdb serviceEnv
-    blocks
-        & mapM (\evalCtx -> do
-            payload <- liftIO $ fromJuste <$>
-                lookupPayloadWithHeight (_payloadStoreTable pdb) (Just $ _evaluationCtxCurrentHeight evalCtx) (_evaluationCtxPayload evalCtx)
-            let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
-            let isUpgradeBlock = isJust $ implicitVersion ^? versionUpgrades . atChain cid . ix (_evaluationCtxCurrentHeight evalCtx)
-            if isPayloadEmpty && not isUpgradeBlock
-            then Pool.withResource readSqlPool $ \sql -> withTransaction sql $ do
-                hist <- Checkpointer.readFrom
-                    logger
-                    cid
-                    sql
-                    (_evaluationCtxParentCreationTime evalCtx)
-                    (_evaluationCtxRankedParentHash evalCtx)
-                    Checkpointer.PactRead
-                        { pact5Read = \blockEnv blockHandle ->
-                            runExceptT $ flip evalStateT blockHandle $
-                                void $ Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
-                        , pact4Read = \blockEnv ->
-                            runExceptT $
-                                void $ Pact4.execBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
-                        }
-                either Just (\_ -> Nothing) <$> throwIfNoHistory hist
-            else
-                return Nothing
-            )
-        & fmap catMaybes
+    payload <- liftIO $ fromJuste <$>
+        lookupPayloadWithHeight (_payloadStoreTable pdb) (Just $ _evaluationCtxCurrentHeight evalCtx) (_evaluationCtxPayload evalCtx)
+    let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
+    let isUpgradeBlock = isJust $ implicitVersion ^? versionUpgrades . atChain cid . ix (_evaluationCtxCurrentHeight evalCtx)
+    if not isPayloadEmpty || isUpgradeBlock
+    then Pool.withResource readSqlPool $ \sql -> withTransaction sql $ do
+        hist <- Checkpointer.readFrom
+            logger
+            cid
+            sql
+            (_evaluationCtxParentCreationTime evalCtx)
+            (_evaluationCtxRankedParentHash evalCtx)
+            Checkpointer.PactRead
+                { pact5Read = \blockEnv blockHandle ->
+                    runExceptT $ flip evalStateT blockHandle $
+                        void $ Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
+                , pact4Read = \blockEnv ->
+                    runExceptT $
+                        void $ Pact4.execBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
+                }
+        either Just (\_ -> Nothing) <$> throwIfNoHistory hist
+    else
+        return Nothing
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
@@ -527,7 +526,7 @@ syncToFork
     -> IO ConsensusState
 syncToFork logger serviceEnv hints forkInfo = do
     (rewoundTxs, validatedTxs, newConsensusState) <- withTransaction sql $ do
-        pactConsensusState <- fromJuste <$> Checkpointer.getConsensusState sql
+        pactConsensusState <- Checkpointer.getConsensusState sql
         let atTarget =
                 _syncStateBlockHash (_consensusStateLatest pactConsensusState) ==
                     _latestBlockHash forkInfo._forkInfoTargetState

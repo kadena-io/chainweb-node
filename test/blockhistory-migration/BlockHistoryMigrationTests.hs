@@ -75,7 +75,7 @@ main = withSystemTempDirectory "sql-db" $ \dbDir -> do
     withVersion Mainnet01 $ runResourceT $ do
       bhdb <- withBlockHeaderDb rocksdb cid
       liftIO $ do
-        migrateBlockHistoryTable logger sql bhdb False
+        migrateBlockHistoryTable logger cid sql bhdb False
 
         let qstmt = "SELECT A.blockheight, A.endingtxid, \
                     \ B.hash AS b_hash, B.payloadhash AS b_payload_hash, \

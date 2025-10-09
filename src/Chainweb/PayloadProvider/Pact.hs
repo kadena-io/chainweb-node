@@ -26,6 +26,7 @@ import Chainweb.Counter
 import Chainweb.Logger
 import Chainweb.MerkleUniverse
 import Chainweb.MinerReward qualified as MinerReward
+import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Mempool.Mempool
 import Chainweb.Pact.PactService qualified as PactService
@@ -124,14 +125,15 @@ withPactPayloadProvider
     -> Maybe HTTP.Manager
     -> logger
     -> Maybe (Counter "txFailures")
-    -> MempoolBackend Pact.Transaction
+    -> MemPoolAccess
     -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
     -> Maybe PayloadWithOutputs
     -> ResourceT IO (PactPayloadProvider logger tbl)
-withPactPayloadProvider cid rdb http logger txFailuresCounter mp pdb pactDbDir config maybeGenesisPayload = do
+withPactPayloadProvider cid rdb http logger txFailuresCounter mpa pdb pactDbDir config maybeGenesisPayload = do
     readWriteSqlenv <- withSqliteDb cid logger pactDbDir False
+    liftIO $ ChainwebPactDb.initSchema readWriteSqlenv
 
     -- perform the database migration of the `BlockHeader` Table.
     bhdb <- withBlockHeaderDb rdb cid
@@ -141,14 +143,12 @@ withPactPayloadProvider cid rdb http logger txFailuresCounter mp pdb pactDbDir c
         when needsMigration $
             -- We cleanup potential old state and start migrating the entire database
             -- from scratch.
-            migrateBlockHistoryTable logger readWriteSqlenv bhdb True
+            migrateBlockHistoryTable logger cid readWriteSqlenv bhdb True
 
     readOnlySqlPool <- withReadSqlitePool cid pactDbDir
     PactPayloadProvider logger <$>
         PactService.withPactService cid http mpa logger txFailuresCounter pdb readOnlySqlPool readWriteSqlenv config
         (maybe GenesisNotNeeded GenesisPayload maybeGenesisPayload)
-    where
-    mpa = pactMemPoolAccess mp $ addLabel ("sub-component", "MempoolAccess") logger
 
 pactMemPoolAccess
     :: Logger logger
