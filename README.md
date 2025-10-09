@@ -497,6 +497,17 @@ As previously noted, a node must be reachable from the public internet to partic
 Before you start the node, you should verify that either the default port 1789 or another designated port is open. 
 If your node is behind a firewall or network router, verify that the network is configured with port forwarding to allow incoming connections on the port used for peer-to-peer communication.
 
+To stop a running Chainweb node, press Control-c or sending a terminate signal to the process.
+For example, run the `ps` program to view running processes, then `pkill` to terminate the process:
+
+```shell
+$ ps -a
+    PID TTY          TIME CMD
+2194388 pts/0    00:00:24 chainweb-node
+2194527 pts/1    00:00:00 ps
+$ pkill chainweb-node
+```
+
 ### Synchronizing the node database
 
 By default, the first time you start `chainweb-node`, the node creates a new **empty database** and starts to synchronize state with the other nodes in the Kadena network. 
@@ -677,7 +688,7 @@ If you intend to use a node for mining, you should verify that the the most up-t
 
 ## Enable mining for a node
 
-Successful mining ofor the Kadena main production network (mainnet01) requires specialized Application-Specific Integrated Circuit (ASIC) hardware. 
+Successful mining for the Kadena main production network (mainnet01) requires specialized Application-Specific Integrated Circuit (ASIC) hardware. 
 Mining also requires you to run `chainweb-node` with the appropriate configuration settings to enable mining and a [`chainweb-mining-client`](https://github.com/kadena-io/chainweb-mining-client/).
 The `chainweb-mining-client` is responsible for connecting to the mining API of a chainweb-node and provides a Stratum API for the mining hardware (ASIC).
 You can find detailed instructions for setting up the mining client in the [chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/) repository.
@@ -706,4 +717,4 @@ The Chainweb package contains the following buildable components:
 
 ### Architecture overview
 
-![Architecture Overview](docs/Overview.png)
+![Architecture overview](docs/Overview.png)
