@@ -14,6 +14,7 @@
 --
 module Chainweb.Sync.ForkInfo
 ( resolveForkInfo
+, resolveForkInfoForProviderState
 ) where
 
 import Chainweb.BlockHeader
@@ -121,12 +122,12 @@ resolveForkInfo logg bhdb candidateHdrs provider hints finfo = do
       -- payload provider that is not caught up yet)
       --
       else do
-        resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo r
+        resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo (_consensusStateLatest r)
   where
     h = _latestRankedBlockHash . _forkInfoTargetState $ finfo
 
--- | Resolve a ForkInfo with respect to the current state of the payload
--- provider.
+-- | Resolve a ForkInfo with respect to the current (or some past) state of the
+-- payload provider.
 --
 -- If necessarily resolution is done iteratively in chunks. FIXME chunking
 -- is not yet implemented.
@@ -144,15 +145,15 @@ resolveForkInfoForProviderState
     -> p
     -> Maybe Hints
     -> ForkInfo
-    -> ConsensusState
+    -> SyncState
     -> IO ()
-resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppState
+resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppKnownState
     | ppRBH == trgHash = do
         -- nothing to do, we are at the target
         logg Info "resolveForkInfo: payload provider is at target block"
         return ()
     | otherwise = do
-        logg Info $ "resolveForkInfo: payload provider state: " <> brief ppState
+        logg Info $ "resolveForkInfo: payload provider state: " <> brief ppKnownState
             <> "; target state: " <> brief (_forkInfoTargetState finfo)
 
         hdr :: BlockHeader <- runMaybeT
@@ -174,7 +175,7 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
         --
 
         -- Before we do the potentially expensive branch diff call, we check
-        -- whether the ppState is in the trace of the finfo.
+        -- whether the ppKnownState is in the trace of the finfo.
         -- TODO this could be done more efficiently, but for now it is fine.
         let idx = L.elemIndex ppRBH
                 $ unwrapParent . _evaluationCtxRankedParentHash <$> _forkInfoTrace finfo
@@ -184,7 +185,7 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
                 logg Info $ "resolveForkInfo: found payload provider state in trace at index " <> sshow i
                 return finfo
                     { _forkInfoTrace = drop (i + 1) (_forkInfoTrace finfo)
-                    , _forkInfoBasePayloadHash = Parent $ _ranked $ latestRankedBlockPayloadHash ppState
+                    , _forkInfoBasePayloadHash = Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState
                     }
             Nothing -> do
                 logg Info "resolveForkInfo: payload provider state not in trace, computing fork point"
@@ -271,23 +272,23 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
         -- check if we made progress
         --
         let delta :: Int = int (_rankedHeight (_latestRankedBlockHash newState))
-                - int (_rankedHeight (_latestRankedBlockHash ppState))
+                - int (_rankedHeight (_syncStateRankedBlockHash ppKnownState))
 
         -- TODO: when this function is incremental, we will manage this more correctly.
         if ppState /= newState
           then do
             logg Info $ "resolveForkInfo: made progress"
                 <> "; delta: " <> sshow delta
-                <> "; previous payload provider state: " <> brief ppState
+                <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
             -- continue.
             -- TODO compute the new fork info here.
-            resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints newForkInfo newState
+            resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints newForkInfo (_consensusStateLatest newState)
           else do
             logg Warn $ "resolveForkInfo: no progress"
                 <> "; delta: " <> sshow delta
-                <> "; previous payload provider state: " <> brief ppState
+                <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
 
@@ -297,9 +298,9 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
             --
             throwM $ ForkInfoSyncFailure $ "unexpected result state"
                 <> "; delta: " <> sshow delta
-                <> "; previous payload provider state: " <> brief ppState
+                <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
   where
     trgHash = _latestRankedBlockHash . _forkInfoTargetState $ finfo
-    ppRBH = _syncStateRankedBlockHash $ _consensusStateLatest ppState
+    ppRBH = _syncStateRankedBlockHash ppKnownState
