@@ -12,25 +12,27 @@
 -- Stability: experimental
 --
 module P2P.Utils
-( renderFailure
+( displayClientError
+, renderClientError
 , clientErrorValue
 , requestValue
-, renderClientError
 ) where
 
-import Data.Aeson
 import Chainweb.Utils
 import Control.Exception.Safe
+import Data.Aeson
 import Data.ByteString qualified as B
+import Data.ByteString.Char8 qualified as B8
 import Data.Foldable (toList)
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
+import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Types.URI (renderQuery)
 import Servant.Client
 import Servant.Client.Core
-import qualified Data.Text as T
 
-renderFailure :: SomeException -> T.Text
-renderFailure e = case fromException e of
+displayClientError :: SomeException -> T.Text
+displayClientError e = case fromException e of
     Just (c :: ClientError) -> renderClientError c
     Nothing -> T.pack (displayException e)
 
@@ -41,21 +43,25 @@ clientErrorValue :: ClientError -> Value
 clientErrorValue (FailureResponse req resp) = object
     [ "type" .= String "FailureResponse"
     , "request" .= requestValue req
-    , "response" .= show resp
+    , "code" .= HTTP.statusCode (responseStatusCode resp)
+    , "message" .= B8.unpack (HTTP.statusMessage (responseStatusCode resp))
     ]
 clientErrorValue (DecodeFailure msg resp) = object
     [ "type" .= String "DecodeFailure"
     , "message" .= msg
-    , "response" .= show resp
+    , "code" .= HTTP.statusCode (responseStatusCode resp)
+    , "message" .= B8.unpack (HTTP.statusMessage (responseStatusCode resp))
     ]
 clientErrorValue (UnsupportedContentType mt resp) = object
     [ "type" .= String "UnsupportedContentType"
     , "mediaType" .= show mt
-    , "response" .= show resp
+    , "code" .= HTTP.statusCode (responseStatusCode resp)
+    , "message" .= B8.unpack (HTTP.statusMessage (responseStatusCode resp))
     ]
 clientErrorValue (InvalidContentTypeHeader resp) = object
     [ "type" .= String "InvalidContentTypeHeader"
-    , "response" .= show resp
+    , "code" .= HTTP.statusCode (responseStatusCode resp)
+    , "message" .= B8.unpack (HTTP.statusMessage (responseStatusCode resp))
     ]
 clientErrorValue (ConnectionError e) = object
     [ "type" .= String "ConnectionError"
@@ -64,9 +70,9 @@ clientErrorValue (ConnectionError e) = object
 
 requestValue :: RequestF () (BaseUrl, B.ByteString) -> Value
 requestValue req = String
-    $ sshow (requestMethod req)
-    <> " " <> sshow base
-    <> "/" <> T.decodeUtf8 path
+    $ T.decodeUtf8 (requestMethod req) -- this is OK, since the method is ASCII and produced locally
+    <> " " <> (T.pack . showBaseUrl) base
+    <> T.decodeUtf8 path -- this is OK, since the path is created locally
     <> T.decodeUtf8 (renderQuery True (toList $ requestQueryString req))
   where
     (base, path) = requestPath req

@@ -22,9 +22,11 @@ import Chainweb.Core.Brief
 import Chainweb.Parent
 import Chainweb.PayloadProvider
 import Chainweb.Ranked
+import Chainweb.Storage.Table
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Control.Applicative
 import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Trans.Maybe
@@ -35,10 +37,10 @@ import Data.Text qualified as T
 import Data.These (partitionHereThere)
 import GHC.Generics (Generic)
 import GHC.Stack
+import P2P.TaskQueue (TaskException(TaskFailed))
+import P2P.Utils
 import Streaming.Prelude qualified as S
 import System.LogLevel
-import Control.Applicative
-import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 
@@ -259,7 +261,11 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
         --
         newState <- syncToBlock provider hints newForkInfo `catch` \(e :: SomeException) -> do
             logg Warn $ "getBlockHeaderInternal payload validation retry for "
-                <> brief trgHash <> " failed with: " <> T.pack (displayException e)
+                <> brief trgHash <> " failed with: " <> renderException
+                    [ Renderer $ \(TaskFailed es) -> encodeToText
+                        $ renderExceptionJson [Renderer clientErrorValue] <$> es
+                    ]
+                    e
             throwM e
 
         -- check if we made progress
