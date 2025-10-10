@@ -183,7 +183,7 @@ payloadModuleCode t p = foldMap (<> "\n")
     , "import qualified Data.Vector as V"
     , "import GHC.Stack"
     , ""
-    , "import Chainweb.Payload"
+    , "import Chainweb.Pact.Payload"
     , "import Chainweb.Utils (unsafeFromText, toText)"
     , ""
     , "payloadBlock :: HasCallStack => PayloadWithOutputs"

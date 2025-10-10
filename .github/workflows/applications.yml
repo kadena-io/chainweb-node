@@ -409,14 +409,13 @@ jobs:
           exit 1
         fi
 
-      # Temporarily disabled (it seems that ea depends on chainweb-test-utils)
-      # - name: Run ea and verify consistency of genesis headers
-      #   run: |
-      #     cabal run ea
-      #     if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
-      #       echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
-      #       exit 1
-      #     fi
+    - name: Run ea and verify consistency of genesis headers
+      run: |
+        cabal run ea
+        if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
+          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
+          exit 1
+        fi
 
     # Archive Artifacts
     - name: Prepare artifacts
