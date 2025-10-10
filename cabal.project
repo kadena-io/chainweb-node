@@ -4,7 +4,7 @@ packages:
     cwtools/cwtools.cabal
     libs/chainweb-storage/chainweb-storage.cabal
 
-debug-info: True
+debug-info: 2
 
 -- -------------------------------------------------------------------------- --
 -- Platform specific locations of external libraries
@@ -79,7 +79,7 @@ package crypton
     flags: +support_pclmuldq
 
 package vault
-    documentation: false
+    documentation: False
 
 package yet-another-logger
     flags: -tbmqueue
