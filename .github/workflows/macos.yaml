@@ -149,7 +149,10 @@ jobs:
     - name: Run unit tests
       run: |
         ulimit -n 10000
-        $(cabal list-bin chainweb:test:chainweb-tests) --hide-successes -p '!/chainweb216Test/'
+        $(cabal list-bin chainweb:test:chainweb-tests) \
+            --hide-successes \
+            --results-json test-results.json \
+            -p "$(tr '\n' ' ' < FAILING_TESTS)"
 
     # Checks
     - name: Check that working directory tree is clean
