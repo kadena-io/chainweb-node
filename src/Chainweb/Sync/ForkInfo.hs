@@ -325,6 +325,7 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                 <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
+                <> "; trace: " <> brief (_forkInfoTrace newForkInfo)
   where
     trgHash = _latestRankedBlockHash . _forkInfoTargetState $ finfo
     ppRBH = _syncStateRankedBlockHash ppKnownState
@@ -369,4 +370,3 @@ mergeTrace = go
             = y:ys
         | otherwise
             = x : go xs (y:ys)
-
