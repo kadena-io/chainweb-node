@@ -275,7 +275,7 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                 - int (_rankedHeight (_syncStateRankedBlockHash ppKnownState))
 
         -- TODO: when this function is incremental, we will manage this more correctly.
-        if ppState /= newState
+        if ppKnownState /= _consensusStateLatest newState
           then do
             logg Info $ "resolveForkInfo: made progress"
                 <> "; delta: " <> sshow delta
