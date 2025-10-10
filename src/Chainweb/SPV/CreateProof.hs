@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,32 +17,17 @@
 -- Construction of Merkle proofs in the Chainweb Merkle tree.
 --
 module Chainweb.SPV.CreateProof
-( createTransactionProof
-, createTransactionProof_
-, createTransactionProof'
-, createTransactionOutputProof
-, createTransactionOutputProof_
-, createTransactionOutputProof'
+( createTransactionOutputProof
+, createSmallTransactionOutputProof
 ) where
 
 import Control.Applicative
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.Trans.Maybe
-
-import Crypto.Hash.Algorithms
-
-import qualified Data.ByteString as B
-import qualified Data.List.NonEmpty as N
-import Data.MerkleLog
-
-import GHC.Stack
-
-import Prelude hiding (lookup)
-
--- internal modules
-
+import Data.List.NonEmpty qualified as N
+import Data.MerkleLog.Common
+import Data.MerkleLog.V1 qualified as V1
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -50,119 +36,57 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
+import Chainweb.Parent
+import Chainweb.PayloadProvider
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-
-import Chainweb.Storage.Table
+import GHC.Stack
+import Prelude hiding (lookup)
 
 -- -------------------------------------------------------------------------- --
--- Create Transaction Proof
-
--- | Creates a witness that a transaction is included in a chain of a chainweb.
+-- FIXME
 --
--- The proof is of minimal size. It only witnesses inclusion in the chain for
--- the header on the target chain that this closest to the source header.
+-- With the introduction of non-uniform payload providers the architecture for
+-- proof creation and verification must change.
 --
--- The size of the result is linear in the distance of the source and target
--- chain in the chain graph plus the logarithm of the size of the source block.
+-- CutDb will not include access to payloads. The logic for creating payload
+-- proofs will be implemented in the payload provider.
 --
-createTransactionProof
-    :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => CutDb tbl
-        -- ^ Block Header Database
-    -> ChainId
-        -- ^ target chain. The proof asserts that the subject is included in
-        -- this chain
-    -> ChainId
-        -- ^ source chain. This the chain of the subject
-    -> BlockHeight
-        -- ^ The block height of the transaction
-    -> Int
-        -- ^ The index of the transaction in the block
-    -> IO (TransactionProof SHA512t_256)
-createTransactionProof cutDb =
-  createTransactionProof_
-    (view cutDbWebBlockHeaderDb cutDb)
-    (view cutDbPayloadDb cutDb)
-
--- | Version without CutDb dependency
+-- We have two options:
 --
-createTransactionProof_
-    :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => WebBlockHeaderDb
-    -> PayloadDb tbl
-    -> ChainId
-        -- ^ target chain. The proof asserts that the subject is included in
-        -- this chain
-    -> ChainId
-        -- ^ source chain. This the chain of the subject
-    -> BlockHeight
-        -- ^ The block height of the transaction
-    -> Int
-        -- ^ The index of the transaction in the block
-    -> IO (TransactionProof SHA512t_256)
-createTransactionProof_ headerDb payloadDb tcid scid bh i = do
-    trgHeader <- minimumTrgHeader headerDb tcid scid bh
-    TransactionProof tcid
-        <$> createPayloadProof_ transactionProofPrefix headerDb payloadDb tcid scid bh i trgHeader
-
-
--- | Creates a witness that a transaction is included in a chain of a chainweb.
+-- 1. Make proof creation a consensus API.
 --
--- The target header is the current maximum block header in the target chain.
--- Note, that this header may not yet be confirmed and may thus be volatile.
+--    Pros: Consensus calls into the payload provider. The payload provider does
+--    not need to initiate calls to the consensus API.
 --
-createTransactionProof'
-    :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => CutDb tbl
-        -- ^ Block Header Database
-    -> ChainId
-        -- ^ target chain. The proof asserts that the subject is included in
-        -- this chain
-    -> ChainId
-        -- ^ source chain. This the chain of the subject
-    -> BlockHeight
-        -- ^ The block height of the transaction
-    -> Int
-        -- ^ The index of the transaction in the block
-    -> IO (TransactionProof SHA512t_256)
-createTransactionProof' cutDb tcid scid bh i = TransactionProof tcid
-    <$> createPayloadProof transactionProofPrefix cutDb tcid scid bh i
-
-transactionProofPrefix
-    :: CanReadablePayloadCas tbl
-    => Int
-    -> BlockHeight
-    -> PayloadDb tbl
-    -> BlockPayload
-    -> IO PayloadProofPrefix
-transactionProofPrefix i bh db payload = do
-    -- 1. TX proof
-    let
-        lookupOld = tableLookup
-            (_oldTransactionDbBlockTransactionsTbl $ _transactionDb db)
-            (_blockPayloadTransactionsHash payload)
-        lookupNew = tableLookup
-            (_newTransactionDbBlockTransactionsTbl $ _transactionDb db)
-            (bh, _blockPayloadTransactionsHash payload)
-    Just txs <- runMaybeT $ MaybeT lookupNew <|> MaybeT lookupOld
-        -- TODO: use the transaction tree cache
-    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag txs i
-        -- FIXME use log
-    let !tree = (pos, t)
-        -- we blindly trust the ix
-
-    -- 2. Payload proof
-    let !proof = tree N.:| [headerTree_ @BlockTransactionsHash payload]
-    return (subj, proof)
+--    Cons: The frontend API for proof creation is current exposed in the
+--    payload provider API. The mapping from consensus to providers is on to
+--    many and a consensus component is not generally aware of all payload
+--    providers. This requires handling the case when a proof is requested for
+--    an unsupported chain.
+--
+-- 2. Keep proof creation as payload provider API.
+--
+--    Pros: The API remains where it currently lives. Users don't need to
+--    communicate directly with the consensus API. The is a consensus component
+--    for each payload provider. Hence, requests can always be supported.
+--
+--    Cons: Payload providers need to call into the consensus API. For that
+--    providers need to be aware of the conensus component.
+--
+-- The second solution seems more natural, but that relies on the fact that it
+-- would generally seem more natural if payload providers depended/used
+-- consensus. However, this would require that consensus could accept blocks
+-- without validating the payload, which would require that either payload
+-- validation is not relevant for consensus or block producers provided succinct
+-- proofs for validation. Since this is not the case this argument becomes
+-- irrelevant.
+--
+-- The first solution is in alignment with the overall architecture of the
+-- conensus protocol.
 
 -- -------------------------------------------------------------------------- --
 -- Creates Output Proof
@@ -177,8 +101,7 @@ transactionProofPrefix i bh db payload = do
 --
 createTransactionOutputProof
     :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => CutDb tbl
+    => CutDb l
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -189,47 +112,28 @@ createTransactionOutputProof
         -- ^ The block height of the transaction
     -> Int
         -- ^ The index of the transaction in the block
-    -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof cutDb =
-  createTransactionOutputProof_
-    (view cutDbWebBlockHeaderDb cutDb)
-    (view cutDbPayloadDb cutDb)
-
+    -> IO (TransactionOutputProof ChainwebMerkleHashAlgorithm)
+createTransactionOutputProof cutDb tcid scid =
+    error "Chainweb.SPV.CreateProof.createTransactionOutputProof: FIXME: not yet implemented"
+--   createSmallTransactionOutputProof
+--     (view cutDbWebBlockHeaderDb cutDb)
+--     (view cutDbPayloadProviders cutDb ^?! ixg scid)
+--     tcid
+--     scid
 
 -- | Version without CutDb dependency
 --
-createTransactionOutputProof_
-    :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => WebBlockHeaderDb
-    -> PayloadDb tbl
-        -- ^ Block Header Database
-    -> ChainId
-        -- ^ target chain. The proof asserts that the subject is included in
-        -- this chain
-    -> ChainId
-        -- ^ source chain. This the chain of the subject
-    -> BlockHeight
-        -- ^ The block height of the transaction
-    -> Int
-        -- ^ The index of the transaction in the block
-    -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof_ headerDb payloadDb tcid scid bh i = do
-    trgHeader <- minimumTrgHeader headerDb tcid scid bh
-    TransactionOutputProof tcid
-        <$> createPayloadProof_ outputProofPrefix headerDb payloadDb tcid scid bh i trgHeader
-
-
--- | Creates a witness that a transaction is included in a chain of a chainweb.
---
--- The target header is the current maximum block header in the target chain.
+-- The target header is the current minimum block header in the target chain.
 -- Note, that this header may not yet be confirmed and may thus be volatile.
 --
-createTransactionOutputProof'
+createSmallTransactionOutputProof
     :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => CutDb tbl
+    => HasVersion
+    => PayloadProvider p
+    => WebBlockHeaderDb
         -- ^ Block Header Database
+    -> p
+        -- ^ paylaod provider
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -239,40 +143,54 @@ createTransactionOutputProof'
         -- ^ The block height of the transaction
     -> Int
         -- ^ The index of the transaction in the block
-    -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof' cutDb tcid scid bh i
-    = TransactionOutputProof tcid
-        <$> createPayloadProof outputProofPrefix cutDb tcid scid bh i
+    -> IO (TransactionOutputProof ChainwebMerkleHashAlgorithm)
+createSmallTransactionOutputProof headerDb provider tcid scid bh i = do
+    trgHeader <- minimumTrgHeader headerDb tcid scid bh
+    TransactionOutputProof tcid
+        <$> createPayloadProof_  getProofPrefix headerDb tcid scid bh i trgHeader
+  where
+    getProofPrefix = outputProofPrefix provider
 
 outputProofPrefix
-    :: CanReadablePayloadCas tbl
-    => Int
+    :: PayloadProvider p
+    => p
+    -> Int
         -- ^ transaction index
     -> BlockHeight
-    -> PayloadDb tbl
-    -> BlockPayload
+    -> BlockPayloadHash
     -> IO PayloadProofPrefix
-outputProofPrefix i bh db payload = do
-    -- 1. TX proof
-    let
-        lookupOld = tableLookup
-            (_oldBlockOutputsTbl blockOutputs)
-            (_blockPayloadOutputsHash payload)
-        lookupNew = tableLookup
-            (_newBlockOutputsTbl blockOutputs)
-            (bh, _blockPayloadOutputsHash payload)
-    Just outs <- runMaybeT $ MaybeT lookupNew <|> MaybeT lookupOld
-        -- TODO: use the transaction tree cache
-    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
-        -- FIXME use log
-    let tree = (pos, t)
-        -- we blindly trust the ix
-
-    -- 2. Payload proof
-    let !proof = tree N.:| [headerTree_ @BlockOutputsHash payload]
-    return (subj, proof)
-  where
-    blockOutputs = _payloadCacheBlockOutputs $ _payloadCache db
+outputProofPrefix provider i bh ph = do
+    error "Chainweb.SPV.CreateProof.outputProofPrefix: FIXME: not yet implemented"
+--  where
+--
+--     -- 1. TX proof
+--     let
+--         lookupOld = tableLookup
+--             (_oldBlockOutputsTbl blockOutputs)
+--             (_blockPayloadOutputsHash payload)
+--         lookupNew = tableLookup
+--             (_newBlockOutputsTbl blockOutputs)
+--             (bh, _blockPayloadOutputsHash payload)
+--     Just outs <- runMaybeT $ MaybeT lookupNew <|> MaybeT lookupOld
+--         -- TODO: use the transaction tree cache
+--     let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
+--         -- FIXME use log
+--     let tree = (pos, t)
+--         -- we blindly trust the ix
+--
+--     -- 2. Payload proof
+--     let !proof = tree N.:| [headerTree_ @BlockOutputsHash payload]
+--     return (subj, proof)
+--   where
+--     blockOutputs = _payloadCacheBlockOutputs $ _payloadCache db
+--
+--     payload = do
+--         Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight txHeader) (view blockPayloadHash txHeader)
+--         return $ BlockPayload
+--               { _blockPayloadTransactionsHash = view payloadDataTransactionsHash pd
+--               , _blockPayloadOutputsHash = view payloadDataOutputsHash pd
+--               , _blockPayloadPayloadHash = view payloadDataPayloadHash pd
+--               }
 
 -- -------------------------------------------------------------------------- --
 -- Internal Proof Creation
@@ -281,43 +199,18 @@ outputProofPrefix i bh db payload = do
 -- of merkle trees for the final proof.
 --
 type PayloadProofPrefix =
-    (MerkleNodeType SHA512t_256 B.ByteString, N.NonEmpty (Int, MerkleTree SHA512t_256))
-
--- | Creates a witness that a transaction is included in a chain of a chainweb.
---
-createPayloadProof
-    :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => (Int -> BlockHeight -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
-    -> CutDb tbl
-        -- ^ Block Header Database
-    -> ChainId
-        -- ^ target chain. The proof asserts that the subject is included in
-        -- this chain
-    -> ChainId
-        -- ^ source chain. This the chain of the subject
-    -> BlockHeight
-        -- ^ The block height of the transaction
-    -> Int
-        -- ^ The index of the transaction in the block
-    -> IO (MerkleProof SHA512t_256)
-createPayloadProof getPrefix cutDb tcid scid txHeight txIx = do
-    trgHeadHeader <- maxEntry trgChain
-    createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeadHeader
-  where
-    headerDb = view cutDbWebBlockHeaderDb cutDb
-    payloadDb = view cutDbPayloadDb cutDb
-    trgChain = headerDb ^?! ixg tcid
+    ( MerkleNodeType ChainwebMerkleHashAlgorithm
+    , N.NonEmpty (Int, V1.MerkleTree ChainwebMerkleHashAlgorithm)
+    )
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
 -- at the given target header.
 --
 createPayloadProof_
     :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => (Int -> BlockHeight -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
+    => HasVersion
+    => (Int -> BlockHeight -> BlockPayloadHash -> IO PayloadProofPrefix)
     -> WebBlockHeaderDb
-    -> PayloadDb tbl
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -329,8 +222,8 @@ createPayloadProof_
         -- ^ The index of the transaction in the block
     -> BlockHeader
         -- ^ the target header of the proof
-    -> IO (MerkleProof SHA512t_256)
-createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeader = do
+    -> IO (V1.MerkleProof ChainwebMerkleHashAlgorithm)
+createPayloadProof_ getPrefix headerDb tcid scid txHeight txIx trgHeader = do
     --
     -- 1. TransactionTree
     -- 2. BlockPayload
@@ -381,23 +274,18 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionTargetHeight = view blockHeight trgHeader
             }
 
-    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight txHeader) (view blockPayloadHash txHeader)
-    let payload = BlockPayload
-          { _blockPayloadTransactionsHash = view payloadDataTransactionsHash pd
-          , _blockPayloadOutputsHash = view payloadDataOutputsHash pd
-          , _blockPayloadPayloadHash = view payloadDataPayloadHash pd
-          }
+    let payloadHash = (view blockPayloadHash txHeader)
 
     -- ----------------------------- --
     -- 1. Payload Proofs (TXs and Payload)
 
-    (subj, prefix) <- getPrefix txIx txHeight payloadDb payload
+    (subj, prefix) <- getPrefix txIx txHeight payloadHash
 
     -- ----------------------------- --
 
     -- 2. BlockHeader proof
     --
-    unless (view blockPayloadHash txHeader == _blockPayloadPayloadHash payload)
+    unless (view blockPayloadHash txHeader == payloadHash)
         $ throwM $ SpvExceptionInconsistentPayloadData
             { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
             , _spvExceptionMsgPayloadHash = view blockPayloadHash txHeader
@@ -407,7 +295,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
 
     -- 3. BlockHeader Chain Proof
     --
-    let chainTrees = headerTree_ @BlockHash <$> chain
+    let chainTrees = headerTree_ @(Parent BlockHash) <$> chain
 
     -- 4. Cross Chain Proof
     --
@@ -415,7 +303,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
 
     -- Put proofs together
     --
-    merkleProof_ subj $ append prefix
+    V1.merkleTreeProof_ subj $ append prefix
         $ blockHeaderTree
         : chainTrees
         <> crossTrees
@@ -433,7 +321,8 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
 -- Returns 'Nothing' if @i >= view blockHeight h@.
 --
 crumbsOnChain
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> BlockHeader
     -> BlockHeight
     -> IO (Maybe (N.NonEmpty BlockHeader))
@@ -444,7 +333,7 @@ crumbsOnChain db trgHeader srcHeight
     go cur acc
         | srcHeight == view blockHeight cur = return $! (cur N.:| acc)
         | otherwise = do
-            p <- lookupParentHeader db cur
+            Parent p <- lookupParentHeader db cur
             go p (cur : acc)
 
 -- | Create a path of bread crumbs from the source chain id to the target header
@@ -453,16 +342,17 @@ crumbsOnChain db trgHeader srcHeight
 -- Returns 'Nothing' if no such path exists.
 --
 crumbsToChain
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ChainId
     -> BlockHeader
     -> IO (Maybe (BlockHeader, [(Int, BlockHeader)]))
         -- ^ bread crumbs that lead from to source Chain to targetHeader
 crumbsToChain db srcCid trgHeader
-    | (int (view blockHeight trgHeader) + 1) < length path = return Nothing
+    | int (view blockHeight trgHeader) + 1 < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    graph = chainGraphAt db (view blockHeight trgHeader)
+    graph = chainGraphAt (view blockHeight trgHeader)
     path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
@@ -472,7 +362,7 @@ crumbsToChain db srcCid trgHeader
        -> IO (BlockHeader, [(Int, BlockHeader)])
     go !cur [] !acc = return (cur, acc)
     go !cur ((!h):t) !acc = do
-        adjpHdr <- lookupAdjacentParentHeader db cur h
+        Parent adjpHdr <- lookupAdjacentParentHeader db cur h
         unless (view blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."
@@ -481,7 +371,8 @@ crumbsToChain db srcCid trgHeader
         go adjpHdr t ((adjIdx, cur) : acc)
 
 minimumTrgHeader
-    :: WebBlockHeaderDb
+    :: HasVersion
+    => WebBlockHeaderDb
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -510,7 +401,7 @@ minimumTrgHeader headerDb tcid scid bh = do
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
 
-    srcGraph = chainGraphAt headerDb bh
+    srcGraph = chainGraphAt bh
     srcDistance = length $ shortestPath tcid scid srcGraph
-    trgGraph = chainGraphAt headerDb (bh + int srcDistance)
+    trgGraph = chainGraphAt (bh + int srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph

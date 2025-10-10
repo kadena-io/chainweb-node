@@ -13,21 +13,18 @@ module Ea.Genesis
 , chainIdRangeTag
 
   -- * Devnet Genesis Txs
-, recapDevelopment0
-, recapDevelopmentN
-, recapDevelopmentKAD
 , fastDevelopment0
 , fastDevelopmentN
 
   -- * Testing Genesis Txs
-, fastTimedCPM0
-, fastTimedCPMN
+-- , fastTimedCPM0
+-- , fastTimedCPMN
 , instantCPM0
 , instantCPMN
-, pact5InstantCPM0
-, pact5InstantCPMN
 , pact53TransitionCPM0
 , pact53TransitionCPMN
+-- , pact5InstantCPM0
+-- , pact5InstantCPMN
 , quirkedPact5InstantCPM0
 , quirkedPact5InstantCPMN
 
@@ -66,14 +63,13 @@ module Ea.Genesis
 import Control.Lens
 import Control.Monad
 
-import Data.Text
+import Data.Text (Text)
 import Data.Word
 
 import Chainweb.Graph
 import Chainweb.Test.TestVersions
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
 
@@ -123,7 +119,7 @@ data Genesis = Genesis
     , _coinContract :: [FilePath]
     } deriving (Eq, Ord)
 
-makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "keysets", "allocations", "namespaces", "coinContract"]] ''Genesis
+makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "allocations"]] ''Genesis
 
 -- ---------------------------------------------------------------------- --
 --  Coin Contract Essentials
@@ -165,35 +161,6 @@ fungibleXChainV1 :: FilePath
 fungibleXChainV1 = "pact/coin-contract/v4/load-fungible-xchain-v1.yaml"
 
 -- ---------------------------------------------------------------------- --
--- Devnet - RecapDevelopment
-
-recapDevelopment0 :: Genesis
-recapDevelopment0 = Genesis
-    { _version = RecapDevelopment
-    , _tag = "RecapDevelopment"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just dev0Grants
-    , _keysets = Just devKeysets
-    , _allocations = Just devAllocations
-    , _namespaces = Just devNs
-    , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
-    }
-
-recapDevelopmentN :: Genesis
-recapDevelopmentN = recapDevelopment0
-    & txChainIds .~ mkChainIdRange 1 9
-    & coinbase ?~ devNGrants
-
-recapDevelopmentKAD :: Genesis
-recapDevelopmentKAD = recapDevelopment0
-    & txChainIds .~ mkChainIdRange 10 19
-    & coinbase ?~ devnetKadOps
-    & keysets .~ Nothing
-    & allocations .~ Nothing
-    & namespaces ?~ devNs
-    & coinContract .~ [fungibleAssetV1, fungibleAssetV2, coinContractV2Install, gasPayer]
-
--- ---------------------------------------------------------------------- --
 -- Devnet - Development
 
 fastDevelopment0 :: Genesis
@@ -216,8 +183,8 @@ fastDevelopmentN = fastDevelopment0
 devNs2 :: FilePath
 devNs2 = "pact/genesis/ns-v2.yaml"
 
-devNs :: FilePath
-devNs = "pact/genesis/ns-v1.yaml"
+-- devNs :: FilePath
+-- devNs = "pact/genesis/ns-v1.yaml"
 
 devKeysets :: FilePath
 devKeysets = "pact/genesis/devnet/keysets.yaml"
@@ -231,8 +198,8 @@ devNGrants = "pact/genesis/devnet/grantsN.yaml"
 devAllocations :: FilePath
 devAllocations = "pact/genesis/devnet/allocations.yaml"
 
-devnetKadOps :: FilePath
-devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
+-- devnetKadOps :: FilePath
+-- devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- CPM test versions
@@ -251,23 +218,6 @@ instantCPM0 = Genesis
 
 instantCPMN :: Genesis
 instantCPMN = instantCPM0
-  & txChainIds .~ mkChainIdRange 1 9
-  & coinbase ?~ fastNGrants
-
-pact5InstantCPM0 :: Genesis
-pact5InstantCPM0 = Genesis
-    { _version = pact5InstantCpmTestVersion petersenChainGraph
-    , _tag = "Pact5InstantTimedCPM"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just fast0Grants
-    , _keysets = Just fastKeysets
-    , _allocations = Just fastAllocations
-    , _namespaces = Just devNs2
-    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
-    }
-
-pact5InstantCPMN :: Genesis
-pact5InstantCPMN = pact5InstantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 
@@ -305,25 +255,25 @@ quirkedPact5InstantCPMN = quirkedPact5InstantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 
-fastTimedCPM0 :: Genesis
-fastTimedCPM0 = Genesis
-    { _version = fastForkingCpmTestVersion petersenChainGraph
-    , _tag = "FastTimedCPM"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just fast0Grants
-    , _keysets = Just fastKeysets
-    , _allocations = Just fastAllocations
-    , _namespaces = Just fastNs
-    , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
-    }
+-- fastTimedCPM0 :: Genesis
+-- fastTimedCPM0 = Genesis
+--     { _version = fastForkingCpmTestVersion petersenChainGraph
+--     , _tag = "FastTimedCPM"
+--     , _txChainIds = onlyChainId 0
+--     , _coinbase = Just fast0Grants
+--     , _keysets = Just fastKeysets
+--     , _allocations = Just fastAllocations
+--     , _namespaces = Just fastNs
+--     , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
+--     }
 
-fastTimedCPMN :: Genesis
-fastTimedCPMN = fastTimedCPM0
-    & txChainIds .~ mkChainIdRange 1 9
-    & coinbase ?~ fastNGrants
+-- fastTimedCPMN :: Genesis
+-- fastTimedCPMN = fastTimedCPM0
+--     & txChainIds .~ mkChainIdRange 1 9
+--     & coinbase ?~ fastNGrants
 
-fastNs :: FilePath
-fastNs = "pact/genesis/ns-v1.yaml"
+-- fastNs :: FilePath
+-- fastNs = "pact/genesis/ns-v1.yaml"
 
 fastKeysets :: FilePath
 fastKeysets = "pact/genesis/devnet/keysets.yaml"

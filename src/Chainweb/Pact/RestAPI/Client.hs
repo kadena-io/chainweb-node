@@ -25,18 +25,14 @@ module Chainweb.Pact.RestAPI.Client
 , pactSendApiClient
 , pactLocalApiClient_
 , pactLocalApiClient
-, pactLocalWithQueryApiClient_
-, pactLocalWithQueryApiClient
-, pactPollWithQueryApiClient_
-, pactPollWithQueryApiClient
+, pactPollApiClient_
+, pactPollApiClient
 ) where
 
 
 import qualified Data.Text as T
 
-import Pact.Types.API
-import Pact.Types.Command
-import Pact.Types.Hash
+import Pact.Core.Command.Types
 
 import Servant.Client
 
@@ -49,7 +45,8 @@ import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
-import qualified Pact.Core.Command.Server as Pact5
+import qualified Pact.Core.Command.Server as Pact
+import Data.Proxy (Proxy)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Spv Transaction Output Proof Client
@@ -67,8 +64,8 @@ pactSpvApiClient_
 pactSpvApiClient_ = client (pactSpvApi @v @c)
 
 pactSpvApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
     -> SpvRequest
@@ -77,10 +74,9 @@ pactSpvApiClient
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> ClientM TransactionOutputProofB64
-pactSpvApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactSpvApiClient_ @v @c
+pactSpvApiClient (FromSingChainId (SChainId :: Sing c)) r = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactSpvApiClient_ @v @c r
 
 -- -------------------------------------------------------------------------- --
 -- Pact ETH Spv Transaction Output Proof Client
@@ -94,16 +90,15 @@ ethSpvApiClient_
 ethSpvApiClient_ = client (ethSpvApi @v @c)
 
 ethSpvApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ chain to which the request is submitted. The resuting proof does
         -- not depend on the chain and can be validated on any chain.
     -> EthSpvRequest
     -> ClientM EthSpvResponse
-ethSpvApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = ethSpvApiClient_ @v @c
+ethSpvApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    ethSpvApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact ETH Spv Transaction Output Proof Client
@@ -121,15 +116,14 @@ pactSpv2ApiClient_
 pactSpv2ApiClient_ = client (pactSpv2Api @v @c)
 
 pactSpv2ApiClient
-    :: ChainwebVersion
-    -> ChainId
+    :: HasVersion
+    => ChainId
         -- ^ the chain id of the target chain of the proof.
     -> Spv2Request
     -> ClientM SomePayloadProof
-pactSpv2ApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactSpv2ApiClient_ @v @c
+pactSpv2ApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactSpv2ApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact local
@@ -138,43 +132,24 @@ pactLocalApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Command T.Text
-    -> ClientM (CommandResult Hash)
-pactLocalApiClient_ = client (pactLocalApi @v @c)
-
-pactLocalApiClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Command T.Text
-    -> ClientM (CommandResult Hash)
-pactLocalApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactLocalApiClient_ @v @c
-
-pactLocalWithQueryApiClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
     => Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
     -> Command T.Text
     -> ClientM LocalResult
-pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
+pactLocalApiClient_ = client (pactLocalApi @v @c)
 
-pactLocalWithQueryApiClient
-    :: ChainwebVersion
-    -> ChainId
+pactLocalApiClient
+    :: HasVersion
+    => ChainId
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
     -> Command T.Text
     -> ClientM LocalResult
-pactLocalWithQueryApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactLocalWithQueryApiClient_ @v @c
+pactLocalApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactLocalApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Listen
@@ -183,19 +158,18 @@ pactListenApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Pact5.ListenRequest
-    -> ClientM Pact5.ListenResponse
+    => Pact.ListenRequest
+    -> ClientM Pact.ListenResponse
 pactListenApiClient_ = client (pactListenApi @v @c)
 
 pactListenApiClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Pact5.ListenRequest
-    -> ClientM Pact5.ListenResponse
-pactListenApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactListenApiClient_ @v @c
+    :: HasVersion
+    => ChainId
+    -> Pact.ListenRequest
+    -> ClientM Pact.ListenResponse
+pactListenApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactListenApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Send
@@ -204,37 +178,37 @@ pactSendApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => SubmitBatch
-    -> ClientM RequestKeys
+    => Pact.SendRequest
+    -> ClientM Pact.SendResponse
 pactSendApiClient_ = client (pactSendApi @v @c)
 
 pactSendApiClient
-    :: ChainwebVersion
-    -> ChainId
-    -> SubmitBatch
-    -> ClientM RequestKeys
-pactSendApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactSendApiClient_ @v @c
+    :: HasVersion
+    => ChainId
+    -> Pact.SendRequest
+    -> ClientM Pact.SendResponse
+pactSendApiClient (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactSendApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Poll
 
-pactPollWithQueryApiClient_
+pactPollApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Maybe ConfirmationDepth
-    -> Pact5.PollRequest
-    -> ClientM Pact5.PollResponse
-pactPollWithQueryApiClient_ = client (pactPollWithQueryApi @v @c)
+    -> Pact.PollRequest
+    -> ClientM Pact.PollResponse
+pactPollApiClient_ = client (pactPollApi @v @c)
 
-pactPollWithQueryApiClient
-    :: ChainwebVersion
-    -> ChainId
+pactPollApiClient
+    :: HasVersion
+    => ChainId
     -> Maybe ConfirmationDepth
-    -> Pact5.PollRequest
-    -> ClientM Pact5.PollResponse
-pactPollWithQueryApiClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) (FromSingChainId (SChainId :: Sing c)) confirmationDepth poll = do
-    pactPollWithQueryApiClient_ @v @c confirmationDepth poll
+    -> Pact.PollRequest
+    -> ClientM Pact.PollResponse
+pactPollApiClient  (FromSingChainId (SChainId :: Sing c)) = do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal
+    pactPollApiClient_ @v @c

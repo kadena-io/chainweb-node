@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -29,27 +30,21 @@ module Chainweb.Pact.Utils
     ) where
 
 import Data.Aeson
-import qualified Data.Text as T
-
+import Data.Text qualified as T
 import Control.Monad.Catch
-
-import Pact.Parse
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.Term as P
-import Pact.Types.ChainMeta
-import Pact.Types.KeySet (ed25519HexFormat)
-
-import qualified Pact.JSON.Encode as J
-
--- Internal modules
-
+import Pact.JSON.Encode qualified as J
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Time
+import Pact.Core.ChainData qualified as P
+import Pact.Core.Guards qualified as P
+import Pact.Core.Guards (ed25519HexFormat)
+import Data.Set qualified as Set
+import Chainweb.Utils (fromTextM)
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
-fromPactChainId (P.ChainId t) = chainIdFromText t
+fromPactChainId (P.ChainId t) = fromTextM t
 
 -- | This is the recursion principle of an 'Aeson' 'Result' of type 'a'.
 -- Similar to 'either', 'maybe', or 'bool' combinators
@@ -58,9 +53,9 @@ aeson :: (String -> b) -> (a -> b) -> Result a -> b
 aeson f _ (Error a) = f a
 aeson _ g (Success a) = g a
 
-toTxCreationTime :: Time Micros -> TxCreationTime
+toTxCreationTime :: Time Micros -> P.TxCreationTime
 toTxCreationTime (Time timespan) =
-  TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan
+  P.TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
 
 
@@ -90,7 +85,7 @@ generateKAccountFromPubKey pubKey
 -- is valid.
 -- Note: We are assuming the k: account is ED25519.
 pubKeyToKAccountKeySet :: P.PublicKeyText -> P.KeySet
-pubKeyToKAccountKeySet pubKey = P.mkKeySet [pubKey] "keys-all"
+pubKeyToKAccountKeySet pubKey = P.KeySet (Set.singleton pubKey) P.KeysAll
 
 generateKeySetFromKAccount :: T.Text -> Maybe P.KeySet
 generateKeySetFromKAccount kacct = do

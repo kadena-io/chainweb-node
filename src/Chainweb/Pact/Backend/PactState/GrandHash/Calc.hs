@@ -24,7 +24,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Calc
   where
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
+import Chainweb.ChainId (ChainId)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (allChains)
@@ -34,8 +34,8 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeights, computeGrandHashesAt, withConnections, hex, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Chainweb.Utils (sshow)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
+import Chainweb.Utils (sshow, toText)
+import Chainweb.Version (ChainwebVersion(..), HasVersion, ChainwebVersionName(..), withVersion)
 import Chainweb.Version.Development (devnet)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.RecapDevelopment (recapDevnet)
@@ -73,8 +73,8 @@ data BlockHeightTargets
 
 -- | Calculate the snapshots at each BlockHeight target.
 pactCalc :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
      -- ^ pact database dir
   -> RocksDb
@@ -82,26 +82,26 @@ pactCalc :: (Logger logger)
   -> BlockHeightTargets
      -- ^ target for calculation
   -> IO [(BlockHeight, HashMap ChainId Snapshot)]
-pactCalc logger v pactConns rocksDb targets = do
+pactCalc logger pactConns rocksDb targets = do
   logFunctionText logger Debug "Starting pact-calc"
 
   chainTargets <- case targets of
     LatestAll -> do
-      List.singleton <$> resolveLatestCutHeaders logger v pactConns rocksDb
+      List.singleton <$> resolveLatestCutHeaders logger pactConns rocksDb
     TargetAll ts -> do
-      resolveCutHeadersAtHeights logger v pactConns rocksDb (Set.toDescList ts)
+      resolveCutHeadersAtHeights logger pactConns rocksDb (Set.toDescList ts)
     Every n -> do
       -- Get the latest cut headers
-      (latestBlockHeight, _cutHeaders) <- resolveLatestCutHeaders logger v pactConns rocksDb
+      (latestBlockHeight, _cutHeaders) <- resolveLatestCutHeaders logger pactConns rocksDb
       -- Then make sure we don't exceed them. It's okay if we attempt to access
       -- history that doesn't exist, the code is resilient to that, it will just
       -- emit warnings.
       let ts = List.sortOn Down $ List.takeWhile (< latestBlockHeight) $ List.map (* n) [0 .. ]
       -- Now it's just the same as the 'TargetAll' case.
-      resolveCutHeadersAtHeights logger v pactConns rocksDb ts
+      resolveCutHeadersAtHeights logger pactConns rocksDb ts
 
   pooledForConcurrently chainTargets $ \(b, cutHeader) -> do
-    fmap (b,) $ computeGrandHashesAt pactConns cutHeader
+    (b,) <$> computeGrandHashesAt pactConns cutHeader
 
 data PactCalcConfig = PactCalcConfig
   { pactDir :: FilePath
@@ -120,46 +120,47 @@ data PactCalcConfig = PactCalcConfig
 pactCalcMain :: IO ()
 pactCalcMain = do
   cfg <- O.execParser opts
-  C.withDefaultLogger Debug $ \logger -> do
-    withConnections logger cfg.pactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
-      withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-        chainHashes <- pactCalc logger cfg.chainwebVersion pactConns rocksDb cfg.target
-        when cfg.writeModule $ do
-          when (cfg.chainwebVersion == mainnet) $ do
-            let snapshotToDiffable = Map.fromList . List.map (\(b, hm) -> (b, Map.fromList (HM.toList hm)))
-            let currentSnapshot = snapshotToDiffable MainnetSnapshot.grands
-            let newSnapshot = snapshotToDiffable chainHashes
+  withVersion cfg.chainwebVersion $ do
+    C.withDefaultLogger Debug $ \logger -> do
+      withConnections logger cfg.pactDir allChains $ \pactConns -> do
+        withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
+          chainHashes <- pactCalc logger pactConns rocksDb cfg.target
+          when cfg.writeModule $ do
+            when (cfg.chainwebVersion == mainnet) $ do
+              let snapshotToDiffable = Map.fromList . List.map (\(b, hm) -> (b, Map.fromList (HM.toList hm)))
+              let currentSnapshot = snapshotToDiffable MainnetSnapshot.grands
+              let newSnapshot = snapshotToDiffable chainHashes
 
-            forM_ (Map.toList (P.diff currentSnapshot newSnapshot)) $ \(height, d) -> do
-              case d of
-                -- We only care about pre-existing blockheights with differences.
-                --
-                -- - For 'Same', there is definitely no cause for concern.
-                -- - For 'Old', that probably means that we are just using a new offset (see 'Every').
-                -- - For 'New', that means that we are adding a new BlockHeight(s).
-                --
-                -- - But for 'Delta', we need to check if any of the hashes have
-                --   changed. If they have, that is very bad.
-                P.Delta cur new -> do
-                  forM_ (Map.toList (P.diff cur new)) $ \(cid, sd) -> do
-                    case sd of
-                      -- Here, similarly, we only care about changed
-                      -- pre-existing values.
-                      P.Delta _ _ -> do
-                        let msg = Text.concat
-                              [ "Hash mismatch when attempting to regenerate snapshot: "
-                              , "blockheight = ", sshow height, "; "
-                              , "chainId = ", chainIdToText cid, "; "
-                              ]
-                        logFunctionText logger Error msg
-                      _ -> do
-                        pure ()
-                _ -> do
-                  pure ()
+              forM_ (Map.toList (P.diff currentSnapshot newSnapshot)) $ \(height, d) -> do
+                case d of
+                  -- We only care about pre-existing blockheights with differences.
+                  --
+                  -- - For 'Same', there is definitely no cause for concern.
+                  -- - For 'Old', that probably means that we are just using a new offset (see 'Every').
+                  -- - For 'New', that means that we are adding a new BlockHeight(s).
+                  --
+                  -- - But for 'Delta', we need to check if any of the hashes have
+                  --   changed. If they have, that is very bad.
+                  P.Delta cur new -> do
+                    forM_ (Map.toList (P.diff cur new)) $ \(cid, sd) -> do
+                      case sd of
+                        -- Here, similarly, we only care about changed
+                        -- pre-existing values.
+                        P.Delta _ _ -> do
+                          let msg = Text.concat
+                                [ "Hash mismatch when attempting to regenerate snapshot: "
+                                , "blockheight = ", sshow height, "; "
+                                , "chainId = ", toText cid, "; "
+                                ]
+                          logFunctionText logger Error msg
+                        _ -> do
+                          pure ()
+                  _ -> do
+                    pure ()
 
-          let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
-          writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
-        BLC8.putStrLn $ grandsToJson chainHashes
+            let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
+            writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
+          BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)
@@ -214,7 +215,7 @@ grandsToJson chainHashes =
                       [ "hash" J..= hex (getChainGrandHash hash)
                       , "header" J..= J.encodeWithAeson header
                       ]
-                in (chainIdToText cid, o)
+                in (toText cid, o)
     in (key J..= val)
 
 -- | Output a Haskell module with the embedded hashes. This module is produced
@@ -286,7 +287,7 @@ chainHashesToModule v input = prefix
       let
         jsonDecode j = "unsafeDecodeBlockHeader " ++ j
         fromHex b = "unsafeBase16Decode " ++ b
-        sCid = Text.unpack (chainIdToText cid)
+        sCid = Text.unpack (toText cid)
         sHash = inQuotes $ Text.unpack (hex (getChainGrandHash hash))
         sHeader = embedQuotes $ Text.unpack (J.encodeText (J.encodeWithAeson header))
       in

@@ -8,6 +8,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -133,7 +134,7 @@ import System.Directory
     doesFileExist, getCurrentDirectory)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode(ExitSuccess))
-import System.FilePath (isDrive, takeDirectory, (</>))
+import System.FilePath (isDrive, takeDirectory)
 
 -- | Include this function when your setup doesn't contain any
 -- extra functionality.
@@ -183,7 +184,7 @@ mkPkgInfoModulesPostConf hook args flags pkgDesc bInfo = do
 
 updatePkgInfoModule :: PackageDescription -> LocalBuildInfo -> ComponentLocalBuildInfo -> IO ()
 updatePkgInfoModule pkgDesc bInfo clbInfo = do
-    createDirectoryIfMissing True dirName
+    createDirectoryIfMissing True $ interpretSymbolicPathCWD dirName
     moduleBytes <- pkgInfoModule moduleName cName pkgDesc bInfo
     updateFile fileName moduleBytes
 
@@ -196,10 +197,10 @@ updatePkgInfoModule pkgDesc bInfo clbInfo = do
     cName = unUnqualComponentName <$> componentNameString (componentLocalName clbInfo)
 
     moduleName = pkgInfoModuleName
-    fileName = dirName ++ "/" ++ moduleName ++ ".hs"
+    fileName = dirName </> unsafeMakeSymbolicPath moduleName <.> ".hs"
 
     legacyModuleName = legacyPkgInfoModuleName cName
-    legacyFileName = dirName ++ "/" ++ legacyModuleName ++ ".hs"
+    legacyFileName = dirName </> unsafeMakeSymbolicPath legacyModuleName <.> ".hs"
 
 -- -------------------------------------------------------------------------- --
 -- Generate PkgInfo Module
@@ -207,8 +208,8 @@ updatePkgInfoModule pkgDesc bInfo clbInfo = do
 pkgInfoModuleName :: String
 pkgInfoModuleName = "PkgInfo"
 
-updateFile :: FilePath -> B.ByteString -> IO ()
-updateFile fileName content = do
+updateFile :: SymbolicPath from to -> B.ByteString -> IO ()
+updateFile (interpretSymbolicPathCWD -> fileName) content = do
     x <- doesFileExist fileName
     if | not x -> update
        | otherwise -> do

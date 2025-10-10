@@ -18,17 +18,22 @@ module Data.PQueue
 , pQueueRemove
 , pQueueIsEmpty
 , pQueueSize
+, pQueueToStream
 ) where
 
 import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad
+import Control.Monad.IO.Class
 
 import qualified Data.Heap as H
 
 import GHC.Generics
 
 import Numeric.Natural
+
+import Streaming (Stream, Of)
+import qualified Streaming.Prelude as S
 
 -- -------------------------------------------------------------------------- --
 -- PQueue
@@ -79,3 +84,8 @@ pQueueRemove (PQueue s q) = run
         case r of
             Nothing -> takeMVar s >> run
             (Just !x) -> return x
+
+pQueueToStream :: PQueue a -> Stream (Of a) IO ()
+pQueueToStream pq = forever $ do
+    a <- liftIO (pQueueRemove pq)
+    S.yield a

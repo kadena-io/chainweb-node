@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -17,24 +18,22 @@ module Chainweb.RestAPI.Backup
     ) where
 
 import Control.Concurrent.Async
+import Chainweb.Backup qualified as Backup
+import Chainweb.Logger
+import Chainweb.RestAPI.Utils
+import Chainweb.Time
+import Chainweb.Utils
+import Chainweb.Version
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Proxy
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Servant
 import System.IO.Unsafe
 import System.LogLevel
-
-import Servant
-
-import qualified Chainweb.Backup as Backup
-import Chainweb.Logger
-import Chainweb.Time
-
-import Chainweb.RestAPI.Utils
-import Chainweb.Version
 
 type BackupApi_
   =    "make-backup" :> QueryFlag "backupPact" :> PostAccepted '[PlainText] Text
@@ -52,9 +51,10 @@ globalCurrentBackup = unsafePerformIO $! newTVarIO Nothing
 someBackupApi :: ChainwebVersion -> SomeApi
 someBackupApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ backupApi @v
 
-someBackupServer :: Logger logger => ChainwebVersion -> Backup.BackupEnv logger -> SomeServer
-someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupEnv =
-    SomeServer (Proxy @(BackupApi vT)) $ makeBackup :<|> checkBackup
+someBackupServer :: (HasVersion, Logger logger) => Backup.BackupEnv logger -> SomeServer
+someBackupServer backupEnv = case implicitVersion of
+    (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ->
+        SomeServer (Proxy @(BackupApi vT)) $ makeBackup :<|> checkBackup
   where
     noSuchBackup = setErrText "no such backup" err404
     makeBackup backupPactFlag = liftIO $ do
@@ -86,5 +86,4 @@ someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupE
 getNextBackupIdentifier :: IO Text
 getNextBackupIdentifier = do
     Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
-    return $ microsToText (timeSpanToMicros epochToNow)
-
+    return $ toText (timeSpanToMicros epochToNow)

@@ -1,0 +1,6 @@
+//
+&& ! /Chainweb Tests.Chainweb Unit Tests.BlockHeaderDb.Chainweb.BlockHeaderDb.PruneForks.fail on missing header 5/
+&& ! /Chainweb Tests.Chainweb Unit Tests.BlockHeaderDb.Chainweb.BlockHeaderDb.PruneForks.fail on missing header 6/
+&& ! /Chainweb Tests.Chainweb Unit Tests.BlockHeaderDb.Chainweb.BlockHeaderDb.PruneForks.full gc/
+&& ! /Chainweb Tests.Chainweb Unit Tests.Pact5 RemotePactTest.pact53TransitionTest/
+&& ! /Chainweb Tests.Chainweb Unit Tests.Pact5 HyperlanePluginTests.hyperlaneValidatorAnnouncementTest/

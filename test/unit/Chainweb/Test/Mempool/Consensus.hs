@@ -44,10 +44,10 @@ import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
-import Chainweb.Mempool.Consensus
-import Chainweb.Mempool.Mempool
+-- import Chainweb.Pact.Mempool.Consensus
+import Chainweb.Pact.Mempool.Mempool
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
@@ -59,7 +59,7 @@ import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
 
 ----------------------------------------------------------------------------------------------------
-tests :: BlockHeaderDb -> BlockHeader -> TestTree
+tests :: HasVersion => BlockHeaderDb -> BlockHeader -> TestTree
 tests db h0 = testGroup "mempool-consensus-quickcheck-tests"
     [ testProperty "valid-transactions-source" (prop_validTxSource db h0)
     , testProperty "no-orphaned-txs" (prop_noOrphanedTxs db h0)
@@ -70,7 +70,8 @@ tests db h0 = testGroup "mempool-consensus-quickcheck-tests"
 -- | Property: All transactions returned by processFork (for re-introduction to the mempool) come from
 --   the old fork and are not represented in the new fork blocks
 prop_validTxSource
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> BlockHeader
     -> Property
 prop_validTxSource db genBlock = monadicIO $ do
@@ -107,7 +108,8 @@ splitHsAt n x =
 --   marked available to re-entry into the mempool) (i.e., should be found in the Vector returned by
 --   processFork)
 prop_noOrphanedTxs
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> BlockHeader
     -> Property
 prop_noOrphanedTxs db genBlock = monadicIO $ do
@@ -126,7 +128,8 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
 ----------------------------------------------------------------------------------------------------
 -- Tests filtering within processFork'.
 prop_noOldCrap
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> BlockHeader
     -> Property
 prop_noOldCrap db genBlock = monadicIO $ do
@@ -195,7 +198,8 @@ getTransPool =
 ----------------------------------------------------------------------------------------------------
 -- | Generate a tree containing a fork
 genFork
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> IORef (HashMap BlockHeader (HashSet TransactionHash))
     -> BlockHeader
     -> PropertyM IO ForkInfo
@@ -225,7 +229,8 @@ takeTrans txs = do
 
 ----------------------------------------------------------------------------------------------------
 genTree
-  :: BlockHeaderDb
+  :: HasVersion
+  => BlockHeaderDb
   -> IORef (HashMap BlockHeader (HashSet TransactionHash))
   -> BlockHeader
   -> HashSet TransactionHash
@@ -258,7 +263,8 @@ newNode mapRef blockTrans children = do
 
 ----------------------------------------------------------------------------------------------------
 preForkTrunk
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> IORef (HashMap BlockHeader (HashSet TransactionHash))
     -> BlockHeader
     -> HashSet TransactionHash
@@ -286,7 +292,8 @@ frequencyM xs = do
 
 ----------------------------------------------------------------------------------------------------
 fork
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> IORef (HashMap BlockHeader (HashSet TransactionHash))
     -> BlockHeader
     -> HashSet TransactionHash
@@ -316,7 +323,8 @@ genForkLengths = do
 
 ----------------------------------------------------------------------------------------------------
 postForkTrunk
-    :: BlockHeaderDb
+    :: HasVersion
+    => BlockHeaderDb
     -> IORef (HashMap BlockHeader (HashSet TransactionHash))
     -> BlockHeader
     -> HashSet TransactionHash
@@ -339,7 +347,7 @@ postForkTrunk db mapRef h avail count = do
 -- TODO: does this test really has to go that low-level? Let try to refactor it use
 -- existing functionlity for creating a test block chain.
 --
-header' :: BlockHeader -> PropertyM IO BlockHeader
+header' :: HasVersion => BlockHeader -> PropertyM IO BlockHeader
 header' h = do
     nonce <- Nonce <$> pick chooseAny
     return
@@ -353,14 +361,13 @@ header' h = do
             :+: _chainId h
             :+: BlockWeight (targetToDifficulty target) + view blockWeight h
             :+: succ (view blockHeight h)
-            :+: _versionCode v
+            :+: _versionCode implicitVersion
             :+: epochStart (ParentHeader h) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = view blockCreationTime h
     target = powTarget (ParentHeader h) mempty t'
-    v = _chainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 ----------------------------------------------------------------------------------------------------
@@ -465,6 +472,6 @@ _runGhci =
     withTempRocksDb "mempool-consensus-test" $ \rdb ->
     runResourceT $ do
         (h0, db) <- withToyDB rdb toyChainId
-        liftIO $ quickCheck (prop_validTxSource db h0)
-        liftIO $ quickCheck (prop_noOrphanedTxs db h0)
+        liftIO $ quickCheck (withVersion toyVersion $ prop_validTxSource db h0)
+        liftIO $ quickCheck (withVersion toyVersion $ prop_noOrphanedTxs db h0)
         return ()

@@ -3,10 +3,11 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -31,52 +32,39 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Lens hiding (children, (.=))
-import Control.Monad
-import Control.Monad.Except (MonadError(..))
-import Control.Monad.IO.Class
-
-import Data.Aeson
-import Data.Binary.Builder (fromByteString, fromLazyByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base16 as B16
-import Data.ByteString.Short (fromShort)
-import Data.Foldable
-import Data.Function
-import Data.Functor.Of
-import Data.IORef
-import qualified Data.Map.Strict as Map
-import Data.Proxy
-import Data.Text.Encoding (decodeUtf8)
-import Numeric.Natural(Natural)
-
-import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
-
-import Prelude hiding (lookup)
-
-import Servant.API
-import Servant.Server
-
-import qualified Streaming.Prelude as SP
-
--- internal modules
-
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
-import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadDb)
+import Chainweb.CutDB (CutDb, blockDiffStream)
 import Chainweb.Difficulty (showTargetHex)
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
-import Chainweb.Block
+import Control.Lens hiding (children, (.=))
+import Control.Monad
+import Control.Monad.Except (MonadError(..))
+import Control.Monad.IO.Class
+import Data.Aeson
+import Data.Binary.Builder (fromByteString, fromLazyByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Short (fromShort)
+import Data.Foldable
+import Data.Function
+import Data.Functor.Of
+import Data.IORef
+import Data.Proxy
+import Data.Text.Encoding (decodeUtf8)
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
+import Numeric.Natural(Natural)
+import Prelude hiding (lookup)
+import Servant.API
+import Servant.Server
+import Streaming.Prelude qualified as SP
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -90,11 +78,11 @@ checkKey
     -> DbKey db
     -> m (DbKey db)
 checkKey !db !k = liftIO (lookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
-        [ "reason" .= ("key not found" :: String)
-        , "key" .= k
+    Nothing -> throwError $ err404Msg $ object $ concat
+        [ ["reason" .= ("key not found" :: String)]
+        , ["key" .= k]
         ]
-    Just _ -> pure k
+    Just !_ -> pure k
 
 err404Msg :: ToJSON msg => msg -> ServerError
 err404Msg msg = setErrJSON msg err404
@@ -210,43 +198,6 @@ branchHeadersHandler db (BranchBoundsLimit boundsLimit) maxLimit limit next minr
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
--- | Query Branch Blocks of the database.
---
--- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
---
-branchBlocksHandler
-    :: CanReadablePayloadCas tbl
-    => BlockHeaderDb
-    -> PayloadDb tbl
-    -> BranchBoundsLimit
-    -> Limit
-        -- ^ max limit
-    -> Maybe Limit
-    -> Maybe (NextItem BlockHash)
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> BranchBounds BlockHeaderDb
-    -> Handler (Page (NextItem BlockHash) Block)
-branchBlocksHandler bhdb pdb (BranchBoundsLimit boundsLimit) maxLimit limit next minr maxr bounds
-    | fromIntegral (length (_branchBoundsUpper bounds)) > boundsLimit = throwError $ err400Msg $
-        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | fromIntegral (length (_branchBoundsLower bounds)) > boundsLimit = throwError $ err400Msg $
-        "lower branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | otherwise = do
-        nextChecked <- traverse (traverse $ checkKey bhdb) next
-        checkedBounds <- checkBounds bhdb bounds
-        liftIO
-            $ branchEntries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
-                (_branchBoundsLower checkedBounds)
-                (_branchBoundsUpper checkedBounds)
-            $ finiteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM grabPayload
-  where
-    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
-    grabPayload :: BlockHeader -> IO Block
-    grabPayload h = do
-        Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
-        pure (Block h x)
-
 -- | Every `TreeDb` key within a given range.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
@@ -292,33 +243,6 @@ headersHandler db maxLimit limit next minr maxr = do
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
--- | Every block within a given range.
---
--- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
---
-blocksHandler
-    :: CanReadablePayloadCas tbl
-    => BlockHeaderDb
-    -> PayloadDb tbl
-    -> Limit
-        -- ^ max limit
-    -> Maybe Limit
-    -> Maybe (NextItem BlockHash)
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> Handler BlockPage
-blocksHandler bhdb pdb maxLimit limit next minr maxr = do
-    nextChecked <- traverse (traverse $ checkKey bhdb) next
-    liftIO
-        $ entries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
-        $ finitePrefixOfInfiniteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM grabPayload
-  where
-    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
-    grabPayload :: BlockHeader -> IO Block
-    grabPayload h = do
-        Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
-        pure (Block h x)
-
 -- | Query a single 'BlockHeader' by its 'BlockHash'
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
@@ -330,11 +254,11 @@ headerHandler
     -> DbKey db
     -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
-        [ "reason" .= ("key not found" :: String)
-        , "key" .= k
+    Nothing -> throwError $ err404Msg $ object $ concat
+        [ ["reason" .= ("key not found" :: String)]
+        , ["key" .= k]
         ]
-    Just e -> pure e
+    Just !e -> pure e
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
@@ -342,22 +266,19 @@ headerHandler db k = liftIO (lookup db k) >>= \case
 -- Full BlockHeader DB API (used for Service API)
 --
 blockHeaderDbServer
-    :: CanReadablePayloadCas tbl
+    :: HasVersion
     => BlockHeaderDb_ v c
-    -> PayloadDb tbl
     -> Server (BlockHeaderDbApi v c)
-blockHeaderDbServer (BlockHeaderDb_ db) pdb
+blockHeaderDbServer (BlockHeaderDb_ db)
     = hashesHandler db
     :<|> headersHandler db defaultEntryLimit
-    :<|> blocksHandler db pdb defaultEntryLimit
     :<|> headerHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db defaultBoundsLimit defaultEntryLimit
-    :<|> branchBlocksHandler db pdb defaultBoundsLimit defaultEntryLimit
 
 -- Restricted P2P BlockHeader DB API
 --
-p2pBlockHeaderDbServer :: BlockHeaderDb_ v c -> Server (P2pBlockHeaderDbApi v c)
+p2pBlockHeaderDbServer :: HasVersion => BlockHeaderDb_ v c -> Server (P2pBlockHeaderDbApi v c)
 p2pBlockHeaderDbServer (BlockHeaderDb_ db)
     = headersHandler db p2pEntryLimit
     :<|> headerHandler db
@@ -367,43 +288,37 @@ p2pBlockHeaderDbServer (BlockHeaderDb_ db)
 -- Multichain Server
 
 someBlockHeaderDbServer
-    :: CanReadablePayloadCas tbl
+    :: HasVersion
     => SomeBlockHeaderDb
-    -> PayloadDb tbl
     -> SomeServer
-someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c)) pdb
-    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db pdb)
+someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
+    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
 
 someBlockHeaderDbServers
-    :: CanReadablePayloadCas tbl
-    => ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
-    -> [(ChainId, PayloadDb tbl)]
+    :: HasVersion
+    => ChainMap BlockHeaderDb
     -> SomeServer
-someBlockHeaderDbServers v cdbs pdbs = mconcat
-    [ someBlockHeaderDbServer (someBlockHeaderDbVal v cid cdb) pdb
-    | (cid, (cdb, pdb)) <-
-        Map.toList $ Map.intersectionWith (,) (Map.fromList cdbs) (Map.fromList pdbs)
-    ]
+someBlockHeaderDbServers = ifoldMap $ \cid cdb ->
+    someBlockHeaderDbServer (someBlockHeaderDbVal cid cdb)
 
-someP2pBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
+someP2pBlockHeaderDbServer :: HasVersion => SomeBlockHeaderDb -> SomeServer
 someP2pBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
     = SomeServer (Proxy @(P2pBlockHeaderDbApi v c)) (p2pBlockHeaderDbServer db)
 
-someP2pBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
-someP2pBlockHeaderDbServers v = mconcat
-    . fmap (someP2pBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+someP2pBlockHeaderDbServers :: HasVersion => ChainMap BlockHeaderDb -> SomeServer
+someP2pBlockHeaderDbServers = ifoldMap
+    (\cid bhdb -> someP2pBlockHeaderDbServer (someBlockHeaderDbVal cid bhdb))
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someBlockStreamServer :: CanReadablePayloadCas tbl => ChainwebVersion -> CutDb tbl -> SomeServer
-someBlockStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
-    SomeServer (Proxy @(BlockStreamApi v)) $
-        blockStreamHandler cdb True :<|> blockStreamHandler cdb False
+someBlockStreamServer :: HasVersion => CutDb l -> SomeServer
+someBlockStreamServer  cdb = runIdentity $ do
+    SomeChainwebVersionT @v _ <- return someChainwebVersionVal
+    Identity $ SomeServer (Proxy @(BlockStreamApi v)) $ blockStreamHandler cdb
 
-blockStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Bool -> Tagged Handler Application
-blockStreamHandler db withPayloads = Tagged $ \req resp -> do
+blockStreamHandler :: HasVersion => CutDb l -> Tagged Handler Application
+blockStreamHandler db = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp
   where
@@ -412,20 +327,12 @@ blockStreamHandler db withPayloads = Tagged $ \req resp -> do
         Nothing -> return CloseEvent
         Just (cur, !s') -> cur <$ writeIORef var s'
 
-    cas :: PayloadDb tbl
-    cas = view cutDbPayloadDb db
-
     g :: BlockHeader -> IO HeaderUpdate
-    g bh = do
-        Just x <- lookupPayloadWithHeight cas (Just $ view blockHeight bh) (view blockPayloadHash bh)
-        pure $ HeaderUpdate
-            { _huHeader = ObjectEncoded bh
-            , _huPayloadWithOutputs =
-                x <$ guard withPayloads
-            , _huTxCount = length $ _payloadWithOutputsTransactions x
-            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ view blockPow bh
-            , _huTarget = showTargetHex $ view blockTarget bh
-            }
+    g bh = pure $ HeaderUpdate
+        { _huHeader = ObjectEncoded bh
+        , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ view blockPow bh
+        , _huTarget = showTargetHex $ view blockTarget bh
+        }
 
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing

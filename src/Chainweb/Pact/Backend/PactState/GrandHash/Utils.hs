@@ -27,7 +27,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Utils
 
 import Chainweb.BlockHeader (BlockHeader, blockHeight)
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
+import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.PactState (getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
@@ -37,10 +37,10 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.TreeDB (seekAncestor)
-import Chainweb.Utils (fromText, toText, sshow)
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Utils (fromTextM, toText, sshow)
+import Chainweb.Version (ChainwebVersion(..), HasVersion(..))
 import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Registry (lookupVersionByName)
+import Chainweb.Version.Registry
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb, getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Control.Exception (bracket)
 import Control.Lens ((^?!), ix, view)
@@ -66,6 +66,7 @@ import UnliftIO.Async (pooledForConcurrently, pooledForConcurrently_)
 --   and calling 'seekAncestor' to find the 'BlockHeader's associated with the
 --   specified blockheight at each chain (this is the cut header).
 limitCut :: (Logger logger)
+  => HasVersion
   => logger
   -> WebBlockHeaderDb
   -> HashMap ChainId BlockHeader -- ^ latest cut headers
@@ -101,13 +102,13 @@ limitCut logger wbhdb latestCutHeaders pactConns bHeight = do
 --
 --   Also returns a 'WebBlockHeaderDb' for convenience to callers.
 getLatestCutHeaders :: ()
-  => ChainwebVersion
-  -> RocksDb
+  => HasVersion
+  => RocksDb
   -> IO (WebBlockHeaderDb, HashMap ChainId BlockHeader)
-getLatestCutHeaders v rocksDb = do
-  wbhdb <- initWebBlockHeaderDb rocksDb v
+getLatestCutHeaders rocksDb = do
+  wbhdb <- initWebBlockHeaderDb rocksDb
   let cutHashes = cutHashesTable rocksDb
-  latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
+  latestCutHeaders <- readHighestCutHeaders (\_ _ -> pure ()) wbhdb cutHashes
   pure (wbhdb, latestCutHeaders)
 
 -- | Take the latest cut headers, and find the minimum 'BlockHeight' across
@@ -115,13 +116,13 @@ getLatestCutHeaders v rocksDb = do
 --   amongst all chains. Then return the cut headers associated with that
 --   latest common 'BlockHeight'.
 resolveLatestCutHeaders :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
   -> RocksDb
   -> IO (BlockHeight, HashMap ChainId BlockHeader)
-resolveLatestCutHeaders logger v pactConns rocksDb = do
-  (wbhdb, latestCutHeaders) <- getLatestCutHeaders v rocksDb
+resolveLatestCutHeaders logger pactConns rocksDb = do
+  (wbhdb, latestCutHeaders) <- getLatestCutHeaders rocksDb
   let latestCommonBlockHeight = minimum $ fmap (view blockHeight) latestCutHeaders
   headers <- limitCut logger wbhdb latestCutHeaders pactConns latestCommonBlockHeight
   pure (latestCommonBlockHeight, headers)
@@ -129,14 +130,14 @@ resolveLatestCutHeaders logger v pactConns rocksDb = do
 -- | Take the latest cut headers, and return the cut headers associated with
 --   the specified 'BlockHeight'.
 resolveCutHeadersAtHeight :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
   -> RocksDb
   -> BlockHeight
   -> IO (HashMap ChainId BlockHeader)
-resolveCutHeadersAtHeight logger v pactConns rocksDb target = do
-  (wbhdb, latestCutHeaders) <- getLatestCutHeaders v rocksDb
+resolveCutHeadersAtHeight logger pactConns rocksDb target = do
+  (wbhdb, latestCutHeaders) <- getLatestCutHeaders rocksDb
   limitCut logger wbhdb latestCutHeaders pactConns target
 
 -- | Take the latest cut headers, and, for each specified 'BlockHeight',
@@ -144,14 +145,14 @@ resolveCutHeadersAtHeight logger v pactConns rocksDb target = do
 --
 --   The list returned pairs the input 'BlockHeight's with the found headers.
 resolveCutHeadersAtHeights :: (Logger logger)
+  => HasVersion
   => logger
-  -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
   -> RocksDb
   -> [BlockHeight] -- ^ targets
   -> IO [(BlockHeight, HashMap ChainId BlockHeader)]
-resolveCutHeadersAtHeights logger v pactConns rocksDb targets = do
-  (wbhdb, latestCutHeaders) <- getLatestCutHeaders v rocksDb
+resolveCutHeadersAtHeights logger pactConns rocksDb targets = do
+  (wbhdb, latestCutHeaders) <- getLatestCutHeaders rocksDb
   forM targets $ \target -> do
     fmap (target, ) $ limitCut logger wbhdb latestCutHeaders pactConns target
 
@@ -175,13 +176,13 @@ checkPactDbsExist :: FilePath -> [ChainId] -> IO ()
 checkPactDbsExist dbDir cids = pooledForConcurrently_ cids $ \cid -> do
   e <- doesFileExist (chainwebDbFilePath cid dbDir)
   when (not e) $ do
-    error $ "Pact database doesn't exist for expected chain id " <> Text.unpack (chainIdToText cid)
+    error $ "Pact database doesn't exist for expected chain id " <> Text.unpack (toText cid)
 
 chainwebDbFilePath :: ChainId -> FilePath -> FilePath
 chainwebDbFilePath cid dbDir =
   let fileName = mconcat
         [ "pact-v1-chain-"
-        , Text.unpack (chainIdToText cid)
+        , Text.unpack (toText cid)
         , ".sqlite"
         ]
   in dbDir </> fileName
@@ -219,8 +220,8 @@ hex :: ByteString -> Text
 hex = Text.decodeUtf8 . Base16.encode
 
 cwvParser :: O.Parser ChainwebVersion
-cwvParser = fmap (lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText)
-  $ O.strOption
+cwvParser = fromMaybe (error "ChainwebVersion parse failed") . (>>= findKnownVersion) . fromTextM
+  <$> O.strOption
       (O.long "graph-version"
         <> O.short 'v'
         <> O.metavar "CHAINWEB_VERSION"

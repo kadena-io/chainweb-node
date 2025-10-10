@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,29 +18,28 @@ module Chainweb.Backup
     ) where
 
 import Control.Lens
-
-import Control.Concurrent.Async
-import Control.Monad
-import Control.Monad.Catch
-import Data.HashSet(HashSet)
-import Data.String
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
-import System.Directory
-import System.FilePath
-import System.LogLevel
-
-import Pact.Types.SQLite
-import Servant
-
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
-import Chainweb.Utils
-
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Utils
+import Chainweb.Version (HasVersion)
+import Control.Concurrent.Async
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
+import Data.HashSet(HashSet)
+import Data.String
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Encoding qualified as TL
+import Pact.Types.SQLite
+import Servant
+import System.Directory
+import System.FilePath
+import System.LogLevel
 
 data BackupOptions = BackupOptions
     { _backupIdentifier :: !FilePath
@@ -47,12 +47,12 @@ data BackupOptions = BackupOptions
     }
 
 data BackupEnv logger = BackupEnv
-  { _backupRocksDb :: !RocksDb
-  , _backupDir :: !FilePath
-  , _backupPactDbDir :: !FilePath
-  , _backupChainIds :: !(HashSet ChainId)
-  , _backupLogger :: !logger
-  }
+    { _backupRocksDb :: !RocksDb
+    , _backupDir :: !FilePath
+    , _backupPactDbDir :: !FilePath
+    , _backupChainIds :: !(HashSet ChainId)
+    , _backupLogger :: !logger
+    }
 
 data BackupStatus
     = BackupDone | BackupInProgress | BackupFailed
@@ -74,7 +74,7 @@ instance MimeRender PlainText BackupStatus where
 instance MimeUnrender PlainText BackupStatus where
     mimeUnrender = const (over _Left show . fromText . TL.toStrict . TL.decodeUtf8)
 
-makeBackup :: Logger logger => BackupEnv logger -> BackupOptions -> IO ()
+makeBackup :: (Logger logger, HasVersion) => BackupEnv logger -> BackupOptions -> IO ()
 makeBackup env options = do
     logCr Info ("making backup to " <> T.pack thisBackup)
     createDirectoryIfMissing True (thisBackup </> "0" </> "sqlite")
@@ -97,13 +97,13 @@ makeBackup env options = do
         logCr Info "rocksdb checkpoint made"
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
-            forConcurrently_ (_backupChainIds env) $ \cid -> do
-                withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry db
-                        ("VACUUM main INTO ?")
-                        [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
-                        []
-            logCr Info $ "pact databases backed up"
+            forConcurrently_ (_backupChainIds env) $ \cid -> runResourceT $ do
+                db <- withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False
+                liftIO $ void $ qry db
+                    "VACUUM main INTO ?"
+                    [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
+                    []
+            logCr Info "pact databases backed up"
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
 checkBackup env name = do
@@ -112,6 +112,6 @@ checkBackup env name = do
     exists <- doesFileExist (thisBackup </> "status")
     if exists
     then
-        fmap Just . fromText =<< T.readFile (thisBackup </> "status")
+        fmap Just . fromTextM =<< T.readFile (thisBackup </> "status")
     else
         return Nothing

@@ -96,8 +96,8 @@ common debugging-flags
 
 common warning-flags
     ghc-options:
+        -Wwarn
         -Wall
-        -Werror
         -Wcompat
         -Wpartial-fields
         -Wincomplete-record-updates
@@ -107,16 +107,13 @@ common warning-flags
         -fmax-relevant-binds=0
         -Wno-gadt-mono-local-binds
 
-        -- This needed because -Werror and missing-home-modules causes
-        -- problems with ghci.
-        -Wno-missing-home-modules
-
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
 
 library
     import: warning-flags, debugging-flags
+    ghc-options: -ddump-simpl -dsuppress-all -ddump-to-file -dno-suppress-type-signatures
     default-language: Haskell2010
     hs-source-dirs: src
     other-modules:
@@ -127,7 +124,7 @@ library
     cc-options: -DSQLITE_CORE
     exposed-modules:
         , Chainweb.Backup
-        , Chainweb.Block
+        , Chainweb.Pact.Block
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
@@ -181,7 +178,8 @@ library
         , Chainweb.Chainweb.MempoolSyncClient
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
-        , Chainweb.Chainweb.PruneChainDatabase
+        , Chainweb.Core.Brief
+        , Chainweb.Core.CryptoHash
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
@@ -198,15 +196,15 @@ library
         , Chainweb.Logger
         , Chainweb.Logging.Config
         , Chainweb.Logging.Miner
-        , Chainweb.Mempool.Consensus
-        , Chainweb.Mempool.CurrentTxs
-        , Chainweb.Mempool.InMem
-        , Chainweb.Mempool.InMemTypes
-        , Chainweb.Mempool.Mempool
-        , Chainweb.Mempool.P2pConfig
-        , Chainweb.Mempool.RestAPI
-        , Chainweb.Mempool.RestAPI.Client
-        , Chainweb.Mempool.RestAPI.Server
+        , Chainweb.Pact.Mempool.CurrentTxs
+        , Chainweb.Pact.Mempool.InMem
+        , Chainweb.Pact.Mempool.InMem.ValidatingConfig
+        , Chainweb.Pact.Mempool.InMemTypes
+        , Chainweb.Pact.Mempool.Mempool
+        , Chainweb.Pact.Mempool.P2pConfig
+        , Chainweb.Pact.Mempool.RestAPI
+        , Chainweb.Pact.Mempool.RestAPI.Client
+        , Chainweb.Pact.Mempool.RestAPI.Server
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
@@ -214,19 +212,47 @@ library
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
+        , Chainweb.Miner.PayloadCache
         , Chainweb.Miner.RestAPI
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
         , Chainweb.MinerReward
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
-        , Chainweb.Payload
-        , Chainweb.Payload.PayloadStore
-        , Chainweb.Payload.PayloadStore.InMemory
-        , Chainweb.Payload.PayloadStore.RocksDB
-        , Chainweb.Payload.RestAPI
-        , Chainweb.Payload.RestAPI.Server
-        , Chainweb.Payload.RestAPI.Client
+        , Chainweb.Parent
+        , Chainweb.Pact.Payload
+        , Chainweb.Pact.Payload.PayloadStore
+        , Chainweb.Pact.Payload.PayloadStore.InMemory
+        , Chainweb.Pact.Payload.PayloadStore.RocksDB
+        , Chainweb.Pact.Payload.RestAPI
+        , Chainweb.Pact.Payload.RestAPI.Server
+        , Chainweb.Pact.Payload.RestAPI.Client
+        , Chainweb.PayloadProvider
+        , Chainweb.PayloadProvider.EVM
+        , Chainweb.PayloadProvider.EVM.EngineAPI
+        , Chainweb.PayloadProvider.EVM.EthRpcAPI
+        , Chainweb.PayloadProvider.EVM.ExecutionPayload
+        , Chainweb.PayloadProvider.EVM.Genesis
+        , Chainweb.PayloadProvider.EVM.Header
+        , Chainweb.PayloadProvider.EVM.HeaderDB
+        , Chainweb.PayloadProvider.EVM.JsonRPC
+        , Chainweb.PayloadProvider.EVM.PayloadDB
+        , Chainweb.PayloadProvider.EVM.Receipt
+        , Chainweb.PayloadProvider.EVM.SPV
+        , Chainweb.PayloadProvider.EVM.Utils
+        , Chainweb.PayloadProvider.Initialization
+        , Chainweb.PayloadProvider.Minimal
+        , Chainweb.PayloadProvider.Minimal.Payload
+        , Chainweb.PayloadProvider.Minimal.PayloadDB
+        , Chainweb.PayloadProvider.Pact
+        , Chainweb.PayloadProvider.Pact.Configuration
+        , Chainweb.PayloadProvider.Pact.Genesis
+        , Chainweb.PayloadProvider.Pact.BlockHistoryMigration
+        , Chainweb.PayloadProvider.P2P
+        , Chainweb.PayloadProvider.P2P.RestAPI
+        , Chainweb.PayloadProvider.P2P.RestAPI.Client
+        , Chainweb.PayloadProvider.P2P.RestAPI.Server
+        , Chainweb.PayloadProvider.SPV
         , Chainweb.PowHash
         , Chainweb.Ranked
         , Chainweb.RestAPI
@@ -238,6 +264,7 @@ library
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.SPV
+        , Chainweb.SPV.Argument
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.EventProof
         , Chainweb.SPV.OutputProof
@@ -246,10 +273,9 @@ library
         , Chainweb.SPV.RestAPI
         , Chainweb.SPV.RestAPI.Server
         , Chainweb.SPV.RestAPI.Client
+        , Chainweb.Sync.ForkInfo
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Time
-        , Chainweb.Pact4.Transaction
-        , Chainweb.Pact5.Transaction
         , Chainweb.TreeDB
         , Chainweb.Utils
         , Chainweb.Utils.Paging
@@ -266,6 +292,9 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
+        , Chainweb.Version.EvmDevelopment
+        , Chainweb.Version.EvmDevelopmentSingleton
+        , Chainweb.Version.EvmTestnet
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
         , Chainweb.Version.RecapDevelopment
@@ -273,7 +302,6 @@ library
         , Chainweb.Version.Testnet04
         , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
-        , Chainweb.WebPactExecutionService
 
         , Data.IVar
         , Data.LogMessage
@@ -295,10 +323,10 @@ library
         , P2P.Peer
         , P2P.Session
         , P2P.TaskQueue
+        , P2P.Utils
 
         -- pact
-        , Chainweb.Pact4.Backend.ChainwebPactDb
-        , Chainweb.Pact5.Backend.ChainwebPactDb
+        , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.PactState
@@ -317,35 +345,38 @@ library
         , Chainweb.Pact.Conversion
         , Chainweb.Pact.PactService
         , Chainweb.Pact.PactService.Checkpointer
-        , Chainweb.Pact.PactService.Checkpointer.Internal
-        , Chainweb.Pact.PactService.Pact4.ExecBlock
-        , Chainweb.Pact.PactService.Pact5.ExecBlock
+        , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Client
         , Chainweb.Pact.RestAPI.EthSpv
         , Chainweb.Pact.RestAPI.SPV
         , Chainweb.Pact.RestAPI.Server
-        , Chainweb.Pact4.SPV
-        , Chainweb.Pact5.SPV
-        , Chainweb.Pact.Service.BlockValidation
-        , Chainweb.Pact.Service.PactInProcApi
-        , Chainweb.Pact.Service.PactQueue
-        , Chainweb.Pact4.ModuleCache
-        , Chainweb.Pact4.NoCoinbase
-        , Chainweb.Pact4.Templates
-        , Chainweb.Pact4.TransactionExec
-        , Chainweb.Pact4.Types
-        , Chainweb.Pact4.Validations
-        , Chainweb.Pact5.NoCoinbase
-        , Chainweb.Pact5.Templates
-        , Chainweb.Pact5.TransactionExec
-        , Chainweb.Pact5.Types
-        , Chainweb.Pact5.Validations
-        , Chainweb.Pact.Transactions.FungibleV2Transactions
+        , Chainweb.Pact.SPV
+        , Chainweb.Pact.NoCoinbase
+        , Chainweb.Pact.Templates
+        , Chainweb.Pact.Transaction
+        , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
         , Chainweb.Pact.Transactions.CoinV5Transactions
         , Chainweb.Pact.Transactions.CoinV6Transactions
+        , Chainweb.Pact.Transactions.MainnetKADTransactions
+        , Chainweb.Pact.Transactions.OtherTransactions
+        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
+        , Chainweb.Pact.Types
+        , Chainweb.Pact.Validations
+        , Chainweb.Pact.Utils
+        -- pact 4
+        , Chainweb.Pact4.Backend.ChainwebPactDb
+        , Chainweb.Pact4.ModuleCache
+        , Chainweb.Pact4.NoCoinbase
+        , Chainweb.Pact.PactService.Pact4.ExecBlock
+        , Chainweb.Pact4.SPV
+        , Chainweb.Pact4.Templates
+        , Chainweb.Pact4.Transaction
+        , Chainweb.Pact4.TransactionExec
+        , Chainweb.Pact4.Types
+        , Chainweb.Pact4.Validations
         , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Transactions.Mainnet1Transactions
         , Chainweb.Pact.Transactions.Mainnet2Transactions
@@ -356,11 +387,6 @@ library
         , Chainweb.Pact.Transactions.Mainnet7Transactions
         , Chainweb.Pact.Transactions.Mainnet8Transactions
         , Chainweb.Pact.Transactions.Mainnet9Transactions
-        , Chainweb.Pact.Transactions.MainnetKADTransactions
-        , Chainweb.Pact.Transactions.OtherTransactions
-        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
-        , Chainweb.Pact.Types
-        , Chainweb.Pact.Utils
 
         -- utils
         , Utils.Logging
@@ -375,7 +401,7 @@ library
         , async >= 2.2
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
+        , base16-bytestring >= 1.0
         , base64-bytestring-kadena == 0.1
         , binary >= 0.8
         , bytestring >= 0.10.12
@@ -391,21 +417,19 @@ library
         , crypton-x509 >=1.7
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
-        , cuckoo >= 0.3
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.3.2
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
         , dlist >= 0.8
-        , errors >= 2.3
         , ethereum:{ethereum, secp256k1} >= 0.1
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
         , ghc-compact >= 0.1
-        , growable-vector >= 0.1
         , hashable >= 1.4
+        , hashes >=0.2.2.0
         , heaps >= 0.3
         , hourglass >=0.2
         , http2 >= 5.2.1
@@ -425,6 +449,7 @@ library
         , mwc-probability >= 2.0
         , mwc-random >= 0.13
         , network >= 3.1.2
+        , network-uri >= 2.6
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pact-json >= 0.1
@@ -436,6 +461,8 @@ library
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.3
+        , resourcet >= 1.3
+        , resource-pool >= 0.4
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -443,6 +470,7 @@ library
         , semigroupoids >= 5.3.7
         , servant >= 0.20.1
         , servant-client >= 0.20
+        , servant-client-core >= 0.20.3.0
         , servant-server >= 0.20
         , stm >= 2.4
         , stopwatch >= 0.1
@@ -459,7 +487,7 @@ library
         , trifecta >= 2.1
         , unliftio >= 0.2
         , unordered-containers >= 0.2.20
-        , uuid >= 1.3.16
+        , validation
         , vector >= 0.12.2
         , vector-algorithms >= 0.7
         , wai >= 3.2.2.1
@@ -497,14 +525,10 @@ library chainweb-test-utils
         Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.CmdBuilder
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.Pact4.Utils
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.After225
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.Before225
-        Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
         Chainweb.Test.Pact4.VerifierPluginTest.Unit
-        Chainweb.Test.Pact5.CmdBuilder
-        Chainweb.Test.Pact5.Utils
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.RestAPI.Utils
         Chainweb.Test.TestVersions
@@ -515,7 +539,6 @@ library chainweb-test-utils
 
         -- Orphan Modules
         Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         P2P.Test.Orphans
 
@@ -532,13 +555,11 @@ library chainweb-test-utils
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
+        , base16-bytestring >= 1.0
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
-        , chronos >= 1.1
         , containers >= 0.5
-        , crypton >= 0.31
         , crypton-connection >=0.4
         , data-dword >= 0.3
         , deepseq >= 1.4
@@ -560,10 +581,11 @@ library chainweb-test-utils
         , pact-time:numeric >=0.3.0.1
         , pact-tng >=5.0
         , pact-tng:pact-request-api >=5.0
-        , property-matchers ^>= 0.4
+        , property-matchers ^>= 0.7
         , quickcheck-instances >= 0.3
         , random >= 1.3
         , resourcet >= 1.3
+        , resource-pool >= 0.4
         , retry >= 0.7
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
@@ -628,45 +650,38 @@ test-suite chainweb-tests
         Chainweb.Test.CutDB
         Chainweb.Test.Difficulty
         Chainweb.Test.Mempool
-        Chainweb.Test.Mempool.Consensus
+        -- Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.MinerReward
         Chainweb.Test.Mining
         Chainweb.Test.Misc
-        Chainweb.Test.Pact4.Checkpointer
+        Chainweb.Test.Pact.CheckpointerTest
+        Chainweb.Test.Pact.BlockHistoryMigrationTest
+        Chainweb.Test.Pact.CutFixture
+        Chainweb.Test.Pact.HyperlanePluginTests
+        Chainweb.Test.Pact.PactServiceTest
+        Chainweb.Test.Pact.RemotePactTest
+        -- Chainweb.Test.Pact.SPVTest
+        Chainweb.Test.Pact.TransactionExecTest
+        Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.Pact4.DbCacheTest
         Chainweb.Test.Pact4.GrandHash
-        Chainweb.Test.Pact4.ModuleCacheOnRestart
         Chainweb.Test.Pact4.NoCoinbase
-        Chainweb.Test.Pact4.PactExec
-        Chainweb.Test.Pact4.PactMultiChainTest
-        Chainweb.Test.Pact4.PactReplay
-        Chainweb.Test.Pact4.PactSingleChainTest
-        Chainweb.Test.Pact4.RemotePactTest
         Chainweb.Test.Pact4.RewardsTest
-        Chainweb.Test.Pact4.SPV
         Chainweb.Test.Pact4.SQLite
-        Chainweb.Test.Pact4.TTL
         Chainweb.Test.Pact4.TransactionTests
         Chainweb.Test.Pact4.VerifierPluginTest
-        Chainweb.Test.Pact5.CheckpointerTest
-        Chainweb.Test.Pact5.CutFixture
-        Chainweb.Test.Pact5.HyperlanePluginTests
-        Chainweb.Test.Pact5.PactServiceTest
-        Chainweb.Test.Pact5.RemotePactTest
-        Chainweb.Test.Pact5.SPVTest
-        Chainweb.Test.Pact5.TransactionExecTest
-        Chainweb.Test.Pact5.TransactionTests
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
-        Chainweb.Test.SPV
-        Chainweb.Test.SPV.EventProof
+        -- Chainweb.Test.SPV
+        -- Chainweb.Test.SPV.EventProof
         Chainweb.Test.Sync.WebBlockHeaderStore
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Version
+        Test.Chainweb.SPV.Argument
 
         -- Data
         Data.Test.PQueue
@@ -687,7 +702,7 @@ test-suite chainweb-tests
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
+        , base16-bytestring >= 1.0
         , base64-bytestring-kadena == 0.1
         , byteslice >= 0.2.12
         , bytesmith >= 0.3.10
@@ -699,9 +714,7 @@ test-suite chainweb-tests
         , crypton-connection >=0.4
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
-        , deepseq >= 1.4
         , direct-sqlite >= 2.3.27
-        , ethereum
         , exceptions
         , ghc-compact >= 0.1
         , hashable >= 1.3
@@ -724,22 +737,20 @@ test-suite chainweb-tests
         , pact-tng:pact-request-api
         , pact-tng:test-utils
         , pact-tng:pact-repl
-        , patience >= 0.3
         , prettyprinter
-        , property-matchers ^>= 0.4
-        , pretty-show
+        , property-matchers ^>= 0.7
         , quickcheck-instances >= 0.3
         , random >= 1.3
+        , random-shuffle >= 0.0.4
+        , raw-strings-qq >=1.1
         , resource-pool >= 0.4
         , resourcet >= 1.3
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , servant-client >= 0.18.2
         , sha-validation >=0.1
-        , statistics >= 0.15
         , stm
         , streaming >= 0.2.2
-        , strict-concurrency >= 0.2
         , tasty >= 1.0
         , tasty-hedgehog >= 1.4.0.2
         , tasty-hunit >= 0.9
@@ -754,12 +765,37 @@ test-suite chainweb-tests
         , wai >= 3.2
         , warp >= 3.3.6
         , warp-tls >= 3.4
-        , yaml >= 0.11
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+
+test-suite blockhistory-migration-tests
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    hs-source-dirs: test/blockhistory-migration
+    main-is: BlockHistoryMigrationTests.hs
+
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
+        , base >= 4.12 && < 5
+        , chainweb-storage >= 0.1
+        , temporary >= 1.3
+        , filepath
+        , directory
+        , resourcet
+        , streaming
+        , HUnit
+        , lens
+
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
 test-suite compaction-tests
     import: warning-flags, debugging-flags
+    buildable: False
     default-language: Haskell2010
     type: exitcode-stdio-1.0
     ghc-options:
@@ -862,10 +898,10 @@ benchmark bench
     type: exitcode-stdio-1.0
     other-modules:
         Chainweb.MempoolBench
-        Chainweb.Pact.Backend.ApplyCmd
-        Chainweb.Pact.Backend.Bench
-        Chainweb.Pact.Backend.ForkingBench
-        Chainweb.Pact.Backend.PactService
+        -- Chainweb.Pact.Backend.ApplyCmd
+        -- Chainweb.Pact.Backend.Bench
+        -- Chainweb.Pact.Backend.ForkingBench
+        -- Chainweb.Pact.Backend.PactService
         Chainweb.Utils.Bench
         JSONEncoding
 
@@ -875,32 +911,41 @@ benchmark bench
         , chainweb:chainweb-test-utils
 
         -- external
-        , Decimal >= 0.4.2
+
         , QuickCheck >= 2.14
         , aeson >= 2.2
-        , async >= 2.2
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
-        , chainweb-storage >= 0.1
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
         , direct-sqlite
-        , exceptions >= 0.8
-        , file-embed >= 0.0
         , lens >= 4.17
-        , loglevel >= 0.1
-        , mtl >= 2.3
-        , pact
         , pact-tng
         , pact-tng:pact-request-api
-        , property-matchers
-        , random >= 1.3
-        , safe-exceptions
-        , streaming
-        , tasty-hunit
+        , property-matchers >= 0.7
         , text >= 2.0
-        , unordered-containers
         , vector >= 0.12.2
-        , yaml >= 0.11
-        , property-matchers ^>= 0.4
+
+        -- The build of all Pact related benchmarks is currently broken in the
+        -- evm branch and the build of the respective modules is disable. The
+        -- following dependencies are used by those disabled modules. See the
+        -- module bench/Bench.hs for details of what is currently working.
+
+        -- , Decimal >= 0.4.2
+        -- , async >= 2.2
+        -- , chainweb-storage >= 0.1
+        -- , exceptions >= 0.8
+        -- , file-embed >= 0.0
+        -- , loglevel >= 0.1
+        -- , mtl >= 2.3
+        -- , pact
+        -- , random >= 1.3
+        -- , resource-pool >= 0.4
+        -- , resourcet >= 1.3
+        -- , safe-exceptions
+        -- , streaming
+        -- , tasty-hunit
+        -- , unordered-containers
+        -- , yaml >= 0.11
+

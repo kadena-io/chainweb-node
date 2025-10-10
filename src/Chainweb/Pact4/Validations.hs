@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,55 +43,50 @@ module Chainweb.Pact4.Validations
 , defaultLenientTimeSlop
 ) where
 
-import Control.Lens
-
-import Data.Decimal (decimalPlaces)
-import Data.Bifunctor (first)
-import Data.Maybe (isJust, catMaybes, fromMaybe)
-import Data.Either (isRight)
-import Data.List.NonEmpty (NonEmpty, nonEmpty)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.ByteString.Short as SBS
-import Data.Word (Word8)
-
--- internal modules
-
-import Chainweb.BlockHeader
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Pact4.Transaction
+import Chainweb.Parent
+import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
+import Chainweb.Utils (ebool_, int, fromTextM, HasTextRepresentation (toText))
 import Chainweb.Version
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
-
-import qualified Pact.Types.Gas as P
-import qualified Pact.Types.Hash as P
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Types.KeySet as P
-import qualified Pact.Parse as P
-import Chainweb.Pact4.Types
-import Chainweb.Utils (ebool_)
+import Control.Lens
+import Data.Bifunctor (first)
+import Data.ByteString.Short qualified as SBS
+import Data.Decimal (decimalPlaces)
+import Data.Either (isRight)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.Maybe (isJust, catMaybes, fromMaybe)
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Word (Word8)
+import Pact.Core.Gas.Types qualified as Pact5
+import Pact.Parse qualified as P
+import Pact.Types.ChainId qualified as P
+import Pact.Types.ChainMeta qualified as P
+import Pact.Types.Command qualified as P
+import Pact.Types.Gas qualified as P
+import Pact.Types.Hash qualified as P
+import Pact.Types.KeySet qualified as P
 
 
 -- | Check whether a local Api request has valid metadata
 --
 assertPreflightMetadata
-    :: P.Command (P.Payload P.PublicMeta c)
-    -> TxContext
+    :: HasVersion
+    => P.Command (P.Payload P.PublicMeta c)
+    -> BlockCtx
     -> Maybe LocalSignatureVerification
-    -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
-    v <- view psVersion
-    cid <- view chainId
-    bgl <- view psBlockGasLimit
+    -> ServiceEnv tbl
+    -> IO (Either (NonEmpty Text) ())
+assertPreflightMetadata cmd@(P.Command pay sigs hsh) bctx sigVerify serviceEnv = do
+    let cid = view chainId serviceEnv
+    let bgl = view psNewBlockGasLimit serviceEnv
 
-    let bh = ctxCurrentBlockHeight txCtx
-    let validSchemes = validPPKSchemes v cid bh
-    let webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
+    let bh = _bctxCurrentBlockHeight bctx
+    let validSchemes = validPPKSchemes cid bh
+    let webAuthnPrefixLegal = isWebAuthnPrefixLegal cid bh
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -102,7 +98,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           -- TODO
           , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
-          , eUnless "Network id mismatch" $ assertNetworkId v nid
+          , eUnless "Network id mismatch" $ assertNetworkId nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
           , eUnless "Invalid transaction signatures" $ sigValidate validSchemes webAuthnPrefixLegal signers
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
@@ -116,11 +112,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       | Just NoVerify <- sigVerify = True
       | otherwise = isRight $ assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
 
-    pct = ParentCreationTime
-      . view blockCreationTime
-      . _parentHeader
-      . _tcParentHeader
-      $ txCtx
+    pct = view bctxParentCreationTime bctx
 
     eUnless t assertion
       | assertion = Nothing
@@ -129,7 +121,7 @@ assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
 -- | Check whether a particular Pact chain id is parseable
 --
 assertParseChainId :: P.ChainId -> Bool
-assertParseChainId = isJust . fromPactChainId
+assertParseChainId (P.ChainId cid) = isJust $ fromTextM @_ @ChainId cid
 
 -- | Check whether the chain id defined in the metadata of a Pact/Chainweb
 -- command payload matches a given chain id.
@@ -138,7 +130,7 @@ assertParseChainId = isJust . fromPactChainId
 -- chainweb node structure
 --
 assertChainId :: ChainId -> P.ChainId -> Bool
-assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
+assertChainId cid0 cid1 = toText cid0 == P._chainId cid1
 
 -- | Check and assert that 'GasPrice' is rounded to at most 12 decimal
 -- places.
@@ -149,14 +141,14 @@ assertGasPrice (P.GasPrice (P.ParsedDecimal gp)) = decimalPlaces gp <= defaultMa
 -- | Check and assert that the 'GasLimit' of a transaction is less than or eqaul to
 -- the block gas limit
 --
-assertBlockGasLimit :: P.GasLimit -> P.GasLimit -> Bool
-assertBlockGasLimit bgl tgl = bgl >= tgl
+assertBlockGasLimit :: Pact5.GasLimit -> P.GasLimit -> Bool
+assertBlockGasLimit (Pact5.GasLimit (Pact5.Gas bgl)) tgl = P.GasLimit (int bgl) >= tgl
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
 --
-assertNetworkId :: ChainwebVersion -> Maybe P.NetworkId -> Bool
-assertNetworkId _ Nothing = False
-assertNetworkId v (Just (P.NetworkId nid)) = ChainwebVersionName nid == _versionName v
+assertNetworkId :: HasVersion => Maybe P.NetworkId -> Bool
+assertNetworkId Nothing = False
+assertNetworkId (Just (P.NetworkId nid)) = ChainwebVersionName nid == _versionName implicitVersion
 
 -- | Check and assert that the number of signatures in a 'Command' is
 -- at most 100.
@@ -209,10 +201,10 @@ assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = do
 -- skipped when replaying old blocks.
 --
 assertTxTimeRelativeToParent
-    :: ParentCreationTime
+    :: Parent BlockCreationTime
     -> P.Command (P.Payload P.PublicMeta c)
     -> Bool
-assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxTimeRelativeToParent (Parent (BlockCreationTime txValidationTime)) tx =
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
@@ -226,10 +218,10 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 -- | Check that the tx's creation time is not too far in the future relative
 -- to the block creation time
 assertTxNotInFuture
-    :: ParentCreationTime
+    :: Parent BlockCreationTime
     -> P.Command (P.Payload P.PublicMeta c)
     -> Bool
-assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxNotInFuture (Parent (BlockCreationTime txValidationTime)) tx =
     timeFromSeconds txOriginationTime <= lenientTxValidationTime
   where
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral

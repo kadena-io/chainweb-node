@@ -24,7 +24,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.Pact4.NoCoinbase
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact4.NoCoinbase"

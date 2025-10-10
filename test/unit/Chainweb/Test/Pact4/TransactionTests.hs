@@ -37,38 +37,28 @@ import qualified System.LogLevel as L
 
 -- internal pact modules
 
-import Pact.Gas
 import Pact.Interpreter
 import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
 import Pact.Types.Command
-import qualified Pact.Types.Hash as H
-import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
-import Pact.Types.SPV
 
 -- internal chainweb modules
 
-import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader.Internal
-import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact4.Templates
 import Chainweb.Pact4.TransactionExec
-import qualified Chainweb.Pact4.Types as Pact4
 
-import Chainweb.Test.Utils
-import Chainweb.Test.TestVersions
-import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version as V
 import Chainweb.Version.RecapDevelopment
-import Chainweb.Version.Mainnet
-import Chainweb.Test.Pact4.Utils
 import qualified Chainweb.Pact4.ModuleCache as Pact4
+import qualified Pact.Core.Guards as Pact5
+import qualified Data.Set as Set
+import qualified Pact.Core.Names as Pact5
 
 
 -- ---------------------------------------------------------------------- --
@@ -204,180 +194,10 @@ buildExecWithoutData = void $ buildExecParsedCode maxBound Nothing "(+ 1 1)"
 badMinerId :: MinerId
 badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
 
-minerKeys0 :: MinerKeys
-minerKeys0 = MinerKeys $ mkKeySet
-    ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-    "default"
-
--- ---------------------------------------------------------------------- --
--- Vuln 792 fork tests
-
-testCoinbase797DateFix :: TestTree
-testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
-    (pdb,mc) <- loadCC coinReplV1
-
-    step "pre-fork code injection succeeds, no enforced precompile"
-
-    cmd <- buildExecParsedCode maxBound Nothing "(coin.get-balance \"tester01\")"
-
-    doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
-      Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
-        | d == 1000.1 -> return ()
-        | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
-      Right l -> assertFailure $ "wrong return type: " <> show l
-
-    step "post-fork code injection fails, no enforced precompile"
-
-    cmd' <- buildExecParsedCode maxBound Nothing
-      "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
-
-    doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
-      Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
-        | d == 0.1 -> return ()
-        | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
-      Right l -> assertFailure $ "wrong return type: " <> show l
-
-    step "pre-fork code injection fails, enforced precompile"
-
-    doCoinbaseExploit pdb mc preForkHeight cmd' True $ \case
-      Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
-        | d == 0.2 -> return ()
-        | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
-      Right l -> assertFailure $ "wrong return type: " <> show l
-
-    step "post-fork code injection fails, enforced precompile"
-
-    doCoinbaseExploit pdb mc postForkHeight cmd' True $ \case
-      Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
-        | d == 0.3 -> return ()
-        | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
-      Right l -> assertFailure $ "wrong return type: " <> show l
-
-  where
-    doCoinbaseExploit pdb mc height localCmd precompile testResult = do
-      let ctx = Pact4.TxContext (mkTestParentHeader $ height - 1) noPublicMeta miner
-
-      void $ applyCoinbase Mainnet01 logger pdb 0.1 ctx
-        (EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled precompile) mc
-
-      let h = H.toUntypedHash (H.hash "" :: H.PactHash)
-          tenv = TransactionEnv Transactional pdb logger Nothing noPublicData
-            noSPVSupport Nothing 0.0 (RequestKey h) 0 emptyExecutionConfig Nothing Nothing
-          txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
-
-      CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
-        applyExec 0 defaultInterpreter localCmd [] [] h permissiveNamespacePolicy
-
-      testResult pr
-
-    miner = Miner
-      (MinerId "tester01\" (read-keyset \"miner-keyset\") 1000.0)(coin.coinbase \"tester01")
-      (MinerKeys $ mkKeySet ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
-
-    preForkHeight = 121451
-    postForkHeight = 121452
-
-    -- | someBlockHeader is a bit slow for the vuln797Fix to trigger. So, instead
-    -- of mining a full chain we fake the height.
-    --
-    mkTestParentHeader :: BlockHeight -> ParentHeader
-    mkTestParentHeader h = ParentHeader $ someBlockHeader (slowForkingCpmTestVersion singleton) 10
-      & blockHeight .~ h
-
-testCoinbaseEnforceFailure :: Assertion
-testCoinbaseEnforceFailure = do
-    (pdb,mc) <- loadCC coinReplV4
-    r <- tryAllSynchronous $
-      applyCoinbase toyVersion logger pdb 0.1
-        (Pact4.TxContext someParentHeader noPublicMeta badMiner)
-        (EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled False) mc
-    case r of
-      Left e ->
-        if isInfixOf "CoinbaseFailure" (sshow e) then
-          return ()
-        else assertFailure $ "Coinbase failed for unknown reason: " <> show e
-      Right _ -> assertFailure "Coinbase did not fail for bad miner id"
-  where
-    badMiner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
-    blockHeight' = 123
-    someParentHeader = ParentHeader $ someTestVersionHeader
-      & blockHeight .~ blockHeight'
-      & blockCreationTime .~ BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
-
-testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
-testCoinbaseUpgradeDevnet cid upgradeHeight =
-    testUpgradeScript "test/pact/coin-and-devaccts.repl" cid upgradeHeight test
-  where
-    test (T2 cr mcm) = case (_crLogs cr,mcm) of
-      (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
-      (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
-      (Just logs,_) ->
-        matchLogs (logResults logs) expectedResults
-
-    expectedResults =
-      [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
-      , ("SYS_modules","fungible-v2",Nothing)
-      , ("SYS_modules","coin",Nothing)
-      , ("USER_coin_coin-table","sender07",Just (Number 998662.3))
-      , ("USER_coin_coin-table","sender09",Just (Number 998662.1))
-      ]
-
-testTwentyChainDevnetUpgrades :: TestTree
-testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
-      step "Check that 20-chain upgrades fire at block height 60"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 60 test0
-
-      step "Check that 20-chain upgrades do not fire at block heights < 60 and > 60"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (60 - 1) test1
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (60 + 1) test1
-
-      step "Check that 20-chain upgrades do not fire at on other chains"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) 60 test1
-
-      step "Check that 20-chain upgrades succeed even if e7f7 balance is insufficient"
-      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) 60 test1
-  where
-    test0 (T2 cr _) = case _crLogs cr of
-      Just logs -> matchLogs (logResults logs)
-        [ ("USER_coin_coin-table","NoMiner",Just (Number 0.1))
-        , ( "USER_coin_coin-table"
-          , "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
-          , Just (Number 50.0) -- 100.0 tokens remediated
-          )
-        ]
-      Nothing -> assertFailure "Expected logs from upgrade"
-
-    test1 (T2 cr _) = case _crLogs cr of
-      Just logs -> matchLogs (logResults logs)
-        [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
-        ]
-      Nothing -> assertFailure "Expected logs from upgrade"
-
--- ---------------------------------------------------------------------- --
--- Utils
-
-testUpgradeScript
-    :: FilePath
-    -> V.ChainId
-    -> BlockHeight
-    -> (T2 (CommandResult [TxLogJson]) (Maybe Pact4.ModuleCache) -> IO ())
-    -> IO ()
-testUpgradeScript script cid bh test = do
-    (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb 0.1 (Pact4.TxContext parent noPublicMeta noMiner)
-        (EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled False) mc
-    case r of
-      Left e -> assertFailure $ "tx execution failed: " ++ show e
-      Right cr -> test cr
-  where
-    parent = ParentHeader $ someBlockHeader v bh
-      & blockChainwebVersion .~ _versionCode v
-      & blockChainId .~ cid
-      & blockHeight .~ pred bh
+minerKeys0 :: MinerGuard
+minerKeys0 = MinerGuard $ Pact5.GKeyset $ Pact5.KeySet
+    (Set.fromList [Pact5.PublicKeyText "f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"])
+    (Pact5.CustomPredicate (fromJuste $ Pact5.parseParsedTyName "default"))
 
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
 matchLogs expectedResults actualResults

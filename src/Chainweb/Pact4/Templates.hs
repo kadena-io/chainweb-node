@@ -4,6 +4,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module      :  Chainweb.Pact.Templates
@@ -19,8 +21,8 @@ module Chainweb.Pact4.Templates
 , mkBuyGasTerm
 , mkRedeemGasTerm
 , mkCoinbaseTerm
-
 , mkCoinbaseCmd
+, pattern MinerKeys
 ) where
 
 
@@ -39,8 +41,11 @@ import Pact.Types.RPC
 import Pact.Types.Runtime
 
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
-import Chainweb.Pact4.Types (GasSupply)
+import Chainweb.Pact4.Types
+import qualified Pact.Core.Guards as Pact5
+import qualified Pact.Types.Term as Pact
+import Data.Aeson (decodeStrict)
+import qualified Pact.Core.StableEncoding as Pact5
 
 inf :: Info
 inf = Info $ Just (Code "",Parsed (Columns 0 0) 0)
@@ -106,10 +111,10 @@ dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) (Parsed mem
 
 
 mkFundTxTerm
-  :: MinerId   -- ^ Id of the miner to fund
-  -> MinerKeys -- ^ Miner keyset
-  -> Text      -- ^ Address of the sender from the command
-  -> GasSupply -- ^ The gas limit total * price
+  :: MinerId    -- ^ Id of the miner to fund
+  -> MinerGuard -- ^ Miner keyset
+  -> Text       -- ^ Address of the sender from the command
+  -> GasSupply  -- ^ The gas limit total * price
   -> (Term Name,ExecMsg ParsedCode)
 mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg)
   where (term, senderS, minerS) = fundTxTemplate
@@ -119,6 +124,7 @@ mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg
           [ "miner-keyset" J..= ks
           , "total" J..= total
           ]
+mkFundTxTerm _ _ _ _ = error "invalid miner guard"
 {-# INLINABLE mkFundTxTerm #-}
 
 mkBuyGasTerm
@@ -134,11 +140,11 @@ mkBuyGasTerm sender total = (populatedTerm, execMsg)
 {-# INLINABLE mkBuyGasTerm #-}
 
 mkRedeemGasTerm
-  :: MinerId   -- ^ Id of the miner to fund
-  -> MinerKeys -- ^ Miner keyset
-  -> Text      -- ^ Address of the sender from the command
-  -> GasSupply -- ^ The gas limit total * price
-  -> GasSupply -- ^ The gas used * price
+  :: MinerId    -- ^ Id of the miner to fund
+  -> MinerGuard -- ^ Miner keyset
+  -> Text       -- ^ Address of the sender from the command
+  -> GasSupply  -- ^ The gas limit total * price
+  -> GasSupply  -- ^ The gas used * price
   -> (Term Name,ExecMsg ParsedCode)
 mkRedeemGasTerm (MinerId mid) (MinerKeys ks) sender total fee = (populatedTerm, execMsg)
   where (term, senderS, minerS) = redeemGasTemplate
@@ -149,6 +155,7 @@ mkRedeemGasTerm (MinerId mid) (MinerKeys ks) sender total fee = (populatedTerm, 
           , "fee" J..= J.toJsonViaEncode fee
           , "miner-keyset" J..= ks
           ]
+mkRedeemGasTerm _ _ _ _ _ = error "invalid miner guard"
 {-# INLINABLE mkRedeemGasTerm #-}
 
 coinbaseTemplate :: (Term Name,ASetter' (Term Name) Text)
@@ -162,7 +169,7 @@ coinbaseTemplate =
   )
 {-# NOINLINE coinbaseTemplate #-}
 
-mkCoinbaseTerm :: MinerId -> MinerKeys -> ParsedDecimal -> (Term Name,ExecMsg ParsedCode)
+mkCoinbaseTerm :: MinerId -> MinerGuard -> ParsedDecimal -> (Term Name,ExecMsg ParsedCode)
 mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
   where
     (term, minerS) = coinbaseTemplate
@@ -172,11 +179,12 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
       [ "miner-keyset" J..= ks
       , "reward" J..= reward
       ]
+mkCoinbaseTerm _ _ _ = error "invalid miner guard"
 {-# INLINABLE mkCoinbaseTerm #-}
 
 -- | "Old method" to build a coinbase 'ExecMsg' for back-compat.
 --
-mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
+mkCoinbaseCmd :: MinerId -> MinerGuard -> ParsedDecimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
     buildExecParsedCode $ mconcat
       [ "(coin.coinbase"
@@ -199,5 +207,10 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
         -- if we can't construct coin contract calls, this should
         -- fail fast
         Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
+mkCoinbaseCmd _ _ _ = error "invalid miner guard"
 
 {-# INLINABLE mkCoinbaseCmd #-}
+
+pattern MinerKeys :: Pact.KeySet -> MinerGuard
+pattern MinerKeys ks <-
+  MinerGuard (Pact5.GKeyset (decodeStrict . J.encodeStrict . Pact5.StableEncoding -> Just ks))

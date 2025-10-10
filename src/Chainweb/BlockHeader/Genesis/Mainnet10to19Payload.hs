@@ -8,7 +8,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import GHC.Stack
 
-import Chainweb.Payload
+import Chainweb.Pact.Payload
 import Chainweb.Utils (unsafeFromText, toText)
 
 payloadBlock :: HasCallStack => PayloadWithOutputs
