@@ -76,7 +76,7 @@ jobs:
 
     - name: Install non-Haskell dependencies (macOS)
       run: |
-        brew update && brew install gflags llvm snappy || true
+        brew install -q gflags llvm snappy || true
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
