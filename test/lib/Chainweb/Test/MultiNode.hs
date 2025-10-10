@@ -176,9 +176,6 @@ multiConfig v n = defaultChainwebConfiguration v
     & set configReintroTxs True
         -- enable transaction re-introduction
 
-    & set configThrottling throttling
-        -- throttling is effectively disabled to not slow down the test nodes
-
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
     & set (configCuts . cutFetchTimeout) 10_000_000
@@ -187,11 +184,6 @@ multiConfig v n = defaultChainwebConfiguration v
         { _nodeMiningEnabled = True
         , _nodeMiner = noMiner
         , _nodeTestMiners = MinerCount n
-        }
-
-    throttling = defaultThrottlingConfig
-        { _throttlingRate = 10_000 -- per second
-        , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
         }
 
 -- | Configure a bootstrap node

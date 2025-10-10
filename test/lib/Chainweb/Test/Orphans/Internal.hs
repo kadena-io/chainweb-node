@@ -166,6 +166,7 @@ import P2P.Test.Orphans ()
 import System.Logger.Types
 
 import Utils.Logging
+import Chainweb.Utils.Throttle (ThrottleConfig(..))
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -230,13 +231,18 @@ instance Arbitrary HashDifficulty where
 
 -- -------------------------------------------------------------------------- --
 -- P2P
+instance Arbitrary ThrottleConfig where
+    arbitrary = ThrottleConfig
+        <$> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> (int @Natural @Seconds <$> arbitrary)
+
 
 instance Arbitrary P2pConfiguration where
     arbitrary = P2pConfiguration
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary
+        <*> arbitrary <*> arbitrary
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
@@ -798,13 +804,6 @@ instance Arbitrary ChainDatabaseGcConfig where
 
 instance Arbitrary a => Arbitrary (EnableConfig a) where
     arbitrary = EnableConfig <$> arbitrary <*> arbitrary
-
--- | Helper instance for JSON roundtrip tests
---
-instance FromJSON (EnableConfig MiningConfig) where
-    parseJSON v = do
-        f <- parseJSON v
-        return $ f $ defaultEnableConfig defaultMining
 
 instance Arbitrary a => Arbitrary (NextItem a) where
     arbitrary = oneof
