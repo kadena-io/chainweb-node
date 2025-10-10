@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -17,15 +18,16 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
-{-# LANGUAGE ConstraintKinds #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -86,9 +88,6 @@ module Chainweb.Utils
 , interleaveIO
 , mutableVectorFromList
 , timeoutYield
-, showClientError
-, showHTTPRequestException
-, matchOrDisplayException
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -256,10 +255,21 @@ module Chainweb.Utils
 , peekByteArray16
 , peekByteArray32
 , peekByteArray64
+
+-- * Exception Rendering
+, PureHandler(..)
+, handleException
+, type Renderer
+, pattern Renderer
+, renderException
+, renderExceptionJson
+, displayExceptionText
+, showClientError
+, showHTTPRequestException
+, matchOrDisplayException
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
-
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -274,7 +284,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 import Control.Monad.Trans.Resource
-
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types qualified as Aeson
 import Data.Array.Byte
@@ -283,13 +292,13 @@ import Data.Bifunctor
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
-import Data.ByteString.Unsafe qualified as B
 import Data.ByteString.Base64 qualified as B64
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as BS
+import Data.ByteString.Unsafe qualified as B
 import Data.Coerce
 import Data.Csv qualified as CSV
 import Data.Decimal hiding (allocate)
@@ -299,6 +308,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Hashable
 import Data.IORef
+import Data.Int
 import Data.String (IsString(..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -308,9 +318,7 @@ import Data.Time
 import Data.Vector qualified as V
 import Data.Vector.Mutable qualified as MV
 import Data.Word
-
 import Foreign (Storable (sizeOf), peek, castPtr)
-
 import GHC.ByteOrder
 import GHC.Exts (proxy#, byteSwap#, indexWord64Array#, indexWord16Array#, indexWord32Array#)
 import GHC.Generics
@@ -319,7 +327,6 @@ import GHC.TypeLits (KnownSymbol, Symbol, symbolVal')
 import GHC.TypeLits qualified as Int (KnownNat, natVal')
 import GHC.TypeNats qualified as Nat (KnownNat, natVal')
 import GHC.Word (Word(W#), Word64 (W64#), Word16 (..), Word32 (..))
-
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS qualified as HTTP
@@ -327,25 +334,18 @@ import Network.HTTP.Types qualified as HTTP
 import Network.Socket hiding (Debug)
 import Network.TLS qualified as HTTP
 import Network.URI
-
 import Numeric.Natural
-
 import Options.Applicative qualified as O
-
 import Servant.Client qualified
-
 import Streaming qualified as S (concats, effect, inspect)
 import Streaming.Prelude qualified as S
-
 import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO, unsafeDupablePerformIO)
 import System.LogLevel
 import System.Random.MWC qualified as Prob
 import System.Random.MWC.Probability qualified as Prob
 import System.Timeout qualified as Timeout
-
 import Text.Printf (printf)
 import Text.Read (readEither)
-import Data.Int
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -1794,6 +1794,87 @@ timeoutYield :: Int -> IO a -> IO (Maybe a)
 timeoutYield time act =
     Timeout.timeout time (act <* threadDelay 1)
 
+unsafeHead :: HasCallStack => String -> [a] -> a
+unsafeHead msg = \case
+    x : _ -> x
+    [] -> error $ "unsafeHead: empty list: " <> msg
+
+unsafeTail :: HasCallStack => String -> [a] -> [a]
+unsafeTail msg = \case
+    _ : xs -> xs
+    [] -> error $ "unsafeTail: empty list: " <> msg
+
+-- this is callCC but with a more permissive type signature, allowing the early return to
+-- "return" values of any type, whenever it's used
+withEarlyReturn :: ((forall b. a -> ContT r m b) -> ContT r m a) -> ContT r m a
+withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
+{-# INLINE withEarlyReturn #-}
+
+-- -------------------------------------------------------------------------- --
+-- Exception rendering
+
+data PureHandler c a = forall e . (c e, Exception e) => PureHandler (e -> a)
+handlePure
+    :: (SomeException -> a)
+    -> [PureHandler c a]
+    -> SomeException
+    -> a
+handlePure fallback handlers e = case asum $ apply <$> handlers of
+    Just r -> r
+    Nothing -> fallback e
+  where
+    apply (PureHandler f) = case fromException e of
+        Just e' -> Just $ f e'
+        Nothing -> Nothing
+
+-- | A pure exception handler, that holds a pure function that can that can be
+-- applied to an exception of a specific type.
+--
+-- Note, that unlike the handlers in `Control.Exception`, this handler does not
+-- not catch exceptions.
+--
+type ExceptionHandler a = PureHandler Exception a
+
+pattern ExceptionHandler :: () => (c e, Exception e) => (e -> a) -> PureHandler c a
+pattern ExceptionHandler f = PureHandler f
+
+-- | Handle a given exception using a list of pure exception handlers.
+--
+-- The first matching handler is applied to the exception. If no handler matches
+-- the given fallback function is applied to cocmpute the result.
+--
+handleException
+    :: (SomeException -> a)
+    -> [ExceptionHandler a]
+    -> SomeException
+    -> a
+handleException = handlePure
+
+-- | An exception handler for rendering exceptions as 'T.Text'.
+--
+type Renderer = ExceptionHandler T.Text
+
+-- | Pattern synonym for creating a 'Renderer'.
+--
+pattern Renderer :: () => Exception e => (e -> a) -> ExceptionHandler a
+pattern Renderer f = ExceptionHandler f
+{-# COMPLETE Renderer #-}
+
+-- | Render an exception using a list of 'Renderer's. The first matching
+-- renderer is used. If no renderer matches the exception the default
+-- 'displayException' function is used to render the exception.
+--
+renderException :: [Renderer] -> SomeException -> T.Text
+renderException = handleException displayExceptionText
+
+renderExceptionJson :: [ExceptionHandler Value] -> SomeException -> Value
+renderExceptionJson renderers = handleException
+    (String . displayExceptionText)
+    renderers
+
+displayExceptionText :: SomeException -> T.Text
+displayExceptionText = displayExceptionText
+
 showClientError :: Servant.Client.ClientError -> T.Text
 showClientError (Servant.Client.FailureResponse _ resp) =
     "Error code " <> sshow (HTTP.statusCode $ Servant.Client.responseStatusCode resp)
@@ -1825,18 +1906,3 @@ matchOrDisplayException display anyException
     | otherwise
     = T.pack $ displayException anyException
 
-unsafeHead :: HasCallStack => String -> [a] -> a
-unsafeHead msg = \case
-    x : _ -> x
-    [] -> error $ "unsafeHead: empty list: " <> msg
-
-unsafeTail :: HasCallStack => String -> [a] -> [a]
-unsafeTail msg = \case
-    _ : xs -> xs
-    [] -> error $ "unsafeTail: empty list: " <> msg
-
--- this is callCC but with a more permissive type signature, allowing the early return to
--- "return" values of any type, whenever it's used
-withEarlyReturn :: ((forall b. a -> ContT r m b) -> ContT r m a) -> ContT r m a
-withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
-{-# INLINE withEarlyReturn #-}
