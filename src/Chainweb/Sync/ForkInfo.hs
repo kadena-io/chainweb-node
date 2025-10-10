@@ -273,7 +273,8 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppS
         let delta :: Int = int (_rankedHeight (_latestRankedBlockHash newState))
                 - int (_rankedHeight (_latestRankedBlockHash ppState))
 
-        if delta > 0
+        -- TODO: when this function is incremental, we will manage this more correctly.
+        if ppState /= newState
           then do
             logg Info $ "resolveForkInfo: made progress"
                 <> "; delta: " <> sshow delta
