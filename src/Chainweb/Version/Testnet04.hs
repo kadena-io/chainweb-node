@@ -32,8 +32,6 @@ import Chainweb.Pact.Transactions.Mainnet7Transactions qualified as MN7
 import Chainweb.Pact.Transactions.Mainnet8Transactions qualified as MN8
 import Chainweb.Pact.Transactions.Mainnet9Transactions qualified as MN9
 import Chainweb.Pact.Transactions.MainnetKADTransactions qualified as MNKAD
-import Chainweb.BlockHeader.Genesis.Testnet040Payload qualified as PN0
-import Chainweb.BlockHeader.Genesis.Testnet041to19Payload qualified as PNN
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
@@ -179,7 +177,7 @@ testnet04 = withVersion testnet04 $ ChainwebVersion
         }
     , _versionUpgrades = chainZip HM.union
         (indexByForkHeights
-        [ (CoinV2, onChains $
+        [ (CoinV2, onChains
             [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
             , (unsafeChainId 1, pact4Upgrade MN1.transactions)
             , (unsafeChainId 2, pact4Upgrade MN2.transactions)
@@ -206,7 +204,7 @@ testnet04 = withVersion testnet04 $ ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = onAllChains $ (4_100_681, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+    , _versionVerifierPluginNames = onAllChains $ (4_100_681, Set.fromList $ [VerifierName "hyperlane_v3_message"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = onChains
