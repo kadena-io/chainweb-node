@@ -281,7 +281,7 @@ jobs:
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
     - name: Install non-Haskell dependencies (macos)
       if: contains(matrix.os, 'macos')
-      run: brew update && brew install gflags llvm snappy || true
+      run: brew install -q gflags llvm snappy || true
     # Project Configuration
     - name: Create cabal.project.local
       run: |
