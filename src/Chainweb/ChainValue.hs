@@ -35,6 +35,8 @@ import Chainweb.Storage.Table
 import Chainweb.Utils (HasTextRepresentation(..), EncodingException (TextFormatException))
 import Control.Lens
 import Control.Monad.Catch
+import Data.Aeson
+import Data.Aeson.Types (toJSONKeyText)
 import Data.Hashable
 import Data.Text qualified as T
 import GHC.Generics
@@ -68,6 +70,14 @@ instance HasTextRepresentation a => HasTextRepresentation (ChainValue a) where
             | otherwise -> ChainValue <$> fromText c <*> fromText (T.tail r)
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
+
+instance HasTextRepresentation a => ToJSON (ChainValue a) where
+    toJSON = String . toText
+    {-# INLINE toJSON #-}
+
+instance HasTextRepresentation a => ToJSONKey (ChainValue a) where
+    toJSONKey = toJSONKeyText toText
+    {-# INLINE toJSONKey #-}
 
 -- | If a type is already an instance of 'IsCasValue', adding the chain does
 -- preserve this property. By also wrapping the key it is possible to shard

@@ -593,7 +593,7 @@ getBlockHeaderInternal
             let taskEnv = setResponseTimeout taskResponseTimeout env
             !r <- trace l (traceLabel "queryBlockHeaderTask") k (let Priority i = priority in i)
                 $ TDB.lookupM (rDb cid taskEnv) k `catchAllSynchronous` \e -> do
-                    l @T.Text Debug $ taskMsg $ "failed: " <> sshow e
+                    l @T.Text Debug $ taskMsg $ "failed: " <> T.pack (displayException e)
                     throwM e
             l @T.Text Debug $ taskMsg "received remote block header"
             return r
@@ -667,6 +667,12 @@ newWebPayloadStore mgr payloadDb logfun = do
     return $! WebBlockPayloadStore
         payloadDb payloadMemo payloadTaskQueue logfun mgr
 
+-- | Obtain and validate all prerequisite block headers and payloads for the
+-- given block hash and return the validated block header.
+--
+-- Throws a TaskeFailed exception in case that some prerequisite cannot be
+-- obtained or validated. The exception contains all underlying exceptions.
+--
 getBlockHeader
     :: HasVersion
     => BlockHeaderCas candidateHeaderCas
@@ -677,14 +683,12 @@ getBlockHeader
     -> candidatePldTbl
     -> ChainMap ConfiguredPayloadProvider
     -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
-    -> ChainId
     -> Priority
     -> Maybe PeerInfo
-    -> BlockHash
+    -> ChainValue RankedBlockHash
     -> IO BlockHeader
-getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
-    = ((\(ChainValue _ b) -> b) <$> go)
-        `catch` \(TaskFailed es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h (sshow es)
+getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload priority maybeOrigin ch
+    = (\(ChainValue _ b) -> b) <$> go
   where
     go = getBlockHeaderInternal
         headerStore
@@ -694,7 +698,7 @@ getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPay
         localPayload
         priority
         maybeOrigin
-        (ChainValue cid h)
+        (_rankedBlockHashHash <$> ch)
 {-# INLINE getBlockHeader #-}
 
 instance (HasVersion, CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHeaderCas k (ChainValue BlockHeader) where

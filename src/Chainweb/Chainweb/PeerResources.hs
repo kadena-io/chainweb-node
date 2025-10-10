@@ -214,7 +214,7 @@ getHost mgr logger peers = do
             Left e -> Nothing <$ do
                 logFunctionText logger Warn
                     $ "failed to get remote info from " <> toText (_peerAddr p)
-                    <> ": " <> sshow e
+                    <> ": " <> T.pack (displayException e)
 
     -- TODO: use quorum here? Fitler out local network addresses?
     let hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> catMaybes nis
@@ -339,6 +339,6 @@ withConnectionLogger logger counter inner =
 
     runLogClientConnections umask = do
         umask logClientConnections `catchAllSynchronous` \e -> do
-            logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
+            logFunctionText logger Error ("Connection manager logger failed: " <> T.pack (displayException e))
         logFunctionText logger Info "Restarting connection manager logger"
         runLogClientConnections umask

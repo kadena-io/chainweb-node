@@ -50,6 +50,7 @@ import Chainweb.Storage.Table.HashMap (emptyTable)
 import Control.Concurrent.Async
 import Control.Exception
 import Chainweb.Core.Brief
+import P2P.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -292,7 +293,7 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
                     logfun Debug $ taskMsg k "received from origin"
                     return $ Just x
                 Left (e :: ClientError) -> do
-                    logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
+                    logfun Debug $ taskMsg k $ "failed to receive from origin: " <> renderClientError e
                     return Nothing
 
     -- | Query a block payload via the task queue
@@ -308,7 +309,7 @@ getPayload s candidateStore priority maybeOrigin payloadHash = do
                 logg @T.Text Debug $ taskMsg k "received remote payload"
                 return x
             Left (e :: ClientError) -> do
-                logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
+                logg @T.Text Debug $ taskMsg k $ "failed: " <> renderClientError e
                 throwM e
 
 -- | Query a payloads either from the local store, or the origin, or P2P network.
@@ -407,7 +408,7 @@ getPayloads s candidateStore priority maybeOrigin payloadHashes = do
                     logfun Debug $ taskMsg ks "received from origin"
                     return x
                 Left (e :: ClientError) -> do
-                    logfun Debug $ taskMsg ks $ "failed to receive from origin: " <> sshow e
+                    logfun Debug $ taskMsg ks $ "failed to receive from origin: " <> renderClientError e
                     return [Nothing | _ <- ks]
 
     -- | Query a block payload via the task queue
@@ -423,5 +424,5 @@ getPayloads s candidateStore priority maybeOrigin payloadHashes = do
                 logg @T.Text Debug $ taskMsg k "received remote payload"
                 return x
             Left (e :: ClientError) -> do
-                logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
+                logg @T.Text Debug $ taskMsg k $ "failed: " <> renderClientError e
                 throwM e

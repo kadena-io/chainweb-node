@@ -350,3 +350,6 @@ instance FromJSON RankedBlockHash where
         <*> o .: "hash"
     {-# INLINE parseJSON #-}
 
+instance ToJSONKey RankedBlockHash where
+    toJSONKey = toJSONKeyText toText
+    {-# INLINE toJSONKey #-}

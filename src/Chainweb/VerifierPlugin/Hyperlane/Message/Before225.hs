@@ -33,7 +33,6 @@ import Pact.Core.Capabilities
 import Pact.Core.Errors (VerifierError(..))
 import Pact.Core.Gas
 import Pact.Core.Literal
-import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.Signer
 
@@ -43,7 +42,6 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
-import Pact.Core.Errors (VerifierError(..))
 
 base64DecodeGasCost :: Gas
 base64DecodeGasCost = Gas 5

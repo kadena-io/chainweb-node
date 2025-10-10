@@ -175,12 +175,43 @@ data NodeInfoException
     | PeerAddrHeaderMissing !HostAddress
     | HeaderFormatException !HostAddress !SomeException
     | NodeInfoConnectionFailure !HostAddress !SomeException
-    | NodeInfoUnsupported !HostAddress !NodeVersion
-        -- ^ this constructor can be removed once all nodes are running
-        -- version 2.4 or larger
     deriving (Show, Generic)
 
-instance Exception NodeInfoException
+instance Exception NodeInfoException where
+    displayException = T.unpack . renderNodeInfoException
+
+renderNodeInfoException :: NodeInfoException -> T.Text
+renderNodeInfoException (VersionHeaderMissing addr) =
+    "missing " <> CI.original chainwebNodeVersionHeaderName
+    <> " header from node " <> toText addr
+renderNodeInfoException (ServerTimestampHeaderMissing addr) =
+    "missing " <> CI.original serverTimestampHeaderName
+    <> " header from node " <> toText addr
+renderNodeInfoException (PeerAddrHeaderMissing addr) =
+    "missing " <> CI.original peerAddrHeaderName
+    <> " header from node " <> toText addr
+renderNodeInfoException (HeaderFormatException addr e) =
+    "malformed header from node " <> toText addr
+    <> ": " <> T.pack (displayException e)
+renderNodeInfoException (NodeInfoConnectionFailure addr e) =
+    "failed to connect to node "
+    <>  toText addr <> ": " <> renderConnectionFailure e
+
+renderConnectionFailure :: SomeException -> T.Text
+renderConnectionFailure e = case fromException e of
+    Just (HTTP.HttpExceptionRequest r msg) ->
+        "Error connecting to " <> renderRequest r <> ": " <> sshow msg
+    Just (HTTP.InvalidUrlException url reason) ->
+        "Invalid URL " <> T.pack url <> ": " <> T.pack reason
+    Nothing -> T.pack (displayException e)
+
+renderRequest :: HTTP.Request -> T.Text
+renderRequest r
+    = T.decodeUtf8 (HTTP.method r)
+    <> " " <> T.decodeUtf8 (HTTP.host r)
+    <> ":" <> sshow (HTTP.port r)
+    <> T.decodeUtf8 (HTTP.path r)
+    <> T.decodeUtf8 (HTTP.queryString r)
 
 data RemoteNodeInfo = RemoteNodeInfo
     { _remoteNodeInfoVersion :: !NodeVersion
