@@ -42,6 +42,7 @@ import P2P.TaskQueue (TaskException(TaskFailed))
 import P2P.Utils
 import Streaming.Prelude qualified as S
 import System.LogLevel
+import Control.Monad
 
 -- -------------------------------------------------------------------------- --
 
@@ -242,8 +243,28 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                         (forkPoint : forkBlocksAscending)
                         forkBlocksAscending
 
+                    -- If the original forkinfo trace contained extra payload data
+                    -- we must include it into the new trace as well.
+                    --
+                    -- We can expect that the original trace is a suffix of the
+                    -- new trace and we can replace the common part with the
+                    -- original trace in order to preserve the extra data.
+                    --
+                    mergedTrace = go newTrace (_forkInfoTrace finfo)
+                      where
+                        go xs [] = xs
+                        go [] _ = []
+                        go (x:xs) (y:ys)
+                            | _evaluationCtxRankedParentHash x == _evaluationCtxRankedParentHash y
+                                = y:ys
+                            | otherwise
+                                = x : go xs (y:ys)
+
+                unless (length mergedTrace == length newTrace) $
+                    error "Invariant violation: merged trace is not of expected length"
+
                 return finfo
-                    { _forkInfoTrace = newTrace
+                    { _forkInfoTrace = mergedTrace
                     , _forkInfoBasePayloadHash =
                         Parent (view blockPayloadHash forkPoint)
                     }
