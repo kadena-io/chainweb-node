@@ -42,6 +42,7 @@ import P2P.TaskQueue (TaskException(TaskFailed))
 import P2P.Utils
 import Streaming.Prelude qualified as S
 import System.LogLevel
+import Control.Monad
 
 -- -------------------------------------------------------------------------- --
 
@@ -182,11 +183,18 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
 
         newForkInfo <- case idx of
             Just i -> do
-                logg Info $ "resolveForkInfo: found payload provider state in trace at index " <> sshow i
-                return finfo
-                    { _forkInfoTrace = drop (i + 1) (_forkInfoTrace finfo)
-                    , _forkInfoBasePayloadHash = Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState
-                    }
+                logg Info $ "resolveForkInfo: found payload provider state as parent in trace at index " <> sshow i
+                -- if i == 0 is the default, where the payload provider does a
+                -- fast forward without rewind.
+                if i == 0
+                  then
+                    -- assert: (Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState) == _forkInfoBasePayloadHash finfo
+                    return finfo
+                  else
+                    return finfo
+                        { _forkInfoTrace = drop i (_forkInfoTrace finfo)
+                        , _forkInfoBasePayloadHash = Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState
+                        }
             Nothing -> do
                 logg Info "resolveForkInfo: payload provider state not in trace, computing fork point"
                 ppBlock <- lookupRanked bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) >>= \case
@@ -234,13 +242,18 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                     <> "; fork length: " <> sshow l
                     <> "; fork blocks: " <> brief forkBlocksAscending
 
-                let newTrace = zipWith
-                        (\prent child ->
-                            ConsensusPayload (view blockPayloadHash child) Nothing <$
-                                blockHeaderToEvaluationCtx (Parent prent)
-                        )
-                        (forkPoint : forkBlocksAscending)
-                        forkBlocksAscending
+                -- If the original forkinfo trace contained extra payload data
+                -- we must include it into the new trace as well.
+                --
+                let newTrace = mergeTrace
+                        (headersToTrace forkPoint forkBlocksAscending)
+                        (_forkInfoTrace finfo)
+
+                -- These are a couple cheap consistency checks.
+                unless (length newTrace == length forkBlocksAscending + 1) $
+                    error "Invariant violation: merged trace is not of expected length"
+                unless (take (length $ _forkInfoTrace finfo) (reverse newTrace) == reverse (_forkInfoTrace finfo)) $
+                    error "Invariant violation: merged trace does not contain original trace as suffix"
 
                 return finfo
                     { _forkInfoTrace = newTrace
@@ -304,3 +317,64 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
   where
     trgHash = _latestRankedBlockHash . _forkInfoTargetState $ finfo
     ppRBH = _syncStateRankedBlockHash ppKnownState
+
+-- -------------------------------------------------------------------------- --
+-- Trace Utils
+
+headersToTrace
+    :: HasVersion
+    => BlockHeader
+        -- ^ The fork point block header
+    -> [BlockHeader]
+        -- ^ The blocks from the fork point (exclusive) to the target block
+        -- (inclusive) in ascending order.
+    -> [EvaluationCtx ConsensusPayload]
+headersToTrace forkPoint hdrs = zipWith f (forkPoint : hdrs) hdrs
+  where
+    f phdr hdr = ConsensusPayload (view blockPayloadHash hdr) Nothing
+        <$ blockHeaderToEvaluationCtx (Parent phdr)
+
+
+-- | right-biased merge of two traces, where elements are matched by
+-- '_evaluationCtxParentHash'.
+--
+-- Precondition: one trace is a suffix of the other trace modulo the payload
+-- data.
+-- Postcondition: result is a suffix of the second argument.
+--
+-- FIXME: this could be implemented more efficiently using a vector and the the
+-- rank of th invovled headers.
+--
+mergeTrace
+    :: [EvaluationCtx ConsensusPayload]
+    -> [EvaluationCtx ConsensusPayload]
+    -> [EvaluationCtx ConsensusPayload]
+mergeTrace = go
+  where
+    go xs [] = xs
+    go [] ys = ys
+    go (x:xs) (y:ys)
+        | _evaluationCtxParentHash x == _evaluationCtxParentHash y
+            = y:ys
+        | otherwise
+            = x : go xs (y:ys)
+
+-- FIXME: this could be implemented more efficiently using a vector and the the
+-- rank of th invovled headers.
+--
+cropTrace
+    :: BlockHeader
+        -- ^ The new fork point
+    -> [EvaluationCtx ConsensusPayload]
+        -- ^ The original trace
+    -> [EvaluationCtx ConsensusPayload]
+        -- ^ The cropped trace
+cropTrace h = go
+  where
+    go [] = []
+    go (x:xs)
+        | _evaluationCtxParentHash x == Parent (view blockHash h)
+            = x:xs
+        | otherwise
+            = go xs
+
