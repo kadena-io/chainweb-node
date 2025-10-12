@@ -623,7 +623,11 @@ test loglevel n seconds rdb pactDbDir step = do
         maxLogMsgs = 60
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-            when (c < maxLogMsgs) (logFun msg)
+            if c < maxLogMsgs
+              then logFun msg
+              else when (c == maxLogMsgs) $
+                logFun "Got 60 log messages, not printing any addtional messages"
+
     stateVar <- newMVar emptyConsensusState
     runNodesForSeconds loglevel countedLog (multiConfig n) n seconds rdb pactDbDir
         (harvestConsensusState (genericLogger loglevel logFun) stateVar)
