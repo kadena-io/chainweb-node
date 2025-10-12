@@ -29,7 +29,7 @@ import Chainweb.PayloadProvider.EVM.Receipt qualified as EVM
 import Chainweb.PayloadProvider.Pact.Genesis qualified as Pact
 import Chainweb.SPV.Argument
 import Chainweb.Version
-import Chainweb.Version.EvmDevelopment
+import Chainweb.Version.EvmTestnet
 import Chainweb.Version.Mainnet
 import Control.Lens
 import Control.Monad
@@ -74,7 +74,7 @@ test_jsonRoundtrip a = assertEqual
     (eitherDecode (encode a))
 
 test_jsonRoundtrips :: IO ()
-test_jsonRoundtrips = withVersion evmDevnet $ do
+test_jsonRoundtrips = withVersion evmTestnet $ do
     test_jsonRoundtrip testHeader
     test_jsonRoundtrip testPayload
     test_jsonRoundtrip testRpcReceipt
@@ -245,7 +245,7 @@ simpleTestData = ReceiptTestData
 
 test_evmHeaderArguments :: IO ()
 test_evmHeaderArguments =
-    withVersion evmDevnet $ test_evmHeaderArgument simpleTestData 0
+    withVersion evmTestnet $ test_evmHeaderArgument simpleTestData 0
 
 test_evmHeaderArgument :: HasVersion => ReceiptTestData -> Natural -> IO ()
 test_evmHeaderArgument d _idx = do
@@ -442,7 +442,7 @@ testHeader = case eitherDecodeStrictText headerStr of
           "chainId": 20,
           "weight": "ziBRVAzQZq_oNsjiWK0LSFSwS3WbffvI28fVKKlcqFY",
           "height": 283686,
-          "chainwebVersion": "evm-development",
+          "chainwebVersion": "evm-testnet",
           "epochStart": 1759954428697267,
           "nonce": "0x0000000000000000",
           "hash": "aV9bLh5Pfb-ZnM-jFlsarg6kNZ31HFL-0hjlV1BC4DQ"
