@@ -167,14 +167,33 @@ mkRpcCtx u = do
 --   Keccak256("/Chainweb/Chain/Id/")
 --
 -- * Native X-Chan redeem system contract:
---   0x49eed2ac33f09e931bd660f0168417b9614485b6
+--   0x49eed2ac33f09e931bd660f0168417b9614485b6 (needs update)
 --   Keccack256("/Chainweb/XChan/Redeem/")
+--
+--   For existing Kadena EVM chains (evm-testnet), the respective account is
+--   founded via a withdrawal that is injected by a consensus fork.
+--
+-- * Create2 factory contract:
+--   0x4e59b44847b379578588920ca78fbf26c0b4956c
+--   (cf. https://github.com/Arachnid/deterministic-deployment-proxy)
+--
+-- Obsolete:
 --
 -- * ERC-20 x-chain SPV Precompile address from KIP-34 (EthDenver 2025 demo):
 --   48c3b4d2757447601776837b6a85f31ef88a87bf
 --   Keccak256("/Chainweb/KIP-34/VERIFY/SVP/")
 --   (This is a precompile in kadena-reth and not included in the genesis
 --   allocations)
+--
+-- Ethereum System contracts:
+--
+-- * EIP-4788 BeaconRoot Oracle. Included in Cancun fork.
+-- * EIP-2935 Historical Block Hashes. Included in the Prague fork.
+-- * EIP-7002 EL Triggered Withdrawal Requests. Included in Prague fork.
+--   Not available on Kadena EVM networks
+-- * EIP-7251 EL triggered Consolidations. Included in Prague fork.
+--   Not available on Kadena EVM networks
+--
 --
 baseSpecFile
     :: Natural
@@ -360,6 +379,12 @@ evmDevnetSpecFile offset cid = baseSpecFile 1789 offset cid 0x684c5d2a
         , "code" .= t "0x346101535773ad9923c37370bcbcf00ed194506d8950848956965f9060209160c060e091610140946101609061018091609a9660e3360361014c575f359860203560f01c9360223560ea1c9860263560601c9a603a3599605a359b607a359a5f60db3560c01c9a03610145576004815f80739b02c3e2df42533e0fd166798b5a616f59dbd2cc5afa1561013e5751036101375760408593602060018580896080985f869c372086528181601f8601370191013760015afa1561013057510361012957602083918193720f3df6d732807ef1319fb7b8bb8522d0beac029082525afa1561012257510361011b5781548091038411610114575f84819482948284950190555af11561010d575f80f35b600a610157565b6009610157565b6008610157565b6007610157565b6006610157565b6005610157565b6004610157565b6003610157565b6002610157565b6001610157565b5f80fd5b5f5260205ffd"
         ]
 
+    -- Create2 factory contract
+    -- https://github.com/Arachnid/deterministic-deployment-proxy
+    , "0x4e59b44847b379578588920ca78fbf26c0b4956c" .= object
+        [ "balance" .= t "0x0"
+        , "code" .= t "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3"
+        ]
     ]
 
 -- -------------------------------------------------------------------------- --
