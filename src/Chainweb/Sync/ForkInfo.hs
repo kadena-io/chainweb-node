@@ -366,22 +366,3 @@ mergeTrace = go
         | otherwise
             = x : go xs (y:ys)
 
--- FIXME: this could be implemented more efficiently using a vector and the the
--- rank of th invovled headers.
---
-cropTrace
-    :: BlockHeader
-        -- ^ The new fork point
-    -> [EvaluationCtx ConsensusPayload]
-        -- ^ The original trace
-    -> [EvaluationCtx ConsensusPayload]
-        -- ^ The cropped trace
-cropTrace h = go
-  where
-    go [] = []
-    go (x:xs)
-        | _evaluationCtxParentHash x == Parent (view blockHash h)
-            = x:xs
-        | otherwise
-            = go xs
-
