@@ -257,7 +257,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
                 inner nid cw namespacedNodeRocksDb
   where
     logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel T.putStrLn
+    logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
     namespacedNodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
 
