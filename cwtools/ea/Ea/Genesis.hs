@@ -119,7 +119,7 @@ data Genesis = Genesis
     , _coinContract :: [FilePath]
     } deriving (Eq, Ord)
 
-makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "keysets", "allocations", "namespaces", "coinContract"]] ''Genesis
+makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "allocations"]] ''Genesis
 
 -- ---------------------------------------------------------------------- --
 --  Coin Contract Essentials
@@ -183,8 +183,8 @@ fastDevelopmentN = fastDevelopment0
 devNs2 :: FilePath
 devNs2 = "pact/genesis/ns-v2.yaml"
 
-devNs :: FilePath
-devNs = "pact/genesis/ns-v1.yaml"
+-- devNs :: FilePath
+-- devNs = "pact/genesis/ns-v1.yaml"
 
 devKeysets :: FilePath
 devKeysets = "pact/genesis/devnet/keysets.yaml"
@@ -198,8 +198,8 @@ devNGrants = "pact/genesis/devnet/grantsN.yaml"
 devAllocations :: FilePath
 devAllocations = "pact/genesis/devnet/allocations.yaml"
 
-devnetKadOps :: FilePath
-devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
+-- devnetKadOps :: FilePath
+-- devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- CPM test versions
@@ -272,8 +272,8 @@ quirkedPact5InstantCPMN = quirkedPact5InstantCPM0
 --     & txChainIds .~ mkChainIdRange 1 9
 --     & coinbase ?~ fastNGrants
 
-fastNs :: FilePath
-fastNs = "pact/genesis/ns-v1.yaml"
+-- fastNs :: FilePath
+-- fastNs = "pact/genesis/ns-v1.yaml"
 
 fastKeysets :: FilePath
 fastKeysets = "pact/genesis/devnet/keysets.yaml"

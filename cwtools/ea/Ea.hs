@@ -2,9 +2,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Ea
@@ -28,32 +25,25 @@
 --
 module Main (main) where
 
-import Chainweb.BlockHeaderDB
+import Chainweb.ChainId qualified as Chainweb
 import Chainweb.Logger (genericLogger)
-import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Types (defaultPactServiceConfig, GenesisConfig(..))
-import Chainweb.Pact.Utils (toTxCreationTime, emptyPayload)
-import Chainweb.Pact.Transaction qualified as Pact
-import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
 import Chainweb.Pact.Payload
 import Chainweb.Pact.Payload.PayloadStore.InMemory
-import Chainweb.Storage.Table.RocksDB
+import Chainweb.Pact.Transaction qualified as Pact
+import Chainweb.Pact.Types (defaultPactServiceConfig, GenesisConfig(..))
+import Chainweb.Pact.Utils (toTxCreationTime)
+import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Development (pattern Development)
-import Chainweb.Version.RecapDevelopment (pattern RecapDevelopment)
 import Control.Concurrent.Async
 import Control.Exception
-import Control.Monad.Trans.Resource
-import Control.Monad.IO.Class
 import Control.Lens
-import Data.Aeson qualified as Aeson
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 import Data.Foldable
-import Data.Functor
-import Data.Pool qualified as Pool
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -64,17 +54,14 @@ import Data.Traversable
 import Data.Vector qualified as V
 import Ea.Genesis
 import GHC.Exts(the)
-import System.FilePath
-import System.LogLevel
-import System.IO.Temp
-import Text.Printf
-import Pact.Core.Command.Types
-import Pact.Core.Command.Client
 import Pact.Core.ChainData
-import qualified Pact.Core.Command.Types as Pact
-import qualified Chainweb.ChainId as Chainweb
-import qualified Pact.JSON.Encode as J
+import Pact.Core.Command.Client
+import Pact.Core.Command.Types
+import Pact.Core.Command.Types qualified as Pact
 import Pact.Core.StableEncoding
+import Pact.JSON.Encode qualified as J
+import System.IO.Temp
+import System.LogLevel
 
 ---
 
@@ -100,11 +87,6 @@ main = do
     pact53Transitionnet = mkPayloads [pact53TransitionCPM0, pact53TransitionCPMN]
     quirkedPact5Instantnet = mkPayloads [quirkedPact5InstantCPM0, quirkedPact5InstantCPMN]
 
-show_ :: ChainIdRange -> String
-show_ (ChainIdRange n n')
-    | n == n' = "Chain " <> show n
-    | otherwise = "Chains " <> show n <> "-" <> show n'
-
 fullGenesisTag :: Genesis -> Text
 fullGenesisTag (Genesis _ tag cidr _ _ _ _ _) = tag <> T.pack (chainIdRangeTag cidr)
 
@@ -121,7 +103,7 @@ writePayload gen payload = do
 -- | Generate a payload for a given list of genesis transactions
 --
 mkPayload :: Genesis -> IO Text
-mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
+mkPayload gen@(Genesis v _ (ChainIdRange l u) c k a ns cc) = do
     -- printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
     payloadModules <- for [l..u] $ \cid ->
         withVersion v $ genPayloadModule (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
