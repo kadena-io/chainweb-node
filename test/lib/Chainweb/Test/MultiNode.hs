@@ -150,12 +150,12 @@ multiConfig n = defaultChainwebConfiguration implicitVersion
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
         -- We make room for all test peers in peer db.
 
-    & set (configP2p . p2pConfigMaxSessionCount) 4
+    & set (configP2p . p2pConfigMaxSessionCount) 3
         -- We set this to a low number in order to keep the network sparse (or
         -- at last no being a clique) and to also limit the number of
         -- port allocations
 
-    & set (configP2p . p2pConfigSessionTimeout) 20
+    & set (configP2p . p2pConfigSessionTimeout) 10
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
@@ -170,7 +170,7 @@ multiConfig n = defaultChainwebConfiguration implicitVersion
 
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
-    & set (configCuts . cutFetchTimeout) 10_000_000
+    & set (configCuts . cutFetchTimeout) 5_000_000
     & set (configPayloadProviders . payloadProviderConfigPact)
         (onChains $
             [(cid, defaultPactProviderConfig
@@ -188,8 +188,8 @@ multiConfig n = defaultChainwebConfiguration implicitVersion
         }
 
     throttling = defaultThrottlingConfig
-        { _throttlingRate = 10_000 -- per second
-        , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
+        { _throttlingRate = 100_000 -- per second
+        , _throttlingPeerRate = 100_000 -- per second, one for each p2p network
         }
 
 -- | Configure a bootstrap node
