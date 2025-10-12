@@ -2,12 +2,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -38,6 +35,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Types qualified as Pact
 import Chainweb.Pact.Validations qualified as Pact
+import Chainweb.Parent
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -124,10 +122,12 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
           "Continuing genesis block"
       else do
         logFunctionText logger Info $
-          T.unwords
-            [ "(parent height = " <> sshow (_bctxParentHash blockCtx) <> ")"
-            , "(parent hash = " <> sshow (_bctxParentHeight blockCtx) <> ")"
-            ]
+          "continue creating block"
+            <> "; parent height: " <> toText (unwrapParent $ _bctxParentHeight blockCtx)
+            <> "; parent hash: " <> toText (unwrapParent $ _bctxParentHash blockCtx)
+            <> "; tx count: " <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions blockInProgress)
+            <> "; remaining gas: " <> sshow (_blockInProgressRemainingGasLimit blockInProgress)
+            <> "; sequence number: " <> sshow (_blockInProgressNumber blockInProgress)
 
     let blockGasLimit = view psNewBlockGasLimit serviceEnv
     let mTxTimeLimit = view psNewPayloadTxTimeLimit serviceEnv
@@ -138,8 +138,9 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
         txTimeLimit = fromMaybe (round $ 2.5 * txTimeHeadroomFactor * fromIntegral (view (Pact._GasLimit . to Pact._gas) blockGasLimit)) mTxTimeLimit
     liftIO $
       logFunctionText logger Debug $ T.unwords
-          [ "Block gas limit:"
-          , sshow blockGasLimit <> ","
+          [ "continueBlock. "
+          , "Block gas limit:"
+          , sshow blockGasLimit <> ", "
           , "Transaction time limit:"
           , sshow txTimeLimit
           ]
@@ -153,7 +154,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
           , _bfCount = 0
           }
 
-    let fetchLimit = fromIntegral $ (view (Pact._GasLimit . to Pact._gas) blockGasLimit) `div` 1000
+    let fetchLimit = fromIntegral $ view (Pact._GasLimit . to Pact._gas) blockGasLimit `div` 1000
 
     (BlockFill { _bfGasLimit = finalGasLimit }, valids, invalids) <-
       refill blockEnv miner fetchLimit txTimeLimit initState
@@ -161,7 +162,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
     finalBlockHandle <- get
 
     liftIO $ mpaBadlistTx mpAccess
-      (V.fromList $ fmap pactRequestKeyToTransactionHash $ concat invalids)
+      (V.fromList $ pactRequestKeyToTransactionHash <$> concat invalids)
 
     let !blockInProgress' = blockInProgress
           & blockInProgressHandle .~
@@ -173,7 +174,9 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
           & blockInProgressNumber %~
             succ
 
-    liftIO $ logFunctionText logger Debug $ "block with new transactions: " <> sshow (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+    liftIO $ logFunctionText logger Debug
+        $ "continueBlock: block with new transactions: "
+        <> sshow (Pact.unRequestKey . Pact._crReqKey . ssnd <$> _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
     return blockInProgress'
   return blockInProgress'
@@ -189,13 +192,13 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
     go completedTransactions invalidTransactions prevBlockFillState@BlockFill
       { _bfGasLimit = prevRemainingGas, _bfCount = prevFillCount, _bfTxHashes = prevTxHashes }
       | prevFillCount > fetchLimit = liftIO $ do
-        logFunctionText logger Info $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+        logFunctionText logger Info $ "continueBlock.refill: fetch limit exceeded (" <> sshow fetchLimit <> ")"
         pure stop
       | prevRemainingGas == Pact.GasLimit (Pact.Gas 0) =
         pure stop
       | otherwise = do
         newTxs <- liftIO $ getBlockTxs blockEnv prevBlockFillState
-        liftIO $ logFunctionText logger Debug $ "Refill: fetched transactions: " <> sshow (V.length newTxs)
+        liftIO $ logFunctionText logger Debug $ "continueBlock.refill: fetched transactions: " <> sshow (V.length newTxs)
         if V.null newTxs
         then pure stop
         else do
@@ -203,7 +206,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
             execNewTransactions prevRemainingGas txTimeLimit newTxs
 
           liftIO $ do
-            logFunctionText logger Debug $ "Refill: included: "
+            logFunctionText logger Debug $ "continueBlock.refill: included: "
               <> sshow @[Hash] (fmap (Pact.unRequestKey . Pact._crReqKey . ssnd) newCompletedTransactions)
               <> ", badlisted: "
               <> sshow @[Hash] (fmap Pact.unRequestKey newInvalidTransactions)
@@ -247,7 +250,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
               let timeoutFunc runTx =
                     if _bctxIsGenesis blockCtx
                     then do
-                      logFunctionText logger Info $ "Running genesis command"
+                      logFunctionText logger Info "continueBlock.refill: Running genesis command"
                       fmap Just runTx
                     else
                       newTimeout (fromIntegral @Micros @Int timeLimit) runTx
@@ -256,7 +259,8 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
               case m of
                 Nothing -> do
                   logFunctionJson logger Warn $ Aeson.object
-                    [ "type" Aeson..= Aeson.String "newblock timeout"
+                    [ "function" Aeson..= Aeson.String "continueBlock.refill.execNewTransactions"
+                    , "type" Aeson..= Aeson.String "newblock timeout"
                     , "hash" Aeson..= Aeson.String (sshow (Pact._cmdHash tx))
                     , "payload" Aeson..= Aeson.String (
                         T.decodeUtf8 $ SB.fromShort $ tx ^. Pact.cmdPayload . Pact.payloadBytes
@@ -266,7 +270,7 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
                 Just (Left err) -> do
                   logFunctionText logger Debug $
                     -- TODO PP: prettify
-                    "applyCmdInBlock failed to buy gas: " <> sshow err
+                    "continueBlock.refill: applyCmdInBlock failed to buy gas: " <> sshow err
                   ((as, timedOut), s') <- runStateT rest s
                   return ((Left (Pact._cmdHash tx):as, timedOut), s')
                 Just (Right (a, s')) -> do
@@ -282,10 +286,10 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
 
   getBlockTxs :: BlockEnv -> BlockFill -> IO (Vector Pact.Transaction)
   getBlockTxs blockEnv blockFillState = do
-    liftIO $ logFunctionText logger Debug "Refill: fetching transactions"
+    liftIO $ logFunctionText logger Debug "continueBlock.refill: fetching transactions"
     let validate _bha txs = do
           forM txs $ \tx ->
-            fmap (tx <$) $ runExceptT (validateParsedChainwebTx logger blockEnv tx)
+            (tx <$) <$> runExceptT (validateParsedChainwebTx logger blockEnv tx)
     let mpAccess = _psMempoolAccess serviceEnv
     let blockCtx = _psBlockCtx blockEnv
     liftIO $ mpaGetBlock mpAccess blockFillState validate (evaluationCtxOfBlockCtx blockCtx)
@@ -325,7 +329,7 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
       , txGasLimit > blockGas
       -- then the transaction is not allowed to fail, or it would consume more gas than remains in the block
       , Pact.PactResultErr _ <- Pact._crResult result
-      -> throwError $ TxExceedsBlockGasLimit
+      -> throwError TxExceedsBlockGasLimit
       | otherwise -> do
         let subtractGasLimit limit subtrahend =
               let limitGas = limit ^. Pact._GasLimit
@@ -333,11 +337,11 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
               -- this should be impossible.
               -- we never allow a transaction to run with a gas limit higher than the block gas limit.
               then error $
-                "subtractGasLimit: transaction ran with higher gas limit than block gas limit: " <>
+                "applyCmdInBlock.subtractGasLimit: transaction ran with higher gas limit than block gas limit: " <>
                 sshow subtrahend <> " > " <> sshow limit
               else pure $ Pact.GasLimit $ Pact.Gas (Pact._gas limitGas - Pact._gas subtrahend)
         blockGasRemaining' <-
-          traverse (`subtractGasLimit` (Pact._crGas result)) blockGasRemaining
+          traverse (`subtractGasLimit` Pact._crGas result) blockGasRemaining
         return (result, (nextHandle, blockGasRemaining'))
   where
   -- | Apply a Pact command in the current block.
@@ -357,14 +361,16 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
     -- TODO: trace more info?
     let rk = Pact.RequestKey $ Pact._cmdHash cmd
     (resultOrError, blockHandle') <- flip runStateT blockHandle $
-      trace' (logFunction logger) "applyCmdInBlock" computeTrace (\_ -> 0) $
+      trace' (logFunction logger) "applyCmdInBlock" computeTrace (const 0) $
         doChainwebPactDbTransaction dbEnv (Just rk) $ \pactDb spv ->
           if _bctxIsGenesis blockCtx
           then do
-            logFunctionText logger Debug "running genesis command!"
+            logFunctionText logger Debug "applyCmdInBlock.unsafeApplyCmdInBlock: running genesis command!"
             r <- runGenesisPayload logger pactDb spv blockCtx cmd
             case r of
-              Left genesisError -> error $ "Genesis failed: \n" <> sshow cmd <> "\n" <> sshow genesisError <> "\n"
+              Left genesisError -> error $ "applyCmdInBlock.unsafeApplyCmdInBlock: Genesis failed"
+                <> "; " <> sshow cmd
+                <> "; " <> sshow genesisError
               -- pretend that genesis commands can throw non-fatal errors,
               -- to make types line up
               Right res -> return (Right (absurd <$> res))
@@ -376,7 +382,8 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
           {
             _crResult =
               Pact.PactResultErr (Pact.PEExecutionError (Pact.UnknownException unknownExceptionMessage) _ _)
-          } -> logFunctionText logger Error $ "Unknown exception encountered " <> unknownExceptionMessage
+          } -> logFunctionText logger Error
+            $ "applyCmdInBlock.unsafeAppplyCmdInBlock: unknown exception encountered " <> unknownExceptionMessage
       Left gasBuyError ->
         liftIO $ logFunction logger Debug
           -- TODO: replace with better print function for gas buy errors
@@ -536,8 +543,9 @@ execExistingBlock logger serviceEnv blockEnv payload = do
     -- flip runStateT (postCoinbaseBlockHandle, blockGasLimit) $
       forM (zip [0..] (V.toList txs)) $ \(txIdxInBlock, tx) ->
         T2 tx <$>
-          (mapStateT (mapExceptT (liftIO . fmap (over _Left BlockInvalidDueToInvalidTxAtRuntime))) $
-            applyCmdInBlock logger serviceEnv blockEnv miner (TxBlockIdx txIdxInBlock) tx)
+          mapStateT
+            (mapExceptT (liftIO . fmap (over _Left BlockInvalidDueToInvalidTxAtRuntime)))
+            (applyCmdInBlock logger serviceEnv blockEnv miner (TxBlockIdx txIdxInBlock) tx)
   -- incorporate the final state of the transactions into the block state
 
   let !totalGasUsed = foldOf (folded . _2 . to Pact._crGas) results
