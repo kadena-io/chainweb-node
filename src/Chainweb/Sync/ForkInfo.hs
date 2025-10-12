@@ -262,7 +262,7 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                             <> "; merged trace length: " <> sshow (length newTrace)
                             <> "; expected length: " <> sshow (length forkBlocksAscending)
 
-                unless (newTrace `L.isSuffixOf` _forkInfoTrace finfo) $
+                unless (_forkInfoTrace finfo `L.isSuffixOf` newTrace) $
                     throwM $ InternalInvariantViolation
                         "original trace is not a suffix of the merged trace"
 
