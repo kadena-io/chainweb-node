@@ -533,7 +533,7 @@ synchronizeProviders logger wbh providers c = do
             -- resolve the fork
             let startState = _consensusStateSafe (_forkInfoTargetState finfo)
             liftIO (resolveForkInfoForProviderState pLog bhdb NullCas provider Nothing finfo startState) `catch` \(e :: SomeException) -> do
-                pLog Warn $ "resolveFork for failed"
+                pLog Warn $ "resolveFork failed"
                     <> "; finfo: " <> encodeToText finfo
                     <> "; failure: " <> T.pack (displayException e)
                 empty
