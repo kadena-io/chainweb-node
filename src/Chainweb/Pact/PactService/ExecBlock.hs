@@ -138,11 +138,9 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
         txTimeLimit = fromMaybe (round $ 2.5 * txTimeHeadroomFactor * fromIntegral (view (Pact._GasLimit . to Pact._gas) blockGasLimit)) mTxTimeLimit
     liftIO $
       logFunctionText logger Debug $ T.unwords
-          [ "continueBlock. "
-          , "Block gas limit:"
-          , sshow blockGasLimit <> ", "
-          , "Transaction time limit:"
-          , sshow txTimeLimit
+          [ "continueBlock"
+          , ". Block gas limit: ", sshow blockGasLimit
+          , ", Transaction time limit: ", sshow txTimeLimit
           ]
 
     let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
@@ -192,7 +190,10 @@ continueBlock logger serviceEnv dbEnv blockInProgress = do
     go completedTransactions invalidTransactions prevBlockFillState@BlockFill
       { _bfGasLimit = prevRemainingGas, _bfCount = prevFillCount, _bfTxHashes = prevTxHashes }
       | prevFillCount > fetchLimit = liftIO $ do
-        logFunctionText logger Info $ "continueBlock.refill: fetch limit exceeded (" <> sshow fetchLimit <> ")"
+        logFunctionText logger Info $ "continueBlock.refill"
+            <> ": fetch limit exceeded"
+            <> "; fillCount: " <> sshow prevFillCount
+            <> "; limit: " <> sshow fetchLimit
         pure stop
       | prevRemainingGas == Pact.GasLimit (Pact.Gas 0) =
         pure stop
