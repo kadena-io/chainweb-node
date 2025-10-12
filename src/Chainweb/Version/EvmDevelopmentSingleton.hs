@@ -57,7 +57,7 @@ pattern EvmDevelopmentPair <- ((== evmDevnetPair) -> True) where
 
 evmDevnetPair :: ChainwebVersion
 evmDevnetPair = withVersion evmDevnetPair $ ChainwebVersion
-    { _versionCode = ChainwebVersionCode 0x0000_000b
+    { _versionCode = ChainwebVersionCode 0x0001_000b
     , _versionName = ChainwebVersionName "evm-development-pair"
     , _versionForks = tabulateHashMap $ const $ onAllChains ForkAtGenesis
     , _versionUpgrades = onAllChains mempty
@@ -107,7 +107,7 @@ evmDevnetPair = withVersion evmDevnetPair $ ChainwebVersion
 
 evmDevnetSingleton :: ChainwebVersion
 evmDevnetSingleton = withVersion evmDevnetSingleton $ ChainwebVersion
-    { _versionCode = ChainwebVersionCode 0x0000_000c
+    { _versionCode = ChainwebVersionCode 0x0001_000c
     , _versionName = ChainwebVersionName "evm-development-singleton"
     , _versionForks = tabulateHashMap $ const $ onAllChains ForkAtGenesis
     , _versionUpgrades = onAllChains mempty

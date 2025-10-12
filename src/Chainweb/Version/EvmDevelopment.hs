@@ -51,7 +51,7 @@ pattern EvmDevelopment <- ((== evmDevnet) -> True) where
 
 evmDevnet :: ChainwebVersion
 evmDevnet = withVersion evmDevnet $ ChainwebVersion
-    { _versionCode = ChainwebVersionCode 0x0000_000a
+    { _versionCode = ChainwebVersionCode 0x0000_000b
     , _versionName = ChainwebVersionName "evm-development"
     , _versionForks = tabulateHashMap $ const $ onAllChains ForkAtGenesis
     , _versionUpgrades = onAllChains mempty
