@@ -256,11 +256,16 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                         (headersToTrace forkPoint forkBlocksAscending)
                         (_forkInfoTrace finfo)
 
-                -- These are a couple cheap consistency checks.
-                unless (length newTrace == length forkBlocksAscending + 1) $
-                    error "Invariant violation: merged trace is not of expected length"
+                -- A couple of cheap consistency checks.
+                unless (length newTrace == length forkBlocksAscending) $
+                    throwM $ InternalInvariantViolation $
+                        "merged trace length does not match expected length"
+                            <> "; merged trace length: " <> sshow (length newTrace)
+                            <> "; expected length: " <> sshow (length forkBlocksAscending)
+
                 unless (take (length $ _forkInfoTrace finfo) (reverse newTrace) == reverse (_forkInfoTrace finfo)) $
-                    error "Invariant violation: merged trace does not contain original trace as suffix"
+                    throwM $ InternalInvariantViolation
+                        "original trace is not a suffix of the merged trace"
 
                 return finfo
                     { _forkInfoTrace = newTrace
