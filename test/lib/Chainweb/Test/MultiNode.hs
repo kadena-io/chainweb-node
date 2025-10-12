@@ -248,13 +248,13 @@ multiNode
     -> IO ()
 multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
-            withChainweb conf logger namespacedNodeRocksDb (pactDbDir </> show nid) backupTmpDir $ \cw -> do
-                case cw of
-                    StartedChainweb cw' ->
-                        when (nid == 0) $ putMVar bootstrapPeerInfoVar
-                            $ view (chainwebPeer . peerResPeer . peerInfo) cw'
-                    RewoundToCut _ -> return ()
-                inner nid cw namespacedNodeRocksDb
+       withChainweb conf logger namespacedNodeRocksDb (pactDbDir </> show nid) backupTmpDir $ \cw -> do
+           case cw of
+               StartedChainweb cw' ->
+                   when (nid == 0) $ putMVar bootstrapPeerInfoVar
+                       $ view (chainwebPeer . peerResPeer . peerInfo) cw'
+               RewoundToCut _ -> return ()
+           inner nid cw namespacedNodeRocksDb
   where
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
@@ -617,6 +617,7 @@ test
     -> (String -> IO ())
     -> IO ()
 test loglevel n seconds rdb pactDbDir step = do
+
     -- Count log messages and only print the first 60 messages
     let tastylog = step . T.unpack
     let logFun = T.putStrLn
@@ -629,8 +630,10 @@ test loglevel n seconds rdb pactDbDir step = do
                 logFun "Got 60 log messages, not printing any addtional messages"
 
     stateVar <- newMVar emptyConsensusState
+
     runNodesForSeconds loglevel countedLog (multiConfig n) n seconds rdb pactDbDir
         (harvestConsensusState (genericLogger loglevel logFun) stateVar)
+
     consensusStateSummary <$> readMVar stateVar >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
         Just stats -> do
@@ -645,20 +648,20 @@ test loglevel n seconds rdb pactDbDir step = do
                 , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
                 ]
 
-            (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
-            (assertLe "max stored cut count")
+            assertGe "number of blocks" (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
+            assertLe "max stored cut count"
                 (Actual $ _statMaxCutCount stats)
                 (Expected $ ceiling (avgBlockHeightAtCutHeight $ _statMaxHeight stats)
                     + int (diameterAtCutHeight (_statMaxHeight stats)))
-            (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
-            (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
-            (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
-            (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
+            assertGe "maximum cut height" (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
+            assertGe "minimum cut height" (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
+            assertGe "median cut height" (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
+            assertGe "average cut height" (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
 
-            (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
-            (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
-            (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
-            (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
+            assertLe "maximum cut height" (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
+            assertLe "minimum cut height" (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
+            assertLe "median cut height" (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
+            assertLe "average cut height" (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
 
   where
     l = lowerStats seconds
