@@ -383,7 +383,7 @@ applyCmdInBlock logger serviceEnv blockEnv miner txIdxInBlock tx = StateT $ \(bl
             _crResult =
               Pact.PactResultErr (Pact.PEExecutionError (Pact.UnknownException unknownExceptionMessage) _ _)
           } -> logFunctionText logger Error
-            $ "applyCmdInBlock.unsafeAppplyCmdInBlock: unknown exception encountered " <> unknownExceptionMessage
+            $ "applyCmdInBlock.unsafeAppplyCmdInBlock: unknown exception encountered: " <> unknownExceptionMessage
       Left gasBuyError ->
         liftIO $ logFunction logger Debug
           -- TODO: replace with better print function for gas buy errors
