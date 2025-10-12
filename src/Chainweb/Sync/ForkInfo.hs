@@ -150,9 +150,16 @@ resolveForkInfoForProviderState
     -> IO ()
 resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppKnownState
     | ppRBH == trgHash = do
-        -- nothing to do, we are at the target
         logg Info "resolveForkInfo: payload provider is at target block"
-        return ()
+        -- If no payload production is requested we are done. Otherwise we
+        -- still need to issue the syncToBlock call to initiate payload
+        -- production.
+        case _forkInfoNewBlockCtx finfo of
+            Nothing -> return ()
+            Just _ -> do
+                logg Info "resolveForkInfo: requesting payload production at target block"
+                void $ syncToBlock provider hints finfo
+                -- TODO consider double checking the result.
     | otherwise = do
         logg Info $ "resolveForkInfo: payload provider state: " <> brief ppKnownState
             <> "; target state: " <> brief (_forkInfoTargetState finfo)
