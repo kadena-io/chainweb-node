@@ -68,7 +68,7 @@ evmTestnet = withVersion evmTestnet $ ChainwebVersion
             $ [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [0..19] ]
             <> [ (unsafeChainId i, BlockCreationTime (Time (secondsToTimeSpan 0x684c5d2a))) | i <- [20..24] ]
             <> [ (unsafeChainId i, BlockCreationTime [timeMicrosQQ| 2025-01-01T00:00:00.000000 |]) | i <- [25..97] ]
-        , _genesisBlockPayload = onChains $
+        , _genesisBlockPayload = onChains
             -- Pact Payload Provider
             [ (unsafeChainId 0, unsafeFromText "QzxVHFZ5go4PYd3QeAZhxP61hsVnICPw4BB9h-T3PDM")
             , (unsafeChainId 1, unsafeFromText "66JSEmDIl6AqWTKN29LprukaeUmK0OOd4RufVO8e6-4")
