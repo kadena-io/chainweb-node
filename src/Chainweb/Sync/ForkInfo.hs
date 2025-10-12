@@ -175,12 +175,12 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
         -- Lookup the state of the Payload Provider and query the trace
         -- from the fork point to the target block.
         --
-        -- This really should only happen if the payload provider db comes from an
-        -- external source or the payload provider db is outdated and resides on a
-        -- fork that got already pruned. In this case we can only guess where a
-        -- common fork point might be -- which, in worst case, might be the
-        -- genesis. We should either do an exponential search or just fail.
-        --
+        -- This can fail if we don't know the state of the payload provider.
+        -- This really should only happen if the payload provider db comes from
+        -- an external source or the payload provider db is outdated and resides
+        -- on a fork that got already pruned. In this case we can only guess
+        -- where a common fork point might be -- which, in worst case, might be
+        -- the genesis. We should either do an exponential search or just fail.
 
         -- Before we do the potentially expensive branch diff call, we check
         -- whether the ppKnownState is in the trace of the finfo.
@@ -191,13 +191,12 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
         newForkInfo <- case idx of
             Just i -> do
                 logg Info $ "resolveForkInfo: found payload provider state as parent in trace at index " <> sshow i
-                -- if i == 0 is the default, where the payload provider does a
-                -- fast forward without rewind.
                 if i == 0
                   then
                     -- assert: (Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState) == _forkInfoBasePayloadHash finfo
                     return finfo
                   else
+                    -- The the payload provider does a fast forward without rewind.
                     return finfo
                         { _forkInfoTrace = drop i (_forkInfoTrace finfo)
                         , _forkInfoBasePayloadHash = Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState
