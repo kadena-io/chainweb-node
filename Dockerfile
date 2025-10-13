@@ -214,41 +214,63 @@ RUN sh /tools/check-git-clean.sh
 
 # ############################################################################ #
 # Build Chainweb Tests
+    
+# - chainweb-tests 
+# - multi-node-network-tests
+# - chainweb-storage-tests
+# - chainweb-remote-tests
+# - blockhistory-migration-tests
 
 FROM chainweb-build-lib AS chainweb-build-tests
 ARG TARGETPLATFORM
 ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal build --enable-tests --enable-benchmarks chainweb:test:chainweb-tests
+    cabal build --enable-tests --enable-benchmarks tests
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
-    mkdir -p artifacts
-    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:test:chainweb-tests) artifacts/
+    mkdir -p artifacts/test
+    for test in chainweb-tests multi-node-network-tests chainweb-storage-tests chainweb-remote-tests blockhistory-migration-tests; do
+        cp $(cabal list-bin --enable-tests --enable-benchmarks "$test") artifacts/test
+    done
 EOF
 
 # ############################################################################ #
-# Build cwtool and run ea
+# Build cwtools and run ea
 
-FROM chainweb-build-lib AS chainweb-build-cwtool
+# - tx-list
+# - standalone-pruner
+# - run-nodes
+# - pact-diff
+# - known-graphs
+# - genconf
+# - evm-genesis
+# - ea
+# - compact
+# - calculate-release
+# - b64
+
+FROM chainweb-build-lib AS chainweb-build-tools
 ARG TARGETPLATFORM
 ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal build --enable-tests --enable-benchmarks chainweb:exe:cwtool
+    cabal build --enable-tests --enable-benchmarks cwtools
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal run --enable-tests --enable-benchmarks chainweb:exe:cwtool -- ea
+    cabal run --enable-tests --enable-benchmarks ea
 RUN <<EOF
     sh /tools/check-git-clean.sh ||
     { echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2 ; exit 1 ; }
 EOF
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
-    mkdir -p artifacts
-    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:cwtool) artifacts/
+    mkdir -p artifacts/tool
+    for tool in tx-list standalone-pruner run-nodes pact-diff known-graphs genconf evm-genesis ea compact calculate-release b64 ; do
+        cp $(cabal list-bin --enable-tests --enable-benchmarks $tool) artifacts/tool
+    done
 EOF
 
 # ############################################################################ #
@@ -263,8 +285,8 @@ RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked <<EOF
-    mkdir -p artifacts
-    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:bench:bench) artifacts/
+    mkdir -p artifacts/bench
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:bench:bench) artifacts/bench
 EOF
 
 # ############################################################################ #
@@ -289,9 +311,13 @@ EOF
 
 # ############################################################################ #
 # Run Chainweb Tests
+#
+# - chainweb-tests
+
+# TODO run all tests
 
 FROM chainweb-runtime AS chainweb-run-tests
-COPY --from=chainweb-build-tests /chainweb/artifacts/chainweb-tests .
+COPY --from=chainweb-build-tests /chainweb/artifacts/test/chainweb-tests .
 COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
 RUN <<EOF
@@ -300,13 +326,19 @@ RUN <<EOF
 EOF
 
 # ############################################################################ #
-# Run slow tests
+# Run Slow Tests
+# 
+# - chainweb-storage-tests
+# - chainweb-remote-tests
+# - multi-node-network-tests
 
 FROM chainweb-runtime AS chainweb-run-slowtests
-COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
+COPY --from=chainweb-build-cwtool /chainweb/artifacts/test .
 RUN <<EOF
     ulimit -n 10000
-    ./cwtool slow-tests
+    ./test/chainweb-storage-tests
+    ./test/chainweb-remote-tests
+    ./test/multi-node-network-tests
 EOF
 
 # ############################################################################ #
@@ -349,8 +381,8 @@ ENTRYPOINT ["/chainweb/chainweb-node"]
 
 FROM chainweb-node AS chainweb-applications
 COPY --from=chainweb-build-bench /chainweb/artifacts/bench .
-COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
-COPY --from=chainweb-build-tests /chainweb/artifacts/chainweb-tests .
+COPY --from=chainweb-build-tools /chainweb/artifacts/tool .
+COPY --from=chainweb-build-tests /chainweb/artifacts/test .
 COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
 
@@ -372,7 +404,7 @@ RUN rm -f /tmp/run-tests /tmp/run-ea /tmp/run-slowtests /tmp/run-bench
 # FROM CHAINWEB_BUILD AS CHAINWEB_INITIALIZE_DB
 #
 # TODO
-# - Create image that only rocksdb database to volume, so that it can be
+# - Create image that contains only rocksdb database to volume, so that it can be
 #   done during the build?
 # - Just start the node on it?
 
