@@ -373,11 +373,11 @@ jobs:
     - name: Install build dependencies
       run: cabal build chainweb --only-dependencies
     - name: Build chainweb library
-      run: cabal build --ghc-options=-j2 lib:chainweb
+      run: cabal build lib:chainweb
     # # Temporarily disabled on lars/pp/* branches
     - name: Build chainweb applications
       run: |
-        cabal build -j2 --ghc-options=-j2 \
+        cabal build \
           exe:b64 \
           exe:calculate-release \
           exe:compact \
@@ -386,20 +386,21 @@ jobs:
           exe:known-graphs \
           exe:standalone-pruner \
           exe:pact-diff \
+          exe:evm-genesis \
+          exe:tx-list \
+          exe:run-nodes \
           test:chainweb-tests \
           test:multi-node-network-tests \
           test:remote-tests \
           test:chainweb-storage-tests \
-          exe:evm-genesis \
-          exe:tx-list \
-          exe:run-nodes \
+          test:blockhistory-migration-tests \
           chainweb:bench:bench
       # TODO: PP
       # exe:header-dump \
       # exe:db-checksum \
       # test:compaction-tests \
     - name: Build chainweb-node application
-      run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
+      run: cabal build chainweb-node:exe:chainweb-node
 
     # Checks
     - name: Check that working directory tree is clean
@@ -422,17 +423,18 @@ jobs:
       run: |
         mkdir -p artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
-        cp $(cabal list-bin evm-genesis) artifacts/chainweb
-        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
-        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin test:chainweb-storage-tests) artifacts/chainweb
+        cp $(cabal list-bin test:chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin test:remote-tests) artifacts/chainweb
+        cp $(cabal list-bin test:blockhistory-migration-tests) artifacts/chainweb
+        cp $(cabal list-bin test:multi-node-network-tests) artifacts/chainweb
         cp $(cabal list-bin bench) artifacts/chainweb
+        cp $(cabal list-bin evm-genesis) artifacts/chainweb
         cp $(cabal list-bin compact) artifacts/chainweb
         cp $(cabal list-bin ea) artifacts/chainweb
         cp $(cabal list-bin genconf) artifacts/chainweb
         cp $(cabal list-bin known-graphs) artifacts/chainweb
-        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
         cp $(cabal list-bin pact-diff) artifacts/chainweb
-        cp $(cabal list-bin remote-tests) artifacts/chainweb
         cp $(cabal list-bin standalone-pruner) artifacts/chainweb
         cp $(cabal list-bin tx-list) artifacts/chainweb
         cp $(cabal list-bin run-nodes) artifacts/chainweb
@@ -571,6 +573,33 @@ jobs:
     - name: Run chainweb-storage tests
       timeout-minutes: 2
       run: chainweb-storage-tests
+
+  blockhistory-migration-tests:
+    if: false # disabled because it needs databases as input
+    name: RocksDB library tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run blockhistory-migration-tests tests
+      timeout-minutes: 2
+      run: blockhistory-migration-tests
 
   # ########################################################################## #
   # Run Benchmarks
