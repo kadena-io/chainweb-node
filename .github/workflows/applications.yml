@@ -526,6 +526,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      CHAINWEB_MULTINODE_TESTS_NODE_COUNT: 2
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
