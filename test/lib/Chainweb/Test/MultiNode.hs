@@ -627,7 +627,7 @@ test loglevel n seconds rdb pactDbDir step = do
             if c < maxLogMsgs
               then logFun msg
               else when (c == maxLogMsgs) $
-                logFun "Got 60 log messages, not printing any addtional messages"
+                logFun $ "Got " <> sshow maxLogMsgs <> " log messages, not printing any addtional messages"
 
     stateVar <- newMVar emptyConsensusState
 
