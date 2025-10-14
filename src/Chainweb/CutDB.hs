@@ -497,7 +497,7 @@ synchronizeProviders logger wbh providers c = do
             (imap (\cid () -> genesisBlockHeader cid) (HS.toMap chainIds))
     syncsSuccessful <- mapConcurrently (runMaybeT . syncOne) startHeaders
 
-    logFunctionText logger Info $ "finished synchronizing payload all providers"
+    logFunctionText logger Info $ "finished synchronizing all payload providers"
         <> "; failed: " <> sshow (length (HM.filter isNothing syncsSuccessful))
 
     if all isJust syncsSuccessful
