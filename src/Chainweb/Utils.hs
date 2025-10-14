@@ -143,6 +143,7 @@ module Chainweb.Utils
 , fromEitherM
 , fromEithere
 , InternalInvariantViolation(..)
+, internalInvariantViolation
 
 -- ** Synchronous Exceptions
 , catchSynchronous
@@ -249,7 +250,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception (SomeAsyncException(..), evaluate)
+import Control.Exception (SomeAsyncException(..), evaluate, throw)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -967,6 +968,9 @@ instance Exception InternalInvariantViolation where
     displayException (InternalInvariantViolation v) =
         "Invariant violation: " <> T.unpack v
         <> "\n" <> GHC.Stack.prettyCallStack callStack
+
+internalInvariantViolation :: HasCallStack => T.Text -> a
+internalInvariantViolation = throw . InternalInvariantViolation
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
