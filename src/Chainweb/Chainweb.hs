@@ -118,6 +118,7 @@ import Data.Maybe
 import qualified Data.Text as T
 import Data.These (These(..))
 import qualified Data.Vector as V
+import Data.Word
 
 import GHC.Generics
 
@@ -729,7 +730,7 @@ runChainweb cw nowServing = do
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
-            . p2pRequestSizeLimit
+            . p2pRequestSizeLimiter
             . p2pValidationMiddleware
 
         -- 2. Start Clients (with a delay of 500ms)
@@ -739,7 +740,7 @@ runChainweb cw nowServing = do
         , threadDelay 500000 >> do
             serveServiceApi
                 $ serviceHttpLog
-                . serviceRequestSizeLimit
+                . serviceRequestSizeLimiter
                 . serviceApiValidationMiddleware
         ]
 
@@ -861,9 +862,9 @@ runChainweb cw nowServing = do
 
     -- Request size limit for the service API
     --
-    serviceRequestSizeLimit :: Middleware
-    serviceRequestSizeLimit = requestSizeLimitMiddleware $
-        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+    serviceRequestSizeLimiter :: Middleware
+    serviceRequestSizeLimiter = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ serviceRequestSizeLimit)
         defaultRequestSizeLimitSettings
 
     -- Request size limit for the P2P API
@@ -875,9 +876,9 @@ runChainweb cw nowServing = do
     --
     -- FIXME: can we make this smaller and still let the mempool work?
     --
-    p2pRequestSizeLimit :: Middleware
-    p2pRequestSizeLimit = requestSizeLimitMiddleware $
-        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+    p2pRequestSizeLimiter :: Middleware
+    p2pRequestSizeLimiter = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just p2pRequestSizeLimit)
         defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
@@ -962,3 +963,6 @@ runChainweb cw nowServing = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
+
+serviceRequestSizeLimit :: Maybe Word64
+serviceRequestSizeLimit = Just $ 2 * 1024 * 1024 -- 2 MB
