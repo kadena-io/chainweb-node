@@ -105,7 +105,7 @@ writePayload gen payload = do
 mkPayload :: Genesis -> IO Text
 mkPayload gen@(Genesis v _ (ChainIdRange l u) c k a ns cc) = do
     -- printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
-    payloadModules <- for [l..u] $ \cid ->
+    payloadModules <- forConcurrently [l..u] $ \cid ->
         withVersion v $ genPayloadModule (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
     -- checks that the modules on each chain are the same
     evaluate $ the payloadModules
