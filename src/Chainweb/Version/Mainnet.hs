@@ -155,7 +155,7 @@ mainnet = ChainwebVersion
         Chainweb228Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_659_280) -- 2025-03-18 00:00:00+00:00
         Chainweb229Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_785_923) -- 2025-05-01 00:00:00+00:00
         Chainweb230Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 6_027_616) -- 2025-07-24 00:00:00+00:00
-        Chainweb231Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 6_269_381) -- 2025-10-16 00:00:00+00:00
+        Chainweb231Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 6_269_344) -- 2025-10-16 00:00:00+00:00
         Chainweb232Pact -> AllChains ForkNever
 
     , _versionGraphs =
@@ -223,7 +223,6 @@ mainnet = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $
-        (mainnet ^?! versionForks . at Chainweb231Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Set.fromList $ map VerifierName ["signed_list"]) `Above`
         (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
@@ -232,5 +231,5 @@ mainnet = ChainwebVersion
             , (unsafeChainId 9, HM.fromList [((BlockHeight 4594049, TxBlockIdx 0), Gas 69_092)])
             ]
         }
-    , _versionServiceDate = Just "2025-10-15T00:00:00Z"
+    , _versionServiceDate = Just "2026-01-07T00:00:00Z"
     }

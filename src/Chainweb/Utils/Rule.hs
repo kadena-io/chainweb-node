@@ -47,8 +47,6 @@ data Rule h a = Above (h, a) (Rule h a) | Bottom (h, a)
     deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)
     deriving anyclass (Hashable, NFData)
 
-infixr 6 `Above`
-
 instance Bifunctor Rule where
   bimap :: (h -> h') -> (a -> a') -> Rule h a -> Rule h' a'
   bimap fh fa = go
