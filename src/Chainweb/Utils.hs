@@ -1800,6 +1800,7 @@ withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
 -- Exception rendering
 
 data PureHandler c a = forall e . (c e, Exception e) => PureHandler (e -> a)
+
 handlePure
     :: (SomeException -> a)
     -> [PureHandler c a]
@@ -1813,8 +1814,8 @@ handlePure fallback handlers e = case asum $ apply <$> handlers of
         Just e' -> Just $ f e'
         Nothing -> Nothing
 
--- | A pure exception handler, that holds a pure function that can that can be
--- applied to an exception of a specific type.
+-- | A pure exception handler, that holds a pure function that can be applied to
+-- an exception of a specific type.
 --
 -- Note, that unlike the handlers in `Control.Exception`, this handler does not
 -- not catch exceptions.
@@ -1854,12 +1855,10 @@ renderException :: [Renderer] -> SomeException -> T.Text
 renderException = handleException displayExceptionText
 
 renderExceptionJson :: [ExceptionHandler Value] -> SomeException -> Value
-renderExceptionJson renderers = handleException
-    (String . displayExceptionText)
-    renderers
+renderExceptionJson = handleException (String . displayExceptionText)
 
 displayExceptionText :: SomeException -> T.Text
-displayExceptionText = displayExceptionText
+displayExceptionText = T.pack . displayException
 
 showClientError :: Servant.Client.ClientError -> T.Text
 showClientError (Servant.Client.FailureResponse _ resp) =

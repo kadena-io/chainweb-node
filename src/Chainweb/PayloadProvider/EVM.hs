@@ -1004,9 +1004,7 @@ updateEvm p state nctx plds = lookupConsensusState p state plds >>= \case
             -- update state
             writeTVar (_evmState p) (T2 state nctx)
             -- update payloadId
-            case pid of
-                Nothing -> return ()
-                Just x -> writeTMVar (_evmPayloadId p) x
+            forM_ pid $ writeTMVar (_evmPayloadId p)
   where
     lf = loggS p "updateEvm"
     attr pt = mkPayloadAttributes (_latestHeight state) (_latestBlockHash state) pt
@@ -1558,6 +1556,8 @@ getPayloadForContext p h ctx = do
     lf :: LogFunctionText
     lf = loggS p "getPayloadForContext"
 
+-- | Fetch payloads for a list of evaluation contexts.
+--
 getPayloadForContexts
     :: Logger logger
     => EvmPayloadProvider logger
