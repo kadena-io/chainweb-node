@@ -662,6 +662,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact5.SPVTest
         Chainweb.Test.Pact5.TransactionExecTest
         Chainweb.Test.Pact5.TransactionTests
+        Chainweb.Test.ResponseSizeLimiter
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -755,6 +756,7 @@ test-suite chainweb-tests
         , unordered-containers >= 0.2.20
         , vector >= 0.12.2
         , wai >= 3.2
+        , wai-extra >= 3.1
         , warp >= 3.3.6
         , warp-tls >= 3.4
         , yaml >= 0.11
@@ -906,4 +908,3 @@ benchmark bench
         , unordered-containers
         , vector >= 0.12.2
         , yaml >= 0.11
-        , property-matchers ^>= 0.4
