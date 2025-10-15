@@ -61,18 +61,15 @@ If you would like to contribute to the project, you can submit a [pull request](
 
 ## Minimum system requirements
 
-Before installing Chainweb, you should verify that your computer meets the following minimum recommended hardware requirements for running a node:
+Before installing Chainweb, you should verify that your computer meets the following minimum system requirements for running a node:
 
-- CPU: Minimum of two (2) CPU cores.
-- RAM: Minimum of four (4) GB of RAM.
-- Storage: Minimum 250 GB using a solid state drive (SSD) or fast hard disk drive (HDD).
-- Network: Publicly-accessible IP address.
+- CPU: Minimum of eight (8) CPU cores.
+- RAM: Minimum of sixteen (16) GB of RAM.
+- Storage: Minimum 2 TB using a solid state drive (SSD) or fast hard disk drive (HDD).
+- Network: Publicly-accessible IP address and a port that allows incoming traffic from the internet.
 - Operating system: Linux AMD64 architecture.
 
-If you also plan to use the node for mining, to submit transactions, or to query blockchain data, you should verify that your computer meets the following minimum recommended hardware requirements:
-
-- Four (4) CPU cores.
-- Eight (8) GB of RAM.
+If you plan to use the node for mining, to handle RPC requests, or to query historical blockchain data, you should consider upgrading the number of CPU cores, available RAM, and storage above the minimum system requirements.
 
 ## Installing Chainweb
 
@@ -166,7 +163,7 @@ To run a Chainweb node in a Docker container:
 1. (Optional) Get a database backup file from a trusted node or other source.
    
    ```shell
-   export DB_SNAPSHOT_URL="https://chainweb-data.kda.kaddex.xyz/chainweb-node-data-<timestamp>.tar.gz"
+   export DB_SNAPSHOT_URL="https://chainweb-data.kda.kaddex.xyz/chainweb-node-data-2025-10-14T20_00_01_Z0200.tar.gz"
    ```
 
 2. (Optional) Initialize the database as a persistent volume for the Docker container.
@@ -192,12 +189,7 @@ To run a Chainweb node in a Docker container:
 3. Start the Chainweb node in a detached container using the persistent database volume.
    
    ```shell
-   docker run --detach \
-     --publish 1848:1848 \ 
-     --publish 1789:1789 \
-     --name chainweb-node \
-     --mount type=volume,source=chainweb-data,target=/data \
-     kadena/chainweb-node
+   docker run --detach --publish 1789:1789 --publish 1848:1848 --volume chainweb-data:/data kadena/chainweb-node
    ```
    
    If you initialized the database inside of a Docker container, you can use the `chainweb-node-with-db` image to run the node:
