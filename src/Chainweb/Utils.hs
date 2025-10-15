@@ -238,6 +238,8 @@ module Chainweb.Utils
 , unsafeHead
 , unsafeTail
 , withEarlyReturn
+
+, ResponseBodyTooLarge(..)
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -1541,6 +1543,10 @@ showClientError (Servant.Client.ConnectionError anyException) =
     matchOrDisplayException @HTTP.HttpException showHTTPRequestException anyException
 showClientError e =
     T.pack $ displayException e
+
+data ResponseBodyTooLarge = ResponseBodyTooLarge
+    deriving (Show, Eq)
+instance Exception ResponseBodyTooLarge
 
 showHTTPRequestException :: HTTP.HttpException -> T.Text
 showHTTPRequestException (HTTP.HttpExceptionRequest _request content)
