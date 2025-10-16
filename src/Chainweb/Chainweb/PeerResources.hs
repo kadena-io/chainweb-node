@@ -9,6 +9,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Chainweb.PeerResources
@@ -48,18 +49,21 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
-import qualified Data.ByteString.Char8 as B8
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as B8
 import Data.Either
 import Data.Function
-import qualified Data.HashSet as HS
+import Data.HashSet qualified as HS
+import Data.IORef
 import Data.IxSet.Typed (getEQ, getOne)
-import qualified Data.List as L
+import Data.List qualified as L
 import Data.Maybe
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Data.Word
 
 import GHC.Generics
 
-import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Client qualified as HTTP
 import Network.Socket (Socket)
 
 import Prelude hiding (log)
@@ -305,6 +309,9 @@ connectionManager peerDb = do
             inc (_mgrCounterRequests counter)
             -- incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
+        , HTTP.managerModifyResponse = \resp -> do
+            resp' <- HTTP.managerModifyResponse settings' resp
+            limitResponseBodySize p2pRequestSizeLimit resp'
         }
     return (mgr, counter)
   where
@@ -317,6 +324,27 @@ connectionManager peerDb = do
     serviceIdToHostAddress (h, p) = HostAddress
         <$!> readHostnameBytes (B8.pack h)
         <*> readPortBytes p
+
+-- | Limit the size of the response body to avoid resource exhaustion.
+-- This relies on the fact that body readers are usually giving chunks of
+-- limited size, at most bytestring's defaultChunkSize; if a chunk were so large
+-- that reading it already exhausted our resources, this wouldn't help.
+limitResponseBodySize :: Word64 -> HTTP.Response HTTP.BodyReader -> IO (HTTP.Response HTTP.BodyReader)
+limitResponseBodySize responseBodySizeLimitBytes resp = do
+    sizeCtr <- newIORef 0
+    return resp
+        {
+            HTTP.responseBody = loop sizeCtr
+        }
+    where
+    loop sizeCtr = do
+        size <- readIORef sizeCtr
+        if size > responseBodySizeLimitBytes
+        then throwM $ HTTP.HttpExceptionRequest (HTTP.getOriginalRequest resp) (HTTP.InternalException (toException ResponseBodyTooLarge))
+        else do
+            chunk <- HTTP.responseBody resp
+            atomicModifyIORef' sizeCtr (\sz -> (sz + int @Int @Word64 (BS.length chunk), ()))
+            return chunk
 
 -- | Connection Manager Logger
 --

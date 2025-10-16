@@ -4,6 +4,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -27,59 +28,60 @@ module Chainweb.Pact.Mempool.InMem
   ) where
 
 ------------------------------------------------------------------------------
-
-import Data.List qualified as List
-import Control.Applicative ((<|>))
-import Control.Concurrent.Async
-import Control.Concurrent.MVar
-import Control.DeepSeq
-import Control.Exception (evaluate, mask_)
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
-
-import qualified Data.ByteString.Short as SB
-import Data.Decimal
 #if MIN_VERSION_base(4,20,0)
 import Data.Foldable (foldlM)
 #else
 import Data.Foldable (foldl', foldlM)
 #endif
-import Data.Function (on)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
-import Data.Maybe
-import Data.Ord
-import qualified Data.Set as S
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import Data.Traversable (for)
-import Data.Vector (Vector)
-import qualified Data.Vector as V
-import qualified Data.Vector.Algorithms.Tim as TimSort
-import Numeric.AffineSpace
-import Data.ByteString (ByteString)
-import Data.Either (partitionEithers)
-import Control.Lens
 
-import Prelude hiding (init, lookup, pred)
-
-import System.LogLevel
-import System.Random
-
--- internal imports
-
+import Chainweb.BlockHash
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Mempool.CurrentTxs
 import Chainweb.Pact.Mempool.InMemTypes
 import Chainweb.Pact.Mempool.Mempool
-import Chainweb.Pact.Validations (defaultMaxTTLSeconds, defaultMaxCoinDecimalPlaces)
+import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
+import Chainweb.Pact4.Validations (defaultMaxCoinDecimalPlaces)
+import Chainweb.PayloadProvider (EvaluationCtx)
 import Chainweb.Time
 import Chainweb.Utils
-
+import Chainweb.Version (ChainwebVersion)
+import Control.Applicative ((<|>))
+import Control.Concurrent.Async
+import Control.Concurrent.MVar
+import Control.DeepSeq
+import Control.Exception (evaluate, mask_, throw)
+import Control.Lens
+import Control.Monad
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Except (runExceptT, throwError)
+import Control.Monad.Trans.Resource
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SB
+import Data.Decimal
+import Data.Either (partitionEithers)
+import Data.Function (on)
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.List qualified as List
+import Data.Maybe
+import Data.Ord
+import Data.Set qualified as S
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Vector (Vector)
+import Data.Vector qualified as V
+import Data.Vector.Algorithms.Tim qualified as TimSort
+import Numeric.AffineSpace
+import Pact.Parse
 import Pact.Core.Gas
-import Chainweb.PayloadProvider (EvaluationCtx)
+import Pact.Types.ChainMeta qualified as P
+import Prelude hiding (init, lookup, pred)
+import System.LogLevel
+import System.Random
+
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -123,8 +125,8 @@ toMempoolBackend logger mempool = do
       , mempoolLookup = lookupInMem tcfg lockMVar
       , mempoolLookupEncoded = lookupEncodedInMem lockMVar
       , mempoolInsert = insertInMem logger cfg lockMVar
-      , mempoolInsertCheck = insertCheckInMem cfg lockMVar
-      , mempoolInsertCheckVerbose = insertCheckVerboseInMem cfg lockMVar
+      , mempoolInsertCheck = insertCheckInMem logger cfg lockMVar
+      , mempoolInsertCheckVerbose = insertCheckVerboseInMem logger cfg lockMVar
       , mempoolMarkValidated = markValidatedInMem logger tcfg lockMVar
       , mempoolAddToBadList = addToBadListInMem lockMVar
       , mempoolCheckBadList = checkBadListInMem lockMVar
@@ -295,13 +297,13 @@ maxNumPending = 10000
 -- the latter case.
 --
 insertCheckInMem
-    :: forall t
-    .  NFData t
-    => InMemConfig t    -- ^ in-memory config
+    :: forall logger t. (NFData t, Logger logger)
+    => logger
+    -> InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Either (T2 TransactionHash InsertError) ())
-insertCheckInMem cfg lock txs
+insertCheckInMem logger cfg lock txs
   | V.null txs = pure $ Right ()
   | otherwise = do
     now <- getCurrentTimeIntegral
@@ -310,10 +312,14 @@ insertCheckInMem cfg lock txs
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
     -- the hashing effort.
-    let withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t))
-        withHashes = for txs $ \tx ->
-          let !h = hasher tx
-          in bimap (T2 h) (T2 h) $ validateOne cfg badmap curTxIdx now tx h
+    withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t)) <- runExceptT $ do
+      forM txs $ \tx -> do
+        let !h = hasher tx
+        case validateOne cfg badmap curTxIdx now tx h of
+          Right t -> pure (T2 h t)
+          Left insertErr -> do
+            liftIO $ logValidateOneFailure logger "insertCheckInMem" h insertErr
+            throwError (T2 h insertErr)
 
     case withHashes of
         Left _ -> pure $! void withHashes
@@ -329,27 +335,33 @@ insertCheckInMem cfg lock txs
 --   and the creation time of the parent header in the latter case (new block creation).
 --
 insertCheckVerboseInMem
-    :: forall t
-    .  NFData t
-    => InMemConfig t    -- ^ in-memory config
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Vector (T2 TransactionHash (Either InsertError t)))
-insertCheckVerboseInMem cfg lock txs
+insertCheckVerboseInMem logger cfg lock txs
   | V.null txs = return V.empty
   | otherwise = do
       now <- getCurrentTimeIntegral
       badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
       curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
-      let withHashesAndPositions :: (HashMap TransactionHash (Int, InsertError), HashMap TransactionHash (Int, t))
-          withHashesAndPositions =
-            over _1 (HashMap.fromList . V.toList)
-            $ over _2 (HashMap.fromList . V.toList)
-            $ V.partitionWith (\(i, h, e) -> bimap (\err -> (h, (i, err))) (\err -> (h, (i, err))) e)
-            $ flip V.imap txs $ \i tx ->
-                let !h = hasher tx
-                in (i, h,) $! validateOne cfg badmap curTxIdx now tx h
+      withHashesAndPositions :: (HashMap TransactionHash (Int, InsertError), HashMap TransactionHash (Int, t)) <- do
+        pos <- flip V.imapM txs $ \i tx -> do
+          let !h = hasher tx
+          case validateOne cfg badmap curTxIdx now tx h of
+            Right t -> pure (i, h, Right t)
+            Left insertErr -> do
+              logValidateOneFailure logger "insertCheckVerboseInMem" h insertErr
+              pure (i, h, Left insertErr)
+
+        pure
+          $ over _1 (HashMap.fromList . V.toList)
+          $ over _2 (HashMap.fromList . V.toList)
+          $ V.partitionWith (\(i, h, e) -> bimap (\err -> (h, (i, err))) (\err -> (h, (i, err))) e)
+          $ pos
 
       let (prevFailures, prevSuccesses) = withHashesAndPositions
 
@@ -480,13 +492,13 @@ txTTLCheck txcfg now t = do
 -- the latter case.
 --
 insertCheckInMem'
-    :: forall t
-    .  NFData t
-    => InMemConfig t    -- ^ in-memory config
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Vector (T2 TransactionHash t))
-insertCheckInMem' cfg lock txs
+insertCheckInMem' logger cfg lock txs
   | V.null txs = pure V.empty
   | otherwise = do
     now <- getCurrentTimeIntegral
@@ -494,10 +506,14 @@ insertCheckInMem' cfg lock txs
     curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
     let hush = either (const Nothing) Just
 
-    let withHashes :: Vector (T2 TransactionHash t)
-        withHashes = flip V.mapMaybe txs $ \tx ->
-          let !h = hasher tx
-          in (T2 h) <$> hush (validateOne cfg badmap curTxIdx now tx h)
+    withHashes :: Vector (T2 TransactionHash t) <- do
+      flip V.mapMaybeM txs $ \tx -> do
+        let !h = hasher tx
+        case validateOne cfg badmap curTxIdx now tx h of
+          Right t -> pure (Just (T2 h t))
+          Left insertErr -> do
+            logValidateOneFailure logger "insertCheckInMem'" h insertErr
+            pure Nothing
 
     V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
   where
@@ -529,7 +545,7 @@ insertInMem logger cfg lock runCheck txs0 = do
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = case runCheck of
-      CheckedInsert -> insertCheckInMem' cfg lock txs0
+      CheckedInsert -> insertCheckInMem' logger cfg lock txs0
       UncheckedInsert -> return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg
@@ -854,3 +870,13 @@ pruneInternal logger mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
+
+logValidateOneFailure :: (Logger logger)
+  => logger
+  -> T.Text -- ^ location
+  -> TransactionHash
+  -> InsertError
+  -> IO ()
+logValidateOneFailure logger loc (TransactionHash hsb) insertErr = do
+  let abbrevReqKey = T.decodeUtf8 (BS.take 6 (SB.fromShort hsb))
+  logFunctionText logger Info $ loc <> ": " <> abbrevReqKey <> "... failed mempool check. " <> sshow insertErr

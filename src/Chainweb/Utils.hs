@@ -144,6 +144,7 @@ module Chainweb.Utils
 , fromEitherM
 , fromEithere
 , InternalInvariantViolation(..)
+, internalInvariantViolation
 
 -- ** Synchronous Exceptions
 , catchSynchronous
@@ -267,6 +268,7 @@ module Chainweb.Utils
 , showClientError
 , showHTTPRequestException
 , matchOrDisplayException
+, ResponseBodyTooLarge(..)
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -275,7 +277,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception (SomeAsyncException(..), evaluate)
+import Control.Exception (SomeAsyncException(..), evaluate, throw)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -1051,6 +1053,9 @@ instance Exception InternalInvariantViolation where
     displayException (InternalInvariantViolation v) =
         "Invariant violation: " <> T.unpack v
         <> "\n" <> GHC.Stack.prettyCallStack callStack
+
+internalInvariantViolation :: HasCallStack => T.Text -> a
+internalInvariantViolation = throw . InternalInvariantViolation
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
@@ -1868,6 +1873,10 @@ showClientError (Servant.Client.ConnectionError anyException) =
 showClientError e =
     T.pack $ displayException e
 
+data ResponseBodyTooLarge = ResponseBodyTooLarge
+    deriving (Show, Eq)
+instance Exception ResponseBodyTooLarge
+
 showHTTPRequestException :: HTTP.HttpException -> T.Text
 showHTTPRequestException (HTTP.HttpExceptionRequest _request content)
     = case content of
@@ -1890,4 +1899,3 @@ matchOrDisplayException display anyException
     = display specificException
     | otherwise
     = T.pack $ displayException anyException
-

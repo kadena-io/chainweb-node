@@ -261,15 +261,13 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
 
   where
   localFlags = S.fromList
-    [ FlagDisableRuntimeRTC
-    , FlagEnforceKeyFormats
+    [ FlagEnforceKeyFormats
     -- Note: this is currently not conditional
     -- in pact-5 exec. This may change if it breaks
     -- anyone's workflow
     , FlagAllowReadInLocal
     , FlagRequireKeysetNs
-    ] `Set.union` guardDisablePact51Flags txCtx
-    `Set.union` guardDisablePact52And53Flags txCtx
+    ] `Set.union` flagsFor txCtx
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command,
@@ -309,6 +307,7 @@ applyCmd logger maybeGasLogger db miner txCtx txIdxInBlock spv initialGas cmd = 
         , FlagRequireKeysetNs
         ] `Set.union` guardDisablePact51Flags txCtx
         `Set.union` guardDisablePact52And53Flags txCtx
+        `Set.union` guardDisablePact54Flags txCtx
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
   -- this process is "paid for", i.e. it's powered by a supply of gas that was
@@ -446,7 +445,7 @@ applyCoinbase logger db (Miner mid mks) txCtx = do
     (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks minerRewardKda
   eCoinbaseTxResult <-
     evalExecTerm Transactional
-      db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+      db noSPVSupport freeGasEnv (flagsFor txCtx) SimpleNamespacePolicy
       (ctxToPublicData noPublicMeta txCtx)
       MsgData
         { mdHash = coinbaseHash
@@ -524,7 +523,7 @@ runGenesisPayload
   -> BlockCtx
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either (Pact.PactError Info) (CommandResult [TxLog ByteString] Void))
-runGenesisPayload logger db spv ctx cmd = do
+runGenesisPayload logger db spv txCtx cmd = do
   gasRef <- newIORef (MilliGas 0)
   let gasEnv = GasEnv gasRef Nothing freeGasModel
   let txEnv = TransactionEnv logger gasEnv
@@ -535,11 +534,7 @@ runGenesisPayload logger db spv ctx cmd = do
       (runTransactionM
         (runPayload
           Transactional
-          (Set.unions
-            [ Set.singleton FlagDisableRuntimeRTC
-            , guardDisablePact51Flags ctx
-            , guardDisablePact52And53Flags ctx
-            ])
+          (flagsFor txCtx)
           db
           spv
           [ CapToken (QualifiedName "GENESIS" (ModuleName "coin" Nothing)) []
@@ -548,7 +543,7 @@ runGenesisPayload logger db spv ctx cmd = do
           -- allow installing to root namespace
           SimpleNamespacePolicy
           freeGasEnv
-          ctx
+          txCtx
           (TxBlockIdx 0)
           cmd <&> \evalResult ->
             CommandResult
@@ -643,14 +638,14 @@ runUpgrade
     -> BlockCtx
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ()
-runUpgrade _logger db txContext cmd = case payload ^. pPayload of
+runUpgrade _logger db txCtx cmd = case payload ^. pPayload of
     Exec pm -> do
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
-        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC])
+        db noSPVSupport freeGasEnv (flagsFor txCtx)
         -- allow installing to root namespace
         SimpleNamespacePolicy
-        (ctxToPublicData publicMeta txContext)
+        (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdHash = chash
           , mdData = PObject mempty
@@ -738,7 +733,7 @@ buyGas logger origGasEnv db (Miner mid mks) txCtx cmd = do
     -- It's taking an `Expr Info` instead of `Expr SpanInfo` which is making this code not compile
     e <- liftIO $ case gasPayerCap of
       Just cap ->
-        evalGasPayerCap cap db noSPVSupport gasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        evalGasPayerCap cap db noSPVSupport gasEnv (flagsFor txCtx) SimpleNamespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
           -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
@@ -756,7 +751,7 @@ buyGas logger origGasEnv db (Miner mid mks) txCtx cmd = do
         db
         noSPVSupport
         gasEnv
-        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        (flagsFor txCtx) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
@@ -829,7 +824,7 @@ redeemGas logger db (Miner mid mks) txCtx gasUsed maybeFundTxPactId cmd
       evalExecTerm
         Transactional
         -- TODO: more execution flags?
-        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasEnv (flagsFor txCtx) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
@@ -851,7 +846,7 @@ redeemGas logger db (Miner mid mks) txCtx gasUsed maybeFundTxPactId cmd
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
 
       evalContinuation Transactional
-        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasEnv (flagsFor txCtx) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
@@ -967,3 +962,17 @@ guardDisablePact52And53Flags :: HasVersion => BlockCtx -> Set ExecutionFlag
 guardDisablePact52And53Flags txCtx
   | guardCtx chainweb230Pact txCtx = Set.empty
   | otherwise = Set.fromList [FlagDisablePact52, FlagDisablePact53, FlagDisableReentrancyCheck]
+
+guardDisablePact54Flags :: HasVersion => BlockCtx -> Set ExecutionFlag
+guardDisablePact54Flags txCtx
+  | guardCtx chainweb231Pact txCtx = Set.empty
+  | otherwise = Set.fromList [FlagDisablePact54]
+
+flagsFor :: HasVersion => BlockCtx -> Set ExecutionFlag
+flagsFor txCtx = Set.unions
+  [ guardDisablePact51Flags txCtx
+  , guardDisablePact52And53Flags txCtx
+  , guardDisablePact54Flags txCtx
+  , Set.singleton FlagDisableRuntimeRTC
+  , Set.singleton FlagEnforceKeyFormats
+  ]

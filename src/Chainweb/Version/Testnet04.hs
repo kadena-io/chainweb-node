@@ -133,7 +133,8 @@ testnet04 = withVersion testnet04 $ ChainwebVersion
         Chainweb228Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_155_146 -- 2025-03-11 00:00:00+00:00
         Chainweb229Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_300_466 -- 2025-04-30 12:00:00+00:00
         Chainweb230Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_542_190 -- 2025-07-23 12:00:00+00:00
-        Chainweb231Pact -> onAllChains ForkNever
+        Chainweb231Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 5_783_985 -- 2025-10-15 12:00:00+00:00
+        Chainweb232Pact -> onAllChains ForkNever
         HashedAdjacentRecord -> onAllChains ForkNever
 
     , _versionGraphs =
@@ -144,6 +145,9 @@ testnet04 = withVersion testnet04 $ ChainwebVersion
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
         (succ $ testnet04 ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
+        Bottom (minBound, Nothing)
+    , _versionMinimumBlockHeaderHistory =
+        (succ $ testnet04 ^?! versionForks . at Chainweb231Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 20_000) `Above`
         Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo testnet04BootstrapHosts
     , _versionGenesis = VersionGenesis
@@ -212,6 +216,6 @@ testnet04 = withVersion testnet04 $ ChainwebVersion
             , (unsafeChainId 2, HM.fromList [((BlockHeight 4108311, TxBlockIdx 0), Gas 65_130)])
             ]
         }
-    , _versionServiceDate = Just "2025-10-15T00:00:00Z"
+    , _versionServiceDate = Just "2026-01-07T00:00:00Z"
     , _versionPayloadProviderTypes = onAllChains PactProvider
     }

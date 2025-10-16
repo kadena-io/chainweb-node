@@ -77,6 +77,8 @@ let haskellSrc = with nix-filter.lib; filter {
         zlib
         pkg-config
         sqlite
+      ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+         pkgs.darwin.apple_sdk.frameworks.Security
       ];
       modules = [
         {
