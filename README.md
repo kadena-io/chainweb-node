@@ -40,8 +40,14 @@ If you would like to contribute to the project, you can submit a [pull request](
 
 If you plan to use the node for mining, to handle RPC requests, or to query historical blockchain data, you should consider upgrading the number of CPU cores, available RAM, and storage above the minimum system requirements.
 
-## Installing Chainweb
+## Installation options
 
+There are several ways you can deploy Chainweb node in a physical or virtual environment. 
+For example, you can choose to set up a node by using one of the following installation options:
+
+- Download and install Chainweb release binaries directly on a physical server or on infrastructure from a cloud services provider.
+- Run a Chainweb node image in a Docker container.
+- Build Chainweb binaries yourself from the source code.
 
 ### Docker (all batteries included)
 
