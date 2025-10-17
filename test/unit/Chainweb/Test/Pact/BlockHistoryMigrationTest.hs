@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Test.Pact.BlockHistoryMigrationTest
   (tests)
@@ -26,6 +27,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Mainnet
+import Control.Exception(SomeException)
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
@@ -36,12 +38,13 @@ import Data.Foldable (traverse_)
 import Data.Int (Int64)
 import Data.Maybe (fromJust)
 import Database.SQLite3.Direct
+import PropertyMatchers qualified as P
 import Streaming.Prelude qualified as S
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 
 cid :: ChainId
-cid = unsafeChainId 0
+cid = unsafeChainId 1
 
 createLegacyBlockHistoryTable :: SQLiteEnv -> IO ()
 createLegacyBlockHistoryTable sql = throwOnDbError $
@@ -59,10 +62,20 @@ initSchema sql = do
   ChainwebPactDb.initSchema sql     -- create the BlockHistory2 table
   createLegacyBlockHistoryTable sql -- create the legacy BlockHistory table
 
+insertGenesis :: SQLiteEnv -> IO ()
+insertGenesis sql = withVersion Mainnet01 $ do
+  -- fake txid, as we don't want to actually run genesis here.
+  throwOnDbError $
+    exec' sql "INSERT INTO BlockHistory VALUES (?, ?, ?);"
+      [ SInt $ int (genesisHeight cid)
+      , SInt 1
+      , SBlob $ runPutS $ encodeBlockHash $ view blockHash (genesisBlockHeader cid)
+      ]
+
 withSetup
   :: TestName
   -> (SQLiteEnv -> IO ())
-  -> (HasVersion => GenericLogger -> SQLiteEnv -> BlockHeaderDb -> Bool -> IO ())
+  -> (HasVersion => GenericLogger -> ChainId -> SQLiteEnv -> BlockHeaderDb -> Bool -> IO ())
   -> TestTree
 withSetup n setup action = withResourceT (withTempChainSqlite cid) $ \sqlIO -> do
   testCase n $ do
@@ -74,45 +87,56 @@ withSetup n setup action = withResourceT (withTempChainSqlite cid) $ \sqlIO -> d
     withTempRocksDb "chainweb-tests" $ \rdb -> do
       withVersion Mainnet01 $ runResourceT $ do
         bhdb <- withBlockHeaderDb rdb cid
-        liftIO $ action logger sql bhdb True
+        liftIO $ action logger cid sql bhdb True
 
 tests :: HasCallStack => TestTree
-tests = testGroup "BlockHistory Table Migration" [
-     withSetup "test with empty BlockHistoryTable"
+tests = testGroup "BlockHistory Table Migration"
+    [ withSetup "test with empty BlockHistoryTable"
         initSchema
-        migrateBlockHistoryTable
+        $ \lf cid sdb bhdb cleanup -> do
+          migrateBlockHistoryTable lf cid sdb bhdb cleanup
+            & P.throws @SomeException P.succeed
+
+    , withSetup "test with BlockHistoryTable that has only genesis"
+        (\sql -> initSchema sql >> insertGenesis sql)
+        $ \lf cid sdb bhdb cleanup -> do
+          migrateBlockHistoryTable lf cid sdb bhdb cleanup
+            >>= P.succeed
+
     , withSetup "test successful migration cleanup"
-        initSchema
-        $ \lf sdb bhdb cleanup -> do
+        (\sql -> initSchema sql >> insertGenesis sql)
+        $ \lf cid sdb bhdb cleanup -> do
             let qryIO = throwOnDbError $ qry sdb "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'BlockHistory'" [] [RInt]
             [[SInt p]] <- qryIO
             assertExpectation "Table should be present" (Expected 1) (Actual p)
-            migrateBlockHistoryTable lf sdb bhdb cleanup
+            migrateBlockHistoryTable lf cid sdb bhdb cleanup
             post <- qryIO
             assertExpectation "Table should not be present" (Expected []) (Actual post)
+
     , withSetup "test migration"
         initSchema
-        $ \lf sdb bhdb _cleanup -> do
+        $ \lf cid sdb bhdb _cleanup -> do
           traverse_ (unsafeInsertBlockHeaderDb bhdb) blockHeaders
           traverse_ (unsafeInsertEntry sdb) sqliteData
 
           -- Disable original table cleanup for migration verification.
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
 
           -- Re-run verification
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
+
     , withSetup "test migration with one missing row"
         initSchema
-        $ \lf sdb bhdb _cleanup -> do
+        $ \lf cid sdb bhdb _cleanup -> do
           traverse_ (unsafeInsertBlockHeaderDb bhdb) blockHeaders
           traverse_ (unsafeInsertEntry sdb) sqliteData
 
           -- Disable original table cleanup for migration verification.
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
 
@@ -124,7 +148,7 @@ tests = testGroup "BlockHistory Table Migration" [
           assert (n == 9) $ "BlockHistory2 should contain 9 entries, actual: " <> sshow n
 
           -- Re-run verification
-          migrateBlockHistoryTable lf sdb bhdb False
+          migrateBlockHistoryTable lf cid sdb bhdb False
 
           verifyMigration sdb bhdb
     ]
@@ -135,6 +159,7 @@ tests = testGroup "BlockHistory Table Migration" [
 -- Obtained by curl -H 'https://api.chainweb.com/chainweb/0.0/mainnet01/chain/1/header?limit=10' | jq
 blockHeaders :: [BlockHeader]
 blockHeaders = fromJust $ traverse throwDecodeStrict'  [
+    -- genesis
     "\"AAAAAAAAAAAAJ41tFZYFAMhy366rCocPqnIPH492fe3J_cMShzHQwiyBVMT5RnKFAwADAAAAUsNRCUkMKQBRDVIv0JLDfDllYNg2QO0EXaWcRfMQ6g0EAAAAOu6kxMXpuwpm9uiIVhiEFHSbTdhanjHyiEh2G0EZV_wGAAAABQeojaqG63-R_1bILrd0LI6kDkS74hNBB0Bs3Y211bD__________________________________________5Apaf08O5Hgi1zH2gsox_oE6ABpi70UKojUZoVlAm8bAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFAAAAACeNbRWWBQAAAAAAAAAAAGlRRahfD2xrvjGZFIW9TpOF4o4MVlGMQcYoAUIGZgxS\"",
     "\"jw3vOXLHNX9X8Pf8F5YFAGlRRahfD2xrvjGZFIW9TpOF4o4MVlGMQcYoAUIGZgxSAwADAAAAtMyy7k6lrQOsGg2oXh20kOC3zudjwsaL9F5Ogx0XNBoEAAAAyeWKDE27xM45-LgdwpnVMM6E4pAoYryRrJJFgRiaKgQGAAAAOXehM2W5YuiV0iWlDGIPMdaRv721zMUbj3caJqZJNBX__________________________________________3CgdhATU9VNY_SB4Z9xQYmupqf0-0oZU5WKfk0I_SJJAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAFAAAAACeNbRWWBQAAAAAAAAAAABwrUPRfEh4gKXiQaLRVoqUK1aDCluIWbmZQzt9lUSDV\"",
     "\"NSpftriT22gDWwz9F5YFABwrUPRfEh4gKXiQaLRVoqUK1aDCluIWbmZQzt9lUSDVAwADAAAAe0GGnclF0G2-_AMlCLGjKJVgzSBj1V9dTiqtsCC-IB4EAAAAuekHplt74MFfLHPsu7cJz9HbWNb_vBY-MR1y5RRDiYsGAAAA7OcrWyX2Gk7zrwmdI6HALWBvCihE6PwaS7TELscDGCH__________________________________________7sfFm8JbPK3qCTNeRvk4tzVrddPKuqFw-tI68WMfCvbAQAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAFAAAAACeNbRWWBQAAAAAAAAAAALpshckMhpgcor3YL9kXfHzYpq1iMsbjLA-2QKABndRt\"",

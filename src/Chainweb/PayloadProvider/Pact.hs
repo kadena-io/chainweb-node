@@ -143,7 +143,7 @@ withPactPayloadProvider cid rdb http logger txFailuresCounter mpa pdb pactDbDir 
         when needsMigration $
             -- We cleanup potential old state and start migrating the entire database
             -- from scratch.
-            migrateBlockHistoryTable logger readWriteSqlenv bhdb True
+            migrateBlockHistoryTable logger cid readWriteSqlenv bhdb True
 
     readOnlySqlPool <- withReadSqlitePool cid pactDbDir
     PactPayloadProvider logger <$>
