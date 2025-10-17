@@ -1,5 +1,5 @@
 <div align="center">
-     <img src="./docs/Kadena_logo-black.png">
+     <img src="./docs/Kadena_logo-black.png" width="450" height="243" alt="Kadena" title="Kadena">
 </div>
 
 <p>&nbsp;</p>
