@@ -83,6 +83,7 @@ module Chainweb.Test.Utils
 , pattern PeerDbsTestClientEnv
 , pattern PayloadTestClientEnv
 , withTestAppServer
+, withTestAppServerR
 , withChainwebTestServer
 , clientEnvWithChainwebTestServer
 , ShouldValidateSpec(..)
@@ -644,6 +645,35 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
         uninterruptibleCancel server
         close sock
     go (_, _, env) = userFunc env
+
+withTestAppServerR
+    :: Bool
+    -> W.Application
+    -> ResourceT IO Int
+withTestAppServerR tls app = view _3 . snd <$> allocate start stop
+    where
+    warpOnException _ _ = return ()
+    start = do
+        (port, sock) <- W.openFreePort
+        readyVar <- newEmptyMVar
+        server <- async $ do
+            let settings = W.setOnException warpOnException $
+                           W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            if
+                | tls -> do
+                    let certBytes = testBootstrapCertificate
+                    let keyBytes = testBootstrapKey
+                    let tlsSettings = tlsServerSettings certBytes keyBytes
+                    W.runTLSSocket tlsSettings settings sock app
+                | otherwise ->
+                    W.runSettingsSocket settings sock app
+
+        link server
+        _ <- takeMVar readyVar
+        return (server, sock, port)
+    stop (server, sock, _) = do
+        uninterruptibleCancel server
+        close sock
 
 data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
