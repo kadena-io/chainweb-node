@@ -7,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE BlockArguments #-}
 
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -39,6 +40,14 @@ module Chainweb.Pact.Backend.Utils
   , getEndTxId
     -- * Transactions
   , withTransaction
+  , setConsensusState
+  , getConsensusState
+  , getPayloadsAfter
+  , getLatestBlock
+  , getEarliestBlock
+  , lookupBlockWithHeight
+  , lookupBlockHash
+  , lookupRankedBlockHash
   -- * SQLite conversions and assertions
   , toUtf8
   , fromUtf8
@@ -76,6 +85,7 @@ import Control.Monad.Trans.Resource (ResourceT, allocate)
 
 import Data.Bits
 import Data.Foldable
+import Data.Maybe
 import Data.String
 import Data.Pool qualified as Pool
 import Data.Text qualified as T
@@ -98,6 +108,7 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.Logger
 import Chainweb.Pact.Backend.SQLite.DirectV2
+import Chainweb.PayloadProvider
 
 import Chainweb.Version
 import Chainweb.Utils
@@ -262,11 +273,10 @@ collapseFlags xs =
     if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
     else Prelude.foldr1 (.|.) xs
 
-sqlite_open_readwrite, sqlite_open_readonly, sqlite_open_create, sqlite_open_fullmutex, sqlite_open_nomutex :: SQLiteFlag
+sqlite_open_readwrite, sqlite_open_readonly, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readonly = 0x00000001
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
-sqlite_open_nomutex = 0x00008000
 sqlite_open_fullmutex = 0x00010000
 
 tbl :: HasCallStack => Utf8 -> Utf8
@@ -447,6 +457,127 @@ rewindDbToBlock db bh endingTxId = throwOnDbError $ do
     clearTxIndex =
         exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
               [ SInt (fromIntegral bh) ]
+
+-- | Set the consensus state. Note that the "latest" parameter is ignored; the
+-- latest block is always the highest block in the BlockHistory table.
+setConsensusState :: SQ3.Database -> ConsensusState -> ExceptT LocatedSQ3Error IO ()
+setConsensusState db cs = do
+    exec' db
+        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+        \(?, ?, ?, ?);"
+        (toRow "final" $ _consensusStateFinal cs)
+    exec' db
+        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
+        \(?, ?, ?, ?);"
+        (toRow "safe" $ _consensusStateSafe cs)
+    where
+    toRow safety SyncState {..} =
+        [ SInt $ fromIntegral @BlockHeight @Int64 _syncStateHeight
+        , SBlob $ runPutS (encodeBlockHash _syncStateBlockHash)
+        , SBlob $ runPutS (encodeBlockPayloadHash _syncStateBlockPayloadHash)
+        , SText safety
+        ]
+
+-- | Retrieve the latest "consensus state" including latest, safe, and final blocks.
+getConsensusState :: SQ3.Database -> ExceptT LocatedSQ3Error IO ConsensusState
+getConsensusState db = do
+    latestBlock <- fromMaybe (error "before genesis") <$> getLatestBlock db
+    qry db "SELECT blockheight, hash, payloadhash, safety FROM ConsensusState ORDER BY safety ASC;"
+        [] [RInt, RBlob, RBlob, RText] >>= \case
+            [final, safe] -> return $ ConsensusState
+                { _consensusStateFinal = readRow "final" final
+                , _consensusStateSafe = readRow "safe" safe
+                , _consensusStateLatest = latestBlock
+                }
+            inv -> error $ "invalid contents of the ConsensusState table: " <> sshow inv
+    where
+    readRow expectedType [SInt height, SBlob hash, SBlob payloadHash, SText type']
+        | expectedType == type' = SyncState
+            { _syncStateHeight = fromIntegral @Int64 @BlockHeight height
+            , _syncStateBlockHash = either error id $ runGetEitherS decodeBlockHash hash
+            , _syncStateBlockPayloadHash = either error id $ runGetEitherS decodeBlockPayloadHash payloadHash
+            }
+        | otherwise = error $ "wrong type; expected " <> sshow expectedType <> " but got " <> sshow type'
+    readRow expectedType invalidRow
+        = error $ "invalid row: expected " <> sshow expectedType <> " but got row " <> sshow invalidRow
+
+getPayloadsAfter :: HasCallStack => SQLiteEnv -> Parent BlockHeight -> ExceptT LocatedSQ3Error IO [Ranked BlockPayloadHash]
+getPayloadsAfter db parentHeight = do
+    qry db "SELECT blockheight, payloadhash FROM BlockHistory2 WHERE blockheight > ?"
+        [SInt (fromIntegral @BlockHeight @Int64 (unwrapParent parentHeight))]
+        [RInt, RBlob] >>= traverse
+          \case
+              [SInt bh, SBlob bhash] ->
+                  return $! Ranked (fromIntegral @Int64 @BlockHeight bh) $ either error id $ runGetEitherS decodeBlockPayloadHash bhash
+              _ -> error "incorrect column type"
+
+-- | Get the checkpointer's idea of the earliest block. The block height
+-- is the height of the block of the block hash.
+getEarliestBlock :: HasCallStack => SQLiteEnv -> ExceptT LocatedSQ3Error IO (Maybe RankedBlockHash)
+getEarliestBlock db = do
+    r <- qry db qtext [] [RInt, RBlob] >>= mapM go
+    case r of
+        [] -> return Nothing
+        (!o:_) -> return (Just o)
+    where
+    qtext = "SELECT blockheight, hash FROM BlockHistory2 ORDER BY blockheight ASC LIMIT 1"
+
+    go [SInt hgt, SBlob blob] =
+        let hash = either error id $ runGetEitherS decodeBlockHash blob
+        in return (RankedBlockHash (fromIntegral hgt) hash)
+    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
+
+-- | Get the checkpointer's idea of the latest block.
+getLatestBlock :: HasCallStack => SQLiteEnv -> ExceptT LocatedSQ3Error IO (Maybe SyncState)
+getLatestBlock db = do
+    r <- qry db qtext [] [RInt, RBlob, RBlob] >>= mapM go
+    case r of
+        [] -> return Nothing
+        (!o:_) -> return (Just o)
+    where
+    qtext = "SELECT blockheight, hash, payloadhash FROM BlockHistory2 ORDER BY blockheight DESC LIMIT 1"
+
+    go [SInt hgt, SBlob blob, SBlob pBlob] =
+        let hash = either error id $ runGetEitherS decodeBlockHash blob
+        in let pHash = either error id $ runGetEitherS decodeBlockPayloadHash pBlob
+        in return $ SyncState
+            { _syncStateBlockHash = hash
+            , _syncStateBlockPayloadHash = pHash
+            , _syncStateHeight = int hgt
+            }
+    go r = fail $
+        "Chainweb.Pact.Backend.ChainwebPactDb.getLatestBlock: impossible. This is a bug in chainweb-node. Details: "
+        <> sshow r
+
+lookupBlockWithHeight :: HasCallStack => SQ3.Database -> BlockHeight -> ExceptT LocatedSQ3Error IO (Maybe (Ranked BlockHash))
+lookupBlockWithHeight db bheight = do
+    qry db qtext [SInt $ fromIntegral bheight] [RBlob] >>= \case
+        [[SBlob hash]] -> return $! Just $!
+            Ranked bheight (either error id $ runGetEitherS decodeBlockHash hash)
+        [] -> return Nothing
+        res -> error $ "Invalid result, " <> sshow res
+    where
+    qtext = "SELECT hash FROM BlockHistory2 WHERE blockheight = ?;"
+
+lookupBlockHash :: HasCallStack => SQ3.Database -> BlockHash -> ExceptT LocatedSQ3Error IO (Maybe BlockHeight)
+lookupBlockHash db hash = do
+    qry db qtext [SBlob (runPutS (encodeBlockHash hash))] [RInt] >>= \case
+        [[SInt n]] -> return $! Just $! int n
+        [] -> return $ Nothing
+        res -> error $ "Invalid result, " <> sshow res
+    where
+   qtext = "SELECT blockheight FROM BlockHistory2 WHERE hash = ?;"
+
+lookupRankedBlockHash :: HasCallStack => SQ3.Database -> RankedBlockHash -> IO Bool
+lookupRankedBlockHash db rankedBHash = throwOnDbError $ do
+    qry db qtext
+        [ SInt $ fromIntegral (_rankedBlockHashHeight rankedBHash)
+        , SBlob $ runPutS $ encodeBlockHash $ _rankedBlockHashHash rankedBHash
+        ] [RInt] >>= \case
+        [[SInt n]] -> return $! n == 1
+        res -> error $ "Invalid result, " <> sshow res
+    where
+    qtext = "SELECT COUNT(*) FROM BlockHistory2 WHERE blockheight = ? AND hash = ?;"
 
 data LocatedSQ3Error = LocatedSQ3Error !CallStack !SQ3.Error
 instance Show LocatedSQ3Error where

@@ -131,7 +131,7 @@ import Pact.Core.Serialise qualified as Pact
 import Pact.Core.StableEncoding (encodeStable)
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (encodeBlockPayloadHash, decodeBlockPayloadHash, BlockPayloadHash)
+import Chainweb.BlockHeader (encodeBlockPayloadHash, BlockPayloadHash)
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemDb qualified as InMemDb
@@ -139,9 +139,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.SPV (pactSPV)
 import Chainweb.Parent
-import Chainweb.PayloadProvider (ConsensusState (..), SyncState (..))
-import Chainweb.Utils (sshow, int, unsafeHead)
-import Chainweb.Utils.Serialization (runPutS, runGetEitherS)
+import Chainweb.Utils (sshow, unsafeHead)
+import Chainweb.Utils.Serialization (runPutS)
 import Chainweb.Version
 import Chainweb.Version.Guards (pact5Serialiser, chainweb230Pact)
 import Chainweb.Ranked
@@ -761,57 +760,6 @@ createVersionedTable tablename db = do
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
-setConsensusState :: SQ3.Database -> ConsensusState -> ExceptT LocatedSQ3Error IO ()
-setConsensusState db cs = do
-    exec' db
-        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-        \(?, ?, ?, ?);"
-        (toRow "final" $ _consensusStateFinal cs)
-    exec' db
-        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-        \(?, ?, ?, ?);"
-        (toRow "safe" $ _consensusStateSafe cs)
-    exec' db
-        "INSERT INTO ConsensusState (blockheight, hash, payloadhash, safety) VALUES \
-        \(?, ?, ?, ?);"
-        (toRow "latest" $ _consensusStateLatest cs)
-    where
-    toRow safety SyncState {..} =
-        [ SInt $ fromIntegral @BlockHeight @Int64 _syncStateHeight
-        , SBlob $ runPutS (encodeBlockHash _syncStateBlockHash)
-        , SBlob $ runPutS (encodeBlockPayloadHash _syncStateBlockPayloadHash)
-        , SText safety
-        ]
-
-getConsensusState :: SQ3.Database -> ExceptT LocatedSQ3Error IO (Maybe ConsensusState)
-getConsensusState db = do
-    maybeState <- qry db "SELECT blockheight, hash, payloadhash, safety FROM ConsensusState ORDER BY safety ASC;"
-        [] [RInt, RBlob, RBlob, RText] >>= \case
-            [final, latest, safe] -> return $ Just ConsensusState
-                { _consensusStateFinal = readRow "final" final
-                , _consensusStateLatest = readRow "latest" latest
-                , _consensusStateSafe = readRow "safe" safe
-                }
-            [] -> return Nothing
-            inv -> error $ "invalid contents of the ConsensusState table: " <> sshow inv
-    case maybeState of
-        Nothing -> do
-            getLatestBlock db >>= \case
-                Nothing -> return Nothing
-                Just latest ->
-                    return $ Just $ ConsensusState latest latest latest
-        Just s -> return (Just s)
-    where
-    readRow expectedType [SInt height, SBlob hash, SBlob payloadHash, SText type']
-        | expectedType == type' = SyncState
-            { _syncStateHeight = fromIntegral @Int64 @BlockHeight height
-            , _syncStateBlockHash = either error id $ runGetEitherS decodeBlockHash hash
-            , _syncStateBlockPayloadHash = either error id $ runGetEitherS decodeBlockPayloadHash payloadHash
-            }
-        | otherwise = error $ "wrong type; expected " <> sshow expectedType <> " but got " <> sshow type'
-    readRow expectedType invalidRow
-        = error $ "invalid row: expected " <> sshow expectedType <> " but got row " <> sshow invalidRow
-
 -- | Create all tables that exist pre-genesis
 -- TODO: migrate this logic to the checkpointer itself?
 initSchema :: SQLiteEnv -> IO ()
@@ -886,81 +834,3 @@ getSerialiser = do
     cid <- view blockHandlerChainId
     blockHeight <- view blockHandlerBlockHeight
     return $ pact5Serialiser cid blockHeight
-
-getPayloadsAfter :: HasCallStack => SQLiteEnv -> Parent BlockHeight -> ExceptT LocatedSQ3Error IO [Ranked BlockPayloadHash]
-getPayloadsAfter db parentHeight = do
-    qry db "SELECT blockheight, payloadhash FROM BlockHistory2 WHERE blockheight > ?"
-        [SInt (fromIntegral @BlockHeight @Int64 (unwrapParent parentHeight))]
-        [RInt, RBlob] >>= traverse
-        \case
-            [SInt bh, SBlob bhash] ->
-                return $! Ranked (fromIntegral @Int64 @BlockHeight bh) $ either error id $ runGetEitherS decodeBlockPayloadHash bhash
-            _ -> error "incorrect column type"
-
--- | Get the checkpointer's idea of the earliest block. The block height
--- is the height of the block of the block hash.
-getEarliestBlock :: HasCallStack => SQLiteEnv -> ExceptT LocatedSQ3Error IO (Maybe RankedBlockHash)
-getEarliestBlock db = do
-    r <- qry db qtext [] [RInt, RBlob] >>= mapM go
-    case r of
-        [] -> return Nothing
-        (!o:_) -> return (Just o)
-    where
-    qtext = "SELECT blockheight, hash FROM BlockHistory2 ORDER BY blockheight ASC LIMIT 1"
-
-    go [SInt hgt, SBlob blob] =
-        let hash = either error id $ runGetEitherS decodeBlockHash blob
-        in return (RankedBlockHash (fromIntegral hgt) hash)
-    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
-
--- | Get the checkpointer's idea of the latest block.
-getLatestBlock :: HasCallStack => SQLiteEnv -> ExceptT LocatedSQ3Error IO (Maybe SyncState)
-getLatestBlock db = do
-    r <- qry db qtext [] [RInt, RBlob, RBlob] >>= mapM go
-    case r of
-        [] -> return Nothing
-        (!o:_) -> return (Just o)
-    where
-    qtext = "SELECT blockheight, hash, payloadhash FROM BlockHistory2 ORDER BY blockheight DESC LIMIT 1"
-
-    go [SInt hgt, SBlob blob, SBlob pBlob] =
-        let hash = either error id $ runGetEitherS decodeBlockHash blob
-        in let pHash = either error id $ runGetEitherS decodeBlockPayloadHash pBlob
-        in return $ SyncState
-            { _syncStateBlockHash = hash
-            , _syncStateBlockPayloadHash = pHash
-            , _syncStateHeight = int hgt
-            }
-    go r = fail $
-        "Chainweb.Pact.Backend.ChainwebPactDb.getLatestBlock: impossible. This is a bug in chainweb-node. Details: "
-        <> sshow r
-
-lookupBlockWithHeight :: HasCallStack => SQ3.Database -> BlockHeight -> ExceptT LocatedSQ3Error IO (Maybe (Ranked BlockHash))
-lookupBlockWithHeight db bheight = do
-    qry db qtext [SInt $ fromIntegral bheight] [RBlob] >>= \case
-        [[SBlob hash]] -> return $! Just $!
-            Ranked bheight (either error id $ runGetEitherS decodeBlockHash hash)
-        [] -> return Nothing
-        res -> error $ "Invalid result, " <> sshow res
-    where
-    qtext = "SELECT hash FROM BlockHistory2 WHERE blockheight = ?;"
-
-lookupBlockHash :: HasCallStack => SQ3.Database -> BlockHash -> ExceptT LocatedSQ3Error IO (Maybe BlockHeight)
-lookupBlockHash db hash = do
-    qry db qtext [SBlob (runPutS (encodeBlockHash hash))] [RInt] >>= \case
-        [[SInt n]] -> return $! Just $! int n
-        [] -> return $ Nothing
-        res -> error $ "Invalid result, " <> sshow res
-    where
-   qtext = "SELECT blockheight FROM BlockHistory2 WHERE hash = ?;"
-
-lookupRankedBlockHash :: HasCallStack => SQ3.Database -> RankedBlockHash -> IO Bool
-lookupRankedBlockHash db rankedBHash = throwOnDbError $ do
-    qry db qtext
-        [ SInt $ fromIntegral (_rankedBlockHashHeight rankedBHash)
-        , SBlob $ runPutS $ encodeBlockHash $ _rankedBlockHashHash rankedBHash
-        ] [RInt] >>= \case
-        [[SInt n]] -> return $! n == 1
-        res -> error $ "Invalid result, " <> sshow res
-    where
-    qtext = "SELECT COUNT(*) FROM BlockHistory2 WHERE blockheight = ? AND hash = ?;"

@@ -43,6 +43,7 @@ module Chainweb.Pact.PactService.Checkpointer
     -- , findLatestValidBlockHeader
     -- , exitOnRewindLimitExceeded
     , getEarliestBlock
+    , getLatestBlock
     -- , lookupBlock
     , lookupRankedBlockHash
     , lookupBlockHash
@@ -71,8 +72,7 @@ import Chainweb.Logger
 import Chainweb.MinerReward
 import Chainweb.Pact.Backend.ChainwebPactDb qualified as ChainwebPactDb
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Backend.Utils qualified as PactDb
+import Chainweb.Pact.Backend.Utils qualified as Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Parent
 import Chainweb.PayloadProvider
@@ -137,8 +137,9 @@ readFromNthParent
     -> IO (Historical a)
 readFromNthParent logger cid sql parentCreationTime n doRead = do
     latest <-
-        _consensusStateLatest . fromMaybe (error "readFromNthParent is illegal to call before genesis")
-        <$> getConsensusState sql
+        fmap (fromMaybe (error "readFromNthParent is illegal to call before genesis"))
+            $ ChainwebPactDb.throwOnDbError
+                $ ChainwebPactDb.getLatestBlock sql
     if genesisHeight cid + fromIntegral @Word @BlockHeight n > _syncStateHeight latest
     then do
         logFunctionText logger Warn $ "readFromNthParent asked to rewind beyond genesis, to "
@@ -147,12 +148,12 @@ readFromNthParent logger cid sql parentCreationTime n doRead = do
     else do
         let targetHeight = _syncStateHeight latest - fromIntegral @Word @BlockHeight n
         lookupBlockWithHeight sql targetHeight >>= \case
-                -- this case for shallow nodes without enough history
-                Nothing -> do
-                    logFunctionText logger Warn "readFromNthParent asked to rewind beyond known blocks"
-                    return NoHistory
-                Just nthBlock ->
-                    readFrom logger cid sql parentCreationTime (Parent nthBlock) doRead
+            -- this case for shallow nodes without enough history
+            Nothing -> do
+                logFunctionText logger Warn "readFromNthParent asked to rewind beyond known blocks"
+                return NoHistory
+            Just nthBlock ->
+                readFrom logger cid sql parentCreationTime (Parent nthBlock) doRead
 
 -- read-only rewind to a target block.
 -- if that target block is missing, return Nothing.
@@ -174,50 +175,50 @@ readFrom logger cid sql parentCreationTime parent pactRead = do
             , _bctxMinerReward = blockMinerReward (childBlockHeight cid parent)
             , _bctxChainId = cid
             }
-    liftIO $ do
-        !latestHeader <- maybe (genesisRankedParentBlockHash cid) (Parent . _syncStateRankedBlockHash . _consensusStateLatest) <$>
-            ChainwebPactDb.throwOnDbError (ChainwebPactDb.getConsensusState sql)
-        -- is the parent the latest header, i.e., can we get away without rewinding?
-        let parentIsLatestHeader = latestHeader == parent
-        let currentHeight = _bctxCurrentBlockHeight blockCtx
-        PactDb.getEndTxId cid sql parent >>= traverse \startTxId ->
-            if pact5 cid currentHeight then do
-                let
-                    blockHandlerEnv = ChainwebPactDb.BlockHandlerEnv
-                        { ChainwebPactDb._blockHandlerDb = sql
-                        , ChainwebPactDb._blockHandlerLogger = logger
-                        , ChainwebPactDb._blockHandlerChainId = cid
-                        , ChainwebPactDb._blockHandlerBlockHeight = currentHeight
-                        , ChainwebPactDb._blockHandlerMode = Pact.Transactional
-                        , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
-                        , ChainwebPactDb._blockHandlerAtTip = parentIsLatestHeader
-                        }
-                let pactDb = ChainwebPactDb.chainwebPactBlockDb blockHandlerEnv
-                let blockEnv = BlockEnv blockCtx pactDb
-                pact5Read pactRead blockEnv (emptyBlockHandle startTxId)
-            else do
-                let pact4TxId = Pact4.TxId (coerce startTxId)
-                let blockHandlerEnv = Pact4.mkBlockHandlerEnv cid currentHeight sql logger
-                newBlockDbEnv <- liftIO $ newMVar $ Pact4.BlockDbEnv
-                    blockHandlerEnv
-                    -- FIXME not sharing the cache
-                    (Pact4.initBlockState defaultModuleCacheLimit pact4TxId)
-                let pactDb = Pact4.rewoundPactDb currentHeight pact4TxId
+    !latestHeader <- ChainwebPactDb.throwOnDbError
+        $ fmap (maybe (genesisRankedParentBlockHash cid) (Parent . _syncStateRankedBlockHash))
+            $ ChainwebPactDb.getLatestBlock sql
+    -- is the parent the latest header, i.e., can we get away without rewinding?
+    let parentIsLatestHeader = latestHeader == parent
+    let currentHeight = _bctxCurrentBlockHeight blockCtx
+    Backend.Utils.getEndTxId cid sql parent >>= traverse \startTxId ->
+        if pact5 cid currentHeight then do
+            let
+                blockHandlerEnv = ChainwebPactDb.BlockHandlerEnv
+                    { ChainwebPactDb._blockHandlerDb = sql
+                    , ChainwebPactDb._blockHandlerLogger = logger
+                    , ChainwebPactDb._blockHandlerChainId = cid
+                    , ChainwebPactDb._blockHandlerBlockHeight = currentHeight
+                    , ChainwebPactDb._blockHandlerMode = Pact.Transactional
+                    , ChainwebPactDb._blockHandlerUpperBoundTxId = startTxId
+                    , ChainwebPactDb._blockHandlerAtTip = parentIsLatestHeader
+                    }
+            let pactDb = ChainwebPactDb.chainwebPactBlockDb blockHandlerEnv
+            let blockEnv = BlockEnv blockCtx pactDb
+            pact5Read pactRead blockEnv (emptyBlockHandle startTxId)
+        else do
+            let pact4TxId = Pact4.TxId (coerce startTxId)
+            let blockHandlerEnv = Pact4.mkBlockHandlerEnv cid currentHeight sql logger
+            newBlockDbEnv <- liftIO $ newMVar $ Pact4.BlockDbEnv
+                blockHandlerEnv
+                -- FIXME not sharing the cache
+                (Pact4.initBlockState defaultModuleCacheLimit pact4TxId)
+            let pactDb = Pact4.rewoundPactDb currentHeight pact4TxId
 
-                let pact4DbEnv = Pact4.CurrentBlockDbEnv
-                        { _cpPactDbEnv = Pact4.PactDbEnv pactDb newBlockDbEnv
-                        , _cpRegisterProcessedTx = \hash ->
-                            Pact4.runBlockDbEnv newBlockDbEnv (Pact4.indexPactTransaction $ BS.fromShort $ Pact4.unHash $ Pact4.unRequestKey hash)
-                        , _cpLookupProcessedTx = \hs -> do
-                            res <- doLookupSuccessful sql currentHeight (coerce hs)
-                            return
-                                $ HashMap.mapKeys coerce
-                                $ HashMap.map
-                                    (\(T3 height _payloadhash bhash) -> T2 height bhash)
-                                    res
-                        , _cpHeaderOracle = Pact4.headerOracleForBlock blockHandlerEnv
-                        }
-                pact4Read pactRead (Pact4.BlockEnv blockCtx pact4DbEnv)
+            let pact4DbEnv = Pact4.CurrentBlockDbEnv
+                    { _cpPactDbEnv = Pact4.PactDbEnv pactDb newBlockDbEnv
+                    , _cpRegisterProcessedTx = \hash ->
+                        Pact4.runBlockDbEnv newBlockDbEnv (Pact4.indexPactTransaction $ BS.fromShort $ Pact4.unHash $ Pact4.unRequestKey hash)
+                    , _cpLookupProcessedTx = \hs -> do
+                        res <- Backend.Utils.doLookupSuccessful sql currentHeight (coerce hs)
+                        return
+                            $ HashMap.mapKeys coerce
+                            $ HashMap.map
+                                (\(T3 height _payloadhash bhash) -> T2 height bhash)
+                                res
+                    , _cpHeaderOracle = Pact4.headerOracleForBlock blockHandlerEnv
+                    }
+            pact4Read pactRead (Pact4.BlockEnv blockCtx pact4DbEnv)
 
 -- the special case where one doesn't want to extend the chain, just rewind it.
 rewindTo
@@ -227,7 +228,7 @@ rewindTo
     -> Parent RankedBlockHash
     -> IO ()
 rewindTo cid sql ancestor = do
-    void $ PactDb.rewindDbTo cid sql ancestor
+    void $ Backend.Utils.rewindDbTo cid sql ancestor
 
 data PactRead a
     = PactRead
@@ -282,7 +283,7 @@ restoreAndSave
     -> m q
 restoreAndSave logger cid sql parent blocks = do
     -- TODO PP: check first if we're rewinding past "final" point? same with rewindTo above.
-    startTxId <- liftIO $ PactDb.rewindDbTo cid sql parent
+    startTxId <- liftIO $ Backend.Utils.rewindDbTo cid sql parent
     let startBlockHeight = childBlockHeight cid parent
     foldState1 (fmap executeBlock blocks) (T2 startBlockHeight startTxId)
     where
@@ -304,7 +305,7 @@ restoreAndSave logger cid sql parent blocks = do
                         , _cpRegisterProcessedTx = \hash ->
                             Pact4.runBlockDbEnv newBlockDbEnv (Pact4.indexPactTransaction $ BS.fromShort $ Pact4.unHash $ Pact4.unRequestKey hash)
                         , _cpLookupProcessedTx = \hs -> do
-                            res <- doLookupSuccessful sql currentBlockHeight (coerce hs)
+                            res <- Backend.Utils.doLookupSuccessful sql currentBlockHeight (coerce hs)
                             return
                                 $ HashMap.mapKeys coerce
                                 $ HashMap.map
@@ -367,25 +368,29 @@ getEarliestBlock :: SQLiteEnv -> IO (Maybe RankedBlockHash)
 getEarliestBlock sql = do
     ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getEarliestBlock sql
 
-getConsensusState :: SQLiteEnv -> IO (Maybe ConsensusState)
+getLatestBlock :: SQLiteEnv -> IO (Maybe SyncState)
+getLatestBlock sql = do
+    ChainwebPactDb.throwOnDbError $ Backend.Utils.getLatestBlock sql
+
+getConsensusState :: SQLiteEnv -> IO ConsensusState
 getConsensusState sql = do
-    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getConsensusState sql
+    ChainwebPactDb.throwOnDbError $ Backend.Utils.getConsensusState sql
 
 setConsensusState :: SQLiteEnv -> ConsensusState -> IO ()
 setConsensusState sql cs = do
-    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.setConsensusState sql cs
+    ChainwebPactDb.throwOnDbError $ Backend.Utils.setConsensusState sql cs
 
 lookupBlockWithHeight :: HasCallStack => SQLiteEnv -> BlockHeight -> IO (Maybe (Ranked BlockHash))
 lookupBlockWithHeight sql bh = do
-    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockWithHeight sql bh
+    ChainwebPactDb.throwOnDbError $ Backend.Utils.lookupBlockWithHeight sql bh
 
 lookupBlockHash :: HasCallStack => SQLiteEnv -> BlockHash -> IO (Maybe BlockHeight)
 lookupBlockHash sql pbh = do
-    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.lookupBlockHash sql pbh
+    ChainwebPactDb.throwOnDbError $ Backend.Utils.lookupBlockHash sql pbh
 
 getPayloadsAfter :: SQLiteEnv -> Parent BlockHeight -> IO [Ranked BlockPayloadHash]
 getPayloadsAfter sql b = do
-    ChainwebPactDb.throwOnDbError $ ChainwebPactDb.getPayloadsAfter sql b
+    ChainwebPactDb.throwOnDbError $ Backend.Utils.getPayloadsAfter sql b
 
 -- -------------------------------------------------------------------------- --
 -- Utils

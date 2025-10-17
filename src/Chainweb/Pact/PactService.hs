@@ -215,8 +215,8 @@ runGenesisIfNeeded
     -> ServiceEnv tbl
     -> IO ()
 runGenesisIfNeeded logger serviceEnv = do
-    withTransaction (_psReadWriteSql serviceEnv) $ do
-        latestBlock <- fmap _consensusStateLatest <$> Checkpointer.getConsensusState (_psReadWriteSql serviceEnv)
+    withTransaction rwSql $ do
+        latestBlock <- Checkpointer.getLatestBlock rwSql
         when (maybe True (isGenesisBlockHeader' cid . Parent . _syncStateBlockHash) latestBlock) $ do
             logFunctionText logger Debug "running genesis"
             let genesisBlockHash = genesisBlockHeader cid ^. blockHash
@@ -231,7 +231,7 @@ runGenesisIfNeeded logger serviceEnv = do
                     Just p -> p
 
             maybeErr <- runExceptT
-                $ Checkpointer.restoreAndSave logger cid (_psReadWriteSql serviceEnv) (genesisRankedParentBlockHash cid)
+                $ Checkpointer.restoreAndSave logger cid rwSql (genesisRankedParentBlockHash cid)
                 $ NEL.singleton
                 $ (
                 if pact5 cid (genesisHeight cid)
@@ -253,7 +253,7 @@ runGenesisIfNeeded logger serviceEnv = do
                         (_payloadStoreTable $ _psPdb serviceEnv)
                         (genesisHeight cid)
                         genesisPayload
-                    Checkpointer.setConsensusState (_psReadWriteSql serviceEnv) targetSyncState
+                    Checkpointer.setConsensusState rwSql targetSyncState
                     -- we can't produce pact 4 blocks anymore, so don't make
                     -- payloads if pact 4 is on
                     when (pact5 cid (succ $ genesisHeight cid)) $
@@ -272,6 +272,7 @@ runGenesisIfNeeded logger serviceEnv = do
                             startPayloadRefresher logger serviceEnv emptyBlock
 
     where
+    rwSql = _psReadWriteSql serviceEnv
     cid = _chainId serviceEnv
 
 -- | only for use in generating genesis blocks in tools.
@@ -527,7 +528,7 @@ syncToFork
     -> IO ConsensusState
 syncToFork logger serviceEnv hints forkInfo = do
     (rewoundTxs, validatedTxs, newConsensusState) <- withTransaction sql $ do
-        pactConsensusState <- fromJuste <$> Checkpointer.getConsensusState sql
+        pactConsensusState <- Checkpointer.getConsensusState sql
         let atTarget =
                 _syncStateBlockHash (_consensusStateLatest pactConsensusState) ==
                     _latestBlockHash forkInfo._forkInfoTargetState
