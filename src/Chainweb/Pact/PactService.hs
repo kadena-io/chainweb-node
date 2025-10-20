@@ -337,39 +337,35 @@ execReadOnlyReplay
     => HasVersion
     => logger
     -> ServiceEnv tbl
-    -> [EvaluationCtx BlockPayloadHash]
-    -> IO [BlockInvalidError]
-execReadOnlyReplay logger serviceEnv blocks = do
+    -> EvaluationCtx BlockPayloadHash
+    -> IO (Maybe BlockInvalidError)
+execReadOnlyReplay logger serviceEnv evalCtx = do
     let readSqlPool = view psReadSqlPool serviceEnv
     let cid = view chainId serviceEnv
     let pdb = view psPdb serviceEnv
-    blocks
-        & mapM (\evalCtx -> do
-            payload <- liftIO $ fromJuste <$>
-                lookupPayloadWithHeight (_payloadStoreTable pdb) (Just $ _evaluationCtxCurrentHeight evalCtx) (_evaluationCtxPayload evalCtx)
-            let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
-            let isUpgradeBlock = isJust $ implicitVersion ^? versionUpgrades . atChain cid . ix (_evaluationCtxCurrentHeight evalCtx)
-            if isPayloadEmpty && not isUpgradeBlock
-            then Pool.withResource readSqlPool $ \sql -> withTransaction sql $ do
-                hist <- Checkpointer.readFrom
-                    logger
-                    cid
-                    sql
-                    (_evaluationCtxParentCreationTime evalCtx)
-                    (_evaluationCtxRankedParentHash evalCtx)
-                    Checkpointer.PactRead
-                        { pact5Read = \blockEnv blockHandle ->
-                            runExceptT $ flip evalStateT blockHandle $
-                                void $ Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
-                        , pact4Read = \blockEnv ->
-                            runExceptT $
-                                void $ Pact4.execBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
-                        }
-                either Just (\_ -> Nothing) <$> throwIfNoHistory hist
-            else
-                return Nothing
-            )
-        & fmap catMaybes
+    payload <- liftIO $ fromJuste <$>
+        lookupPayloadWithHeight (_payloadStoreTable pdb) (Just $ _evaluationCtxCurrentHeight evalCtx) (_evaluationCtxPayload evalCtx)
+    let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
+    let isUpgradeBlock = isJust $ implicitVersion ^? versionUpgrades . atChain cid . ix (_evaluationCtxCurrentHeight evalCtx)
+    if not isPayloadEmpty || isUpgradeBlock
+    then Pool.withResource readSqlPool $ \sql -> withTransaction sql $ do
+        hist <- Checkpointer.readFrom
+            logger
+            cid
+            sql
+            (_evaluationCtxParentCreationTime evalCtx)
+            (_evaluationCtxRankedParentHash evalCtx)
+            Checkpointer.PactRead
+                { pact5Read = \blockEnv blockHandle ->
+                    runExceptT $ flip evalStateT blockHandle $
+                        void $ Pact.execExistingBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
+                , pact4Read = \blockEnv ->
+                    runExceptT $
+                        void $ Pact4.execBlock logger serviceEnv blockEnv (CheckablePayloadWithOutputs payload)
+                }
+        either Just (\_ -> Nothing) <$> throwIfNoHistory hist
+    else
+        return Nothing
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
