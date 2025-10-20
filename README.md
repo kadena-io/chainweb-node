@@ -46,58 +46,124 @@ There are several ways you can deploy Chainweb node in a physical or virtual env
 For example, you can choose to set up a node by using one of the following installation options:
 
 - Download and install Chainweb release binaries directly on a physical server or on infrastructure from a cloud services provider.
-- Run a Chainweb node image in a Docker container.
+- Run a Chainweb node image in a container.
 - Build Chainweb binaries yourself from the source code.
 
-### Docker (all batteries included)
+## Run the node in a container
 
-A docker image is available from
-[here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
-the following commands:
+You can run a Chainweb node inside of a container by downloading an image with platform-specific dependencies already installed.
+The `chainweb-node` image is available at `ghcr.io/kadena-io/chainweb-node/ubuntu`.
 
-```shell
-# Initialize the database (optional, but avoids several hours of initial db synchronization)
-docker run -ti --rm -v chainweb-db:/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node /chainweb/initialize-db.sh
-```
+To get the image for the most recent release, run:
 
 ```shell
-# Run a chainweb-node in Kadena's mainnet
-docker run -d -p 443:443 -v chainweb-db:target=/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node
+docker pull ghcr.io/kadena-io/chainweb-node/ubuntu:latest
 ```
 
-Further details can be found in the [README of the docker
-repository](https://hub.docker.com/r/kadena/chainweb-node).
+To view command-line options for the node, run:
 
-### Docker (bare metal)
-
-A docker image with just a bare chainweb-node binary and its dependencies is
-available at `ghcr.io/kadena-io/chainweb-node/ubuntu:latest`. It is up to the
-user to setup and manage the database and configure the node to their needs.
-
-```sh
-docker run -p 1789:1789 -p 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --help
-docker run -p 1789:1789 -p 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --print-config
+```shell
+docker run --publish 1789:1789 --publish 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --help
 ```
 
-Examples for running docker compose setups for chainweb-node for different usage scenarios
-can be found in [this repository](https://github.com/kadena-io/docker-compose-chainweb-node).
+To display the default configuration settings, run:
 
-### Ubuntu Linux
+```shell
+docker run --publish 1789:1789 --publish 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --print-config
+```
 
-The following packages must be installed on the ubuntu-22.04 host system:
-    ```bash
-    apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+To save the default configuration file settings to a file, run:
+
+```shell
+docker run --publish 1789:1789 --publish 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --print-config > default-config.yaml
+```
+
+The command you use to start the node from the image in the container depends on whether you want to run the node with output in the terminal or as a detached process in the background and on the command-line or configuration file settings that you want to modify.
+
+To start the node in the background as a detached process, run:
+
+```shell
+docker run --detach --publish 1789:1789 --publish 1848:1848 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest
+```
+
+If you want to modify configuration settings for the node running in a container, you should specify the appropriate settings as command-line options.
+For example:
+
+```shell
+docker run --publish 1789:1789 --publish 1848:1848 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --enable-backup-api --backup-directory /tmp/my-backups
+```
+
+To interact with the node files and directories in the container:
+
+1. Run `docker ps` to get the container identifier:
+   
+   ```shell
+   docker ps
+   CONTAINER ID   IMAGE  ...
+   0584cc2cd54e   ghcr.io/kadena-io/chainweb-node/ubuntu:latest   "/chainweb/chainweb-…"  ...
+   ```
+
+1. Run `docker exec` to open an interactive terminal shell in the container:
+   
+   ```shell
+   docker exec --interactive --tty 0584cc2cd54e /bin/bash
+   ```
+
+1. Run shell commands to add files or directories to the image:
+   
+   ```shell
+   root@0584cc2cd54e:/chainweb# ./chainweb-node --print-config > image-config.yaml
+   root@0584cc2cd54e:/chainweb# mkdir my-backups
+   root@0584cc2cd54e:/chainweb# touch my-log-file
+   ```
+
+Note that the container doesn't include a text editor for modifying the configuration file. 
+You can add an editor to the container.
+However, you must persistent the container data for the modified configuration file to be available when you restart the container.
+
+## Install node binaries
+
+To install node binaries directly on a physical or virtual server:
+
+1. Update the system with the latest software:
+    
+    ```shell
+    sudo apt update && sudo apt upgrade
     ```
 
-Chainweb-node binaries for Ubuntu can be found
-[here](https://github.com/kadena-io/chainweb-node/releases).
+2. Install the required packages:
+   
+   ```shell
+   apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+   ```
 
-Download the archive for your system and extract the binaries and place them
-into a directory from where they can be executed.
+3. Download the latest compressed archive from [Releases](https://github.com/kadena-io/chainweb-node/releases).
 
-At this point, you are ready to [run a Chainweb node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
+4. Unzip and extract the archive into a directory where you have permission to run programs.
 
-## Building from Source
+7. Verify the node is ready to use and review command-line configuration options by running the following command:
+    
+   ```shell
+   ./chainweb-node --help
+   ```
+    
+8. Save the default configuration settings in a configuration file for the node by running the following command:
+    
+   ```shell
+   ./chainweb-node --print-config > default-config.yaml
+   ```
+    
+9. Start the node using the default configuration settings and an empty database by running the following command:
+    
+   ```bash
+   ./chainweb-node
+   ```
+    
+   By default, the node tries to connect to bootstrap nodes and start synchronizing its database with the other nodes in the network. 
+   During the synchronization process, the node replays all of the transactions that have been successfully executed until the node catches up to the current state of the other nodes.
+   For a node connecting to the Kadena main public network, this process can take a significant period of time.
+
+## Build from source
 
 *IMPORTANT NOTE: We recommend the use of officially released chainweb-node
 binaries or docker images, which can be found in the
