@@ -1,3 +1,13 @@
+## 2.23.2 (2025-10-22)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Limit sizes of response bodies coming from peers [`a07cc75`](https://github.com/kadena-io/chainweb-node/commit/a07cc756167340b2ee6362d42da21a5a64b83070)
+- Add more logging to the mempool [`f864fa1`](https://github.com/kadena-io/chainweb-node/commit/f864fa1a8af4c3d6a55a5b52f142afd91c2ddf9f)
+
 ## 2.31.1 (2025-10-09)
 This is a minor point release. Upgrading is **strongly recommended**.
 
