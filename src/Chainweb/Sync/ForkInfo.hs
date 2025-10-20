@@ -185,10 +185,13 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
         -- in the worst case this is genesis. The more common case is 2. in
         -- which case the "safe" block is probably known.
         let ppSafeBlock = _syncStateRankedBlockHash $ _consensusStateSafe ppKnownState
+        let ppFinalBlock = _syncStateRankedBlockHash $ _consensusStateFinal ppKnownState
         ppBlock <- runMaybeT
-            (MaybeT (lookupBhdb ppLatestBlock) <|> MaybeT (lookupBhdb ppSafeBlock)) >>= \case
+            (MaybeT (lookupBhdb ppLatestBlock)
+                <|> MaybeT (lookupBhdb ppSafeBlock)
+                <|> MaybeT (lookupBhdb ppFinalBlock)) >>= \case
                 Nothing ->
-                    throwM $ InternalInvariantViolation $ "Safe payload provider block is missing: " <> brief ppSafeBlock
+                    throwM $ InternalInvariantViolation $ "Final payload provider block is missing: " <> brief ppFinalBlock
                 Just ppBlock -> return ppBlock
 
         -- Lookup the state of the Payload Provider and query the trace
