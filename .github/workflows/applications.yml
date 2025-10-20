@@ -389,6 +389,7 @@ jobs:
           exe:evm-genesis \
           exe:tx-list \
           exe:run-nodes \
+          exe:pact-replay \
           test:chainweb-tests \
           test:multi-node-network-tests \
           test:remote-tests \
@@ -435,6 +436,7 @@ jobs:
         cp $(cabal list-bin genconf) artifacts/chainweb
         cp $(cabal list-bin known-graphs) artifacts/chainweb
         cp $(cabal list-bin pact-diff) artifacts/chainweb
+        cp $(cabal list-bin pact-replay) artifacts/chainweb
         cp $(cabal list-bin standalone-pruner) artifacts/chainweb
         cp $(cabal list-bin tx-list) artifacts/chainweb
         cp $(cabal list-bin run-nodes) artifacts/chainweb
