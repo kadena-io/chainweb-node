@@ -528,11 +528,7 @@ synchronizeProviders logger wbh providers c = do
             pLog Debug $ "syncToBlock with fork info " <> encodeToText finfo
 
             bhdb <- liftIO $ getWebBlockHeaderDb wbh cid
-            -- send a larger trace on startup (going back to the safe block)
-            -- this way the payload provider is more likely to be able to
-            -- resolve the fork
-            let startState = _consensusStateSafe (_forkInfoTargetState finfo)
-            liftIO (resolveForkInfoForProviderState pLog bhdb NullCas provider Nothing finfo startState) `catch` \(e :: SomeException) -> do
+            liftIO (resolveForkInfo pLog bhdb NullCas provider Nothing finfo) `catch` \(e :: SomeException) -> do
                 pLog Warn $ "resolveFork failed"
                     <> "; finfo: " <> encodeToText finfo
                     <> "; failure: " <> T.pack (displayException e)
