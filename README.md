@@ -49,26 +49,7 @@ For example, you can choose to set up a node by using one of the following insta
 - Run a Chainweb node image in a Docker container.
 - Build Chainweb binaries yourself from the source code.
 
-### Docker (all batteries included)
-
-A docker image is available from
-[here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
-the following commands:
-
-```shell
-# Initialize the database (optional, but avoids several hours of initial db synchronization)
-docker run -ti --rm -v chainweb-db:/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node /chainweb/initialize-db.sh
-```
-
-```shell
-# Run a chainweb-node in Kadena's mainnet
-docker run -d -p 443:443 -v chainweb-db:target=/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node
-```
-
-Further details can be found in the [README of the docker
-repository](https://hub.docker.com/r/kadena/chainweb-node).
-
-### Docker (bare metal)
+### Run the node in a container
 
 A docker image with just a bare chainweb-node binary and its dependencies is
 available at `ghcr.io/kadena-io/chainweb-node/ubuntu:latest`. It is up to the
