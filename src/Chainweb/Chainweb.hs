@@ -324,7 +324,7 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
-        , _cutDbParamsReadOnly = False
+        , _cutDbParamsReadOnly = _configReadOnlyReplay conf
         , _cutDbParamsInitialCutFile = _cutInitialCutFile cutConf
         }
       where
@@ -388,41 +388,94 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb defaultPactDbDir ba
                     putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
                     mempoolThrottler <- mkMempoolThrottler $ _throttlingMempoolRate throt
                     logg Debug "initialized throttlers"
-                    logg Debug "start initializing miner resources"
-                    logFunctionJson logger Info InitializingMinerResources
 
-                    withMiningCoordination mLogger mConf mCutDb $ \mc ->
+                    -- synchronize pact dbs with latest cut before we start the server
+                    -- and clients and begin mining.
+                    --
+                    -- This is a consistency check that validates the blocks in the
+                    -- current cut. If it fails an exception is raised. Also, if it
+                    -- takes long (for example, when doing a reset to a prior block
+                    -- height) we want this to happen before we go online.
+                    --
+                    let
+                        -- pactSyncChains =
+                        --     case _configSyncPactChains conf of
+                        --         Just syncChains
+                        --             | _configReadOnlyReplay conf
+                        --             -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                        --         _ -> cs
 
-                        -- Miner resources are used by the test-miner when in-node
-                        -- mining is configured or by the mempool noop-miner (which
-                        -- keeps the mempool updated) in production setups.
-                        --
-                        withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
-                            logFunctionJson logger Info ChainwebStarted
-                            logg Debug "finished initializing miner resources"
-                            let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                            inner $ StartedChainweb Chainweb
-                                { _chainwebHostAddress = haddr
-                                , _chainwebChains = cs
-                                , _chainwebCutResources = cutResources
-                                , _chainwebMiner = m
-                                , _chainwebCoordinator = mc
-                                , _chainwebLogger = logger
-                                , _chainwebPeer = peerRes
-                                , _chainwebManager = mgr
-                                , _chainwebThrottler = throttler
-                                , _chainwebPutPeerThrottler = putPeerThrottler
-                                , _chainwebMempoolThrottler = mempoolThrottler
-                                , _chainwebConfig = conf
-                                , _chainwebServiceSocket = serviceSock
-                                , _chainwebBackup = BackupEnv
-                                    { _backupRocksDb = rocksDb
-                                    , _backupDir = backupDir
-                                    , _backupPactDbDir = defaultPactDbDir
-                                    , _backupChainIds = cids
-                                    , _backupLogger = backupLogger
-                                    }
-                                }
+                    if _configReadOnlyReplay conf
+                    then do
+                        -- FIXME implement replay in payload provider
+                        error "Chainweb.Chainweb.withChainwebInternal: pact replay is not supported"
+                        -- logFunctionJson logger Info PactReplayInProgress
+                        -- -- note that we don't use the "initial cut" from cutdb because its height depends on initialBlockHeightLimit.
+                        -- highestCut <-
+                        --     unsafeMkCut v <$> readHighestCutHeaders v (logFunctionText logger) webchain (cutHashesTable rocksDb)
+                        -- lowerBoundCut <-
+                        --     tryLimitCut webchain (fromMaybe 0 $ _cutInitialBlockHeightLimit $ _configCuts conf) highestCut
+                        -- upperBoundCut <- forM (_cutFastForwardBlockHeightLimit $ _configCuts conf) $ \upperBound ->
+                        --     tryLimitCut webchain upperBound highestCut
+                        -- let
+                        --     replayOneChain :: (ChainResources logger, (BlockHeader, Maybe BlockHeader)) -> IO ()
+                        --     replayOneChain (cr, (l, u)) = do
+                        --         let chainPact = _chainResPact cr
+                        --         let logCr = logFunctionText
+                        --                 $ addLabel ("component", "pact")
+                        --                 $ addLabel ("sub-component", "init")
+                        --                 $ _chainResLogger cr
+                        --         void $ _pactReadOnlyReplay chainPact l u
+                        --         logCr Info "pact db synchronized"
+                        -- let bounds =
+                        --         HM.intersectionWith (,)
+                        --             pactSyncChains
+                        --             (HM.mapWithKey
+                        --                 (\cid bh ->
+                        --                     (bh, (HM.! cid) . _cutMap <$> upperBoundCut))
+                        --                 (_cutMap lowerBoundCut)
+                        --             )
+                        -- mapConcurrently_ replayOneChain bounds
+                        -- logg Info "finished fast forward replay"
+                        -- logFunctionJson logger Info PactReplaySuccessful
+                        -- inner $ Replayed lowerBoundCut upperBoundCut
+                    else do
+                            logg Debug "start initializing miner resources"
+                            logFunctionJson logger Info InitializingMinerResources
+
+                            withMiningCoordination mLogger mConf mCutDb $ \mc ->
+
+                                -- Miner resources are used by the test-miner when in-node
+                                -- mining is configured or by the mempool noop-miner (which
+                                -- keeps the mempool updated) in production setups.
+                                --
+                                withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
+                                    logFunctionJson logger Info ChainwebStarted
+                                    logg Debug "finished initializing miner resources"
+                                    let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                                    inner $ StartedChainweb Chainweb
+                                        { _chainwebHostAddress = haddr
+                                        , _chainwebChains = cs
+                                        , _chainwebCutResources = cutResources
+                                        , _chainwebMiner = m
+                                        , _chainwebCoordinator = mc
+                                        , _chainwebLogger = logger
+                                        , _chainwebPeer = peerRes
+                                        , _chainwebManager = mgr
+                                        -- , _chainwebPactData = pactData
+                                        , _chainwebThrottler = throttler
+                                        , _chainwebPutPeerThrottler = putPeerThrottler
+                                        , _chainwebMempoolThrottler = mempoolThrottler
+                                        , _chainwebConfig = conf
+                                        , _chainwebServiceSocket = serviceSock
+                                        , _chainwebBackup = BackupEnv
+                                            { _backupRocksDb = rocksDb
+                                            , _backupDir = backupDir
+                                            , _backupPactDbDir = defaultPactDbDir
+                                            , _backupChainIds = cids
+                                            , _backupLogger = backupLogger
+                                            }
+                                        }
 
     -- synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> Cut -> IO ()
     -- synchronizePactDb cs targetCut = do

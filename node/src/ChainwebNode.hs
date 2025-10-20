@@ -319,7 +319,13 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
+    withRocksDb' <-
+        if _configReadOnlyReplay cwConf
+        then
+            withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
+        else
+            return withRocksDb
+    withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Debug $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir $ \case
@@ -359,11 +365,12 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     -- Base Backend
     baseBackend <- managed
         $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
-baseBackend
+
     -- we don't log tx failures in replay
     let !txFailureHandler =
             if isJust (_cutInitialCutFile (_configCuts chainwebCfg))
                 || isJust (_cutInitialBlockHeightLimit (_configCuts chainwebCfg))
+                || _configReadOnlyReplay chainwebCfg
             then [dropLogHandler (Proxy :: Proxy PactTxFailureLog)]
             else []
 
