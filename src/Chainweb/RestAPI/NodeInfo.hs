@@ -70,8 +70,6 @@ data NodeInfo = NodeInfo
     -- ^ Genesis heights of each chain.
   , nodeHistoricalChains :: NE.NonEmpty (BlockHeight, [(ChainId, [ChainId])])
     -- ^ All graph upgrades
-  , nodeServiceDate :: Maybe Text
-    -- ^ The upcoming service date for the node.
   , nodeBlockDelay :: BlockDelay
     -- ^ The PoW block delay of the node (microseconds)
   }
@@ -96,7 +94,6 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
       , nodeLatestBehaviorHeight = latestBehaviorAt v
       , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList (chainIds v)
       , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
-      , nodeServiceDate = T.pack <$> _versionServiceDate v
       , nodeBlockDelay = _versionBlockDelay v
       }
 
