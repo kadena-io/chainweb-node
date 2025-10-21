@@ -123,7 +123,7 @@ resolveForkInfo logg bhdb candidateHdrs provider hints finfo = do
       -- payload provider that is not caught up yet)
       --
       else do
-        resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo (_consensusStateLatest r)
+        resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo r
   where
     h = _latestRankedBlockHash . _forkInfoTargetState $ finfo
 
@@ -146,10 +146,11 @@ resolveForkInfoForProviderState
     -> p
     -> Maybe Hints
     -> ForkInfo
-    -> SyncState
+    -> ConsensusState
     -> IO ()
 resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppKnownState
-    | ppRBH == trgHash = do
+    | ppLatestBlock == trgHash = do
+        -- nothing to do, we are at the target
         logg Info "resolveForkInfo: payload provider is at target block"
         -- If no payload production is requested we are done. Otherwise we
         -- still need to issue the syncToBlock call to initiate payload
@@ -164,28 +165,43 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
         logg Info $ "resolveForkInfo: payload provider state: " <> brief ppKnownState
             <> "; target state: " <> brief (_forkInfoTargetState finfo)
 
+        let lookupBhdb rbh = lookupRanked bhdb (int $ _rankedHeight rbh) (_ranked rbh)
+
         hdr :: BlockHeader <- runMaybeT
-            (MaybeT (tableLookup candidateHdrs (_ranked trgHash))
-                <|> MaybeT (lookupRanked bhdb (int $ _rankedHeight trgHash) (_ranked trgHash)))
+            (MaybeT (tableLookup candidateHdrs (_ranked trgHash)) <|> MaybeT (lookupBhdb trgHash))
                 >>= \case
                     Nothing -> do
-                        throwM $ InternalInvariantViolation $ "validatePayload: target block is missing: " <> brief trgHash
+                        throwM $ InternalInvariantViolation $
+                            "validatePayload: target block is missing: " <> brief trgHash
                     Just hdr -> return hdr
+
+        -- Finding a fork from the latest block can fail if we don't know the
+        -- state of the payload provider.
+        -- This can happen if:
+        --   1. the payload provider db comes from an external source.
+        --   2. the payload provider has moved to a fork that catchup has not
+        --   finished validating.
+        -- In this case we can only guess where a common fork point might be --
+        -- in the worst case this is genesis. The more common case is 2. in
+        -- which case the "safe" block is probably known.
+        let ppSafeBlock = _syncStateRankedBlockHash $ _consensusStateSafe ppKnownState
+        let ppFinalBlock = _syncStateRankedBlockHash $ _consensusStateFinal ppKnownState
+        ppBlock <- runMaybeT
+            (MaybeT (lookupBhdb ppLatestBlock)
+                <|> MaybeT (lookupBhdb ppSafeBlock)
+                <|> MaybeT (lookupBhdb ppFinalBlock)) >>= \case
+                Nothing ->
+                    throwM $ InternalInvariantViolation $ "Final payload provider block is missing: " <> brief ppFinalBlock
+                Just ppBlock -> return ppBlock
 
         -- Lookup the state of the Payload Provider and query the trace
         -- from the fork point to the target block.
         --
-        -- This can fail if we don't know the state of the payload provider.
-        -- This really should only happen if the payload provider db comes from
-        -- an external source or the payload provider db is outdated and resides
-        -- on a fork that got already pruned. In this case we can only guess
-        -- where a common fork point might be -- which, in worst case, might be
-        -- the genesis. We should either do an exponential search or just fail.
 
         -- Before we do the potentially expensive branch diff call, we check
         -- whether the ppKnownState is in the trace of the finfo.
         -- TODO this could be done more efficiently, but for now it is fine.
-        let idx = L.elemIndex ppRBH
+        let idx = L.elemIndex (view rankedBlockHash ppBlock)
                 $ unwrapParent . _evaluationCtxRankedParentHash <$> _forkInfoTrace finfo
 
         newForkInfo <- case idx of
@@ -199,13 +215,10 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                     -- The the payload provider does a fast forward without rewind.
                     return finfo
                         { _forkInfoTrace = drop i (_forkInfoTrace finfo)
-                        , _forkInfoBasePayloadHash = Parent $ _ranked $ _syncStateRankedBlockPayloadHash ppKnownState
+                        , _forkInfoBasePayloadHash = Parent $ _ranked $ view rankedBlockPayloadHash ppBlock
                         }
             Nothing -> do
                 logg Info "resolveForkInfo: payload provider state not in trace, computing fork point"
-                ppBlock <- lookupRanked bhdb (int $ _rankedHeight ppRBH) (_ranked ppRBH) >>= \case
-                    Nothing -> throwM $ InternalInvariantViolation $ "Payload provider block is missing: " <> brief ppRBH
-                    Just ppBlock -> return ppBlock
 
                 -- FIXME: this stream can be very long if the payload provider
                 -- is out of sync. We should limit it and proceed iteratively if
@@ -293,25 +306,18 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
                     e
             throwM e
 
-        -- check if we made progress
-        --
-        let delta :: Int = int (_rankedHeight (_latestRankedBlockHash newState))
-                - int (_rankedHeight (_syncStateRankedBlockHash ppKnownState))
-
         -- TODO: when this function is incremental, we will manage this more correctly.
-        if ppKnownState /= _consensusStateLatest newState
+        if ppKnownState /= newState
           then do
             logg Info $ "resolveForkInfo: made progress"
-                <> "; delta: " <> sshow delta
                 <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
             -- continue.
             -- TODO compute the new fork info here.
-            resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints newForkInfo (_consensusStateLatest newState)
+            resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints newForkInfo newState
           else do
             logg Warn $ "resolveForkInfo: no progress"
-                <> "; delta: " <> sshow delta
                 <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
@@ -321,14 +327,13 @@ resolveForkInfoForProviderState logg bhdb candidateHdrs provider hints finfo ppK
             -- so, we raise an exception.
             --
             throwM $ ForkInfoSyncFailure $ "unexpected result state"
-                <> "; delta: " <> sshow delta
                 <> "; previous payload provider state: " <> brief ppKnownState
                 <> "; new payload provider state: " <> brief newState
                 <> "; target state: " <> brief (_forkInfoTargetState newForkInfo)
                 <> "; trace: " <> brief (_forkInfoTrace newForkInfo)
   where
     trgHash = _latestRankedBlockHash . _forkInfoTargetState $ finfo
-    ppRBH = _syncStateRankedBlockHash ppKnownState
+    ppLatestBlock = _syncStateRankedBlockHash $ _consensusStateLatest ppKnownState
 
 -- -------------------------------------------------------------------------- --
 -- Trace Utils
