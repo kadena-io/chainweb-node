@@ -120,7 +120,6 @@ jobs:
         cabal build -j \
           chainweb:bench:bench \
           exe:b64 \
-          exe:calculate-release \
           exe:compact \
           exe:db-checksum \
           exe:ea \

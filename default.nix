@@ -117,7 +117,6 @@ let haskellSrc = with nix-filter.lib; filter {
             name = "cwtools";
             exes = [
               "b64"
-              "calculate-release"
               "compact"
               "db-checksum"
               "ea"

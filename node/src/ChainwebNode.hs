@@ -6,6 +6,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -45,40 +46,6 @@ module Main
 , main
 ) where
 
-import Configuration.Utils hiding (Error)
-import Configuration.Utils.Validation (validateFilePath)
-
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.DeepSeq
-import Control.Exception
-import Control.Lens hiding ((.=))
-import Control.Monad
-import Control.Monad.Managed
-
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Time
-import Data.Typeable
-
-import GHC.Generics hiding (from)
-import GHC.Stack
-import GHC.Stats
-
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.TLS as HTTPS
-
-import qualified Streaming.Prelude as S
-
-import System.Directory
-import System.FilePath
-import System.IO
-import qualified System.Logger as L
-import System.LogLevel
-import System.Mem
-
--- internal modules
-
 import Chainweb.BlockHeader
 import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
@@ -94,34 +61,49 @@ import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
-import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
+import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
-import Data.Time.Format.ISO8601
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.Version.Registry
-
-import Chainweb.Storage.Table.RocksDB
-
+import Configuration.Utils hiding (Error)
+import Configuration.Utils.Validation (validateFilePath)
+import Control.Concurrent
+import Control.Concurrent.Async
+import Control.DeepSeq
+import Control.Exception
+import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Managed
 import Data.LogMessage
-
+import Data.Text (Text)
+import Data.Typeable
+import GHC.Generics hiding (from)
+import GHC.Stack
+import GHC.Stats
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTPS
 import P2P.Node
-
 import PkgInfo
-
+import Streaming.Prelude qualified as S
+import System.Directory
+import System.FilePath
+import System.IO
+import System.LogLevel
+import System.Logger qualified as L
+import System.Mem
+import Utils.CheckRLimits
+import Utils.InstallSignalHandlers
 import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
-
-import Utils.CheckRLimits
-import Utils.InstallSignalHandlers
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -480,60 +462,6 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @a (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
--- Service Date
-
-newtype ServiceDate = ServiceDate Text
-
-instance Show ServiceDate where
-    show (ServiceDate t) = "Service interval end: " <> T.unpack t
-
-instance Exception ServiceDate where
-    fromException = asyncExceptionFromException
-    toException = asyncExceptionToException
-
-withServiceDate
-    :: ChainwebVersion
-    -> (LogLevel -> Text -> IO ())
-    -> Maybe UTCTime
-    -> IO a
-    -> IO a
-withServiceDate v lf msd inner = case msd of
-  Nothing -> do
-    inner
-  Just sd -> do
-    if _versionCode v == _versionCode mainnet || _versionCode v == _versionCode testnet04
-    then do
-      race (timer sd) inner >>= \case
-        Left () -> error "Service date thread terminated unexpectedly"
-        Right a -> return a
-    else do
-      inner
-  where
-    timer t = runForever lf "ServiceDate" $ do
-      now <- getCurrentTime
-      when (now >= t) $ do
-        lf Error shutdownMessage
-        throw $ ServiceDate shutdownMessage
-
-      let w = diffUTCTime t now
-      let micros = round $ w * 1_000_000
-      lf Warn warning
-      threadDelay $ min (10 * 60 * 1_000_000) micros
-
-      where
-        warning :: Text
-        warning = T.concat
-          [ "This version of chainweb node will stop working at " <> sshow t <> "."
-          , " Please upgrade to a new version before that date."
-          ]
-
-        shutdownMessage :: Text
-        shutdownMessage = T.concat
-          [ "Shutting down. This version of chainweb was only valid until " <> sshow t <> "."
-          , " Please upgrade to a new version."
-          ]
-
--- -------------------------------------------------------------------------- --
 -- Encode Package Info into Log mesage scopes
 
 pkgInfoScopes :: [(Text, Text)]
@@ -575,9 +503,7 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM iso8601ParseM (_versionServiceDate v)
-                withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
-                    race (node conf logger) (gcRunner (logFunctionText logger))
+                void $ race (node conf logger) (gcRunner (logFunctionText logger))
     where
     gcRunner lf = runForever lf "GarbageCollect" $ do
         performMajorGC
