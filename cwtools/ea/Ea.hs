@@ -38,7 +38,6 @@ import Chainweb.Pact.Validations (defaultMaxTTLSeconds)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Control.Concurrent.Async
 import Control.Exception
 import Control.Lens
 import Control.Monad.IO.Class
@@ -67,15 +66,12 @@ import System.LogLevel
 
 main :: IO ()
 main = do
-
-    mapConcurrently_ id
-      [ devnet
-      -- , fastnet
-      , instantnet
-      , pact53Transitionnet
-      , quirkedPact5Instantnet
-      -- , genCoinV6Payloads
-      ]
+    devnet
+    -- fastnet
+    instantnet
+    pact53Transitionnet
+    quirkedPact5Instantnet
+    -- genCoinV6Payloads
     putStrLn "Done."
   where
     devnet = mkPayloads
