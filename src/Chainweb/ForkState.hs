@@ -88,8 +88,19 @@ forkVotes = forkState . forkVotes'
 forkEpochLength :: Natural
 forkEpochLength = 120 * 120 -- 5 days
 
+votingPeriodLength :: Natural
+votingPeriodLength = forkEpochLength - propagationTimeLength
+
+propagationTimeLength :: Natural
+propagationTimeLength = 16
+
+isVoteOver :: BlockHeader -> Bool
+isVoteOver hdr =
+    mod (hdr ^. blockHeight) forkEpochLength > votingPeriodLength
+
 isForkEpoch :: BlockHeader -> Bool
-isForkEpoch hdr = mod (view blockHeight hdr) forkEpochLength == 0
+isForkEpoch hdr =
+    mod (hdr ^. blockHeight) forkEpochLength == 0
 
 getForkNumber :: BlockHeader -> Word32
 getForkNumber = view signaledForkNumber . view forkState
@@ -97,17 +108,41 @@ getForkNumber = view signaledForkNumber . view forkState
 getForkNumberVotes :: BlockHeader -> Word32
 getForkNumberVotes = view signaledNumber . view forkState
 
-validateForkNumber :: Parent BlockHeader -> BlockHeader -> Bool
-validateForkNumber (Parent parent) hdr
-    | isForkEpoch hdr =
-        if view getForkNumberVotes parent >= (forkEpochLength * 2 `div 3)
-          then
-            view getForkNumber hdr == view getForkNumber parent + 1
-            && view getForkNumberVotes hdr <= 1
-          else
-            view getForkNumber hdr == view getForkNumber parent
-            && view getForkNumberVotes hdr <= 1
-    | otherwise =
-        view getForkNumber hdr == view getForkNumber (parent hdr)
-        && view getForkNumberVotes hdr <= view getForkNumberVotes (parent hdr) + 1
+-- | During the fork Epoch, we vote.
+-- After the end, we propagate votes from adjacents.
 
+-- At the fork epoch end, the fork votes are actually storing votes.
+-- At end + 1, the "fork votes" are 1 if all adjacent chains pass the voting threshold.
+-- At the block after that, the "fork votes" are the conjunction of the fork votes of all adjacent chains.
+
+-- This continues until the `degree`th block after the fork epoch ends.  are `degree` blocks after the fork epoch ends. At
+-- this point the fork number increments if the fork votes are equal to 1.
+validateForkNumber :: WebStep -> Bool
+validateForkNumber webStep
+    | isVoteOver (_webStepHeader webStep) =
+        if votePassed parent
+            && all votePassed adjs
+        then hdr ^. getForkNumber == parent ^. getForkNumber
+            && hdr ^. getForkNumberVotes == maxBound
+        else
+            hdr ^. getForkNumber == parent ^. getForkNumber
+            && hdr ^. getForkNumberVotes == 0
+    | isForkEpoch (_webStepHeader webStep) =
+        if votePassed parent
+            && all votePassed adjs
+        then
+            hdr ^. getForkNumber == parent ^. getForkNumber + 1
+            && hdr ^. getForkNumberVotes <= 1
+        else
+            hdr ^. getForkNumber == parent ^. getForkNumber
+            && hdr ^. getForkNumberVotes <= 1
+    | otherwise =
+        hdr ^. getForkNumber == parent ^. getForkNumber
+        &&
+            (hdr ^. getForkNumberVotes == parent ^. getForkNumberVotes
+            || hdr ^. getForkNumberVotes == parent ^. getForkNumberVotes + 1)
+    where
+    votePassed bh = parent ^. getForkNumberVotes >= forkEpochLength * 2 `div` 3
+    hdr = _webStepHeader webStep
+    parent = _webStepParent webStep
+    adjs = _webStepAdjs webStep
