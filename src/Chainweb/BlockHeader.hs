@@ -47,6 +47,7 @@ module Chainweb.BlockHeader
 
 -- * BlockHeader
 , I.BlockHeader
+
 -- ** Getters
 , blockFlags
 , blockCreationTime
@@ -61,6 +62,10 @@ module Chainweb.BlockHeader
 , blockEpochStart
 , blockNonce
 , blockHash
+, blockForkState
+, blockForkVotes
+, blockForkNumber
+
 -- ** Utilities
 , I._blockPow
 , I.blockPow
@@ -85,6 +90,12 @@ module Chainweb.BlockHeader
 , I.adjacentChainIds
 , I.absBlockHeightDiff
 
+-- ** Fork State
+, I.isForkEpochStart
+, I.forkEpochLength
+, I.isForkCountBlock
+, I.isForkVoteBlock
+
 -- * IsBlockHeader
 , I.IsBlockHeader(..)
 
@@ -107,15 +118,16 @@ module Chainweb.BlockHeader
 )
 where
 
-import Chainweb.ChainId (ChainId)
-import Chainweb.BlockWeight (BlockWeight)
-import Chainweb.BlockHeight (BlockHeight)
-import Chainweb.Version (ChainwebVersionCode)
-import Chainweb.Payload (BlockPayloadHash)
-import Chainweb.Difficulty (HashTarget)
+import Chainweb.ForkState (ForkState, ForkVotes, ForkNumber)
+import Chainweb.BlockCreationTime (BlockCreationTime)
 import Chainweb.BlockHash (BlockHash, BlockHashRecord)
 import Chainweb.BlockHeader.Internal qualified as I
-import Chainweb.BlockCreationTime (BlockCreationTime)
+import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockWeight (BlockWeight)
+import Chainweb.ChainId (ChainId)
+import Chainweb.Difficulty (HashTarget)
+import Chainweb.Payload (BlockPayloadHash)
+import Chainweb.Version (ChainwebVersionCode)
 import Control.Lens (Getter)
 
 blockFlags :: Getter I.BlockHeader I.FeatureFlags
@@ -156,3 +168,12 @@ blockNonce = I.blockNonce
 
 blockHash :: Getter I.BlockHeader BlockHash
 blockHash = I.blockHash
+
+blockForkState :: Getter I.BlockHeader ForkState
+blockForkState = I.blockForkState
+
+blockForkVotes :: Getter I.BlockHeader ForkVotes
+blockForkVotes = I.blockForkVotes
+
+blockForkNumber :: Getter I.BlockHeader ForkNumber
+blockForkNumber = I.blockForkNumber

@@ -92,6 +92,7 @@ module Chainweb.BlockHeader.Internal
 , blockEpochStart
 , blockNonce
 , blockHash
+
 -- ** Utilities
 , _blockPow
 , blockPow
@@ -129,6 +130,19 @@ module Chainweb.BlockHeader.Internal
 
 -- * Create a new BlockHeader
 , newBlockHeader
+
+-- * Fork State
+, blockForkState
+, _blockForkNumber
+, blockForkNumber
+, _blockForkVotes
+, blockForkVotes
+, forkEpochLength
+, isForkEpochStart
+, isForkCountBlock
+, isForkVoteBlock
+, newForkState
+, isLastForkEpochBlock
 
 -- * CAS Constraint
 , BlockHeaderCas
@@ -186,6 +200,7 @@ import Numeric.AffineSpace
 import Numeric.Natural
 import System.IO.Unsafe
 import Text.Read (readEither)
+import Chainweb.ForkState
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -244,6 +259,8 @@ decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- -----------------------------------------------------------------------------
 -- Feature Flags
+--
+-- Deprecated: renamed into 'blockForkState'
 
 newtype FeatureFlags = FeatureFlags Word64
     deriving stock (Show, Eq, Generic)
@@ -600,7 +617,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     --
     -- The result is guaranteed to be non-empty
     --
-    adjCreationTimes = fmap (_blockCreationTime)
+    adjCreationTimes = fmap _blockCreationTime
         $ HM.insert cid (_parentHeader ph)
         $ HM.filter (not . isGenesisBlockHeader)
         $ fmap _parentHeader adj
@@ -693,7 +710,7 @@ genesisBlockHeaders = \v ->
     testnetGenesisHeaders = makeGenesisBlockHeaders testnet04
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just
+genesisBlockHeader v p = genesisBlockHeaders v ^?! ix (_chainId p)
 
 makeGenesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | cid <- HS.toList (chainIds v)]
@@ -1050,6 +1067,87 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
+-- Fork State
+
+blockForkState :: Lens' BlockHeader ForkState
+blockForkState = blockFlags . coerced
+
+_blockForkNumber :: BlockHeader -> ForkNumber
+_blockForkNumber = view (blockForkState . forkNumber)
+
+_blockForkVotes :: BlockHeader -> ForkVotes
+_blockForkVotes = view (blockForkState . forkVotes)
+
+blockForkNumber :: Lens' BlockHeader ForkNumber
+blockForkNumber = blockForkState . forkNumber
+
+blockForkVotes :: Lens' BlockHeader ForkVotes
+blockForkVotes = blockForkState . forkVotes
+
+-- | Returns whether a block is the first block in a fork epoch.
+--
+isForkEpochStart :: BlockHeader -> Bool
+isForkEpochStart hdr =
+    rem (int $ view blockHeight hdr) forkEpochLength == 0
+
+isLastForkEpochBlock :: BlockHeader -> Bool
+isLastForkEpochBlock hdr =
+    rem (1 + int (view blockHeight hdr)) forkEpochLength == 0
+
+-- | Returns whether a block is at a height at which voting occurs.
+--
+isForkVoteBlock :: BlockHeader -> Bool
+isForkVoteBlock hdr =
+    rem (int $ view blockHeight hdr) forkEpochLength < (forkEpochLength - 120)
+
+-- | Returns whether a block is at a height at which vote couting occurs.
+--
+isForkCountBlock :: BlockHeader -> Bool
+isForkCountBlock hdr = not (isForkVoteBlock hdr)
+
+-- | New Fork State computation
+--
+-- The Boolean parameter indicates whether the block votes "yes" (True) to
+-- increasing the fork number.
+--
+-- Callers of this function must not just unconditionally vote "yes". Instead,
+-- they should vote "yes" only if the current fork number is less than the
+-- maximum fork number that the version of the code supports.
+--
+-- TODO: replace the Boolean parameter with a 'maxSupportedForkNumber'
+-- parameter.
+--
+-- * isForkEpochStart -> forkNumber is deterministically increased
+-- * isForkEpochStart -> forkVote is nondeterministically reset to 0 or forkStep
+-- * forkVoteBlock && not isForkVoteStart -> forkVotes are non-deterministically monotonicly increasing
+-- * forkCountBlock -> forkVotes are deterministically set
+--
+newForkState
+    :: HM.HashMap ChainId ParentHeader
+        -- ^ Adjacent parent headers
+    -> ParentHeader
+        -- Parent block header
+    -> Bool
+        -- ^ Non-deterministcally selected vote (True = yes, False = no)
+    -> ForkState
+newForkState as p vote
+    | isLastForkEpochBlock (view parentHeader p) = cur
+        -- reset votes and vote
+        & forkVotes .~ (if vote then addVote else id) resetVotes
+        -- based on current vote count decide whether to increase fork number
+        & forkNumber %~ (if decideVotes curVotes then succ else id)
+    | isForkVoteBlock (view parentHeader p) = cur
+        -- vote
+        & forkVotes %~ (if vote then addVote else id)
+    | otherwise = cur
+        -- do one vote counting step
+        & forkVotes .~ countVotes allParentVotes
+  where
+    cur = view (parentHeader . blockForkState) p
+    curVotes = view (parentHeader . blockForkVotes ) p
+    allParentVotes = view (parentHeader . blockForkVotes) <$> (p : HM.elems as)
+
+-- -------------------------------------------------------------------------- --
 -- IsBlockHeader
 
 -- | Any type which can purely produce a `BlockHeader`, or purely construct one.
@@ -1114,7 +1212,7 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) =
     cid = _chainId p
     v = _chainwebVersion p
     target = powTarget p adj t
-    adjHashes = BlockHashRecord $ (_blockHash . _parentHeader) <$> adj
+    adjHashes = BlockHashRecord $ _blockHash . _parentHeader <$> adj
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -1141,7 +1239,8 @@ instance TreeDbEntry BlockHeader where
 -- on the graph of the parent.
 --
 headerSizes :: ChainwebVersion -> Rule BlockHeight Natural
-headerSizes v = fmap (\g -> _versionHeaderBaseSizeBytes v + 36 * degree g + 2) $ _versionGraphs v
+headerSizes v = (\g -> _versionHeaderBaseSizeBytes v + 36 * degree g + 2)
+    <$> _versionGraphs v
 
 -- | The size of the serialized block header.
 --
