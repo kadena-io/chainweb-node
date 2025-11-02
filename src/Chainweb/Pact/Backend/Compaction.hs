@@ -232,10 +232,24 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
 
   -- Compact BlockHistory
   -- This is extremely fast and low residency
+  -- TODO: stop copying over *all* of this if minimumBlockHeaderHistory is set.
+  -- We only need it for SPV post-EVM.
   do
     log LL.Info "Compacting BlockHistory"
-    activeRow <- getBlockHistoryRowAt logger srcDb targetBlockHeight
-    Pact.exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
+    let qry = "SELECT blockheight, hash, endingtxid FROM BlockHistory WHERE blockheight <= ?1 ORDER BY blockheight ASC"
+    throwSqlError $ qryStream srcDb qry [SInt $ int targetBlockHeight] [RInt, RBlob, RInt] $ \tblRows -> do
+      Lite.withStatement targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" $ \stmt -> do
+        -- I experimented a bunch with chunk sizes, to keep transactions
+        -- small. As far as I can tell, there isn't really much
+        -- difference in any of them wrt residency, but there is wrt
+        -- speed. More experimentation may be needed here, but 10k is
+        -- fine so far.
+        S.chunksOf 10_000 tblRows
+          & S.mapsM_ (\chunk -> do
+              inTx targetDb $ flip S.mapM_ chunk $ \row -> do
+                Pact.bindParams stmt row
+                void (stepThenReset stmt)
+            )
 
   -- Compact VersionedTableMutation
   -- This is extremely fast and low residency
@@ -586,22 +600,6 @@ createUserTableIndex db tblname = do
       [ "CREATE INDEX IF NOT EXISTS ", tbl (tblname <> "_txid_ix"), " ON "
       , tbl tblname, " (txid DESC)"
       ]
-
--- | Returns the active @(blockheight, hash, endingtxid)@ from BlockHistory
-getBlockHistoryRowAt :: (Logger logger)
-  => logger
-  -> Database
-  -> BlockHeight
-  -> IO [SType]
-getBlockHistoryRowAt logger db target = do
-  r <- Pact.qry db "SELECT blockheight, hash, endingtxid FROM BlockHistory WHERE blockheight = ?1" [SInt (int target)] [RInt, RBlob, RInt]
-  case r of
-    [row@[SInt bh, SBlob _hash, SInt _endingTxId]] -> do
-      unless (target == int bh) $ do
-        exitLog logger "BlockHeight mismatch in BlockHistory query. This is a bug in the compaction tool. Please report it on the issue tracker or discord."
-      pure row
-    _ -> do
-      exitLog logger "getBlockHistoryRowAt query: invalid query"
 
 -- | Returns active @[(tablename, blockheight)]@ from VersionedTableMutation
 getVersionedTableMutationRowsAt :: (Logger logger)
