@@ -67,12 +67,6 @@ module Chainweb.BlockHeader.Internal
 , decodeEpochStartTime
 , epochStart
 
--- * FeatureFlags
-, FeatureFlags
-, mkFeatureFlags
-, encodeFeatureFlags
-, decodeFeatureFlags
-
 -- * POW Target
 , powTarget
 
@@ -143,6 +137,7 @@ module Chainweb.BlockHeader.Internal
 , isForkVoteBlock
 , newForkState
 , isLastForkEpochBlock
+, genesisForkState
 
 -- * CAS Constraint
 , BlockHeaderCas
@@ -258,28 +253,28 @@ decodeEpochStartTime :: Get EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- -----------------------------------------------------------------------------
--- Feature Flags
+-- [Deprecated] Feature Flags
 --
 -- Deprecated: renamed into 'blockForkState'
 
-newtype FeatureFlags = FeatureFlags Word64
-    deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON)
-
-encodeFeatureFlags :: FeatureFlags -> Put
-encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
-
-decodeFeatureFlags :: Get FeatureFlags
-decodeFeatureFlags = FeatureFlags <$> getWord64le
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
-    type Tag FeatureFlags = 'FeatureFlagsTag
-    toMerkleNode = encodeMerkleInputNode encodeFeatureFlags
-    fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
-
-mkFeatureFlags :: FeatureFlags
-mkFeatureFlags = FeatureFlags 0x0
+-- newtype FeatureFlags = FeatureFlags Word64
+--     deriving stock (Show, Eq, Generic)
+--     deriving anyclass (NFData)
+--     deriving newtype (ToJSON, FromJSON)
+--
+-- encodeFeatureFlags :: FeatureFlags -> Put
+-- encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
+--
+-- decodeFeatureFlags :: Get FeatureFlags
+-- decodeFeatureFlags = FeatureFlags <$> getWord64le
+--
+-- instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
+--     type Tag FeatureFlags = 'ForkStateTag
+--     toMerkleNode = encodeMerkleInputNode encodeFeatureFlags
+--     fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
+--
+-- mkFeatureFlags :: FeatureFlags
+-- mkFeatureFlags = FeatureFlags 0x0
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -302,9 +297,10 @@ mkFeatureFlags = FeatureFlags 0x0
 --
 data BlockHeader :: Type where
     BlockHeader ::
-        { _blockFlags :: {-# UNPACK #-} !FeatureFlags
-            -- ^ An 8-byte bitmask reserved for the future addition of boolean
-            -- "feature flags".
+        { _blockFlags :: {-# UNPACK #-} !ForkState
+            -- ^ Fork state of the block. This used to be called "feature
+            -- flags". The old name is still used in textual encodings (e.g.
+            -- JSON).
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
             -- ^ The time when the block was creates as recorded by the miner
@@ -739,7 +735,7 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
     cid = _chainId p
 
     mlog = newMerkleLog
-        $ mkFeatureFlags
+        $ genesisForkState
         :+: ct
         :+: genesisParentBlockHash v cid
         :+: (v ^?! versionGenesis . genesisBlockTarget . atChain cid)
@@ -781,7 +777,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
 
     -- /IMPORTANT/ a types must occur at most once in this list
     type MerkleLogHeader BlockHeader =
-        '[ FeatureFlags
+        '[ ForkState
         , BlockCreationTime
         , BlockHash
         , HashTarget
@@ -849,7 +845,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
 
 encodeBlockHeaderWithoutHash :: BlockHeader -> Put
 encodeBlockHeaderWithoutHash b = do
-    encodeFeatureFlags (_blockFlags b)
+    encodeForkState (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
     encodeBlockHash (_blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
@@ -897,7 +893,7 @@ decodeBlockHeaderCheckedChainId p = do
 --
 decodeBlockHeaderWithoutHash :: Get BlockHeader
 decodeBlockHeaderWithoutHash = do
-    a0 <- decodeFeatureFlags
+    a0 <- decodeForkState
     a1 <- decodeBlockCreationTime
     a2 <- decodeBlockHash -- parent hash
     a3 <- decodeBlockHashRecord
@@ -929,7 +925,7 @@ decodeBlockHeaderWithoutHash = do
 --
 decodeBlockHeader :: Get BlockHeader
 decodeBlockHeader = BlockHeader
-    <$> decodeFeatureFlags
+    <$> decodeForkState
     <*> decodeBlockCreationTime
     <*> decodeBlockHash -- parent hash
     <*> decodeBlockHashRecord
@@ -1107,16 +1103,6 @@ isForkCountBlock hdr = not (isForkVoteBlock hdr)
 
 -- | New Fork State computation
 --
--- The Boolean parameter indicates whether the block votes "yes" (True) to
--- increasing the fork number.
---
--- Callers of this function must not just unconditionally vote "yes". Instead,
--- they should vote "yes" only if the current fork number is less than the
--- maximum fork number that the version of the code supports.
---
--- TODO: replace the Boolean parameter with a 'maxSupportedForkNumber'
--- parameter.
---
 -- * isForkEpochStart -> forkNumber is deterministically increased
 -- * isForkEpochStart -> forkVote is nondeterministically reset to 0 or forkStep
 -- * forkVoteBlock && not isForkVoteStart -> forkVotes are non-deterministically monotonicly increasing
@@ -1127,13 +1113,14 @@ newForkState
         -- ^ Adjacent parent headers
     -> ParentHeader
         -- Parent block header
-    -> Bool
-        -- ^ Non-deterministcally selected vote (True = yes, False = no)
+    -> ForkNumber
+        -- ^ Target fork number. Vote "yes" to increase fork number, if the fork
+        -- number of the parent header is less than this value.
     -> ForkState
-newForkState as p vote
+newForkState as p targetFork
     | isLastForkEpochBlock (view parentHeader p) = cur
         -- reset votes and vote
-        & forkVotes .~ (if vote then addVote else id) resetVotes
+        & forkVotes .~ (if vote then addVote resetVotes else resetVotes)
         -- based on current vote count decide whether to increase fork number
         & forkNumber %~ (if decideVotes curVotes then succ else id)
     | isForkVoteBlock (view parentHeader p) = cur
@@ -1143,9 +1130,14 @@ newForkState as p vote
         -- do one vote counting step
         & forkVotes .~ countVotes allParentVotes
   where
+    vote = curNumber < targetFork
     cur = view (parentHeader . blockForkState) p
+    curNumber = view (parentHeader . blockForkNumber) p
     curVotes = view (parentHeader . blockForkVotes ) p
     allParentVotes = view (parentHeader . blockForkVotes) <$> (p : HM.elems as)
+
+genesisForkState :: ForkState
+genesisForkState = ForkState 0
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader
@@ -1196,7 +1188,7 @@ newBlockHeader
     -> BlockHeader
 newBlockHeader adj pay nonce t p@(ParentHeader b) =
     fromLog @ChainwebMerkleHashAlgorithm $ newMerkleLog
-        $ mkFeatureFlags
+        $ newForkState adj p (_blockForkNumber b)
         :+: t
         :+: _blockHash b
         :+: target

@@ -77,7 +77,7 @@ module Chainweb.BlockHeader.Validation
 , prop_block_genesis_parent
 , prop_block_genesis_target
 , prop_block_target
-, prop_block_featureFlags
+, prop_block_forkVotesReset
 
 -- * Inductive BlockHeader Properties
 , prop_block_epoch
@@ -88,6 +88,9 @@ module Chainweb.BlockHeader.Validation
 , prop_block_creationTime
 , prop_block_adjacent_chainIds
 , prop_block_adjacent_parents_version
+, prop_block_forkNumber
+, prop_block_forkVote
+, prop_block_forkVoteCount
 ) where
 
 import Control.Lens
@@ -650,7 +653,6 @@ validateIntrinsic t b = concat
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
     , [ BlockInTheFuture | not (prop_block_current t b)]
-    , [ InvalidFeatureFlags | not (prop_block_featureFlags b)]
     , [ AdjacentChainMismatch | not (prop_block_adjacent_chainIds b) ]
     , [ InvalidForkVotes | not (prop_block_forkVotesReset b) ]
     ]
@@ -723,14 +725,14 @@ prop_block_genesis_target b = isGenesisBlockHeader b
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= view blockCreationTime b
 
-prop_block_featureFlags :: BlockHeader -> Bool
-prop_block_featureFlags b
-    | skipFeatureFlagValidationGuard v cid h = True
-    | otherwise = view blockFlags b == mkFeatureFlags
-  where
-    v = _chainwebVersion b
-    h = view blockHeight b
-    cid = _chainId b
+-- prop_block_featureFlags :: BlockHeader -> Bool
+-- prop_block_featureFlags b
+--     | skipFeatureFlagValidationGuard v cid h = True
+--     | otherwise = view blockFlags b == mkFeatureFlags
+--   where
+--     v = _chainwebVersion b
+--     h = view blockHeight b
+--     cid = _chainId b
 
 -- | Verify that the adjacent hashes of the block are for the correct set of
 -- chain ids.

@@ -36,12 +36,6 @@ module Chainweb.BlockHeader
 , I.decodeEpochStartTime
 , I.epochStart
 
--- * FeatureFlags
-, I.FeatureFlags
-, I.mkFeatureFlags
-, I.encodeFeatureFlags
-, I.decodeFeatureFlags
-
 -- * POW Target
 , I.powTarget
 
@@ -95,6 +89,8 @@ module Chainweb.BlockHeader
 , I.forkEpochLength
 , I.isForkCountBlock
 , I.isForkVoteBlock
+, I.newForkState
+, I.genesisForkState
 
 -- * IsBlockHeader
 , I.IsBlockHeader(..)
@@ -130,7 +126,7 @@ import Chainweb.Payload (BlockPayloadHash)
 import Chainweb.Version (ChainwebVersionCode)
 import Control.Lens (Getter)
 
-blockFlags :: Getter I.BlockHeader I.FeatureFlags
+blockFlags :: Getter I.BlockHeader ForkState
 blockFlags = I.blockFlags
 
 blockCreationTime :: Getter I.BlockHeader BlockCreationTime

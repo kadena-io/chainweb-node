@@ -3,6 +3,10 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.ForkState
@@ -35,6 +39,8 @@ module Chainweb.ForkState
 ) where
 
 import Data.Word
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (Put, Get, putWord64le, getWord64le)
 import Control.DeepSeq (NFData)
@@ -90,8 +96,9 @@ import Numeric.Natural
 -- released that proposes a fork.
 --
 newtype ForkState = ForkState { _forkState :: Word64 }
-    deriving (Eq, Ord, Generic)
+    deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
 
 -- | Little endian encoding of the fork state.
 --
@@ -102,6 +109,11 @@ encodeForkState (ForkState h) = putWord64le h
 --
 decodeForkState :: Get ForkState
 decodeForkState = ForkState <$> getWord64le
+
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ForkState where
+    type Tag ForkState = 'ForkStateTag
+    toMerkleNode = encodeMerkleInputNode encodeForkState
+    fromMerkleNode = decodeMerkleInputNode decodeForkState
 
 -- ---------------------------------------------------------------------------
 -- Fork Number

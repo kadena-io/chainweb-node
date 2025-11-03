@@ -3,7 +3,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -28,6 +27,7 @@ import Data.Bits
 import qualified Data.ByteString as B
 import Data.DoubleWord
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
 import qualified Data.List as L
 import Data.Ratio
@@ -59,6 +59,7 @@ import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
 
 import Numeric.AffineSpace
+import Chainweb.ForkState
 
 -- -------------------------------------------------------------------------- --
 -- Properties
@@ -70,7 +71,8 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     , prop_fail_validate
     , prop_da_validate
     , prop_legacy_da_validate
-    , prop_featureFlag (barebonesTestVersion petersenChainGraph) 10
+    , prop_forkVotesReset (barebonesTestVersion petersenChainGraph) 0
+    , prop_forkVotesReset (barebonesTestVersion petersenChainGraph) (int forkEpochLength)
     , testProperty "validate arbitrary test header" prop_validateArbitrary
     , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
     , testProperty "validate arbitrary test header for testnet04" $ prop_validateArbitrary Testnet04
@@ -83,15 +85,15 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
 -- There is an input for which the rule fails.
 --
 
-prop_featureFlag :: ChainwebVersion -> BlockHeight -> TestTree
-prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <> sshow v) $ do
+prop_forkVotesReset :: ChainwebVersion -> BlockHeight -> TestTree
+prop_forkVotesReset v h = testCase ("Invalid fork votes fail validation for " <> sshow v) $ do
     hdr <- (blockHeight .~ h)
-        . (blockFlags .~ fromJuste (decode "1"))
+        . (blockForkVotes .~ fromJuste (decode "2"))
         . (blockChainwebVersion .~ _versionCode v)
         <$> generate arbitrary
-    let r = prop_block_featureFlags hdr
+    let r = prop_block_forkVotesReset hdr
     assertBool
-        ("feature flag validation succeeded unexpectedly: " <> sshow  hdr)
+        ("fork votes validation succeeded unexpectedly: " <> sshow  hdr)
         (not r)
 
 -- -------------------------------------------------------------------------- --
@@ -239,7 +241,7 @@ validationFailures =
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ _versionCode RecapDevelopment
-      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent, AdjacentChainMismatch, InvalidAdjacentVersion]
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidForkVotes, IncorrectForkNumber, CreatedBeforeParent, AdjacentChainMismatch, InvalidAdjacentVersion, InvalidForkVotes]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
@@ -261,13 +263,13 @@ validationFailures =
       )
     -- NOTE: The magic numbers in the following tests are directly related to
     -- the constant set in `skipFeatureFlagValidationGuard`.
-    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGetS decodeFeatureFlags badFlags)
+    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGetS decodeForkState badFlags)
             & testHeaderHdr . blockHeight .~ 530499
       , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
-    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGetS decodeFeatureFlags badFlags)
+    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGetS decodeForkState badFlags)
             & testHeaderHdr . blockHeight .~ 530500
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags, IncorrectHeight]
+      , [IncorrectHash, IncorrectPow, InvalidForkVotes, IncorrectForkNumber, IncorrectHeight, InvalidForkVotes]
       )
     -- Nr. 20
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
@@ -298,7 +300,7 @@ validationFailures =
     messByteString enc dec f x = fromJuste $ runGetS dec $ f $ runPutS $ enc x
 
     messWords :: (a -> Put) -> Get a -> (Word256 -> Word256) -> a -> a
-    messWords enc dec f x = messByteString enc dec g x
+    messWords enc dec f = messByteString enc dec g
       where
         g bytes = runPutS (encodeWordLe $ f $ fromJuste $ runGetS decodeWordLe bytes)
 
@@ -333,7 +335,7 @@ daValidation =
     -- test epoch transition with incorrect target adjustment
     , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
             & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
-            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr)
+            & h . blockTarget . hashTarget .~ view (p . blockTarget . hashTarget) hdr
             & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
       , IncorrectTarget : expected
       )
@@ -354,12 +356,13 @@ daValidation =
 
     expected = [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
 
+
     -- From mainnet
     hdr = set (h . blockChainwebVersion) (_versionCode RecapDevelopment)
-        $ set (h . blockFlags) mkFeatureFlags
+        $ set (h . blockFlags) (newForkState hdrAdjs (view testHeaderParent hdr') parentFork)
         $ set (h . blockHeight) 600000
         $ set (h . blockEpochStart) (EpochStartTime (hour ^+. epoch))
-        $ set (h . blockTarget) ((view (p . blockTarget) hdr'))
+        $ set (h . blockTarget) (view (p . blockTarget) hdr')
         $ set (h . blockCreationTime) (BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch))
 
         $ set (p . blockChainwebVersion) (_versionCode RecapDevelopment)
@@ -372,6 +375,11 @@ daValidation =
         $ set (a . blockTarget) (view (p . blockTarget) hdr')
         $ set (a . blockEpochStart) (EpochStartTime epoch)
         $ hdr'
+
+    hdrAdjs = HM.fromList
+        $ (\x -> (view (parentHeader . blockChainId) x, x))
+        <$> view testHeaderAdjs hdr'
+    parentFork = view (p . blockForkNumber) hdr'
 
     -- it almost doesn't matter what is used here, because most of it is overwritten above
     --
