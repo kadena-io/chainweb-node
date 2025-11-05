@@ -553,7 +553,7 @@ compactAndResumeTest logLevel v n srcRocksDb targetRocksDb srcPactDir targetPact
     forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
       let srcRdb = srcRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
       let tgtRdb = targetRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
-      Sigma.compactRocksDb (addLabel ("nodeId", sshow nid) logger) v (allChains v) 20 srcRdb tgtRdb
+      Sigma.doCompactRocksDb (addLabel ("nodeId", sshow nid) logger) v (allChains v) 25 srcRdb tgtRdb
 
     logFun "phase 3... restarting nodes and ensuring progress"
     runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 10 targetRocksDb targetPactDir ct
