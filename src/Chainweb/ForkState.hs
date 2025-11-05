@@ -32,10 +32,12 @@ module Chainweb.ForkState
 
 -- * Vote Count Logic
 , forkEpochLength
+, voteStep
 , addVote
 , resetVotes
 , countVotes
 , decideVotes
+, voteCountLength
 ) where
 
 import Data.Word
@@ -169,6 +171,11 @@ forkVotes = lens _forkVotes $ \(ForkState w) v -> ForkState
 forkEpochLength :: Natural
 forkEpochLength = 120 * 120 -- 5 days
 
+-- | The last 120 blocks in a fork epoch are used to count the votes.
+--
+voteCountLength :: Natural
+voteCountLength = 120
+
 voteStep :: ForkVotes
 voteStep = 1000
 
@@ -187,7 +194,7 @@ countVotes :: Traversable t => t ForkVotes -> ForkVotes
 countVotes votes = sum votes `quot` ForkVotes (int $ length votes)
 
 decideVotes :: ForkVotes -> Bool
-decideVotes v = round (v % voteStep) * 3 >= forkEpochLength * 2
+decideVotes v = round (v % voteStep) * 3 >= (forkEpochLength - voteCountLength) * 2
 
 
 -- -------------------------------------------------------------------------- --

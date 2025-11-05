@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
@@ -19,47 +20,41 @@ module Chainweb.Test.BlockHeader.Validation
 ) where
 
 import Control.Exception (throw)
-import Control.Lens hiding ((.=), elements)
-import Control.Monad.Catch
-
-import Data.Aeson
-import Data.Bits
-import qualified Data.ByteString as B
-import Data.DoubleWord
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import Data.List (sort)
-import qualified Data.List as L
-import Data.Ratio
-import qualified Data.Text as T
-
-import Test.QuickCheck
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
-
--- internal modules
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.Difficulty
+import Chainweb.ForkState
 import Chainweb.Graph hiding (AdjacentChainMismatch)
 import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.Utils.TestHeader
 import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils.TestHeader
 import Chainweb.Time
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Testnet04
-
+import Control.Lens hiding ((.=), elements)
+import Control.Monad.Catch
+import Data.Aeson
+import Data.Bits
+import Data.ByteString qualified as B
+import Data.DoubleWord
+import Data.Foldable
+import Data.HashMap.Strict qualified as HM
+import Data.List (sort)
+import Data.List qualified as L
+import Data.Ratio
+import Data.Text qualified as T
 import Numeric.AffineSpace
-import Chainweb.ForkState
+import Test.QuickCheck
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 -- Properties
@@ -69,6 +64,7 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
     , prop_validateTestnet04
     , prop_fail_validate
+    , prop_forkstate_validate
     , prop_da_validate
     , prop_legacy_da_validate
     , prop_forkVotesReset (barebonesTestVersion petersenChainGraph) 0
@@ -147,6 +143,9 @@ prop_validateHeader msg h = testCase msg $ do
 prop_fail_validate :: TestTree
 prop_fail_validate = validate_cases "validate invalid BlockHeaders" validationFailures
 
+prop_forkstate_validate :: TestTree
+prop_forkstate_validate = validate_cases "fork state validation" forkValidation
+
 prop_da_validate :: TestTree
 prop_da_validate = validate_cases "difficulty adjustment validation" daValidation
 
@@ -168,8 +167,17 @@ validate_cases msg testCases = testCase msg $ do
                     $ "Validation of test case " <> sshow i <> " failed with unexpected errors for BlockHeader"
                     <> ", expected: " <> sshow expectedErrs
                     <> ", actual: " <> sshow errs
-                    <> ", header: " <> sshow (view blockHash $ _testHeaderHdr h)
+                    <> ", hash: " <> sshow (view blockHash $ _testHeaderHdr h)
                     <> ", height: " <> sshow (view blockHeight $ _testHeaderHdr h)
+                    <> ", header: " <> T.unpack (encodeToText $ ObjectEncoded $ _testHeaderHdr h)
+                    <> ", epochStart: " <> sshow (view blockEpochStart $ _testHeaderHdr h)
+                    <> ", forkNumber: " <> sshow (view blockForkNumber $ _testHeaderHdr h)
+                    <> ", forkVotes: " <> sshow (view blockForkVotes $ _testHeaderHdr h)
+                    <> ", isForkEpochStart: " <> sshow (isForkEpochStart (_testHeaderHdr h))
+                    <> ", isForkCountBlock: " <> sshow (isForkCountBlock (_testHeaderHdr h))
+                    <> ", parent header: " <> T.unpack (encodeToText $ ObjectEncoded $ view parentHeader $ _testHeaderParent h)
+                    <> ", parent forkNumber: " <> sshow (view blockForkNumber $ view parentHeader $ _testHeaderParent h)
+                    <> ", parent forkVotes: " <> sshow (view blockForkVotes $ view parentHeader $ _testHeaderParent h)
                 | otherwise -> return ()
 
 -- -------------------------------------------------------------------------- --
@@ -305,6 +313,205 @@ validationFailures =
         g bytes = runPutS (encodeWordLe $ f $ fromJuste $ runGetS decodeWordLe bytes)
 
 -- -------------------------------------------------------------------------- --
+-- Fork Validation
+
+
+forkValidation :: [(TestHeader, [ValidationFailureType])]
+forkValidation =
+    -- while skipFeatureFlagValidationGuard is active (validation is trivially
+    -- true)
+    [ ( hdr0 & h . blockForkNumber %~ (+1)
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr0 & h . blockForkVotes %~ addVote
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr0 & h . blockForkVotes %~ (addVote . addVote)
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr0 & h . blockForkVotes %~ (+1)
+      , [IncorrectHash, IncorrectPow]
+      )
+
+    -- after skipFeatureFlagValidationGuard is deactivated
+    , ( hdr & h . blockForkNumber %~ (+1)
+      , [IncorrectHash, IncorrectPow, IncorrectForkNumber]
+      )
+    , ( hdr & h . blockForkVotes %~ addVote
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr & h . blockForkVotes %~ (+1)
+      , [IncorrectHash, IncorrectPow, InvalidForkVotes, InvalidForkVotes]
+      )
+    , ( hdr & h . blockForkVotes %~ (addVote . addVote)
+      , [IncorrectHash, IncorrectPow, InvalidForkVotes, InvalidForkVotes]
+      )
+    , ( hdr
+        & p . blockForkVotes .~ addVote resetVotes
+        & h . blockForkVotes .~ addVote resetVotes
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr
+        & p . blockForkVotes .~ addVote resetVotes
+        & h . blockForkVotes .~ addVote (addVote resetVotes)
+      , [IncorrectHash, IncorrectPow]
+      )
+    -- test 10:
+    , ( hdr
+        & p . blockForkVotes .~ addVote (addVote resetVotes)
+        & h . blockForkVotes .~ resetVotes
+      , [ {- no change to h -} InvalidForkVotes, InvalidForkVotes ]
+      )
+    , ( hdr
+        & p . blockForkVotes .~ addVote (addVote resetVotes)
+        & h . blockForkVotes .~ addVote (addVote resetVotes) - 1
+      , [IncorrectHash, IncorrectPow, InvalidForkVotes, InvalidForkVotes]
+      )
+    , ( hdr
+        & p . blockForkNumber .~ 10
+        & h . blockForkNumber .~ 10
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr
+        & p . blockForkNumber .~ 10
+        & h . blockForkNumber .~ 10 - 1
+      , [IncorrectHash, IncorrectPow, IncorrectForkNumber]
+      )
+
+    -- fork vote count, fork epoch end
+    , ( hdr1
+            & h . blockForkVotes %~ addVote
+      , [ IncorrectHash
+        , IncorrectPow
+        , InvalidForkVotes -- invalid vote count in DAG indicution
+        ]
+      )
+    , ( hdr1
+            & p . blockForkVotes .~ addVote resetVotes
+            & h . blockForkVotes .~ addVote resetVotes
+      , [ IncorrectHash
+        , IncorrectPow
+        , InvalidForkVotes -- invalid vote count in DAG indicution
+        ]
+      )
+    , ( hdr1
+            & p . blockForkVotes .~ addVote resetVotes
+            & a . blockForkVotes .~ addVote resetVotes
+            & h . blockForkVotes .~ addVote resetVotes
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr1
+            & p . blockForkVotes .~ addVote resetVotes
+            & testHeaderAdjs . ix 0 . parentHeader . blockForkVotes .~ addVote resetVotes
+            & h . blockForkVotes .~ addVote resetVotes `quot` 2
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr1
+            & p . blockForkVotes .~ addVote resetVotes
+            & testHeaderAdjs . ix 0 . parentHeader . blockForkVotes .~ addVote resetVotes
+            & testHeaderAdjs . ix 1 . parentHeader . blockForkVotes .~ addVote resetVotes
+            & h . blockForkVotes .~ addVote resetVotes `quot` 2
+      , [ IncorrectHash
+        , IncorrectPow
+        , InvalidForkVotes -- invalid vote count in DAG indicution
+        ]
+      )
+
+    -- check fork vote reset at fork epoch start
+    , ( hdr2
+            & p . blockForkVotes %~ (addVote . addVote)
+            & h . blockForkVotes .~ resetVotes
+      , [{- votes are already zero in hdr1-}]
+      )
+    -- Test 20
+    , ( hdr2
+            & p . blockForkVotes %~ (addVote . addVote)
+            & h . blockForkVotes .~ addVote resetVotes
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr2
+            & p . blockForkVotes %~ (addVote . addVote)
+            & h . blockForkVotes .~ addVote (addVote resetVotes)
+      , [ IncorrectHash
+        , IncorrectPow
+        , InvalidForkVotes -- invalid reset at fork epoch start
+        , InvalidForkVotes -- invalid vote count in linear induction
+        , InvalidForkVotes -- invalid vote count in DAG indicution
+        ]
+      )
+    , ( hdr2
+            & p . blockForkVotes %~ (addVote . addVote)
+            & h . blockForkVotes .~ addVote (addVote (addVote resetVotes))
+      , [ IncorrectHash
+        , IncorrectPow
+        , InvalidForkVotes -- invalid reset at fork epoch start
+        , InvalidForkVotes -- invalid vote count in linear induction
+        , InvalidForkVotes -- invalid vote count in DAG indicution
+        ]
+      )
+
+    -- test correct fork number increment at fork epoch start
+    , ( hdr2
+        & p . blockForkVotes .~ int forkEpochLength * voteStep
+        & h . blockForkVotes .~ resetVotes
+        & h . blockForkNumber .~ view (p . blockForkNumber) hdr2
+      , [IncorrectForkNumber]
+      )
+    , ( hdr2
+        & p . blockForkVotes .~ int forkEpochLength * voteStep
+        & h . blockForkVotes .~ resetVotes
+        & h . blockForkNumber .~ view (p . blockForkNumber) hdr2 + 1
+      , [IncorrectHash, IncorrectPow]
+      )
+    -- Test 25
+    , ( hdr2
+        & p . blockForkVotes .~ (voteLength * 2 `quot` 3 - 1) * voteStep
+        & h . blockForkVotes .~ resetVotes
+        & h . blockForkNumber .~ view (p . blockForkNumber) hdr2
+      , []
+      )
+    , ( hdr2
+        & p . blockForkVotes .~ (voteLength * 2 `quot` 3 - 1) * voteStep
+        & h . blockForkVotes .~ resetVotes
+        & h . blockForkNumber .~ view (p . blockForkNumber) hdr2 + 1
+      , [IncorrectHash, IncorrectPow, IncorrectForkNumber]
+      )
+    , ( hdr2
+        & p . blockForkVotes .~ (voteLength * 2 `quot` 3 + 1) * voteStep
+        & h . blockForkVotes .~ resetVotes
+        & h . blockForkNumber .~ view (p . blockForkNumber) hdr2 + 1
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr2
+        & p . blockForkVotes .~ (voteLength * 2 `quot` 3 + 1) * voteStep
+        & h . blockForkVotes .~ resetVotes
+        & h . blockForkNumber .~ view (p . blockForkNumber) hdr2
+      , [IncorrectForkNumber]
+      )
+    ]
+
+  where
+    h, p :: Lens' TestHeader BlockHeader
+    h = testHeaderHdr
+    p = testHeaderParent . parentHeader
+    a = testHeaderAdjs . each . parentHeader
+
+    -- The number of block heights within an fork epoch where voting happens.
+    -- The remaining blocks are used to count votes.
+    voteLength = int $ forkEpochLength - voteCountLength
+
+    hdr0 = mainnet01Headers !! 21
+
+    -- fork epoch end
+    hdr1 = mainnet01Headers !! 22
+
+    -- fork epoch start
+    hdr2 = mainnet01Headers !! 23
+
+    -- vote block
+    hdr = mainnet01Headers !! 24
+
+-- -------------------------------------------------------------------------- --
 -- DA Validation
 
 daValidation :: [(TestHeader, [ValidationFailureType])]
@@ -355,7 +562,6 @@ daValidation =
     a = testHeaderAdjs . each . parentHeader
 
     expected = [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
-
 
     -- From mainnet
     hdr = set (h . blockChainwebVersion) (_versionCode RecapDevelopment)
@@ -426,10 +632,18 @@ legacyDaValidation =
 -- A representative collection of Mainnet01 Headers pairs
 
 -- | A representative collection of BlockHeader from the existing mainnet01
--- history
+-- history.
+--
+-- The first 20 headers are the genesis headers for mainnet01.
+--
+-- On mainnet the skipFeatureFlagValidationGuard was turned off at height
+-- 530_500.
 --
 mainnet01Headers :: [TestHeader]
 mainnet01Headers = genesisTestHeaders Mainnet01 <>
+
+    -- 20: height 318266, skipFeatureFlagValidationGuard active, features used as
+    -- nonce
     [ testHeader
         [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
         , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
@@ -439,6 +653,8 @@ mainnet01Headers = genesisTestHeaders Mainnet01 <>
             , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
             ]
         ]
+
+    -- 21: height 475492, skipFeatureFlagValidationGuard active, features flags 0
     , testHeader
         [ "parent" .= t "AAAAAAAAAABEtTTKCqMFAEjmr_NPBprFiWD_WhyvMzQCiHGxnE1sYKeKGTOPjvD5AwACAAAAMrWEo-w-oixyUqELYmgOvRU7Z7FTjPzNLJCYXu26OuIDAAAA4c_RjHJ0N4gH6uN3TLpowhFIUGFRUe1celP6BwyFBwAFAAAAF2p4lSHRyyPrQ8GF1akfJM9EfzYSSsx5NI5IHtavNXEYhLsC8eqcLrj_VXvO_p1n4hz5QVR4ul3FpwAAAAAAAPDGI9fJxK4qRkWzcPv64tL1wNu0j76Vws5_oXrHsrPxAAAAAGJcPGAFgqQkBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAx9MnbwqjBQAAybvnn0-KAPLMEAsBh7vLnOh9053meOcuahQ_ezuUWynN1sMwSWqQ"
         , "header" .= t "AAAAAAAAAACnKMTLCqMFAPLMEAsBh7vLnOh9053meOcuahQ_ezuUWynN1sMwSWqQAwACAAAA_5afAofRZMA5Lz_ZG1Y0l6PJFTWueyU_4GbGWGtt_aoDAAAAs4MViuWgDm1nCgvyE5kzgG-_eZhCJupijIoh2z9cy0MFAAAA760lZUnDPEzHB6SKPbfOhFjpNNYDCuUXfxjvO3W4AckYhLsC8eqcLrj_VXvO_p1n4hz5QVR4ul3FpwAAAAAAAEQxBl7xgdFiynPSwT5ZNOcH8fiWKTdX9j09CUDn2irbAAAAAGHDHxemCKYkBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZEEHAAAAAAAFAAAAx9MnbwqjBQAdLDW8JkF8ALVfqYGwKAkKf4NHKGRn1autmwMCCgXM-ZHa2zwgRk3R"
@@ -446,6 +662,50 @@ mainnet01Headers = genesisTestHeaders Mainnet01 <>
             [ t "AAAAAAAAAADjy2TKCqMFABdqeJUh0csj60PBhdWpHyTPRH82EkrMeTSOSB7WrzVxAwAAAAAASOav808GmsWJYP9aHK8zNAKIcbGcTWxgp4oZM4-O8PkGAAAAR8k4YCs8tUNx_xN-6pBWwK6ZsQM4aVqNdChpN59IDoQJAAAAHq0_GIZUoec-dF3DHYqzMyJmaOdGdnaw4FtuQuO2LOvjgZy5BaDXFN80S7hBeqGZ2cWTwRs5c-2BtgAAAAAAAMYc1v2Uw5BO6zQXlJ5l5oGsLo-rGkpweUWRftVgIkeHBQAAAP8ehKwH-DP2AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAuHnmcQqjBQAAfJOEnJ3EAO-tJWVJwzxMxwekij23zoRY6TTWAwrlF38Y7zt1uAHJ"
             , t "AAAAAAAAAABpbsjKCqMFADK1hKPsPqIsclKhC2JoDr0VO2exU4z8zSyQmF7tujriAwAAAAAASOav808GmsWJYP9aHK8zNAKIcbGcTWxgp4oZM4-O8PkEAAAA9wHcfWI2MNTrJuoPxllY3pm7BVa4Zgr8Ojdufj4oLw4HAAAAe1EOiqoneVZjUWfvqItXpXBais2UiUeoqcvc32prVo4q7OJWUH7TcdN9wcJMzNuUmuZtySQqALShowAAAAAAACNm7rsELSjBjDerkGAB1JSp3Ink0NG0t7Wqupyi3cqBAgAAAHjeCa0pNJQ0BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAf6OvbgqjBQAGddYi31ibAP-WnwKH0WTAOS8_2RtWNJejyRU1rnslP-Bmxlhrbf2q"
             , t "AAAAAAAAAABF8PnKCqMFAOHP0YxydDeIB-rjd0y6aMIRSFBhUVHtXHpT-gcMhQcAAwAAAAAASOav808GmsWJYP9aHK8zNAKIcbGcTWxgp4oZM4-O8PkBAAAA5fRcXeTuKnS5Q4DuydXASBIX29tMsytHjEP21Vf2Ah0IAAAAJvJibit6A2QiqrOZmRe9zJRjW7PtmLJ51hDMUh1UyX4MFPyyFPku-007fa_t4ax7z5uSCQnTRLz1pAAAAAAAAHkJOGZlsei0ZFfkYdc0bBM7I39OmrLZlJTegBfLHNSYAwAAAH1mw3DMvaAaBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAhQs5cAqjBQAAKCAqaKcvALODFYrloA5tZwoL8hOZM4Bvv3mYQibqYoyKIds_XMtD"
+            ]
+        ]
+
+    -- 22: height 6321599, vote count block, fork epoch end
+    , testHeader
+        [ "parent" .= t "AAAAAAAAAABslEi7qUIGACj7AZW9Vkte1AgKrjuqRBTRcr3Mvy_FV0YkTSgz0N6zAwAFAAAAXEd0PM6l6XoBtNBTxhTNRsJbLn8L1MJ0e8IcG8h6TvkKAAAAp1YlI2HcbSlssAYZZTxJtIafQV2rSTdbkOzGPX_fRzQPAAAAvL2kzVpBlD2Kdzm9RRUUy5-ZqUTZO-gKiR_E_tFUyb-Mxa3IHfpOHmRmcuwyTdgPkOgvMYYryqVeAAAAAAAAAK229tCQqWjy2oLNSFGbjrcYanCcBmU5vlRDaSp5UwASAAAAAHcmyzVydPF-LFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAvnVgAAAAAAAFAAAAIU3u6KhCBgBEIkGRyb41k0rqtdJ81GDCMMFgxeIwMew9tO3hTljEOCKMNYLw1Vke"
+        , "header" .= t "AAAAAAAAAADkbOK8qUIGAErqtdJ81GDCMMFgxeIwMew9tO3hTljEOCKMNYLw1VkeAwAFAAAAwcy63dPjpUIuDOxd9wo5xVSiZikajymn6a075O5LRn8KAAAAOwAo3wpfLlSGMyTIiHQDPWl66RL3PAl5Ocv7CalKAF0PAAAAzhn6nhsIZedkTXHI2OsdGX2ByWuP6zDH53nbYuhNGgqMxa3IHfpOHmRmcuwyTdgPkOgvMYYryqVeAAAAAAAAADZyExanIQE5DJE9ZB0F4nE0G2J7gY3V74d4QwAK2q_lAAAAAO4ITfE64KWBLFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAv3VgAAAAAAAFAAAAIU3u6KhCBgDWUeflZRYKoD2ha_3IfZl3nhigrGZG5PFKYt5vsGh6TY6bO10cZ6iV"
+        , "adjacents" .=
+            [ t "AAAAAAAAAAATjoy8qUIGAFxHdDzOpel6AbTQU8YUzUbCWy5_C9TCdHvCHBvIek75AwAAAAAAKPsBlb1WS17UCAquO6pEFNFyvcy_L8VXRiRNKDPQ3rMHAAAAtu24rFjWNvDdtSjeitACnjr2mmhbxhmU4VfGZ23d1VMIAAAAMkQooEWfaXJw1liX87P_kXeUuHmbgfJITV66WjnMZO3wbCKrZg5RLzyBTYJuIWukp4y3M4hN19peAAAAAAAAAGHafKXb-s3k5GEQRXNia_38QsY9joXVHh-5W2BUSpXbBQAAAA4Eb5aYPU65K1ICAAAAAAAAAAAAAAAAAAAAAAAAAAAAvnVgAAAAAAAFAAAAY5W_6ahCBgD_bA_L6YjLZ8HMut3T46VCLgzsXfcKOcVUomYpGo8pp-mtO-TuS0Z_"
+            , t "AAAAAAAAAAAzq0W7qUIGAKdWJSNh3G0pbLAGGWU8SbSGn0Fdq0k3W5Dsxj1_30c0AwAAAAAAKPsBlb1WS17UCAquO6pEFNFyvcy_L8VXRiRNKDPQ3rMLAAAAClFapQDLHLRD3aAFqb2V7gzM0h1RmRud-4DpSr4JxkQTAAAAsh5AfwMyDvvAPDQ2jFEkX8ErSUtiFzclBV5XBYY2TyeU8z0Qi5oYmuyx_jEsazhgqZ5QzQNQq_heAAAAAAAAAAR6NoCC_zgY_CcrpVh6wmEIzMfY2h7zkST26Y8sKHY5CgAAAFUY6iybXTKPFFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAvnVgAAAAAAAFAAAAs64d6ahCBgA4piV-WN0XkjsAKN8KXy5UhjMkyIh0Az1peukS9zwJeTnL-wmpSgBd"
+            , t "AAAAAAAAAADz6Sm7qUIGALy9pM1aQZQ9inc5vUUVFMufmalE2TvoCokfxP7RVMm_AwAAAAAAKPsBlb1WS17UCAquO6pEFNFyvcy_L8VXRiRNKDPQ3rMOAAAA_a6mCUpjlh-0u_ylDCgwZRTmoHge5Pt3Bn-8MK36S_cQAAAASLYNLxbMDBGNuSn_afQDcKUdg2N8d96jUxnZZR54HcoEoyymQsM6uk4gnlLMs6s1zUepHIh4685eAAAAAAAAAD5JuLycrXXJGsmc1KpNq-asCPXJQ8KsqYUIse4ZTreLDwAAAN60c_FW7eMGFFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAvnVgAAAAAAAFAAAA-B-U6KhCBgAzMCfK3uQOYs4Z-p4bCGXnZE1xyNjrHRl9gclrj-swx-d522LoTRoK"
+            ]
+        ]
+
+    -- 23: height 6321600, vote block, fork epoch start
+    , testHeader
+        [ "parent" .= t "AAAAAAAAAADkbOK8qUIGAErqtdJ81GDCMMFgxeIwMew9tO3hTljEOCKMNYLw1VkeAwAFAAAAwcy63dPjpUIuDOxd9wo5xVSiZikajymn6a075O5LRn8KAAAAOwAo3wpfLlSGMyTIiHQDPWl66RL3PAl5Ocv7CalKAF0PAAAAzhn6nhsIZedkTXHI2OsdGX2ByWuP6zDH53nbYuhNGgqMxa3IHfpOHmRmcuwyTdgPkOgvMYYryqVeAAAAAAAAADZyExanIQE5DJE9ZB0F4nE0G2J7gY3V74d4QwAK2q_lAAAAAO4ITfE64KWBLFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAv3VgAAAAAAAFAAAAIU3u6KhCBgDWUeflZRYKoD2ha_3IfZl3nhigrGZG5PFKYt5vsGh6TY6bO10cZ6iV"
+        , "header" .= t "AAAAAAAAAAANZku_qUIGAD2ha_3IfZl3nhigrGZG5PFKYt5vsGh6TY6bO10cZ6iVAwAFAAAAcsFm3g5DIqDtQb2mWPOAH_oInypK_Czr_TRCrp-2qS4KAAAAzMnWf0KX3FjRJN_iUaHZx2Yv7gv_UQxsJtOvIBVHpvEPAAAAXBFz4-qe0cj3a5zwYY1aSR2O783dbdfNpHqFcbh-PJ6B05Rjv8-pzEkaEvR-uVo2kh8UrTxnvfZdAAAAAAAAADYR5b0EHyNPZ7PGKPQUx-NoXscUeucl83_6Vs1L99HdAAAAAF8YsrX1VV-ELFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAwHVgAAAAAAAFAAAA5GzivKlCBgB2CSV3HSKdfPtROsut_7VjkhCH-E6QYcEUk1aJsUEC8C8RaG0DBY2_"
+        , "adjacents" .=
+            [ t "AAAAAAAAAABv_k69qUIGAMHMut3T46VCLgzsXfcKOcVUomYpGo8pp-mtO-TuS0Z_AwAAAAAASuq10nzUYMIwwWDF4jAx7D207eFOWMQ4Iow1gvDVWR4HAAAAg0lPrNDq4gGyqneJYv-cptgp-CW3etrxL_NdlVURGrMIAAAA2IuXh5kMcspjp4TvSRdNf5gEwbUYCXNqGImNV3p29nvwbCKrZg5RLzyBTYJuIWukp4y3M4hN19peAAAAAAAAAIo7s6lgENppqdsqxYgvNqgEBIvAVoHmOryceo4xuk-VBQAAAKPSYtIdJgG8K1ICAAAAAAAAAAAAAAAAAAAAAAAAAAAAv3VgAAAAAAAFAAAAY5W_6ahCBgD9Zi-ZXW9KsnLBZt4OQyKg7UG9pljzgB_6CJ8qSvws6_00Qq6ftqku"
+            , t "AAAAAAAAAACJGvO-qUIGADsAKN8KXy5UhjMkyIh0Az1peukS9zwJeTnL-wmpSgBdAwAAAAAASuq10nzUYMIwwWDF4jAx7D207eFOWMQ4Iow1gvDVWR4LAAAAL27uWSy88TsqeJ0ktSsvV6mMIk6e4AsgLL1ABku4XV8TAAAAm_UMpdSy3Ye0Ahk4dvFO7wa_MWiPDH0k7IjcICROMK-U8z0Qi5oYmuyx_jEsazhgqZ5QzQNQq_heAAAAAAAAAMq9Yfa1UfbrtlmJ1_IED4uads9BCDwJI-cqceenaNarCgAAACxwGh0hbeSRFFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAv3VgAAAAAAAFAAAAs64d6ahCBgAMpVdM4gBxeMzJ1n9Cl9xY0STf4lGh2cdmL-4L_1EMbCbTryAVR6bx"
+            , t "AAAAAAAAAADN0se9qUIGAM4Z-p4bCGXnZE1xyNjrHRl9gclrj-swx-d522LoTRoKAwAAAAAASuq10nzUYMIwwWDF4jAx7D207eFOWMQ4Iow1gvDVWR4OAAAAkLFCpU1MfxXYVxNGyxGkoPvL9r76KH0GDqGrPFyV8TcQAAAAekjQVjq4DuPGDcB4X0EKOnP1XUMF-HWD5OPUn-rySwIEoyymQsM6uk4gnlLMs6s1zUepHIh4685eAAAAAAAAAHzCrp7_9mBJVUofOGGkHN09ZM8tdCV8eRzgixtNLsRfDwAAANyRDi28LJcJFFICAAAAAAAAAAAAAAAAAAAAAAAAAAAAv3VgAAAAAAAFAAAA-B-U6KhCBgDPdD2Lc4VTIlwRc-PqntHI92uc8GGNWkkdju_N3W3XzaR6hXG4fjye"
+            ]
+        ]
+
+    -- 24: height 6326122, vote block
+    , testHeader
+        [ "parent" .= t "AAAAAAAAAAChAupjyUIGANiFdvMIWp_ju7l-_R_O-SOpHLGVNTYnbM7HgtZVecCpAwAFAAAATN-wBWveMrd2_NquzbvIufU0EvplxGDw10PU-s-32lYKAAAA46Z3xj6yOvP0Tzg50mQT9NC65sQwiyyOrbG72RjxqIMPAAAAZ2w6RhnbUVf5PCL_d4hy1f-8Xt2-baJ3lVj3ISgwVrRWVIRpxqk3nMbCaAs1N3MiJP4pbsS24FJmAAAAAAAAAKQE1ZBSu-cGZOYycv11Z00VVhINXQAzNwOD_3BHhwmgAAAAADBR1syGVX17WlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaYdgAAAAAAAFAAAAY-dC18hCBgBQJWBZhTZGPkrkjXAZksxOrJJ9_yWsGXmR2-7PLQXj-egE2MGADlVu"
+        , "header" .= t "AAAAAAAAAAAqEbRkyUIGAErkjXAZksxOrJJ9_yWsGXmR2-7PLQXj-egE2MGADlVuAwAFAAAAvY7ZzQ25m2OF1xo_u4PdplvSNAyA7tD23JK80KEQyRoKAAAABG_JSLkgpikZcGUXKrgnra_mH6NtbOKLXAyY1SZtdEgPAAAAJj85k10xzWVEih9kGpvUp1cjxqXCGqbXXbRC4ftSnGlWVIRpxqk3nMbCaAs1N3MiJP4pbsS24FJmAAAAAAAAAFVRDdzh8cwftq1OCLznnEXtAWs23No8ieHfP_K9BS-KAAAAAAmv7Z2hz_19WlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaodgAAAAAAAFAAAAY-dC18hCBgBBIDIJPAHEKE8w1sP7q3j8x2w0NI3FVqqZdKa0DYQL6D3Qmn2M0jGt"
+        , "adjacents" .=
+            [ t "AAAAAAAAAAAwFJhkyUIGAEzfsAVr3jK3dvzars27yLn1NBL6ZcRg8NdD1PrPt9pWAwAAAAAA2IV28whan-O7uX79H875I6kcsZU1NidszseC1lV5wKkHAAAAL-fZuds4DKn039O6ZXTxXffmvDAgmouWwi3idWyJWwAIAAAABGjPCyThBGHt7newXOUaFOVC0KeM0FlXAukb6UQ3pS1h4c2sReizxZqlwtzy1Ke1pHYxpJy_WChmAAAAAAAAAKgz8jols_l9CsAqlNHCxUvHzm6frQfkE9fzyD3gXvb5BQAAAI2N6IFYWcq2WVICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaYdgAAAAAAAFAAAAKz1U18hCBgAlEE8VUX1LIr2O2c0NuZtjhdcaP7uD3aZb0jQMgO7Q9tySvNChEMka"
+            , t "AAAAAAAAAABrauZiyUIGAOOmd8Y-sjrz9E84OdJkE_TQuubEMIssjq2xu9kY8aiDAwAAAAAA2IV28whan-O7uX79H875I6kcsZU1NidszseC1lV5wKkLAAAAP3-Mje9H9iv9FPFxdG2aXRtLmEBe-2mrJi2A4AwJxSkTAAAAzC_KPaKRpTZXuANLM-u6PmH0bnPYpdmn6pG6CmY5GJ_D7ZlqTba36lnJsTsIancoww7-80DB8kVmAAAAAAAAALDIcUfna6BtbTWuF5s2ildbsB3UGLcVWQG2UsJNbs5rCgAAACJ-sl77Nm2NQlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaYdgAAAAAAAFAAAAANBY2MhCBgB4IFWFDr2KnwRvyUi5IKYpGXBlFyq4J62v5h-jbWzii1wMmNUmbXRI"
+            , t "AAAAAAAAAABeGaljyUIGAGdsOkYZ21FX-Twi_3eIctX_vF7dvm2id5VY9yEoMFa0AwAAAAAA2IV28whan-O7uX79H875I6kcsZU1NidszseC1lV5wKkOAAAAXZHxkQPHqwm4tYpBSKtc068oJPydEhjp_kentfvc49sQAAAA7x84Ch3gCLUY7osydZf9mNRzUPgfYITtd_KGZNwwkJA-B1a-ePDkmTuHTUlk5YeNf7clt73uz8BlAAAAAAAAAMnuCE80e-a4v564Ru86UnMFv34tFZVUaeEWJoByKMYMDwAAAPqsyZPVHeUCQlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaYdgAAAAAAAFAAAAagET1shCBgA7KC14h640jCY_OZNdMc1lRIofZBqb1KdXI8alwhqm1120QuH7Upxp"
+            ]
+        ]
+
+    -- 25: height 6326123, vote block
+    , testHeader
+        [ "parent" .= t "AAAAAAAAAAAqEbRkyUIGAErkjXAZksxOrJJ9_yWsGXmR2-7PLQXj-egE2MGADlVuAwAFAAAAvY7ZzQ25m2OF1xo_u4PdplvSNAyA7tD23JK80KEQyRoKAAAABG_JSLkgpikZcGUXKrgnra_mH6NtbOKLXAyY1SZtdEgPAAAAJj85k10xzWVEih9kGpvUp1cjxqXCGqbXXbRC4ftSnGlWVIRpxqk3nMbCaAs1N3MiJP4pbsS24FJmAAAAAAAAAFVRDdzh8cwftq1OCLznnEXtAWs23No8ieHfP_K9BS-KAAAAAAmv7Z2hz_19WlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaodgAAAAAAAFAAAAY-dC18hCBgBBIDIJPAHEKE8w1sP7q3j8x2w0NI3FVqqZdKa0DYQL6D3Qmn2M0jGt"
+        , "header" .= t "AAAAAAAAAAAGZmBnyUIGAE8w1sP7q3j8x2w0NI3FVqqZdKa0DYQL6D3Qmn2M0jGtAwAFAAAAaKJ8NbpwJLO9Y6Fw-BiSUa8FOsx_dQD8v9SW6tOrbHYKAAAATRwvZd-7F-HR4k98kMPncHsrhFMUPD0wH_Pi228v00APAAAAkEh_PW2APnFclf6FmFhS821y4adwnEFosG7L8_5LVYtWVIRpxqk3nMbCaAs1N3MiJP4pbsS24FJmAAAAAAAAAFzn3j7jZsY4kC4qg85hL3J-P-z7ayqopscHc5kmRru2AAAAAOIMBW-8SX6AWlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAa4dgAAAAAAAFAAAAY-dC18hCBgAFdTEo0KuoiKBa9IgIWTpPcM24qflo3ZTkzfJmX1Z-bu1bJ-4Za3XK"
+        , "adjacents" .=
+            [ t "AAAAAAAAAACz7Y9lyUIGAL2O2c0NuZtjhdcaP7uD3aZb0jQMgO7Q9tySvNChEMkaAwAAAAAASuSNcBmSzE6skn3_JawZeZHb7s8tBeP56ATYwYAOVW4HAAAAFdKo9zn5ql2pN5O3tZp0JWpbktfy6zojur-Q6VVCIvkIAAAA1TsrO72AI8U4TPjaQim713Qet9x8Rb8rqboJq3Gv0qlh4c2sReizxZqlwtzy1Ke1pHYxpJy_WChmAAAAAAAAAE97E83uN_ixiRiwt_E9Sj6yYbNLsxOHV3TbFfIR_zyPBQAAAPYf9WgZ3ku5WVICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaodgAAAAAAAFAAAAKz1U18hCBgA7KAlhBSHqRGiifDW6cCSzvWOhcPgYklGvBTrMf3UA_L_UlurTq2x2"
+            , t "AAAAAAAAAAA4u3BlyUIGAARvyUi5IKYpGXBlFyq4J62v5h-jbWzii1wMmNUmbXRIAwAAAAAASuSNcBmSzE6skn3_JawZeZHb7s8tBeP56ATYwYAOVW4LAAAAmb8fwIXBTIazxlpIQFPytsVehpp84GRQOgj8PjlvGi8TAAAAZ70hnqbhX8hft05VvQV9N8iEYmnbriBrcefeQiHDkM3D7ZlqTba36lnJsTsIancoww7-80DB8kVmAAAAAAAAAO4MEV4v6lPPzg1h1TF7Nmd69n2o1GhpF5x8I89dmPZoCgAAABUhL4IOAu6PQlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaodgAAAAAAAFAAAAANBY2MhCBgDONC-15wdGgE0cL2Xfuxfh0eJPfJDD53B7K4RTFDw9MB_z4ttvL9NA"
+            , t "AAAAAAAAAACBN_tkyUIGACY_OZNdMc1lRIofZBqb1KdXI8alwhqm1120QuH7UpxpAwAAAAAASuSNcBmSzE6skn3_JawZeZHb7s8tBeP56ATYwYAOVW4OAAAAfoLIDaWE5pbRBv9Y287JswmhksqwsJGs5a_KVWsVOpwQAAAAp62_wP5swyl6EVw_AUP3B6uf5dQ0ToiShK68bRlRI-Y-B1a-ePDkmTuHTUlk5YeNf7clt73uz8BlAAAAAAAAAIxiIpzB44QiabdOzLONhTENWBpFv3jmfnMy4VWIRrm_DwAAACF9xC1WL2kFQlICAAAAAAAAAAAAAAAAAAAAAAAAAAAAaodgAAAAAAAFAAAAagET1shCBgBIzBJfaqYQR5BIfz1tgD5xXJX-hZhYUvNtcuGncJxBaLBuy_P-S1WL"
             ]
         ]
     ]

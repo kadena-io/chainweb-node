@@ -1094,7 +1094,7 @@ isLastForkEpochBlock hdr =
 --
 isForkVoteBlock :: BlockHeader -> Bool
 isForkVoteBlock hdr =
-    rem (int $ view blockHeight hdr) forkEpochLength < (forkEpochLength - 120)
+    rem (int $ view blockHeight hdr) forkEpochLength < (forkEpochLength - voteCountLength)
 
 -- | Returns whether a block is at a height at which vote couting occurs.
 --
