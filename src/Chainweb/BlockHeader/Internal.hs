@@ -1163,8 +1163,9 @@ instance IsBlockHeader BlockHeader where
 -- * the weight,
 -- * the block height,
 -- * the version,
--- * the chain id, and
--- * the epoch start time
+-- * the chain id,
+-- * the epoch start time, and
+-- * the fork state
 --
 -- are valid with respect to the given parent header and adjacent parent
 -- headers.
@@ -1188,7 +1189,7 @@ newBlockHeader
     -> BlockHeader
 newBlockHeader adj pay nonce t p@(ParentHeader b) =
     fromLog @ChainwebMerkleHashAlgorithm $ newMerkleLog
-        $ newForkState adj p (_blockForkNumber b)
+        $ newForkState adj p (_versionForkNumber v)
         :+: t
         :+: _blockHash b
         :+: target
