@@ -80,7 +80,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Control.Monad.Cont
 import Data.Void (Void)
-import Data.Foldable (toList)
+import Data.Foldable
 import Data.Functor ((<&>))
 import Data.Ord
 import Control.Concurrent

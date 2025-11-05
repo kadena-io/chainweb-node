@@ -1,3 +1,33 @@
+## 2.23.2 (2025-10-22)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Limit sizes of response bodies coming from peers [`a07cc75`](https://github.com/kadena-io/chainweb-node/commit/a07cc756167340b2ee6362d42da21a5a64b83070)
+- Add more logging to the mempool [`f864fa1`](https://github.com/kadena-io/chainweb-node/commit/f864fa1a8af4c3d6a55a5b52f142afd91c2ddf9f)
+
+## 2.31.1 (2025-10-09)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Properly update service date in mainnet and testnet. [`0abf6e3`](https://github.com/kadena-io/chainweb-node/commit/0abf6e3df6f8c02ff084a4f07cf6f8f09e5d64e4)
+
+## 2.31 (2025-10-06)
+This is a major version update. This release replaces all previous versions.
+
+Any prior version will stop working on **2025-10-15T00:00:00Z**. Node administrators must
+upgrade to this version before that date. The 2.31 feature upgrade will
+occur at block height 6269344 which is estimated to be mined at **2025-10-16T00-00-00Z**.
+
+### Changes
+- Upgrade to Pact 5.4 [`937b13a`](https://github.com/kadena-io/chainweb-node/commit/937b13ae8b9624df03b8f850baab3bbfaf35a598)
+- SPV Proof roots now expire after 20,000 blocks. [`138578c`](https://github.com/kadena-io/chainweb-node/commit/138578cf9a40b0593ee15fb2adc74500991eafd6)
+
 ## 2.30 (2025-07-07)
 This is a major version update. This release replaces all previous versions.
 

@@ -255,6 +255,7 @@ chainwebPactBlockDb env = ChainwebPactDb
                     runOnBlockGassed env stateVar doRollback
                 }
         let currentHeight = _blockHandlerBlockHeight env
+        -- TODO: support minimumBlockHeaderHistory
         let headerOracle = HeaderOracle
                 { chain = _chainId env
                 , consult = \(Parent hsh) -> do

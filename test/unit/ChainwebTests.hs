@@ -39,6 +39,7 @@ import Chainweb.Test.Misc qualified (tests)
 import Chainweb.Test.Pact.BlockHistoryMigrationTest qualified (tests)
 import Chainweb.Test.Pact.CheckpointerTest qualified
 import Chainweb.Test.Pact.HyperlanePluginTests qualified
+import Chainweb.Test.Pact.SignedListPluginTests qualified
 import Chainweb.Test.Pact.PactServiceTest qualified
 import Chainweb.Test.Pact.RemotePactTest qualified
 import Chainweb.Test.Pact.TransactionExecTest qualified
@@ -48,6 +49,7 @@ import Chainweb.Test.Pact4.RewardsTest qualified
 import Chainweb.Test.Pact4.SQLite qualified
 import Chainweb.Test.Pact4.TransactionTests qualified
 import Chainweb.Test.Pact4.VerifierPluginTest qualified
+import Chainweb.Test.ResponseSizeLimiter qualified
 import Chainweb.Test.RestAPI qualified (tests)
 import Chainweb.Test.Roundtrips qualified (tests)
 import Chainweb.Test.Sync.WebBlockHeaderStore qualified (properties)
@@ -109,6 +111,7 @@ suite rdb =
         -- , Chainweb.Test.Pact.SPVTest.tests rdb
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         , Chainweb.Test.Pact.HyperlanePluginTests.tests rdb
+        , Chainweb.Test.Pact.SignedListPluginTests.tests rdb
         , Chainweb.Test.Pact.TransactionTests.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb
@@ -142,6 +145,7 @@ suite rdb =
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
+        , Chainweb.Test.ResponseSizeLimiter.tests
         ]
     , testGroup "Chainweb Payload Provider Unit Tests"
         [ Test.Chainweb.SPV.Argument.tests

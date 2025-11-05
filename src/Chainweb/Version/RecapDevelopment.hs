@@ -80,6 +80,7 @@ recapDevnet = withVersion recapDevnet ChainwebVersion
         Chainweb230Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 30
         Chainweb231Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 35
         HashedAdjacentRecord -> onAllChains $ ForkAtBlockHeight $ BlockHeight 40
+        Chainweb232Pact -> onAllChains $ ForkAtBlockHeight $ BlockHeight 45
     , _versionUpgrades = foldr (chainZip HM.union) (onAllChains mempty)
         [ indexByForkHeights
             [ (CoinV2, onChains [(unsafeChainId i, pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
@@ -129,6 +130,7 @@ recapDevnet = withVersion recapDevnet ChainwebVersion
         }
 
     , _versionMaxBlockGasLimit = Bottom (minBound, Just 180_000)
+    , _versionMinimumBlockHeaderHistory = Bottom (minBound, Nothing)
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = True
@@ -139,7 +141,7 @@ recapDevnet = withVersion recapDevnet ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = onAllChains $
-        (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
+        (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow", "signed_list"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing

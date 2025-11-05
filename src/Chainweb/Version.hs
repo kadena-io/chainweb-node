@@ -70,6 +70,7 @@ module Chainweb.Version
     , versionGraphs
     , versionHeaderBaseSizeBytes
     , versionMaxBlockGasLimit
+    , versionMinimumBlockHeaderHistory
     , versionName
     , versionWindow
     , versionGenesis
@@ -234,6 +235,7 @@ data Fork
     | HashedAdjacentRecord
     | Chainweb230Pact
     | Chainweb231Pact
+    | Chainweb232Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -276,6 +278,7 @@ instance HasTextRepresentation Fork where
     toText HashedAdjacentRecord = "hashedAdjacentRecord"
     toText Chainweb230Pact = "chainweb230Pact"
     toText Chainweb231Pact = "chainweb231Pact"
+    toText Chainweb232Pact = "chainweb232Pact"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -314,6 +317,7 @@ instance HasTextRepresentation Fork where
     fromText "hashedAdjacentRecord" = return HashedAdjacentRecord
     fromText "chainweb230Pact" = return Chainweb230Pact
     fromText "chainweb231Pact" = return Chainweb231Pact
+    fromText "chainweb232Pact" = return Chainweb232Pact
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
@@ -502,6 +506,9 @@ data ChainwebVersion
         -- use 'headerSizeBytes'.
     , _versionMaxBlockGasLimit :: Rule BlockHeight (Maybe Natural)
         -- ^ The maximum gas limit for an entire block.
+    , _versionMinimumBlockHeaderHistory :: Rule BlockHeight (Maybe Word64)
+        -- ^ The minimum number of block headers a chainweb node should
+        -- retain in its history at all times.
     , _versionBootstraps :: [PeerInfo]
         -- ^ The locations of the bootstrap peers.
     , _versionGenesis :: VersionGenesis

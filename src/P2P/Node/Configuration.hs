@@ -32,6 +32,7 @@ module P2P.Node.Configuration
 , defaultP2pConfiguration
 , validateP2pConfiguration
 , pP2pConfiguration
+, p2pRequestSizeLimit
 ) where
 
 import Configuration.Utils
@@ -41,6 +42,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Writer
+import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -103,6 +105,13 @@ data P2pConfiguration = P2pConfiguration
         -- this will likely cause significant performance degradation.
     }
     deriving (Show, Eq, Generic)
+
+-- | Despite the name, this is only a limit for the request _body_ size.
+-- This is *not* configurable on a per-node basis, because nodes with a
+-- different limit may become effectively partitioned from one another in the
+-- network.
+p2pRequestSizeLimit :: Word64
+p2pRequestSizeLimit = 2 * 1024 * 1024 -- 2 MB
 
 makeLenses ''P2pConfiguration
 

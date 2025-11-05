@@ -52,9 +52,11 @@ module Chainweb.Version.Guards
     , chainweb229Pact
     , chainweb230Pact
     , chainweb231Pact
+    , chainweb232Pact
     , pact5
     , pact44NewTrans
     , maxBlockGasLimit
+    , minimumBlockHeaderHistory
     , validPPKSchemes
     , validKeyFormats
     , isWebAuthnPrefixLegal
@@ -71,10 +73,11 @@ module Chainweb.Version.Guards
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import qualified Chainweb.Pact4.Transaction as Pact4
+import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import Control.Lens
+import Data.Word (Word64)
 import Numeric.Natural
 import Pact.Core.Builtin qualified as Pact
 import Pact.Core.Info qualified as Pact
@@ -286,6 +289,18 @@ chainweb230Pact = checkFork atOrAfter Chainweb230Pact
 chainweb231Pact :: HasVersion => ChainId -> BlockHeight -> Bool
 chainweb231Pact = checkFork atOrAfter Chainweb231Pact
 
+chainweb232Pact :: HasVersion => ChainId -> BlockHeight -> Bool
+chainweb232Pact = checkFork atOrAfter Chainweb232Pact
+
+pact4ParserVersion :: HasVersion => ChainId -> BlockHeight -> Pact4.PactParserVersion
+pact4ParserVersion cid bh
+    | chainweb213Pact cid bh = Pact4.PactParserChainweb213
+    | otherwise = Pact4.PactParserGenesis
+
+minimumBlockHeaderHistory :: HasVersion => BlockHeight -> Maybe Word64
+minimumBlockHeaderHistory bh = snd $ ruleZipperHere $ snd
+    $ ruleSeek (\h _ -> bh >= h) (_versionMinimumBlockHeaderHistory implicitVersion)
+
 pact5Serialiser :: HasVersion => ChainId -> BlockHeight -> Pact.PactSerialise Pact.CoreBuiltin Pact.LineInfo
 pact5Serialiser cid bh
     | chainweb228Pact cid bh = Pact.serialisePact_lineinfo_pact51
@@ -316,8 +331,3 @@ isWebAuthnPrefixLegal :: HasVersion => ChainId -> BlockHeight -> Pact4.IsWebAuth
 isWebAuthnPrefixLegal cid bh
     | chainweb222Pact cid bh = Pact4.WebAuthnPrefixLegal
     | otherwise = Pact4.WebAuthnPrefixIllegal
-
-pact4ParserVersion :: HasVersion => ChainId -> BlockHeight -> Pact4.PactParserVersion
-pact4ParserVersion cid bh
-    | chainweb213Pact cid bh = Pact4.PactParserChainweb213
-    | otherwise = Pact4.PactParserGenesis
