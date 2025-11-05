@@ -771,7 +771,7 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
         
         Just minBlockHeaderHistory -> do
           let runBack =
-                let x = int latestHeader
+                let x = int minBlockHeight
                     y = minBlockHeaderHistory
                 in if x >= y then x - y else 0
           iterSeek it $ RankedBlockHash (BlockHeight runBack) nullBlockHash
