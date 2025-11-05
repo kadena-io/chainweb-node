@@ -364,7 +364,6 @@ jobs:
         cabal build -j2 --ghc-options=-j2 \
           chainweb:bench:bench \
           exe:b64 \
-          exe:calculate-release \
           exe:compact \
           exe:db-checksum \
           exe:ea \
@@ -403,7 +402,6 @@ jobs:
         mkdir -p artifacts/chainweb
         cp $(cabal list-bin b64) artifacts/chainweb
         cp $(cabal list-bin bench) artifacts/chainweb
-        cp $(cabal list-bin calculate-release) artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
         cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
         cp $(cabal list-bin chainweb-tests) artifacts/chainweb
