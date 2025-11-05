@@ -223,7 +223,7 @@ mainnet = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $
-        (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        (4_577_530, Set.fromList [VerifierName "hyperlane_v3_message"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = onChains
@@ -232,4 +232,5 @@ mainnet = ChainwebVersion
             ]
         }
     , _versionServiceDate = Just "2026-01-07T00:00:00Z"
+    , _versionForkNumber = 0
     }
