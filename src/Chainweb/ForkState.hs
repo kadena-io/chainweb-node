@@ -176,6 +176,8 @@ forkEpochLength = 120 * 120 -- 5 days
 voteCountLength :: Natural
 voteCountLength = 120
 
+-- | The vote count is quantized into 1000 levels.
+--
 voteStep :: ForkVotes
 voteStep = 1000
 
