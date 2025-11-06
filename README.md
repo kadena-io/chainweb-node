@@ -46,6 +46,13 @@ Minimal recommended hardware requirements for nodes are:
 
 If the node is also used as API server for Pact, mining, or chainweb-data: 4 CPU cores and 8GB of RAM.
 
+
+### Node Data Snapshot (Bootstrap) Data 
+
+Some third-party community members and projects offer downloadable node data snapshots (bootstrap data) free of charge. Kadena's official snapshot data archive is a paid service available through Amazon S3. This data is a copy of the blockchain available to kickstart a node. Kadena is not able to attest to the integrity of any of these projects; however, you may use them if you choose.
+
+- https://chainweb-data.kda.kaddex.xyz/ (Blockchain snapshot updated every four (4) hours and retained for at least forty (40) hours.
+
 ### Docker (all batteries included)
 
 A docker image is available from
@@ -191,8 +198,6 @@ request that adds your node to [P2P.BootstrapNodes module](src/P2P/BootstrapNode
 
 ### Current Mainnet Bootstrap Nodes
 
-All bootstrap nodes are running on port 443.
-
 - us-e1.chainweb.com
 - us-e2.chainweb.com
 - us-e3.chainweb.com
@@ -205,6 +210,13 @@ All bootstrap nodes are running on port 443.
 - fr1.chainweb.com
 - fr2.chainweb.com
 - fr3.chainweb.com
+- 1.sea.us.node.kda.kaddex.xyz:8443
+- 1.dal.us.node.kda.kaddex.xyz:8443
+- 1.hel.fi.node.kda.kaddex.xyz:8443
+- 2.hel.fi.node.kda.kaddex.xyz:8443
+- 1.fsn.de.node.kda.kaddex.xyz:8443
+- 2.fsn.de.node.kda.kaddex.xyz:8443
+- 1.syd.au.node.kda.kaddex.xyz:8443
 
 ## Configuring, running, and monitoring the health of a Chainweb Node
 
