@@ -166,6 +166,7 @@ import P2P.Test.Orphans ()
 import System.Logger.Types
 
 import Utils.Logging
+import Chainweb.ForkState
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -327,8 +328,8 @@ instance Arbitrary BlockCreationTime where
 instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
 
-instance Arbitrary FeatureFlags where
-    arbitrary = return mkFeatureFlags
+instance Arbitrary ForkState where
+    arbitrary = ForkState <$> arbitrary
 
 instance Arbitrary BlockHeader where
     arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
@@ -849,7 +850,7 @@ instance Arbitrary MiningConfig where
 arbitraryEventPactValue :: Gen PactValue
 arbitraryEventPactValue = oneof
     [ PLiteral . LString <$> arbitrary
-    , PLiteral . LInteger <$> (int256ToInteger <$> arbitrary)
+    , PLiteral . LInteger . int256ToInteger <$> arbitrary
     ]
 
 -- | Arbitrary Pact events that are supported in events proofs

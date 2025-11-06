@@ -500,13 +500,16 @@ trunk g h = do
 
 -- | Generate some new `BlockHeader` based on a parent.
 --
+-- Adjacent headers are ignored, which means that the resultting header is
+-- valid only in a singleton Chainweb.
+--
 header :: BlockHeader -> Gen BlockHeader
 header p = do
     nonce <- Nonce <$> chooseAny
     return
         . fromLog @ChainwebMerkleHashAlgorithm
         . newMerkleLog
-        $ mkFeatureFlags
+        $ newForkState mempty (ParentHeader p) (view blockForkNumber p)
             :+: t'
             :+: view blockHash p
             :+: target
@@ -527,7 +530,7 @@ header p = do
 -- | get arbitrary value for seed.
 -- > getArbitrary @BlockHash 0
 getArbitrary :: Arbitrary a => Int -> a
-getArbitrary seed = unGen arbitrary (mkQCGen 0) seed
+getArbitrary = unGen arbitrary (mkQCGen 0)
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -701,7 +704,7 @@ withChainwebTestServer shouldValidateSpec tls v app =
             let
                 settings =
                     W.setBeforeMainLoop (putMVar readyVar ()) $
-                    W.setOnExceptionResponse verboseOnExceptionResponse $
+                    W.setOnExceptionResponse verboseOnExceptionResponse
                     W.defaultSettings
             if
                 | tls -> do

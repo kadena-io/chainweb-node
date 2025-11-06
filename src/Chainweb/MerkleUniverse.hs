@@ -90,7 +90,7 @@ data ChainwebHashTag
     | MinerDataTag
     | CoinbaseOutputTag
     | EpochStartTimeTag
-    | FeatureFlagsTag
+    | ForkStateTag
 
     -- Event Proofs
     | OutputEventsTag
@@ -106,7 +106,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'BlockHeightTag = 0x0003
     type MerkleTagVal ChainwebHashTag 'BlockWeightTag = 0x0004
     type MerkleTagVal ChainwebHashTag 'BlockPayloadHashTag = 0x0005
-    type MerkleTagVal ChainwebHashTag 'FeatureFlagsTag = 0x0006
+    type MerkleTagVal ChainwebHashTag 'ForkStateTag = 0x0006
     type MerkleTagVal ChainwebHashTag 'BlockCreationTimeTag = 0x0007
     type MerkleTagVal ChainwebHashTag 'ChainwebVersionTag = 0x0008
     type MerkleTagVal ChainwebHashTag 'PowHashTag = 0x0009

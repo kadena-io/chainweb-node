@@ -636,6 +636,7 @@ test
     :: LogLevel
     -> ChainwebVersion
     -> Natural
+        -- ^ number of nodes
     -> Seconds
     -> RocksDb
     -> FilePath

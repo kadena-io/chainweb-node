@@ -1,3 +1,4 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -66,7 +67,7 @@ module Ea.Genesis
 import Control.Lens
 import Control.Monad
 
-import Data.Text
+import Data.Text qualified as T
 import Data.Word
 
 import Chainweb.Graph
@@ -76,7 +77,6 @@ import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
-
 
 -- ---------------------------------------------------------------------- --
 -- Genesis Tx Data
@@ -108,7 +108,7 @@ chainIdRangeTag (ChainIdRange l u)
 data Genesis = Genesis
     { _version :: ChainwebVersion
       -- ^ chainweb version (e.g. Testnet04)
-    , _tag :: Text
+    , _tag :: T.Text
       -- ^ Module name tag
     , _txChainIds :: ChainIdRange
       -- ^ chain id

@@ -194,6 +194,7 @@ library
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
         , Chainweb.Difficulty
+        , Chainweb.ForkState
         , Chainweb.Graph
         , Chainweb.HostAddress
         , Chainweb.Logger
