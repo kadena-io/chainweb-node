@@ -520,12 +520,13 @@ jobs:
 
   multi-node-network-tests:
     # disabled for now on the evm branches. 10 nodes with 100 chains probably overwhelms the runners.
-    if: false
+    if: true
     name: Multi-node network tests
     needs: [config, build]
     runs-on: ${{ matrix.os }}
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      CHAINWEB_MULTINODE_TESTS_NODE_COUNT: 2
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
