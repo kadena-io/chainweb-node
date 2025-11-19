@@ -763,10 +763,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.8.2"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "true"
-        - ghc: "9.10.1"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "false"
     env:
