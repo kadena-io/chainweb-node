@@ -589,6 +589,7 @@ jobs:
   # Validate Devnet Database and Replay Pact History
 
   validate-devnet-database:
+    if: false # disabled because development db artifact is missing
     name: Validate Devnet Database Snapshot and Replay Pact History
     needs: [config, sync-chain-db, build]
     strategy:
