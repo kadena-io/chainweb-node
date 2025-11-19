@@ -77,6 +77,7 @@ module Chainweb.BlockHeader
 , I.decodeBlockHeaderCheckedChainId
 , I.blockHeaderShortDescription
 , I.ObjectEncoded(..)
+, I.ExtendedObjectEncoded(..)
 
 , I.timeBetween
 , I.getAdjacentHash

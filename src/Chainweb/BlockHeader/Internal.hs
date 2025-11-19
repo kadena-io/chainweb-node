@@ -104,6 +104,7 @@ module Chainweb.BlockHeader.Internal
 , decodeBlockHeaderCheckedChainId
 , blockHeaderShortDescription
 , ObjectEncoded(..)
+, ExtendedObjectEncoded(..)
 
 , timeBetween
 , getAdjacentHash
@@ -1012,6 +1013,10 @@ newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving (Show, Generic)
     deriving newtype (Eq, Ord, Hashable, NFData)
 
+newtype ExtendedObjectEncoded a = ExtendedObjectEncoded { _extendedObjectEncoded :: a }
+    deriving (Show, Generic)
+    deriving newtype (Eq, Ord, Hashable, NFData)
+
 blockHeaderProperties
     :: KeyValue e kv
     => ObjectEncoded BlockHeader
@@ -1032,6 +1037,18 @@ blockHeaderProperties (ObjectEncoded b) =
     , "hash" .= _blockHash b
     ]
 {-# INLINE blockHeaderProperties #-}
+
+extendedBlockHeaderProperties
+    :: KeyValue e kv
+    => ExtendedObjectEncoded BlockHeader
+    -> [kv]
+extendedBlockHeaderProperties (ExtendedObjectEncoded b) =
+    blockHeaderProperties (ObjectEncoded b) <>
+    [ "powHash" .= _blockPow b
+    , "forkNumber" .= _blockForkNumber b
+    , "forkVotes" .= _blockForkVotes b
+    ]
+{-# INLINE extendedBlockHeaderProperties #-}
 
 instance ToJSON (ObjectEncoded BlockHeader) where
     toJSON = object . blockHeaderProperties
@@ -1061,6 +1078,12 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     parseJSON = withObject "BlockHeader"
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
+
+instance ToJSON (ExtendedObjectEncoded BlockHeader) where
+    toJSON = object . extendedBlockHeaderProperties
+    toEncoding = pairs . mconcat . extendedBlockHeaderProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 -- -------------------------------------------------------------------------- --
 -- Fork State
