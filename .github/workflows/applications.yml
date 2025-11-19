@@ -135,7 +135,7 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
 
-          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "ghc": ["9.8.2", "9.10.1"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
@@ -154,7 +154,7 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "ghc": ["9.8.2", "9.10.1"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
