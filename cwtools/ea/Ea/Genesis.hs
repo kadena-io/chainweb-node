@@ -66,7 +66,7 @@ module Ea.Genesis
 import Control.Lens
 import Control.Monad
 
-import Data.Text
+import qualified Data.Text as T
 import Data.Word
 
 import Chainweb.Graph
@@ -108,7 +108,7 @@ chainIdRangeTag (ChainIdRange l u)
 data Genesis = Genesis
     { _version :: ChainwebVersion
       -- ^ chainweb version (e.g. Testnet04)
-    , _tag :: Text
+    , _tag :: T.Text
       -- ^ Module name tag
     , _txChainIds :: ChainIdRange
       -- ^ chain id

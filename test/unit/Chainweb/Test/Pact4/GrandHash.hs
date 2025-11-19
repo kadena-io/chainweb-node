@@ -27,7 +27,7 @@ import Data.ByteString qualified as BS
 import Data.Bytes qualified as Bytes
 import Data.Bytes.Parser (Parser)
 import Data.Bytes.Parser qualified as Smith
-import Data.Bytes.Parser.Ascii qualified as Smith
+import Data.Bytes.Parser.Ascii qualified as SmithA
 import Data.Bytes.Parser.LittleEndian qualified as SmithLE
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -159,14 +159,14 @@ parseRowHashInput b = Smith.parseBytesEither parser (Bytes.fromByteString b)
   where
     parser :: Parser Text s PactRow
     parser = do
-      _ <- Smith.char "rowkey tag" 'K'
+      _ <- SmithA.char "rowkey tag" 'K'
       rkLen <- SmithLE.word64 "rowkey len"
       rk <- Smith.take "rowkey" (fromIntegral @Word64 @Int rkLen)
 
-      _ <- Smith.char "txid tag" 'I'
+      _ <- SmithA.char "txid tag" 'I'
       txid <- SmithLE.word64 "txid"
 
-      _ <- Smith.char "rowdata tag" 'D'
+      _ <- SmithA.char "rowdata tag" 'D'
       rdLen <- SmithLE.word64 "rowdata len"
       rd <- Smith.take "rowdata" (fromIntegral @Word64 @Int rdLen)
 
@@ -181,7 +181,7 @@ parseTableHashInput b = Smith.parseBytesEither parser (Bytes.fromByteString b)
   where
     parser :: Parser Text s (Word64, ByteString)
     parser = do
-      _ <- Smith.char "tablename tag" 'T'
+      _ <- SmithA.char "tablename tag" 'T'
       len <- SmithLE.word64 "tablename len"
       tablename <- Smith.take "tablename" (fromIntegral @Word64 @Int len)
       pure (len, Bytes.toByteString tablename)

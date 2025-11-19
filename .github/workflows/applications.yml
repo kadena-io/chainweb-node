@@ -135,14 +135,14 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
 
-          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "ghc": ["9.8.2", "9.10.2"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
               # These are the build values that will be used for release scripts
-              "ghc": "9.8.2",
+              "ghc": "9.10.2",
               "cabal": "latest",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
@@ -154,14 +154,14 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.7", "9.8.2", "9.10.1"],
+          "ghc": ["9.8.2", "9.10.2"],
           "cabal": ["latest"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
-              "ghc": "9.8.2",
-              "cabal": "3.12",
+              "ghc": "9.10.2",
+              "cabal": "3.14",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
             }
@@ -589,6 +589,7 @@ jobs:
   # Validate Devnet Database and Replay Pact History
 
   validate-devnet-database:
+    if: false # disabled because development db artifact is missing
     name: Validate Devnet Database Snapshot and Replay Pact History
     needs: [config, sync-chain-db, build]
     strategy:
@@ -763,10 +764,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.8.2"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "true"
-        - ghc: "9.10.1"
+        - ghc: "9.10.2"
           os: "ubuntu-22.04"
           use-freeze-file: "false"
     env:
