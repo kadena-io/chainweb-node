@@ -15,6 +15,8 @@
   , PackageImports
   , ScopedTypeVariables
   , TypeApplications
+  , RecordWildCards
+  , ApplicativeDo
 #-}
 
 module Chainweb.Pact.Backend.Compaction
@@ -23,8 +25,8 @@ module Chainweb.Pact.Backend.Compaction
     main
 
   -- * Exported for testing
-  , compactPactState
-  , compactRocksDb
+  , doCompactPactState
+  , doCompactRocksDb
   , Retainment(..)
   , defaultRetainment
 
@@ -147,23 +149,24 @@ data Config = Config
   , toDir :: FilePath
   , concurrent :: ConcurrentChains
   , logDir :: FilePath
-  , noRocksDb :: Bool
-    -- ^ Don't produce a new RocksDB at all.
-  , noPactState :: Bool
-    -- ^ Don't produce a new Pact State at all.
-  , keepFullTransactionIndex :: Bool
-    -- ^ Whether or not to keep the entire TransactionIndex table. Some APIs rely on this table.
+  , compactRocksDb :: Bool
+    -- ^ Compact the RocksDB at all?
+  , compactPactState :: Bool
+    -- ^ Compact the Pact State at all?
+  , compactTransactionIndex :: Bool
+    -- ^ Compact the TransactionIndex table in the Pact state?
+    -- Some APIs (e.g. /poll) rely on this table, so the default is False.
   }
 
 data Retainment = Retainment
-  { keepFullTransactionIndex :: Bool
+  { compactTransactionIndex :: Bool
   , compactThese :: CompactThese
   }
 
 defaultRetainment :: Retainment
 defaultRetainment = Retainment
-  { keepFullTransactionIndex = False
-  , compactThese = CompactBoth
+  { compactTransactionIndex = False
+  , compactThese = CompactOnlyPactState
   }
 
 data CompactThese = CompactOnlyRocksDb | CompactOnlyPactState | CompactBoth | CompactNeither
@@ -180,16 +183,26 @@ getConfig = do
       (O.fullDesc <> O.progDesc "Pact DB Compaction Tool - create a compacted copy of the source database directory Pact DB into the target directory.")
 
     parser :: O.Parser Config
-    parser = Config
-      <$> (parseVersion <$> O.strOption (O.long "chainweb-version" <> O.value "mainnet01"))
-      <*> O.strOption (O.long "from" <> O.help "Directory containing SQLite Pact state and RocksDB block data to compact (expected to be in $DIR/0/{sqlite,rocksDb}")
-      <*> O.strOption (O.long "to" <> O.help "Directory where to place the compacted Pact state and block data. It will place them in $DIR/0/{sqlite,rocksDb}, respectively.")
-      <*> O.flag SingleChain ManyChainsAtOnce (O.long "parallel" <> O.help "Turn on multi-threaded compaction. The threads are per-chain.")
-      <*> O.strOption (O.long "log-dir" <> O.help "Directory where compaction logs will be placed.")
+    parser = do
+      chainwebVersion <- parseVersion <$> O.strOption (O.long "chainweb-version" <> O.value "mainnet01")
+      fromDir <- O.strOption (O.long "from" <> O.help "Directory containing SQLite Pact state and RocksDB block data to compact (expected to be in $DIR/0/{sqlite,rocksDb}")
+      toDir <- O.strOption (O.long "to" <> O.help "Directory where to place the compacted Pact state and block data. It will place them in $DIR/0/{sqlite,rocksDb}, respectively.")
+      concurrent <- O.flag SingleChain ManyChainsAtOnce (O.long "parallel" <> O.help "Turn on multi-threaded compaction. The threads are per-chain.")
+      logDir <- O.strOption (O.long "log-dir" <> O.help "Directory where compaction logs will be placed.")
       -- Hidden options
-      <*> O.switch (O.long "keep-full-rocksdb" <> O.hidden)
-      <*> O.switch (O.long "no-rocksdb" <> O.hidden)
-      <*> O.switch (O.long "no-pact" <> O.hidden)
+      compactRocksDb <- O.switch
+        (O.long "compact-rocksdb"
+        <> O.help "Compact rocksDB block data. Some interfaces require this data for historical blocks, like the /poll Pact endpoint or the /header Chainweb endpoint, so it is not compacted by default."
+        )
+      compactPactState <- not <$> O.switch
+        (O.long "no-compact-pact"
+        <> O.help "Do not compact Pact state. Pact state is not used by any public interface, so it is compacted by default, and the space savings are usually large on mainnet."
+        )
+      compactTransactionIndex <- O.switch
+        (O.long "compact-transaction-index"
+        <> O.help "Compact the TransactionIndex table in the Pact state. For historical blocks, the /poll Pact endpoint relies on this table, so it is not compacted by default."
+        )
+      return Config {..}
 
     parseVersion :: Text -> ChainwebVersion
     parseVersion =
@@ -201,9 +214,9 @@ main :: IO ()
 main = do
   compact =<< getConfig
 
-compactPactState :: (Logger logger) => logger -> Retainment -> BlockHeight -> SQLiteEnv -> SQLiteEnv -> IO ()
-compactPactState logger rt targetBlockHeight srcDb targetDb = do
-  let log = logFunctionText logger
+doCompactPactState :: (Logger logger) => logger -> Retainment -> BlockHeight -> SQLiteEnv -> SQLiteEnv -> IO ()
+doCompactPactState logger rt targetBlockHeight srcDb targetDb = do
+  let logfun = logFunctionText logger
 
   -- These pragmas are tuned for fast insertion on systems with a wide range
   -- of system resources.
@@ -233,14 +246,14 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   -- Compact BlockHistory
   -- This is extremely fast and low residency
   do
-    log LL.Info "Compacting BlockHistory"
+    logfun LL.Info "Compacting BlockHistory"
     activeRow <- getBlockHistoryRowAt logger srcDb targetBlockHeight
     Pact.exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
 
   -- Compact VersionedTableMutation
   -- This is extremely fast and low residency
   do
-    log LL.Info "Compacting VersionedTableMutation"
+    logfun LL.Info "Compacting VersionedTableMutation"
     activeRows <- getVersionedTableMutationRowsAt logger srcDb targetBlockHeight
     Lite.withStatement targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" $ \stmt -> do
       forM_ activeRows $ \row -> do
@@ -252,7 +265,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   --
   -- This is pretty fast and low residency
   do
-    log LL.Info "Copying over VersionedTableCreation"
+    logfun LL.Info "Copying over VersionedTableCreation"
     let wholeTableQuery = "SELECT tablename, createBlockheight FROM VersionedTableCreation"
     throwSqlError $ qryStream srcDb wholeTableQuery [] [RText, RInt] $ \tblRows -> do
       Lite.withStatement targetDb "INSERT INTO VersionedTableCreation VALUES (?1, ?2)" $ \stmt -> do
@@ -262,8 +275,7 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
 
   -- Copy over TransactionIndex.
   --
-  -- If the user specifies that they want to keep the entire table, then we do so, otherwise,
-  -- we compact this based on the RocksDB 'blockHeightKeepDepth'.
+  -- If the user specifies that they want to compact the table, then we do so based on the RocksDB 'blockHeightKeepDepth'.
   --
   -- /poll and SPV rely on having this table synchronised with RocksDB.
   -- We need to document APIs which need TransactionIndex.
@@ -272,13 +284,13 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   -- https://tableplus.com/blog/2018/07/sqlite-how-to-copy-table-to-another-database.html
   do
     (qry, args) <-
-      if rt.keepFullTransactionIndex
+      if not rt.compactTransactionIndex
       then do
-        log LL.Info "Copying over entire TransactionIndex table. This could take a while"
+        logfun LL.Info "Copying over entire TransactionIndex table. This could take a while"
         let wholeTableQuery = "SELECT txhash, blockheight FROM TransactionIndex ORDER BY blockheight"
         pure (wholeTableQuery, [])
       else do
-        log LL.Info "Copying over compacted TransactionIndex"
+        logfun LL.Info "Copying over compacted TransactionIndex"
         let wholeTableQuery = "SELECT txhash, blockheight FROM TransactionIndex WHERE blockheight >= ?1 ORDER BY blockheight"
         pure (wholeTableQuery, [SInt (int (targetBlockHeight - blockHeightKeepDepth))])
 
@@ -308,16 +320,16 @@ compactPactState logger rt targetBlockHeight srcDb targetDb = do
   -- Grab the endingtxid for determining latest state at the
   -- target height
   endingTxId <- getEndingTxId srcDb targetBlockHeight
-  log LL.Info $ "Ending TxId is " <> sshow endingTxId
+  logfun LL.Info $ "Ending TxId is " <> sshow endingTxId
 
   -- Compact all user tables
-  log LL.Info "Starting user tables"
+  logfun LL.Info "Starting user tables"
   getLatestPactTableNamesAt srcDb targetBlockHeight
     & S.mapM_ (\tblname -> do
         compactTable logger srcDb targetDb (fromUtf8 tblname) endingTxId
       )
 
-  log LL.Info "Compaction done"
+  logfun LL.Info "Compaction done"
 
 -- We are trying to make sure that we keep around at least 3k blocks.
 -- The compaction target is 1k blocks prior to the latest common
@@ -338,11 +350,11 @@ compact :: Config -> IO ()
 compact cfg = do
   let cids = allChains cfg.chainwebVersion
 
-  let _compactThese = case (cfg.noRocksDb, cfg.noPactState) of
-        (True, True) -> CompactNeither
-        (True, False) -> CompactOnlyPactState
-        (False, True) -> CompactOnlyRocksDb
-        (False, False) -> CompactBoth
+  let _compactThese = case (cfg.compactRocksDb, cfg.compactPactState) of
+        (False, False) -> CompactNeither
+        (False, True) -> CompactOnlyPactState
+        (True, False) -> CompactOnlyRocksDb
+        (True, True) -> CompactBoth
 
   -- Get the target blockheight.
   targetBlockHeight <- withDefaultLogger LL.Debug $ \logger -> do
@@ -378,23 +390,23 @@ compact cfg = do
     pure targetBlockHeight
 
   -- Compact RocksDB.
-  when (not cfg.noRocksDb) $ do
+  when cfg.compactRocksDb $ do
     withRocksDbFileLogger cfg.logDir LL.Debug $ \logger -> do
       withReadOnlyRocksDb (rocksDir cfg.fromDir) modernDefaultOptions $ \srcRocksDb -> do
         withRocksDb (rocksDir cfg.toDir) (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
-          compactRocksDb (set setLoggerLevel (l2l LL.Info) logger) cfg.chainwebVersion cids (targetBlockHeight - blockHeightKeepDepth) srcRocksDb targetRocksDb
+          doCompactRocksDb (set setLoggerLevel (l2l LL.Info) logger) cfg.chainwebVersion cids (targetBlockHeight - blockHeightKeepDepth) srcRocksDb targetRocksDb
 
   -- Compact the pact state.
   let retainment = Retainment
-        { keepFullTransactionIndex = cfg.keepFullTransactionIndex
+        { compactTransactionIndex = cfg.compactTransactionIndex
         , compactThese = _compactThese
         }
-  when (not cfg.noPactState) $ do
+  when cfg.compactPactState $ do
     forChains_ cfg.concurrent cids $ \cid -> do
       withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
         withChainDb cid logger (pactDir cfg.fromDir) $ \_ srcDb -> do
           withChainDb cid logger (pactDir cfg.toDir) $ \_ targetDb -> do
-            compactPactState logger retainment targetBlockHeight srcDb targetDb
+            doCompactPactState logger retainment targetBlockHeight srcDb targetDb
 
 compactTable :: (Logger logger)
   => logger      -- ^ logger
@@ -404,10 +416,10 @@ compactTable :: (Logger logger)
   -> Int64       -- ^ target blockheight
   -> IO ()
 compactTable logger srcDb targetDb tblname endingTxId = do
-  let log = logFunctionText logger
+  let logfun = logFunctionText logger
   let tblnameUtf8 = toUtf8 tblname
 
-  log LL.Info $ "Creating table " <> tblname
+  logfun LL.Info $ "Creating table " <> tblname
   createUserTable targetDb tblnameUtf8
 
   -- We create the user table indices before inserting into the table.
@@ -422,7 +434,7 @@ compactTable logger srcDb targetDb tblname endingTxId = do
   -- discard that row and move on to the next. This is why we need the indices,
   -- because this membership check is extremely slow without it, and it far
   -- outweighs the insert slowdowns imposed by the indices.
-  log LL.Info $ "Creating table indices for " <> tblname
+  logfun LL.Info $ "Creating table indices for " <> tblname
   createUserTableIndex targetDb tblnameUtf8
 
   -- Create a temporary index on 'rowkey' for a user table, so that upserts work correctly.
@@ -459,7 +471,7 @@ compactTable logger srcDb targetDb tblname endingTxId = do
 
   e <- qryStream srcDb activeStateQryText activeStateQryArgs activeStateQryRetTypes $ \rs -> do
     Lite.withStatement targetDb upsertQuery $ \upsertRow -> do
-      log LL.Info $ "Inserting compacted rows into table " <> tblname
+      logfun LL.Info $ "Inserting compacted rows into table " <> tblname
 
       rs
         & S.chunksOf 10_000
@@ -486,7 +498,7 @@ compactTable logger srcDb targetDb tblname endingTxId = do
     Left sqlErr -> exitLog logger $ "Encountered SQLite error while compacting: " <> sshow sqlErr
     Right () -> pure ()
 
-  log LL.Info $ "Done compacting table " <> tblname
+  logfun LL.Info $ "Done compacting table " <> tblname
 
 -- | Create all the checkpointer tables
 createCheckpointerTables :: (Logger logger)
@@ -494,9 +506,9 @@ createCheckpointerTables :: (Logger logger)
   -> logger
   -> IO ()
 createCheckpointerTables db logger = do
-  let log = logFunctionText logger LL.Info
+  let logfun = logFunctionText logger LL.Info
 
-  log "Creating Checkpointer table BlockHistory"
+  logfun "Creating Checkpointer table BlockHistory"
   inTx db $ Pact.exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS BlockHistory "
     , "(blockheight UNSIGNED BIGINT NOT NULL"
@@ -505,7 +517,7 @@ createCheckpointerTables db logger = do
     , ");"
     ]
 
-  log "Creating Checkpointer table VersionedTableCreation"
+  logfun "Creating Checkpointer table VersionedTableCreation"
   inTx db $ Pact.exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS VersionedTableCreation "
     , "(tablename TEXT NOT NULL"
@@ -513,7 +525,7 @@ createCheckpointerTables db logger = do
     , ");"
     ]
 
-  log "Creating Checkpointer table VersionedTableMutation"
+  logfun "Creating Checkpointer table VersionedTableMutation"
   inTx db $ Pact.exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS VersionedTableMutation "
     , "(tablename TEXT NOT NULL"
@@ -521,7 +533,7 @@ createCheckpointerTables db logger = do
     , ");"
     ]
 
-  log "Creating Checkpointer table TransactionIndex"
+  logfun "Creating Checkpointer table TransactionIndex"
   inTx db $ Pact.exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS TransactionIndex "
     , "(txhash BLOB NOT NULL"
@@ -532,27 +544,27 @@ createCheckpointerTables db logger = do
   -- We have to delete from these tables because of the way the test harnesses work.
   -- Ideally in the future this can be removed.
   forM_ ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"] $ \tblname -> do
-    log $ "Deleting from table " <> fromUtf8 tblname
+    logfun $ "Deleting from table " <> fromUtf8 tblname
     Pact.exec_ db $ "DELETE FROM " <> tbl tblname
 
 -- | Create all the indexes for the checkpointer tables.
 createCheckpointerIndexes :: (Logger logger) => Database -> logger -> IO ()
 createCheckpointerIndexes db logger = do
-  let log = logFunctionText logger LL.Info
+  let logfun = logFunctionText logger LL.Info
 
-  log "Creating BlockHistory index"
+  logfun "Creating BlockHistory index"
   inTx db $ Pact.exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS BlockHistory_blockheight_unique_ix ON BlockHistory (blockheight)"
 
-  log "Creating VersionedTableCreation index"
+  logfun "Creating VersionedTableCreation index"
   inTx db $ Pact.exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS VersionedTableCreation_createBlockheight_tablename_unique_ix ON VersionedTableCreation (createBlockheight, tablename)"
 
-  log "Creating VersionedTableMutation index"
+  logfun "Creating VersionedTableMutation index"
   inTx db $ Pact.exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS VersionedTableMutation_blockheight_tablename_unique_ix ON VersionedTableMutation (blockheight, tablename)"
 
-  log "Creating TransactionIndex indexes"
+  logfun "Creating TransactionIndex indexes"
   inTx db $ Pact.exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS TransactionIndex_txhash_unique_ix ON TransactionIndex (txhash)"
   inTx db $ Pact.exec_ db
@@ -633,14 +645,14 @@ locateLatestSafeTarget :: (Logger logger)
   -> [ChainId]
   -> IO BlockHeight
 locateLatestSafeTarget logger v dbDir cids = do
-  let log = logFunctionText logger
+  let logfun = logFunctionText logger
 
   let logger' = set setLoggerLevel (l2l LL.Error) logger
   latestCommon <- getLatestCommonBlockHeight logger' dbDir cids
   earliestCommon <- getEarliestCommonBlockHeight logger' dbDir cids
 
-  log LL.Debug $ "Latest Common BlockHeight: " <> sshow latestCommon
-  log LL.Debug $ "Earliest Common BlockHeight: " <> sshow earliestCommon
+  logfun LL.Debug $ "Latest Common BlockHeight: " <> sshow latestCommon
+  logfun LL.Debug $ "Earliest Common BlockHeight: " <> sshow earliestCommon
 
   -- Make sure we have at least 1k blocks of depth for prod.
   -- In devnet or testing versions we don't care.
@@ -653,7 +665,7 @@ locateLatestSafeTarget logger v dbDir cids = do
     exitLog logger "locateLatestSafeTarget: Not enough history to safely compact. Aborting."
 
   let target = latestCommon - safeDepth
-  log LL.Debug $ "Compaction target blockheight is: " <> sshow target
+  logfun LL.Debug $ "Compaction target blockheight is: " <> sshow target
   pure target
 
 -- | Log an error message, then exit with code 1.
@@ -701,7 +713,7 @@ rocksDir :: FilePath -> FilePath
 rocksDir db = db </> "0/rocksDb"
 
 -- | Copy over all CutHashes, all BlockHeaders, and only some Payloads.
-compactRocksDb :: (Logger logger)
+doCompactRocksDb :: (Logger logger)
   => logger
   -> ChainwebVersion -- ^ cw version
   -> [ChainId] -- ^ ChainIds
@@ -709,20 +721,20 @@ compactRocksDb :: (Logger logger)
   -> RocksDb -- ^ source db, should be opened read-only
   -> RocksDb -- ^ target db
   -> IO ()
-compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
-  let log = logFunctionText logger
+doCompactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
+  let logfun = logFunctionText logger
 
   -- Copy over entirety of CutHashes table
   let srcCutHashes = cutHashesTable srcDb
   let targetCutHashes = cutHashesTable targetDb
-  log LL.Info "Copying over CutHashes table"
+  logfun LL.Info "Copying over CutHashes table"
   withTableIterator (unCasify srcCutHashes) $ \srcIt -> do
     let go = do
           iterEntry srcIt >>= \case
             Nothing -> do
               pure ()
             Just (Entry k v) -> do
-              log LL.Debug $ "Copying over Cut " <> cutIdToText (k ^. _3)
+              logfun LL.Debug $ "Copying over Cut " <> cutIdToText (k ^. _3)
               tableInsert targetCutHashes k v
               iterNext srcIt
               go
@@ -733,7 +745,7 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
   let targetPayloads = newPayloadDb targetDb
 
   -- The target payload db has to be initialised.
-  log LL.Info "Initializing payload db"
+  logfun LL.Info "Initializing payload db"
   initializePayloadDb cwVersion targetPayloads
 
   srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
@@ -768,10 +780,10 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
         -- them does not.
         Nothing -> do
           iterFirst it
-        
+
         Just minBlockHeaderHistory -> do
           let runBack =
-                let x = int latestHeader
+                let x = int minBlockHeight
                     y = minBlockHeaderHistory
                 in if x >= y then x - y else 0
           iterSeek it $ RankedBlockHash (BlockHeight runBack) nullBlockHash

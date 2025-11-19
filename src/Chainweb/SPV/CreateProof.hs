@@ -56,6 +56,7 @@ import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table
@@ -109,7 +110,7 @@ createTransactionProof_
         -- ^ The index of the transaction in the block
     -> IO (TransactionProof SHA512t_256)
 createTransactionProof_ headerDb payloadDb tcid scid bh i = do
-    trgHeader <- minimumTrgHeader headerDb tcid scid bh
+    trgHeader <- findTrgHeader headerDb tcid scid bh
     TransactionProof tcid
         <$> createPayloadProof_ transactionProofPrefix headerDb payloadDb tcid scid bh i trgHeader
 
@@ -215,7 +216,7 @@ createTransactionOutputProof_
         -- ^ The index of the transaction in the block
     -> IO (TransactionOutputProof SHA512t_256)
 createTransactionOutputProof_ headerDb payloadDb tcid scid bh i = do
-    trgHeader <- minimumTrgHeader headerDb tcid scid bh
+    trgHeader <- findTrgHeader headerDb tcid scid bh
     TransactionOutputProof tcid
         <$> createPayloadProof_ outputProofPrefix headerDb payloadDb tcid scid bh i trgHeader
 
@@ -480,7 +481,11 @@ crumbsToChain db srcCid trgHeader
         let !adjIdx = fromJuste $ blockHashRecordChainIdx (view blockAdjacentHashes cur) h
         go adjpHdr t ((adjIdx, cur) : acc)
 
-minimumTrgHeader
+-- | The minimum number of blocks before a newly created proof root expires.
+proofSlack :: BlockHeight
+proofSlack = 100
+
+findTrgHeader
     :: WebBlockHeaderDb
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -491,8 +496,26 @@ minimumTrgHeader
         -- ^ The block height of the transaction, i.e. the subject on the source
         -- chain.
     -> IO BlockHeader
-minimumTrgHeader headerDb tcid scid bh = do
+findTrgHeader headerDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
+    let trgHeadHeight = trgHeadHeader ^. blockHeight
+    let trgHeight = int $
+            case minimumBlockHeaderHistory (_chainwebVersion headerDb) trgHeadHeight of
+                Nothing ->
+                    minTrgHeight
+                Just minHist -> do
+                    -- if there is a block header history limit by now, then any
+                    -- proof with a target outside of that window will not be
+                    -- usable. so ideally, the proof we produce is in that
+                    -- window. that is no guarantee that such a proof is small
+                    -- enough to store on-chain, if the subject is far in the
+                    -- past, but it's better to try than do nothing.
+                    let trgLowestKnownHeight = max trgHeadHeight (int minHist) - int minHist
+                    -- we don't use the lowest known height directly, we try to
+                    -- increase it by a few block heights to avoid the proof
+                    -- immediately expiring before it can be used.
+                    let trgLowestSafeHeight = min trgHeadHeight (trgLowestKnownHeight + proofSlack)
+                    max minTrgHeight trgLowestSafeHeight
     seekAncestor trgChain trgHeadHeader trgHeight >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
@@ -504,12 +527,11 @@ minimumTrgHeader headerDb tcid scid bh = do
             }
   where
     trgChain = headerDb ^?! ixg tcid
-    trgHeight
+    minTrgHeight
         | srcGraph == trgGraph = int bh + int srcDistance
         | otherwise = int bh + int srcDistance + int trgDistance
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
-
     srcGraph = chainGraphAt headerDb bh
     srcDistance = length $ shortestPath tcid scid srcGraph
     trgGraph = chainGraphAt headerDb (bh + int srcDistance)
