@@ -41,6 +41,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Text as T
 
 import Debug.Trace
 
@@ -59,6 +60,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Version
+import Chainweb.Utils
 
 import Chainweb.Storage.Table
 
@@ -70,7 +72,14 @@ data TestHeader = TestHeader
     , _testHeaderParent :: !ParentHeader
     , _testHeaderAdjs :: ![ParentHeader]
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Eq, Ord, Generic)
+
+instance Show TestHeader where
+    show (TestHeader h p a) = T.unpack $ encodeToText $ object [
+        "header" .= ExtendedObjectEncoded h,
+        "parent" .= ExtendedObjectEncoded (_parentHeader p),
+        "adjacents" .= fmap (ExtendedObjectEncoded . _parentHeader) a
+        ]
 
 makeLenses ''TestHeader
 

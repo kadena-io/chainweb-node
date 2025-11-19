@@ -60,7 +60,7 @@ module Chainweb.Test.Orphans.Internal
 ) where
 
 import Control.Applicative
-import Control.Lens (view)
+import Control.Lens (view, set)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -119,6 +119,7 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
+import Chainweb.ForkState
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
@@ -166,7 +167,6 @@ import P2P.Test.Orphans ()
 import System.Logger.Types
 
 import Utils.Logging
-import Chainweb.ForkState
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -299,7 +299,7 @@ instance Arbitrary NodeInfo where
             , nodeGraphHistory = graphs
             , nodeLatestBehaviorHeight = latestBehaviorAt v
             , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList $ chainIds v
-            , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+            , nodeHistoricalChains = ruleElems $ HM.toList . HM.map HS.toList . toAdjacencySets <$> _versionGraphs v
             , nodeServiceDate = T.pack <$> _versionServiceDate v
             , nodeBlockDelay = _versionBlockDelay v
             }
@@ -329,7 +329,12 @@ instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
 
 instance Arbitrary ForkState where
-    arbitrary = ForkState <$> arbitrary
+    arbitrary = do
+        votes <- chooseBoundedIntegral (0, int forkEpochLength * voteStep)
+        number <- chooseBoundedIntegral (0, 100000000)
+        return $ ForkState 0
+            & set forkVotes votes
+            & set forkNumber number
 
 instance Arbitrary BlockHeader where
     arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
