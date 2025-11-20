@@ -3,23 +3,24 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -74,6 +75,7 @@ module Chainweb.Version
     , versionGenesis
     , versionVerifierPluginNames
     , versionQuirks
+    , versionForkNumber
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -150,27 +152,21 @@ module Chainweb.Version
 import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>), index)
 import Control.Monad.Catch
-
 import Data.Aeson hiding (pairs)
 import Data.Aeson.Types
 import Data.Foldable
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Set(Set)
 import Data.Proxy
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Word
-
 import GHC.Generics(Generic)
 import GHC.TypeLits
 import GHC.Stack
-
--- internal modules
-
 import Pact.Types.Runtime (Gas)
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -180,17 +176,15 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
-import qualified Chainweb.Pact4.Transaction as Pact4
-import qualified Chainweb.Pact5.Transaction as Pact5
+import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact5.Transaction qualified as Pact5
+import Chainweb.ForkState (ForkNumber)
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
-
-import Pact.Types.Verifier
-
 import Data.Singletons
-
 import P2P.Peer
+import Pact.Types.Verifier
 
 -- | Data type representing changes to block validation, whether in the payload
 -- or in the header. Always add new forks at the end, not in the middle of the
@@ -392,8 +386,8 @@ pattern ForPact5 :: f Pact5 -> ForSomePactVersion f
 pattern ForPact5 x = ForSomePactVersion Pact5T x
 {-# COMPLETE ForPact4, ForPact5 #-}
 data ForBothPactVersions f = ForBothPactVersions
-    { _forPact4 :: (f Pact4)
-    , _forPact5 :: (f Pact5)
+    { _forPact4 :: f Pact4
+    , _forPact5 :: f Pact5
     }
 deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForBothPactVersions f)
 deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForBothPactVersions f)
@@ -434,7 +428,7 @@ instance NFData PactUpgrade where
 pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
 pact4Upgrade txs = Pact4Upgrade txs False
 
-data TxIdxInBlock = TxBlockIdx Word
+newtype TxIdxInBlock = TxBlockIdx Word
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -443,8 +437,8 @@ makePrisms ''TxIdxInBlock
 -- The type of quirks, i.e. special validation behaviors that are in some
 -- sense one-offs which can't be expressed as upgrade transactions and must be
 -- preserved.
-data VersionQuirks = VersionQuirks
-    { _quirkGasFees :: !(ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas))
+newtype VersionQuirks = VersionQuirks
+    { _quirkGasFees :: ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas)
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
@@ -512,6 +506,22 @@ data ChainwebVersion
         -- ^ Verifier plugins that can be run to verify transaction contents.
     , _versionQuirks :: VersionQuirks
         -- ^ Modifications to behavior at particular blockheights
+    , _versionForkNumber :: ForkNumber
+        -- ^ The current fork number for this version. Starting with
+        -- chainweb-node version 2.33, fork numbers replace named forks. Fork
+        -- numbers are monotonically increasing in steps of one. Protocol
+        -- changes are guarded by minimum fork number. The fork number of a
+        -- version specifies what forks are supported by a version of
+        -- chainweb-node for a given chainweb version. Note, that it does /not/
+        -- specify what forks are active. Forks are only active if the the fork
+        -- number of the respective block header is at least the fork number of
+        -- the respective fork.
+        --
+        -- Changes to the protocol are introduced by releasing a chainweb-node
+        -- version that supports a fork number of the respecive change. Blocks
+        -- that are produced by the new chainweb-node version will then raise
+        -- the on-chain fork number in the block headers until the maximum
+        -- supported number is reached.
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -536,6 +546,7 @@ instance Ord ChainwebVersion where
         -- , _versionGenesis v `compare` _versionGenesis v'
         , _versionCheats v `compare` _versionCheats v'
         , _versionVerifierPluginNames v `compare` _versionVerifierPluginNames v'
+        , _versionForkNumber v `compare` _versionForkNumber v'
         ]
 
 instance Eq ChainwebVersion where
@@ -719,7 +730,7 @@ genesisHeightAndGraph v c =
         -- the chain was in every graph down to the bottom,
         -- so the bottom has the genesis graph
         (False, z) -> ruleZipperHere z
-        (True, (BetweenZipper _ above))
+        (True, BetweenZipper _ above)
             -- the chain is not in this graph, and there is no graph above
             -- which could have it
             | [] <- above -> missingChainError

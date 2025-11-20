@@ -77,7 +77,7 @@ module Chainweb.BlockHeader.Validation
 , prop_block_genesis_parent
 , prop_block_genesis_target
 , prop_block_target
-, prop_block_featureFlags
+, prop_block_forkVotesReset
 
 -- * Inductive BlockHeader Properties
 , prop_block_epoch
@@ -88,6 +88,9 @@ module Chainweb.BlockHeader.Validation
 , prop_block_creationTime
 , prop_block_adjacent_chainIds
 , prop_block_adjacent_parents_version
+, prop_block_forkNumber
+, prop_block_forkVote
+, prop_block_forkVoteCount
 ) where
 
 import Control.Lens
@@ -116,6 +119,7 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Guards
+import Chainweb.ForkState
 
 -- -------------------------------------------------------------------------- --
 -- Validated BockHeader
@@ -315,6 +319,8 @@ instance Show ValidationFailure where
             InvalidFeatureFlags -> "The block has an invalid feature flag value"
             InvalidBraiding -> "The block is not braided correctly into the chainweb"
             InvalidAdjacentVersion -> "An adjancent parent has a chainweb version that does not match the version of the validated header"
+            IncorrectForkNumber -> "The block has an incorrect fork number"
+            InvalidForkVotes -> "The block has an invalid fork vote count"
 
 -- | An enumeration of possible validation failures for a block header.
 --
@@ -374,13 +380,29 @@ data ValidationFailureType
     | InvalidAdjacentVersion
         -- ^ An adjacent parent has chainweb version that does not match the
         -- version of the validated header.
+    | IncorrectForkNumber
+        -- ^ The block has an incorrect fork number. At the beginning of a fork
+        -- epoch the fork number is the fork number of the parent plus one if
+        -- the fork vote count of the parent is at least 2/3 of the total number
+        -- of blocks in a fork epoch. Otherwise the number must be equal to the
+        -- fork number of the parent. Note, that the fork number is determined
+        -- deterministically from the parent block. It increases monotonically
+        -- at most once per fork epoch.
+    | InvalidForkVotes
+        -- ^ The block has an invalid fork vote count. At the beginning of an
+        -- fork epoch the fork vote count must be zero. Otherwise, the fork vote
+        -- count must be equal to the fork vote of the parent block or one more
+        -- than that. The fork vote count increases monotonically within an fork
+        -- epoch in steps of zero or one. The step size at each block is
+        -- non-deterministic. It is reset to zero at the beginning of a new fork
+        -- epoch.
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
 
 -- | The list of validation failures that are definite and independent of any
 -- external context. A block for which validation fails with one of these
--- failures must be dicarded.
+-- failures must be discarded.
 --
 -- No node on the chainweb-web network should propgate blocks with these
 -- failures. If a block is received that causes a definite validation failures
@@ -401,6 +423,8 @@ definiteValidationFailures =
     , IncorrectGenesisParent
     , IncorrectGenesisTarget
     , IncorrectPayloadHash
+    , IncorrectForkNumber
+    , InvalidForkVotes
     ]
 
 -- | Predicate that checks whether a validation failure is definite.
@@ -629,8 +653,8 @@ validateIntrinsic t b = concat
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
     , [ BlockInTheFuture | not (prop_block_current t b)]
-    , [ InvalidFeatureFlags | not (prop_block_featureFlags b)]
     , [ AdjacentChainMismatch | not (prop_block_adjacent_chainIds b) ]
+    , [ InvalidForkVotes | not (prop_block_forkVotesReset b) ]
     ]
 
 -- | Validate properties of a block with respect to a given parent.
@@ -653,6 +677,8 @@ validateInductiveChainStep s = concat
     , [ VersionMismatch | not (prop_block_chainwebVersion s) ]
     , [ IncorrectWeight | not (prop_block_weight s) ]
     , [ ChainMismatch | not (prop_block_chainId s) ]
+    , [ InvalidForkVotes | not (prop_block_forkVote s) ]
+    , [ IncorrectForkNumber | not (prop_block_forkNumber s) ]
     ]
 
 validateInductiveWebStep
@@ -667,6 +693,7 @@ validateInductiveWebStep s = concat
     , [ AdjacentParentChainMismatch | not (prop_block_adjacent_parents s) ]
     , [ InvalidBraiding | not (prop_block_braiding s) ]
     , [ InvalidAdjacentVersion | not (prop_block_adjacent_parents_version s) ]
+    , [ InvalidForkVotes | not (prop_block_forkVoteCount s) ]
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -698,14 +725,14 @@ prop_block_genesis_target b = isGenesisBlockHeader b
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= view blockCreationTime b
 
-prop_block_featureFlags :: BlockHeader -> Bool
-prop_block_featureFlags b
-    | skipFeatureFlagValidationGuard v cid h = True
-    | otherwise = view blockFlags b == mkFeatureFlags
-  where
-    v = _chainwebVersion b
-    h = view blockHeight b
-    cid = _chainId b
+-- prop_block_featureFlags :: BlockHeader -> Bool
+-- prop_block_featureFlags b
+--     | skipFeatureFlagValidationGuard v cid h = True
+--     | otherwise = view blockFlags b == mkFeatureFlags
+--   where
+--     v = _chainwebVersion b
+--     h = view blockHeight b
+--     cid = _chainId b
 
 -- | Verify that the adjacent hashes of the block are for the correct set of
 -- chain ids.
@@ -717,6 +744,19 @@ prop_block_adjacent_chainIds b
     adjGraph
         | isGenesisBlockHeader b = _chainGraph b
         | otherwise = chainGraphAt (_chainwebVersion b) (view blockHeight b - 1)
+
+-- | Validate that fork votes are reset at the start of a fork epoch.
+--
+prop_block_forkVotesReset :: BlockHeader -> Bool
+prop_block_forkVotesReset b
+    | skipFeatureFlagValidationGuard v cid h = True
+    | isForkEpochStart b = votes == resetVotes || votes == addVote resetVotes
+    | otherwise = True
+  where
+    votes = view blockForkVotes b
+    v = _chainwebVersion b
+    h = view blockHeight b
+    cid = _chainId b
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
@@ -745,8 +785,52 @@ prop_block_chainId :: ChainStep -> Bool
 prop_block_chainId (ChainStep (ParentHeader p) b)
     = view blockChainId p == view blockChainId b
 
+-- | Validate that that fork votes are correctly incremented.
+--
+prop_block_forkVote :: ChainStep -> Bool
+prop_block_forkVote (ChainStep (ParentHeader p) b)
+    | skipFeatureFlagValidationGuard v cid h = True
+    | isForkEpochStart b = votes == resetVotes || votes == addVote resetVotes
+    | isForkVoteBlock b = votes == parentVotes || votes == addVote parentVotes
+    | otherwise = True
+  where
+    votes = view blockForkVotes b
+    parentVotes = view blockForkVotes p
+    v = _chainwebVersion b
+    h = view blockHeight b
+    cid = _chainId b
+
+-- | Validate that for number is incrementd correctly at fork epoch start.
+--
+prop_block_forkNumber :: ChainStep -> Bool
+prop_block_forkNumber (ChainStep (ParentHeader p) b)
+    | skipFeatureFlagValidationGuard v cid h = True
+    | isForkEpochStart b && decideVotes parentVotes = fnum == pfnum + 1
+    | otherwise = fnum == pfnum
+  where
+    fnum = view blockForkNumber b
+    pfnum = view blockForkNumber p
+    parentVotes = view blockForkVotes p
+    v = _chainwebVersion b
+    h = view blockHeight b
+    cid = _chainId b
+
 -- -------------------------------------------------------------------------- --
 -- Multi chain inductive properties
+
+prop_block_forkVoteCount :: WebStep -> Bool
+prop_block_forkVoteCount (WebStep as (ChainStep p b))
+    | skipFeatureFlagValidationGuard v cid h = True
+    | isForkEpochStart b = votes == resetVotes || votes == addVote resetVotes
+    | isForkVoteBlock b = votes == parentVotes || votes == addVote parentVotes
+    | otherwise = votes == countVotes allParentVotes
+  where
+    votes = view blockForkVotes b
+    parentVotes = view blockForkVotes (_parentHeader p)
+    allParentVotes = view (parentHeader . blockForkVotes) <$> (p : toList as)
+    v = _chainwebVersion b
+    h = view blockHeight b
+    cid = _chainId b
 
 prop_block_target :: WebStep -> Bool
 prop_block_target (WebStep as (ChainStep p b))
@@ -803,7 +887,7 @@ prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
   where
     v = view blockChainwebVersion b
 
--- | TODO: we don't current check this here. It is enforced in the cut merge
+-- | TODO: we don't currently check this here. It is enforced in the cut merge
 -- algorithm , namely in 'monotonicCutExtension'. The property that is checked
 -- in the cut validation is stronger than the braiding property that we could
 -- check here (which is the property that is described in the chainweb paper).

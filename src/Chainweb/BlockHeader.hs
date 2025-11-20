@@ -36,17 +36,12 @@ module Chainweb.BlockHeader
 , I.decodeEpochStartTime
 , I.epochStart
 
--- * FeatureFlags
-, I.FeatureFlags
-, I.mkFeatureFlags
-, I.encodeFeatureFlags
-, I.decodeFeatureFlags
-
 -- * POW Target
 , I.powTarget
 
 -- * BlockHeader
 , I.BlockHeader
+
 -- ** Getters
 , blockFlags
 , blockCreationTime
@@ -61,6 +56,10 @@ module Chainweb.BlockHeader
 , blockEpochStart
 , blockNonce
 , blockHash
+, blockForkState
+, blockForkVotes
+, blockForkNumber
+
 -- ** Utilities
 , I._blockPow
 , I.blockPow
@@ -78,12 +77,21 @@ module Chainweb.BlockHeader
 , I.decodeBlockHeaderCheckedChainId
 , I.blockHeaderShortDescription
 , I.ObjectEncoded(..)
+, I.ExtendedObjectEncoded(..)
 
 , I.timeBetween
 , I.getAdjacentHash
 , I.computeBlockHash
 , I.adjacentChainIds
 , I.absBlockHeightDiff
+
+-- ** Fork State
+, I.isForkEpochStart
+, I.forkEpochLength
+, I.isForkCountBlock
+, I.isForkVoteBlock
+, I.newForkState
+, I.genesisForkState
 
 -- * IsBlockHeader
 , I.IsBlockHeader(..)
@@ -107,18 +115,19 @@ module Chainweb.BlockHeader
 )
 where
 
-import Chainweb.ChainId (ChainId)
-import Chainweb.BlockWeight (BlockWeight)
-import Chainweb.BlockHeight (BlockHeight)
-import Chainweb.Version (ChainwebVersionCode)
-import Chainweb.Payload (BlockPayloadHash)
-import Chainweb.Difficulty (HashTarget)
+import Chainweb.ForkState (ForkState, ForkVotes, ForkNumber)
+import Chainweb.BlockCreationTime (BlockCreationTime)
 import Chainweb.BlockHash (BlockHash, BlockHashRecord)
 import Chainweb.BlockHeader.Internal qualified as I
-import Chainweb.BlockCreationTime (BlockCreationTime)
+import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockWeight (BlockWeight)
+import Chainweb.ChainId (ChainId)
+import Chainweb.Difficulty (HashTarget)
+import Chainweb.Payload (BlockPayloadHash)
+import Chainweb.Version (ChainwebVersionCode)
 import Control.Lens (Getter)
 
-blockFlags :: Getter I.BlockHeader I.FeatureFlags
+blockFlags :: Getter I.BlockHeader ForkState
 blockFlags = I.blockFlags
 
 blockCreationTime :: Getter I.BlockHeader BlockCreationTime
@@ -156,3 +165,12 @@ blockNonce = I.blockNonce
 
 blockHash :: Getter I.BlockHeader BlockHash
 blockHash = I.blockHash
+
+blockForkState :: Getter I.BlockHeader ForkState
+blockForkState = I.blockForkState
+
+blockForkVotes :: Getter I.BlockHeader ForkVotes
+blockForkVotes = I.blockForkVotes
+
+blockForkNumber :: Getter I.BlockHeader ForkNumber
+blockForkNumber = I.blockForkNumber

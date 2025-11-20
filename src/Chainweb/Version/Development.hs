@@ -64,4 +64,5 @@ devnet = ChainwebVersion
     , _versionVerifierPluginNames = AllChains $ Bottom
         (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow", "signed_list"])
     , _versionQuirks = noQuirks
+    , _versionForkNumber = 0
     }

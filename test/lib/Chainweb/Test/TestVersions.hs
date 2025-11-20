@@ -161,6 +161,7 @@ testVersionTemplate v = v
     & versionMinimumBlockHeaderHistory .~ Bottom (minBound, Just 20)
     & versionBootstraps .~ [testBootstrapPeerInfos]
     & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
+    & versionForkNumber .~ 0
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion

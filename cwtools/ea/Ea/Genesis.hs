@@ -1,3 +1,4 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -66,7 +67,7 @@ module Ea.Genesis
 import Control.Lens
 import Control.Monad
 
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Word
 
 import Chainweb.Graph
@@ -76,7 +77,6 @@ import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet04
-
 
 -- ---------------------------------------------------------------------- --
 -- Genesis Tx Data
