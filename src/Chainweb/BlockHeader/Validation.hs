@@ -750,7 +750,7 @@ prop_block_adjacent_chainIds b
 prop_block_forkVotesReset :: BlockHeader -> Bool
 prop_block_forkVotesReset b
     | skipFeatureFlagValidationGuard v cid h = True
-    | isForkEpochStart b = votes == resetVotes  || votes == addVote resetVotes
+    | isForkEpochStart b = votes == resetVotes || votes == addVote resetVotes
     | otherwise = True
   where
     votes = view blockForkVotes b

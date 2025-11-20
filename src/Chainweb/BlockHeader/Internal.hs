@@ -1156,7 +1156,7 @@ newForkState as p targetFork
     vote = curNumber < targetFork
     cur = view (parentHeader . blockForkState) p
     curNumber = view (parentHeader . blockForkNumber) p
-    curVotes = view (parentHeader . blockForkVotes ) p
+    curVotes = view (parentHeader . blockForkVotes) p
     allParentVotes = view (parentHeader . blockForkVotes) <$> (p : HM.elems as)
 
 genesisForkState :: ForkState
