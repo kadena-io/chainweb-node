@@ -1,71 +1,55 @@
-<p align="center">
-<img src="https://i.imgur.com/bAZFAGF.png" width="450" height="243" alt="Kadena" title="Kadena">
-</p>
+<div align="center">
+     <img src="./docs/Kadena_logo-black.png" width="450" height="243" alt="Kadena" title="Kadena">
+</div>
 
 <p>&nbsp;</p>
 
-# Kadena Public Blockchain
+# Kadena Chainweb Protocol for a Scalable Blockchain
 
-Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus
-protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism
-that improves throughput and scalability in executing transactions on the
-blockchain while maintaining the security and integrity found in Bitcoin.
+The Kadena public blockchain network is a fast, secure, and scalable blockchain platform built using the **Chainweb** consensus protocol. 
+Chainweb is a braided, parallelized Proof-of-Work consensus mechanism that improves throughput and scalability for executing transactions on the blockchain while maintaining the security, decentralization, and data integrity found in Bitcoin.
 
-Read our [whitepapers](https://www.kadena.io/whitepapers):
-
+For technical information about the protocol, read the following [whitepapers](https://www.kadena.io/whitepapers):
 - [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_029c9991469e4565a7c334dd716345f4.pdf)
 - [Agent-based Simulations of Blockchain Protocols illustrated via Kadena's *Chainweb*](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_3b2d0c58179d4edd9df6df4d55d61dda.pdf)
 
-For additional information, press, and development inquiries, please refer to the Kadena [website](https://kadena.io)
+For information about Kadena as the blockchain for business, the Kadena ecosystem, or the Kadena leadership team, see the [Kadena website](https://kadena.io).
 
-## Table of Contents
+## Documentation and key resources
 
-- [Kadena Docs Site](#docs)
-- [Installing Chainweb](#installing-chainweb)
-- [Bootstrap Nodes](#bootstrap-nodes)
-- [Configuring, running, and monitoring the health of a Chainweb Node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
-- [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
-- [Chainweb Design](#chainweb-design)
-  - [Component Structure Details](#component-structure)
-  - [Architecture Overview](#architecture-overview)
+You can find guides, tutorials, and technical reference information for Chainweb and the Pact smart contract language in [Kadena Developer Docs](https://docs.kadena.io). 
 
-## Docs
+For information about getting keys and setting up a wallet, see the Discord [wallet](https://discord.com/channels/502858632178958377/631965054778212362) channel, the [Kadena wallets](https://discord.com/channels/502858632178958377/1217831353983303701) pinned message, or the following resources:
 
-The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kadena-docs/) serves as a source of information about Kadena. You can find information about how to interact with the public chain, including how to get keys, view network activity, explore blocks, etc. [here](https://kadena-io.github.io/kadena-docs/Public-Chain-Docs).
+- [@kadena/kadena-cli](https://www.npmjs.com/package/@kadena/kadena-cli)
+- [Chainweaver wallet](https://chainweaver.kadena.network/)
 
-If you have additions or comments, please submit a pull request or raise an issue - the GitHub project can be found [here](https://github.com/kadena-io/kadena-docs)
+To create and fund accounts for testing purposes or explore contracts that are deployed on the Kadena test or production networks, see the [Kadena Developer Tools](https://tools.kadena.io).
 
-## Installing Chainweb
+To view network activity and explore blocks, see [Kadscan](https://kadscan.io/), [Kadena Block Explorer](https://explorer.kadena.io/mainnet) or [Kadena GraphQL](https://graph.kadena.network/graphql).
 
-Minimal recommended hardware requirements for nodes are:
+If you would like to contribute to the project, you can submit a [pull request](https://github.com/kadena-io/chainweb-node/pulls) or raise an [issue](https://github.com/kadena-io/chainweb-node/issues) in the GitHub repository.
 
-* 2 CPU cores
-* 4 GB of RAM
-* 250 GB SSD or fast HDD
-* Public IP address
+## Minimum system requirements
 
-If the node is also used as API server for Pact, mining, or chainweb-data: 4 CPU cores and 8GB of RAM.
+- CPU: Minimum of eight (8) CPU cores.
+- RAM: Minimum of sixteen (16) GB of RAM.
+- Storage: Minimum 2 TB using a solid state drive (SSD) or fast hard disk drive (HDD).
+- Network: Publicly-accessible IP address and a port that allows incoming traffic from the internet.
+- Operating system: Linux AMD64 architecture.
 
-### Docker (all batteries included)
+If you plan to use the node for mining, to handle RPC requests, or to query historical blockchain data, you should consider upgrading the number of CPU cores, available RAM, and storage above the minimum system requirements.
 
-A docker image is available from
-[here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
-the following commands:
+## Installation options
 
-```shell
-# Initialize the database (optional, but avoids several hours of initial db synchronization)
-docker run -ti --rm -v chainweb-db:/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node /chainweb/initialize-db.sh
-```
+There are several ways you can deploy Chainweb node in a physical or virtual environment. 
+For example, you can choose to set up a node by using one of the following installation options:
 
-```shell
-# Run a chainweb-node in Kadena's mainnet
-docker run -d -p 443:443 -v chainweb-db:target=/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node
-```
+- Download and install Chainweb release binaries directly on a physical server or on infrastructure from a cloud services provider.
+- Run a Chainweb node image in a Docker container.
+- Build Chainweb binaries yourself from the source code.
 
-Further details can be found in the [README of the docker
-repository](https://hub.docker.com/r/kadena/chainweb-node).
-
-### Docker (bare metal)
+### Run the node in a container
 
 A docker image with just a bare chainweb-node binary and its dependencies is
 available at `ghcr.io/kadena-io/chainweb-node/ubuntu:latest`. It is up to the
@@ -81,19 +65,12 @@ can be found in [this repository](https://github.com/kadena-io/docker-compose-ch
 
 ### Ubuntu Linux
 
-The following packages must be installed on the host system:
-
-*   ubuntu-20.04:
+The following packages must be installed on the ubuntu-22.04 host system:
     ```bash
     apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
     ```
 
-*   ubuntu-22.04:
-    ```bash
-    apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
-    ```
-
-Chainweb-node binaries for ubuntu-20.04 and ubuntu-22.04 can be found
+Chainweb-node binaries for Ubuntu can be found
 [here](https://github.com/kadena-io/chainweb-node/releases).
 
 Download the archive for your system and extract the binaries and place them
