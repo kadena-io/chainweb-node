@@ -221,3 +221,6 @@ allow-newer: lrucaching:base-compat
 --
 -- Please add a comment for each entry that outlines why it is needed and when
 -- it can be removed.
+
+-- 0.3.1 breaks builds of http2-5.3.10
+constraints: http-semantics <0.3.1
