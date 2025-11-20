@@ -29,20 +29,21 @@ import Chainweb.HostAddress
 -- Please make a pull request, if you like to see your node being included here.
 --
 mainnetBootstrapHosts :: [HostAddress]
-mainnetBootstrapHosts = map unsafeHostAddressFromText
-    [ "us-e1.chainweb.com:443"
-    , "us-e2.chainweb.com:443"
-    , "us-e3.chainweb.com:443"
-    , "us-w1.chainweb.com:443"
-    , "us-w2.chainweb.com:443"
-    , "us-w3.chainweb.com:443"
-    , "fr1.chainweb.com:443"
-    , "fr2.chainweb.com:443"
-    , "fr3.chainweb.com:443"
-    , "jp1.chainweb.com:443"
-    , "jp2.chainweb.com:443"
-    , "jp3.chainweb.com:443"
-    ]
+mainnetBootstrapHosts = []
+-- mainnetBootstrapHosts = map unsafeHostAddressFromText
+--     [ "us-e1.chainweb.com:443"
+--     , "us-e2.chainweb.com:443"
+--     , "us-e3.chainweb.com:443"
+--     , "us-w1.chainweb.com:443"
+--     , "us-w2.chainweb.com:443"
+--     , "us-w3.chainweb.com:443"
+--     , "fr1.chainweb.com:443"
+--     , "fr2.chainweb.com:443"
+--     , "fr3.chainweb.com:443"
+--     , "jp1.chainweb.com:443"
+--     , "jp2.chainweb.com:443"
+--     , "jp3.chainweb.com:443"
+--     ]
 
 -- -------------------------------------------------------------------------- --
 -- | Testnet04 bootstrap nodes.
@@ -54,11 +55,12 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
 -- Please make a pull request, if you like to see your node being included here.
 --
 testnet04BootstrapHosts :: [HostAddress]
-testnet04BootstrapHosts = map unsafeHostAddressFromText
-    [ "us1.testnet.chainweb.com:443"
-    , "us2.testnet.chainweb.com:443"
-    , "eu1.testnet.chainweb.com:443"
-    , "eu2.testnet.chainweb.com:443"
-    , "ap1.testnet.chainweb.com:443"
-    , "ap2.testnet.chainweb.com:443"
-    ]
+testnet04BootstrapHosts = []
+-- testnet04BootstrapHosts = map unsafeHostAddressFromText
+--     [ "us1.testnet.chainweb.com:443"
+--     , "us2.testnet.chainweb.com:443"
+--     , "eu1.testnet.chainweb.com:443"
+--     , "eu2.testnet.chainweb.com:443"
+--     , "ap1.testnet.chainweb.com:443"
+--     , "ap2.testnet.chainweb.com:443"
+--     ]

@@ -363,57 +363,36 @@ spvExpirationTest baseRdb _step = runResourceT $ do
         send fx v srcChain [initiator]
         let initiatorReqKey = cmdToRequestKey initiator
 
-        -- You have to wait at least a diameter to get the block.
+        -- You have to wait at least N blocks before attempting to run the continuation,
         -- where N is the diameter of the graph + some constant. Here, we just run 10 blocks,
         -- because it is less than the minimumBlockHeaderHistory of the test version, but
         -- more than sufficient for the target chain to be aware of the source xchain transfer.
         let waitBlocks :: Integral a => a
-            waitBlocks = int $ diameter (chainGraphAt v maxBound) + 1
+            waitBlocks = 10
         let expirationWindow = fromMaybe (error "missing minimumBlockHeaderHistory") (minimumBlockHeaderHistory v maxBound)
         when (int expirationWindow < waitBlocks + diameter (chainGraphAt v maxBound)) $ assertFailure "test version has a minimumBlockHeaderHistory that is too short to test"
 
         replicateM_ waitBlocks $ advanceAllChains_ fx
-
         [Just sendCr] <- pollWithDepth fx v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
-
-        TransactionOutputProofB64 expiringSpvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
-        let expiringContMsg = ContMsg
+        TransactionOutputProofB64 spvProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
+        let contMsg = ContMsg
                 { _cmPactId = _peDefPactId cont
                 , _cmStep = succ $ _peStep cont
                 , _cmRollback = _peStepHasRollback cont
                 , _cmData = PUnit
-                , _cmProof = Just (ContProof (T.encodeUtf8 expiringSpvProof))
+                , _cmProof = Just (ContProof (T.encodeUtf8 spvProof))
                 }
 
+        -- We have already run an extra 10 blocks since initiating the transfer.
         -- We need to wait for the full window to expire.
+
         -- still accessible at remainingWindow + diameter + 1 so we have to go one beyond
         let remainingWindow = int @_ @Int (int expirationWindow - waitBlocks + diameter (chainGraphAt v maxBound) + 2)
         replicateM_ remainingWindow $ advanceAllChains_ fx
 
-        expiringRecv <- buildTextCmd v
-            $ set cbRPC (mkCont expiringContMsg)
-            $ defaultCmd targetChain
-        send fx v targetChain [expiringRecv]
-        let expiringRecvReqKey = cmdToRequestKey expiringRecv
-        advanceAllChains_ fx
-        poll fx v targetChain [expiringRecvReqKey]
-            >>= P.match (_head . _Just)
-            ? P.checkAll
-                [ P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg ? P.equals "Continuation error: spv verification failed: target header is not in the chain or is out of bounds"
-                ]
-
-        TransactionOutputProofB64 spvWorkingProof <- spvTxOutProof fx v targetChain srcChain initiatorReqKey
-        let currentContMsg = ContMsg
-                { _cmPactId = _peDefPactId cont
-                , _cmStep = succ $ _peStep cont
-                , _cmRollback = _peStepHasRollback cont
-                , _cmData = PUnit
-                , _cmProof = Just (ContProof (T.encodeUtf8 spvWorkingProof))
-                }
-
         recv <- buildTextCmd v
-            $ set cbRPC (mkCont currentContMsg)
+            $ set cbRPC (mkCont contMsg)
             $ defaultCmd targetChain
         send fx v targetChain [recv]
         let recvReqKey = cmdToRequestKey recv
@@ -421,7 +400,7 @@ spvExpirationTest baseRdb _step = runResourceT $ do
         poll fx v targetChain [recvReqKey]
             >>= P.match (_head . _Just)
             ? P.checkAll
-                [ P.fun _crResult ? P.match _PactResultOk P.succeed
+                [ P.fun _crResult ? P.match _PactResultErr ? P.fun _peMsg ? P.equals "Continuation error: spv verification failed: target header is not in the chain or is out of bounds"
                 ]
 
 
