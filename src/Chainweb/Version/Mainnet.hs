@@ -231,6 +231,5 @@ mainnet = ChainwebVersion
             , (unsafeChainId 9, HM.fromList [((BlockHeight 4594049, TxBlockIdx 0), Gas 69_092)])
             ]
         }
-    , _versionServiceDate = Just "2026-01-07T00:00:00Z"
     , _versionForkNumber = 0
     }

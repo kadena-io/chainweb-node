@@ -199,6 +199,5 @@ testnet04 = ChainwebVersion
             , (unsafeChainId 2, HM.fromList [((BlockHeight 4108311, TxBlockIdx 0), Gas 65_130)])
             ]
         }
-    , _versionServiceDate = Just "2026-01-07T00:00:00Z"
     , _versionForkNumber = 0
     }
