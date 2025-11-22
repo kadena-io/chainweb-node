@@ -217,7 +217,7 @@ built as follows.
 In order to build with `cabal` you have to install `ghc-8.10.7` (Haskell compiler)
 and `cabal >= 3.4` (Haskell build-tool)
 
-*   [Linux / Mac](https://www.haskell.org/ghcup/)
+*   [Linux / macOS](https://www.haskell.org/ghcup/)
 
 You need to install the development versions of the following libraries:
 `gflags`, `snappy`, `zlib`, `lz4`, `bz2`, `zstd`.
