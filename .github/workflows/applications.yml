@@ -817,7 +817,16 @@ jobs:
         EOF
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
-        COPY chainweb/* .
+        COPY chainweb/chainweb-node .
+        COPY chainweb/b64 .
+        COPY chainweb/compact .
+        COPY chainweb/README.md .
+        COPY chainweb/CHANGELOG.md .
+        COPY chainweb/LICENSE .
+        COPY chainweb/chainweb.cabal .
+        COPY chainweb/cabal.project .
+        COPY chainweb/cabal.project.local .
+        COPY chainweb/cabal.project.freeze .
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
         DEOF

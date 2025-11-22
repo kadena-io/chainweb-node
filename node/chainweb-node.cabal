@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         chainweb-node
-version:      2.31.2
+version:      2.32.0
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -17,7 +17,6 @@ build-type:   Custom
 tested-with:
     GHC == 9.10
     GHC == 9.8
-    GHC == 9.6
 
 extra-source-files:
     CHANGELOG.md
