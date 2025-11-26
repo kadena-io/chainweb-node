@@ -352,10 +352,10 @@ propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     when (txdata /= allPending && snd hw1 /= (fromIntegral $ length txs0 + length txdata)) $
         let msg = concat [ "highwater failure"
                          , ", initial batch was ", show (length txs0)
-                         , ", retreived ", show (length p0s)
+                         , ", retrieved ", show (length p0s)
                          , ", with highwater ", show (snd hw)
                          , ". Second batch was ", show (length txdata)
-                         , " retreived ", show (length allPending)
+                         , " retrieved ", show (length allPending)
                          , ", with highwater ", show (snd hw1)
                          ]
         in fail msg
