@@ -428,5 +428,7 @@ blockStreamHandler db withPayloads = Tagged $ \req resp -> do
             }
 
     f :: HeaderUpdate -> ServerEvent
-    f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
+    f hu = ServerEvent (Just $ fromByteString eventType) Nothing
         [ fromLazyByteString . encode $ toJSON hu ]
+      where
+        eventType = if withPayloads then "Block" else "BlockHeader"
